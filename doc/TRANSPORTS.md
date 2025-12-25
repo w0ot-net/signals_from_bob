@@ -5,8 +5,8 @@
 All transports implement:
 
 ```
-send_pkt(data: bytes)   # Send packet (encrypted if enabled)
-recv_pkt() -> bytes     # Receive packet (encrypted if enabled, blocking)
+send_mtu                # Max bytes that can be sent
+recv_mtu                # Max bytes that can be received
 close()
 ```
 
@@ -132,7 +132,7 @@ Bob queues outgoing packets. On each query from Alice:
 1. Parse incoming data (if any)
 2. Check outbound queue
 3. If data queued: respond with next packet
-4. If empty: respond with packet containing `{"cmd":"pong"}` on channel 0
+4. If no channel data is queued: respond with packet containing `{"cmd":"pong"}` on channel 0
 
 ### Example Flow (Serial)
 

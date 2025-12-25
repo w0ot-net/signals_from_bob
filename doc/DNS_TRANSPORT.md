@@ -595,10 +595,10 @@ Bob queues outbound packets. When Alice polls:
 2. Pass to reliability/muxer layers
 3. Check outbound queue for response data
 4. If data: encode and send
-5. If empty: send packet with `{"cmd":"pong"}` on channel 0
+5. If no channel data is queued: send packet with `{"cmd":"pong"}` on channel 0
 
-The response always contains a valid tunnel packet (with seq/ack headers),
-even if the only payload is a pong control message.
+The response always contains a valid tunnel packet (with seq/ack headers). When
+no data is queued, the payload may be a pong control message.
 
 ---
 

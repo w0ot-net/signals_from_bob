@@ -207,9 +207,10 @@ Keepalive response sent when Bob has no other data to send.
 {"cmd":"pong"}
 ```
 
-Alice sends `ping` only when she has no other segments to transmit. Bob sends
-`pong` only when he has no other segments to transmit. If either side has
-actual data, the packet itself serves as the keepalive—no ping/pong needed.
+Alice sends `ping` only when she has no other channel data to transmit. Bob
+sends `pong` only when he has no other channel data to transmit. If either
+side has actual data, the packet itself serves as the keepalive—no ping/pong
+needed.
 
 ---
 

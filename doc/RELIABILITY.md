@@ -114,8 +114,8 @@ and the sender naturally pauses.
 
 Keepalives (`ping` and `pong`) are control messages on channel 0, not special
 packet types. They are normal packets that participate in seq/ack like any
-other. Alice sends `ping` when she has no other data; Bob sends `pong` when he
-has no other data.
+other. Alice sends `ping` only when no channel has data to transmit; Bob sends
+`pong` only when no channel has data to transmit.
 
 ---
 

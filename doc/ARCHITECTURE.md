@@ -163,7 +163,7 @@ tunnel/
 ├── reliability/       # Seq/ack, SACK, retransmit logic
 ├── muxer.py           # Channel multiplexing
 ├── transport/
-│   ├── base.py        # Transport interface
+│   ├── transport_base.py        # Transport interface
 │   ├── dns.py
 │   ├── icmp.py        # (future)
 │   └── tls.py         # (future)

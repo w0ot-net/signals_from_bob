@@ -12,7 +12,7 @@ The entire packet is encrypted before transport handoff.
 
 from __future__ import absolute_import
 
-
+from .compat import require_bytes
 
 class RC4(object):
     """
@@ -55,7 +55,7 @@ class RC4(object):
         Returns:
             bytes: Output bytes (same length as input)
         """
-        data = _require_bytes(data)
+        data = require_bytes(data)
         s = self._s
         i = self._i
         j = self._j
@@ -98,7 +98,7 @@ class XOR(object):
         Returns:
             bytes: Output bytes (same length as input)
         """
-        data = _require_bytes(data)
+        data = require_bytes(data)
         key = self._key
         key_len = len(key)
         data = bytearray(data)
@@ -122,7 +122,7 @@ class Plain(object):
 
     def encrypt(self, data):
         """Return data unchanged."""
-        return _require_bytes(data)
+        return require_bytes(data)
 
     decrypt = encrypt
 
@@ -137,25 +137,7 @@ CIPHER_MODES = {
 
 def _require_key(psk):
     """Require a non-empty key of raw bytes."""
-    key = _require_bytes(psk)
+    key = require_bytes(psk)
     if not key:
         raise ValueError('Key must not be empty')
     return bytearray(key)
-
-
-def _require_bytes(data):
-    """Require bytes-like input, rejecting text."""
-    try:
-        text_type = unicode
-    except NameError:
-        text_type = str
-    if isinstance(data, text_type):
-        raise TypeError('Expected bytes, got text')
-    if isinstance(data, bytes):
-        return data
-    if isinstance(data, bytearray):
-        return bytes(data)
-    try:
-        return bytes(bytearray(data))
-    except TypeError:
-        raise TypeError('Expected bytes-like object')

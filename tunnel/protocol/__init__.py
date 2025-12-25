@@ -23,6 +23,8 @@ Example usage:
 
 from __future__ import absolute_import
 
+from ..logging_util import get_logger
+
 from .constants import (
     DEFAULT_MAX_PACKET_SIZE,
     DEFAULT_MTU,
@@ -190,6 +192,7 @@ class Packet(object):
         packet = cls()
         packet.header = header
         packet.segments = segments
+        _log_control_segments(segments)
         return packet
 
     def __repr__(self):
@@ -228,3 +231,20 @@ __all__ = [
     'is_alice_channel',
     'is_bob_channel',
 ]
+
+
+_LOG = get_logger(__name__)
+
+
+def _log_control_segments(segments):
+    for seg in segments:
+        if not seg.is_control:
+            continue
+        data = seg.data
+        if b'\n' not in data:
+            continue
+        lines = data.split(b'\n')
+        for line in lines[:-1]:
+            if not line:
+                continue
+            _LOG.info('control: %s', line.decode('ascii', 'replace'))

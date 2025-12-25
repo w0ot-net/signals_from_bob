@@ -33,7 +33,7 @@ Alice initiates all transport-level connections. Bob cannot reach Alice directly
 └──────────────────┬──────────────────┘
                    │ channel read/write
 ┌──────────────────┴──────────────────┐
-│           Channel Muxer             │
+│         Channel Manager             │
 │     (channel 0=control, 1-255)      │
 └──────────────────┬──────────────────┘
                    │ segments
@@ -89,12 +89,13 @@ the PSK without connection-specific material.
 - Retransmission is asymmetric: Alice uses RTT-based timers; Bob retransmits
   opportunistically on each poll (see PROTOCOL.md for details)
 
-### Channel Muxer
+### Channel Manager
 
-- Maintains channel table (id → buffer)
-- Packs outgoing channel data into segments
+- Maintains channel table (id → Channel)
+- Packs outgoing channel data into segments (round-robin)
 - Routes incoming segments to channels
 - Handles control messages on channel 0
+- Allocates channel IDs (odd=Alice, even=Bob, 8-bit with wraparound)
   (see doc/SEGMENT_PACKING.md for packing policy)
 
 ### Application Modules
@@ -160,18 +161,36 @@ Alice                              Bob
 
 ```
 tunnel/
-├── protocol.py        # Packet/segment structures, constants
-├── crypto.py          # Cipher implementations
-├── reliability/       # Seq/ack, SACK, retransmit logic
-├── muxer.py           # Channel multiplexing
+├── __init__.py
+├── compat.py              # Python 2/3 compatibility
+├── crypto.py              # Cipher implementations
+├── logging_util.py        # Logging utilities
+├── protocol/
+│   ├── __init__.py
+│   ├── constants.py       # Protocol constants
+│   ├── packet.py          # Packet structure
+│   └── segment.py         # Segment structure
+├── reliability/
+│   ├── __init__.py
+│   ├── rtt.py             # RTT estimation (Alice)
+│   ├── send_window.py     # Send window management
+│   └── recv_window.py     # Receive window, SACK
+├── channel/
+│   ├── __init__.py
+│   ├── channel.py         # Channel class
+│   ├── channel_manager.py # Channel multiplexing
+│   └── control_channel.py # Control message helpers
 ├── transport/
-│   ├── transport_base.py        # Transport interface
-│   ├── dns.py
-│   ├── icmp.py        # (future)
-│   └── tls.py         # (future)
-├── modules/
-│   ├── socks.py       # SOCKS5 proxy
-│   └── files.py       # File transfer
-├── alice.py           # Client entrypoint
-└── bob.py             # Server entrypoint
+│   ├── __init__.py
+│   ├── transport_base.py  # Transport interface
+│   └── dns/
+│       ├── __init__.py
+│       ├── codec.py       # Base32/64 encoding
+│       ├── dns_client.py  # Alice's DNS client
+│       └── dns_server.py  # Bob's DNS server
+├── modules/               # (future)
+│   ├── socks.py           # SOCKS5 proxy
+│   └── files.py           # File transfer
+├── alice.py               # Client entrypoint (future)
+└── bob.py                 # Server entrypoint (future)
 ```

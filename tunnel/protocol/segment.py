@@ -26,6 +26,7 @@ from .constants import (
     DEFAULT_MAX_PACKET_SIZE,
     PACKET_HEADER_SIZE,
 )
+from ..compat import require_bytes, text_type
 
 
 class Segment(object):
@@ -202,24 +203,9 @@ def is_alice_channel(channel):
 
 
 def _coerce_bytes(data):
-    try:
-        text_type = unicode
-    except NameError:
-        text_type = str
-
     if isinstance(data, text_type):
         raise TypeError('Segment data must be bytes, not text')
-    if isinstance(data, bytes):
-        return data
-    if isinstance(data, bytearray):
-        return bytes(data)
-    try:
-        view = memoryview(data)
-    except TypeError:
-        raise TypeError('Segment data must be bytes-like')
-    if hasattr(view, 'tobytes'):
-        return view.tobytes()
-    return bytes(view)
+    return require_bytes(data)
 
 
 def is_bob_channel(channel):

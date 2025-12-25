@@ -89,6 +89,10 @@ The receiver reads until `size` bytes are received, then closes the channel.
 ## Data Channel Rules
 
 - `ch` must follow the even/odd convention (Alice opens odd, Bob opens even).
+- The **command initiator** opens the channel and includes `ch` in the request.
+  For `file_get`, the initiator requests data and opens the channel; the peer
+  sends data on that channel. For `file_put`, the initiator opens the channel
+  and sends data on it.
 - The data channel carries raw file bytes, no framing.
 - The receiver relies on the announced `size` to know when the transfer ends.
 
@@ -96,25 +100,44 @@ The receiver reads until `size` bytes are received, then closes the channel.
 
 ## Transfer Flow
 
-Example: Bob downloads a file from Alice.
+Example: Bob downloads a file from Alice (Bob initiates, Alice sends data).
+
+Bob opens channel 4 (even = Bob's channel) and requests the file. Alice sends
+the file data on channel 4.
 
 ```
 Bob                                 Alice
  │                                     │
- │── file_get {ch:4,path:/x} ─────────▶│
- │◀─ file_get_ok {ch:4,size:N} ────────│
- │══ channel 4: N bytes ═══════════════│
+ │── file_get {ch:4,path:/x} ─────────▶│  Bob opens ch:4, requests file
+ │◀─ file_get_ok {ch:4,size:N} ────────│  Alice confirms
+ │◀═ channel 4: N bytes ═══════════════│  Alice sends data TO Bob
  │                                     │
 ```
 
-Example: Bob uploads a file to Alice.
+Example: Bob uploads a file to Alice (Bob initiates, Bob sends data).
+
+Bob opens channel 4 and sends the file data on it.
 
 ```
 Bob                                 Alice
  │                                     │
- │── file_put {ch:4,path:/y,size:N} ──▶│
- │◀─ file_put_ok {ch:4} ───────────────│
- │══ channel 4: N bytes ═══════════════│
+ │── file_put {ch:4,path:/y,size:N} ──▶│  Bob opens ch:4, announces upload
+ │◀─ file_put_ok {ch:4} ───────────────│  Alice confirms
+ │═▶ channel 4: N bytes ═══════════════│  Bob sends data TO Alice
+ │                                     │
+```
+
+Example: Alice downloads a file from Bob (Alice initiates, Bob sends data).
+
+Alice opens channel 3 (odd = Alice's channel) and requests the file. Bob sends
+the file data on channel 3.
+
+```
+Alice                               Bob
+ │                                     │
+ │── file_get {ch:3,path:/x} ─────────▶│  Alice opens ch:3, requests file
+ │◀─ file_get_ok {ch:3,size:N} ────────│  Bob confirms
+ │◀═ channel 3: N bytes ═══════════════│  Bob sends data TO Alice
  │                                     │
 ```
 

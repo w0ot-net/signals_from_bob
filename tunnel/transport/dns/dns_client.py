@@ -14,6 +14,7 @@ import struct
 
 from ..transport_base import RequestResponseTransport, TransportError
 from . import codec
+from ...logging_util import get_logger
 
 
 class DnsClient(RequestResponseTransport):
@@ -101,6 +102,8 @@ class DnsClient(RequestResponseTransport):
         for _ in range(len(self._resolvers)):
             # Send query
             try:
+                _LOG.debug('dns send id=%d resolver=%s', query_id,
+                           self._resolvers[self._resolver_index])
                 self._send_query(query_pkt)
             except socket.error as e:
                 raise TransportError('Send failed: %s' % e)
@@ -128,6 +131,8 @@ class DnsClient(RequestResponseTransport):
 
                     return resp_payload
             except socket.timeout:
+                _LOG.debug('dns timeout id=%d resolver=%s', query_id,
+                           self._resolvers[self._resolver_index])
                 if not self._advance_resolver():
                     break
             except socket.error as e:
@@ -176,7 +181,7 @@ class DnsClient(RequestResponseTransport):
         Returns:
             tuple: (query_id, payload_bytes) on success
             tuple: (query_id, None) if RCODE indicates error (drop, let reliability retry)
-            None: if packet is malformed (ignore)
+            None: if packet is too short to read header
 
         Raises:
             TransportError: on parse error
@@ -189,26 +194,33 @@ class DnsClient(RequestResponseTransport):
         )
 
         if not (flags & codec.FLAG_QR):
-            return None  # Not a response, ignore
+            return query_id, None  # Not a response, drop
 
         # Check RCODE - if not NOERROR, drop and let reliability retry
         rcode = flags & codec.RCODE_MASK
         if rcode != codec.RCODE_NOERROR:
+            _LOG.debug('dns rcode=%d id=%d', rcode, query_id)
             return query_id, None  # Error response, drop
 
         # Skip questions
         offset = 12
-        for _ in range(qdcount):
-            offset = codec.skip_name(data, offset)
-            offset += 4  # QTYPE + QCLASS
+        try:
+            for _ in range(qdcount):
+                offset = codec.skip_name(data, offset)
+                offset += 4  # QTYPE + QCLASS
+        except ValueError:
+            return query_id, None
 
         if ancount < 1:
             return query_id, None  # No answer, drop
 
-        offset = codec.skip_name(data, offset)  # NAME
+        try:
+            offset = codec.skip_name(data, offset)  # NAME
+        except ValueError:
+            return query_id, None
 
         if offset + 10 > len(data):
-            return None
+            return query_id, None
 
         rtype, rclass, ttl, rdlength = struct.unpack(
             '>HHIH', data[offset:offset + 10]
@@ -216,22 +228,26 @@ class DnsClient(RequestResponseTransport):
         offset += 10
 
         if rclass != codec.QCLASS_IN:
-            return None
+            return query_id, None
 
         if offset + rdlength > len(data):
-            return None
+            return query_id, None
 
         rdata = data[offset:offset + rdlength]
 
         if rtype == codec.QTYPE_TXT:
-            payload = codec.decode_txt_rdata(rdata)
+            try:
+                payload = codec.decode_txt_rdata(rdata)
+            except ValueError:
+                return query_id, None
         elif rtype == codec.QTYPE_NULL:
             try:
                 payload = codec.base64_decode(rdata.decode('ascii'))
             except (UnicodeDecodeError, ValueError):
-                return None
+                _LOG.debug('dns invalid null payload id=%d', query_id)
+                return query_id, None
         else:
-            return None
+            return query_id, None
 
         return query_id, payload
 
@@ -361,3 +377,6 @@ class DnsClient(RequestResponseTransport):
             if addr not in addrs:
                 addrs.append(addr)
         return addrs
+
+
+_LOG = get_logger(__name__)

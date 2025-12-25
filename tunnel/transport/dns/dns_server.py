@@ -12,6 +12,7 @@ import struct
 
 from ..transport_base import RequestResponseServer, TransportError
 from . import codec
+from ...logging_util import get_logger
 
 
 class DnsServer(RequestResponseServer):
@@ -147,7 +148,7 @@ class DnsServer(RequestResponseServer):
         if offset + 4 > len(data):
             raise ValueError('Question truncated')
 
-            qtype, qclass = struct.unpack('>HH', data[offset:offset + 4])
+        qtype, qclass = struct.unpack('>HH', data[offset:offset + 4])
 
         if qclass != codec.QCLASS_IN:
             raise ValueError('Unexpected class %d' % qclass)
@@ -198,6 +199,7 @@ class DnsServer(RequestResponseServer):
         response = header + question + answer + additional
 
         try:
+            _LOG.debug('dns response id=%d addr=%s', query_id, addr)
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
@@ -207,3 +209,6 @@ class DnsServer(RequestResponseServer):
         if self._sock:
             self._sock.close()
             self._sock = None
+
+
+_LOG = get_logger(__name__)

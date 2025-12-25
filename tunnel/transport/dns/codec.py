@@ -11,6 +11,8 @@ from __future__ import absolute_import
 import base64
 import struct
 
+from ...compat import byte_at
+
 # DNS constants
 QTYPE_TXT = 16
 QTYPE_NULL = 10
@@ -90,7 +92,7 @@ def decode_name(data, offset, allow_compression=True):
     jumped = False
 
     while offset < len(data):
-        length = _byte_at(data, offset)
+        length = byte_at(data, offset)
 
         if length == 0:
             if not jumped:
@@ -103,7 +105,7 @@ def decode_name(data, offset, allow_compression=True):
                 raise ValueError('Compression not allowed')
             if offset + 1 >= len(data):
                 raise ValueError('Truncated compression pointer')
-            pointer = ((length & 0x3F) << 8) | _byte_at(data, offset + 1)
+            pointer = ((length & 0x3F) << 8) | byte_at(data, offset + 1)
             if not jumped:
                 offset += 2
             jumped = True
@@ -126,7 +128,7 @@ def decode_name(data, offset, allow_compression=True):
 def skip_name(data, offset):
     """Skip a DNS name in wire format, return new offset."""
     while offset < len(data):
-        length = _byte_at(data, offset)
+        length = byte_at(data, offset)
         if length == 0:
             return offset + 1
         if (length & 0xC0) == 0xC0:
@@ -228,7 +230,7 @@ def decode_txt_rdata(rdata):
     strings = []
     offset = 0
     while offset < len(rdata):
-        length = _byte_at(rdata, offset)
+        length = byte_at(rdata, offset)
         offset += 1
         if offset + length > len(rdata):
             raise ValueError('TXT string truncated')
@@ -304,8 +306,3 @@ def build_opt_record(udp_size=4096):
         0               # RDLENGTH
     )
 
-
-def _byte_at(data, offset):
-    """Get byte value at offset (Python 2/3 compatible)."""
-    b = data[offset]
-    return b if isinstance(b, int) else ord(b)

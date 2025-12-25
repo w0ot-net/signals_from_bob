@@ -1,0 +1,59 @@
+# -*- coding: ascii -*-
+"""
+Control channel helpers (channel 0).
+"""
+
+from __future__ import absolute_import
+
+import json
+
+from .channel import Channel, ChannelError, CHANNEL_CONTROL
+
+
+class ControlChannel(Channel):
+    """
+    Channel 0 control message helper.
+
+    Control messages are JSON, one per line, ASCII encoded.
+    """
+
+    __slots__ = ('_line_buf',)
+
+    def __init__(self, channel_id=CHANNEL_CONTROL, max_send_buf=65536):
+        if channel_id != CHANNEL_CONTROL:
+            raise ValueError('ControlChannel must use channel 0')
+        Channel.__init__(self, channel_id, max_send_buf=max_send_buf)
+        self._line_buf = bytearray()
+
+    def send_message(self, obj):
+        line = json.dumps(obj, separators=(',', ':'), ensure_ascii=True)
+        data = line.encode('ascii') + b'\n'
+        return self.write(data)
+
+    def recv_message(self, timeout=None):
+        while True:
+            line = self._pop_line()
+            if line is not None:
+                if not line:
+                    continue
+                try:
+                    return json.loads(line.decode('ascii'))
+                except ValueError as e:
+                    raise ChannelError('Invalid control message: %s' % e)
+
+            chunk = self.read(4096, timeout=timeout)
+            if chunk is None:
+                return None
+            if chunk == b'':
+                if self._line_buf:
+                    raise ChannelError('Control channel closed with partial message')
+                return None
+            self._line_buf.extend(chunk)
+
+    def _pop_line(self):
+        idx = self._line_buf.find(b'\n')
+        if idx == -1:
+            return None
+        line = bytes(self._line_buf[:idx])
+        del self._line_buf[:idx + 1]
+        return line

@@ -143,7 +143,7 @@ class DnsServer(RequestResponseServer):
             raise ValueError('No question')
 
         # Parse question
-        qname, offset = codec.decode_name(data, 12, allow_compression=False)
+        qname, offset = codec.decode_name(data, 12)
 
         if offset + 4 > len(data):
             raise ValueError('Question truncated')

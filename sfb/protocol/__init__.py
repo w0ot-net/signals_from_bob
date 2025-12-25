@@ -6,7 +6,7 @@ This module provides packet and segment structures for the tunnel protocol.
 
 Example usage:
 
-    from tunnel.protocol import Packet, Segment
+    from sfb.protocol import Packet, Segment
 
     # Create a packet with segments
     packet = Packet(seq=1, ack=0)

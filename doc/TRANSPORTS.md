@@ -1,57 +1,74 @@
-# Transport Notes
+# Transport Layer
+
+## Overview
+
+All transports use a **request/response** pattern. Alice (client) sends a
+request containing her data, and Bob (server) responds with his data. This
+design reflects the fundamental asymmetry of covert channels: Alice initiates
+all communication, Bob can only respond.
+
+---
 
 ## Transport Interfaces
 
-There are two transport families:
+### Client Side (Alice)
 
-### Request/Response (Polling)
+```python
+class RequestResponseTransport:
+    def exchange(self, data: bytes) -> bytes:
+        """Send data to Bob, return his response."""
+        ...
 
-Used for DNS today (ICMP and TLS-handshake are future). Alice sends a request
-and receives Bob's response in the same exchange. Full TLS tunneling is not
-planned.
+    @property
+    def send_mtu(self) -> int:
+        """Max bytes that can be sent in one exchange."""
+        ...
 
-Client side:
-```
-exchange(data: bytes) -> bytes
-send_mtu
-recv_mtu
-close()
-```
+    @property
+    def recv_mtu(self) -> int:
+        """Max bytes that can be received in one exchange."""
+        ...
 
-Server side:
-```
-recv(timeout=None) -> (data, responder)
-send_mtu
-recv_mtu
-close()
-```
-
-`responder` is a callable that takes bytes and sends the response tied
-to the just-received poll.
-
-### Stream / Datagram
-
-Used for TCP (stream) or UDP (datagram) style transports.
-
-Stream:
-```
-send(data: bytes)
-recv(size: int, timeout=None) -> bytes
-send_mtu
-recv_mtu
-close()
+    def close(self):
+        """Release resources."""
+        ...
 ```
 
-Datagram:
-```
-sendto(data: bytes, addr)
-recvfrom(timeout=None) -> (data, addr)
-send_mtu
-recv_mtu
-close()
+### Server Side (Bob)
+
+```python
+class RequestResponseServer:
+    def recv(self, timeout=None) -> tuple:
+        """
+        Wait for request from Alice.
+
+        Returns:
+            (data, responder) - data is Alice's bytes, responder is
+            a callable that takes bytes and sends the response.
+            Returns (None, None) on timeout.
+        """
+        ...
+
+    @property
+    def send_mtu(self) -> int:
+        """Max bytes that can be sent in one response."""
+        ...
+
+    @property
+    def recv_mtu(self) -> int:
+        """Max bytes that can be received in one request."""
+        ...
+
+    def close(self):
+        """Release resources."""
+        ...
 ```
 
-### Alice: Parallel Queries (Pipelining)
+---
+
+## Pipelining
+
+### Alice: Parallel Queries
 
 For request/response transports, pipelining is transport-specific. A DNS
 implementation can maintain multiple in-flight queries internally and map
@@ -247,9 +264,10 @@ Data hidden in:
 
 ## Adding New Transports
 
-1. Create `transport/new_transport.py`
-2. Implement base interface
-3. Handle medium-specific encoding
-4. Register in transport factory
+1. Create `sfb/transport/new_transport.py`
+2. Implement `RequestResponseTransport` (client) and/or `RequestResponseServer` (server)
+3. Handle medium-specific encoding (e.g., base32 for DNS labels)
+4. Provide `send_mtu` and `recv_mtu` properties
 
-Transport is unaware of tunnel protocol—just moves encrypted bytes.
+The transport is unaware of tunnel protocol—it just moves encrypted bytes
+via the `exchange()` / `recv()`+`responder()` pattern.

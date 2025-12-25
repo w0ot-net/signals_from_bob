@@ -4,9 +4,9 @@ from __future__ import absolute_import
 import struct
 import unittest
 
-from tunnel.transport.dns import codec
-from tunnel.transport.dns.dns_client import DnsClient
-from tunnel.transport.dns.dns_server import DnsServer
+from sfb.transport.dns import codec
+from sfb.transport.dns.dns_client import DnsClient
+from sfb.transport.dns.dns_server import DnsServer
 
 
 class DnsClientTests(unittest.TestCase):
@@ -255,10 +255,10 @@ class DnsServerTests(unittest.TestCase):
         self.assertEqual(qname, 'tunnel.example.com')
         self.assertEqual(qtype, codec.QTYPE_TXT)
 
-    def test_parse_query_rejects_compression(self):
+    def test_parse_query_rejects_compression_loop(self):
         server = self._make_server()
         header = struct.pack('>HHHHHH', 1, 0, 1, 0, 0, 0)
-        # QNAME starts with compression pointer (invalid in query)
+        # QNAME starts with a compression pointer to itself (loop)
         question = b'\xc0\x0c' + struct.pack('>HH', codec.QTYPE_TXT,
                                              codec.QCLASS_IN)
         data = header + question

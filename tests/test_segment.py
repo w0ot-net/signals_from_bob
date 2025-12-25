@@ -3,7 +3,7 @@ from __future__ import absolute_import
 
 import unittest
 
-from tunnel.protocol import (
+from sfb.protocol import (
     Segment,
     pack_segments,
     is_alice_channel,

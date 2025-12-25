@@ -88,15 +88,18 @@ def decode_name(data, offset, allow_compression=True):
         tuple: (name_string, new_offset)
     """
     labels = []
-    original_offset = offset
     jumped = False
+    end_offset = None
+    seen_offsets = set()
 
-    while offset < len(data):
+    while True:
+        if offset >= len(data):
+            raise ValueError('Invalid DNS name')
         length = byte_at(data, offset)
 
         if length == 0:
             if not jumped:
-                offset += 1
+                end_offset = offset + 1
             break
 
         if (length & 0xC0) == 0xC0:
@@ -106,23 +109,32 @@ def decode_name(data, offset, allow_compression=True):
             if offset + 1 >= len(data):
                 raise ValueError('Truncated compression pointer')
             pointer = ((length & 0x3F) << 8) | byte_at(data, offset + 1)
+            if pointer >= len(data):
+                raise ValueError('Compression pointer out of range')
+            if pointer in seen_offsets:
+                raise ValueError('Compression pointer loop')
+            seen_offsets.add(pointer)
             if not jumped:
-                offset += 2
-            jumped = True
-            offset_save = offset
+                end_offset = offset + 2
             offset = pointer
+            jumped = True
             continue
+
+        if length & 0xC0:
+            raise ValueError('Invalid label length')
 
         offset += 1
         if offset + length > len(data):
             raise ValueError('Label exceeds data')
         labels.append(data[offset:offset + length].decode('ascii'))
         offset += length
+        if not jumped:
+            end_offset = offset
 
     name = '.'.join(labels)
-    if jumped:
-        return name, original_offset + 2
-    return name, offset
+    if end_offset is None:
+        end_offset = offset
+    return name, end_offset
 
 
 def skip_name(data, offset):
@@ -305,4 +317,3 @@ def build_opt_record(udp_size=4096):
         0,              # TTL = extended rcode/version/flags
         0               # RDLENGTH
     )
-

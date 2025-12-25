@@ -3,7 +3,7 @@ from __future__ import absolute_import
 
 import unittest
 
-from tunnel.crypto import RC4, XOR, Plain
+from sfb.crypto import RC4, XOR, Plain
 
 
 def _text_value(value):

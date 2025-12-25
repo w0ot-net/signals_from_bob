@@ -96,7 +96,7 @@ the PSK without connection-specific material.
 - Routes incoming segments to channels
 - Handles control messages on channel 0
 - Allocates channel IDs (odd=Alice, even=Bob, 8-bit with wraparound)
-  (see doc/SEGMENT_PACKING.md for packing policy)
+  (see doc/CHANNEL_MANAGER.md for packing policy)
 
 ### Application Modules
 

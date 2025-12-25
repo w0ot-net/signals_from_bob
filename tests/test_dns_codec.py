@@ -5,7 +5,7 @@ from __future__ import absolute_import
 
 import unittest
 
-from tunnel.transport.dns import codec
+from sfb.transport.dns import codec
 
 
 class TestBase32(unittest.TestCase):
@@ -96,9 +96,11 @@ class TestDnsName(unittest.TestCase):
         # First name at offset 0
         name1, off1 = codec.decode_name(wire, 0)
         self.assertEqual(name1, 'example.com')
+        self.assertEqual(off1, 13)
         # Second name at offset 13 with compression
         name2, off2 = codec.decode_name(wire, 13)
         self.assertEqual(name2, 'sub.example.com')
+        self.assertEqual(off2, 19)
 
     def test_decode_rejects_compression_when_disallowed(self):
         wire = b'\x07example\x03com\x00\x03sub\xc0\x00'

@@ -16,7 +16,6 @@ import threading
 
 from .channel import (
     Channel,
-    ControlChannel,
     ChannelError,
     CHANNEL_CONTROL,
     STATE_INIT,
@@ -27,6 +26,7 @@ from .channel import (
     is_alice_channel,
     is_bob_channel,
 )
+from .control_channel import ControlChannel
 from ..protocol import Segment, SEGMENT_HEADER_SIZE
 
 
@@ -57,7 +57,7 @@ class ChannelManager(object):
         self._control._set_state(STATE_OPEN)
         self._channels[CHANNEL_CONTROL] = self._control
 
-        # Round-robin index for segment packing (see SEGMENT_PACKING.md)
+        # Round-robin index for segment packing (see CHANNEL_MANAGER.md)
         self._rr_index = 0
 
         # Callbacks for channel events
@@ -187,7 +187,7 @@ class ChannelManager(object):
         """
         Collect segments from channels for transmission.
 
-        Implements the packing rules from SEGMENT_PACKING.md:
+        Implements the packing rules from CHANNEL_MANAGER.md:
         1. Channel 0 priority (non-keepalive data first)
         2. Keepalive suppression (no ping/pong if other data exists)
         3. Primary channel fill (round-robin selection)

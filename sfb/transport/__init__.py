@@ -2,8 +2,8 @@
 """
 Transport layer for tunnel protocol.
 
-Transports handle the underlying I/O mechanism (DNS, HTTP, etc.) and
-provide a uniform interface for the reliability and muxer layers.
+All transports use a request/response pattern. Alice sends requests via
+exchange(), Bob receives via recv() and responds via the responder callback.
 """
 
 from __future__ import absolute_import
@@ -11,15 +11,11 @@ from __future__ import absolute_import
 from .transport_base import (
     RequestResponseTransport,
     RequestResponseServer,
-    StreamTransport,
-    DatagramTransport,
     TransportError,
 )
 
 __all__ = [
     'RequestResponseTransport',
     'RequestResponseServer',
-    'StreamTransport',
-    'DatagramTransport',
     'TransportError',
 ]

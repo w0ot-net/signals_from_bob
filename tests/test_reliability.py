@@ -3,8 +3,8 @@ from __future__ import absolute_import
 
 import unittest
 
-from tunnel.reliability import RttEstimator, SendWindow, RecvWindow
-from tunnel.protocol import MAX_IN_FLIGHT, MIN_RTO_MS, MAX_RTO_MS
+from sfb.reliability import RttEstimator, SendWindow, RecvWindow
+from sfb.protocol import MAX_IN_FLIGHT, MIN_RTO_MS, MAX_RTO_MS
 
 
 class RttEstimatorTests(unittest.TestCase):

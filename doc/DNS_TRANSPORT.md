@@ -104,8 +104,8 @@ Where:
 - `label_0` through `label_n` contain base32-encoded packet data
 - `base_domain` is the configured tunnel domain (e.g., `tunnel.example.com`)
 
-Compression pointers are not permitted in DNS queries. Alice always sends a
-fresh, uncompressed QNAME, and Bob treats compressed QNAMEs as malformed.
+Alice always sends a fresh, uncompressed QNAME. Bob accepts compressed QNAMEs
+from recursive resolvers or other intermediaries.
 
 ### Example
 

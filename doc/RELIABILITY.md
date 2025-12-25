@@ -1,0 +1,125 @@
+# Reliability Layer
+
+This layer provides reliable, ordered delivery of packets over unreliable
+transports. It sits above the transport abstraction and below the channel
+muxer. It is independent of the underlying transport (DNS, ICMP, etc).
+
+---
+
+## Goals
+
+- Deliver packets in order.
+- Detect loss and retransmit.
+- Tolerate packet reordering and duplication.
+
+---
+
+## Sequence Numbers and ACKs
+
+- `seq` is a 16-bit sequence number for each packet sent.
+- `ack` is the next expected sequence number from the peer.
+- `sack` is a 16-bit bitmap of packets received beyond `ack`.
+
+Sequence numbers are 16-bit and wrap from 65535 to 0. All comparisons use
+modular arithmetic.
+
+ACK behavior:
+- When a packet is received and accepted, update `ack` to the highest contiguous
+  sequence number plus 1.
+- If a packet is received out of order, set the corresponding `sack` bit.
+- Duplicates are ignored.
+
+---
+
+## Receive Path
+
+1. Decrypt the packet (if crypto is enabled).
+2. Validate structure and flags. If invalid, drop silently.
+3. If the packet is a duplicate, ignore it.
+4. If in order, deliver to the next layer and advance `ack`.
+5. If out of order, buffer it and set the SACK bit.
+6. When gaps are filled, release buffered packets in order.
+
+### Buffer Limits
+
+The out-of-order buffer is bounded by the negotiated max_in_flight (maximum 16).
+Because max_in_flight is negotiated and capped at 16, the receiver's buffer
+capacity always matches or exceeds the sender's window. Buffer overflow should
+not occur under normal operation.
+
+If a packet arrives that would exceed the buffer (e.g., due to implementation
+mismatch or misbehaving peer), drop the incoming packet silently. Do not drop
+buffered packets, as this would create unrecoverable gaps. The sender will
+retransmit dropped packets based on SACK feedback.
+
+---
+
+## Send Path
+
+- Maintain a transmit queue of unacked packets.
+- The sender may have up to `max_in_flight` new packets in-flight (see Window
+  Negotiation in PROTOCOL.md). Maximum value is 16.
+- On ACK or SACK, remove acknowledged packets from the queue.
+- If a packet remains unacked past the retransmission timeout (RTO),
+  retransmit it. Retransmits do not consume window slots.
+
+---
+
+## RTT and Retransmission (Alice only)
+
+RTT estimation uses an exponentially weighted moving average:
+
+```
+srtt = 0.875 * srtt + 0.125 * sample
+rto = srtt * 2
+rto = clamp(rto, 500ms, 10s)
+```
+
+**Initialization:** Before the first RTT sample, use rto = 1000ms. After the
+first sample, set srtt = sample directly (no smoothing on first measurement).
+
+**Karn's Algorithm:** Do not sample RTT from retransmitted packets. The ack
+could be for the original or the retransmit, making the sample ambiguous.
+
+**RTO Backoff:** Double the RTO on each consecutive retransmit (up to 10s max).
+Reset after receiving a valid RTT sample.
+
+Bob does not track RTT; his effective round-trip is dominated by Alice's
+polling interval.
+
+### Retransmit Window Rules
+
+Retransmits do not count against max_in_flight. The window limits new data
+in-flight, not total packets. Blocking retransmits on window state would cause
+deadlock when the window is full and contains lost packets.
+
+---
+
+## Flow Control (Natural Throttling)
+
+There is no explicit receive window. Flow control is implicit:
+
+- **Bob is throttled by Alice's query rate.** Bob can only send one packet per
+  query. If Alice slows her polling, Bob's throughput decreases automatically.
+- **Alice is throttled by max_in_flight.** She cannot have more than
+  max_in_flight packets outstanding. If she sends faster than Bob can ack,
+  she blocks until acks arrive.
+
+If either side's processing slows, acks are delayed, the sender's window fills,
+and the sender naturally pauses.
+
+---
+
+## Keepalives
+
+Keepalives (`ping` and `pong`) are control messages on channel 0, not special
+packet types. They are normal packets that participate in seq/ack like any
+other. Alice sends `ping` when she has no other data; Bob sends `pong` when he
+has no other data.
+
+---
+
+## Notes
+
+- This layer does not provide integrity; malformed packets are dropped.
+- Only one connection is active at a time, so no session identifiers are used.

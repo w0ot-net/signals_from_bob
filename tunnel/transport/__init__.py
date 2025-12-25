@@ -9,13 +9,17 @@ provide a uniform interface for the reliability and muxer layers.
 from __future__ import absolute_import
 
 from .transport_base import (
-    ClientTransport,
-    ServerTransport,
+    RequestResponseTransport,
+    RequestResponseServer,
+    StreamTransport,
+    DatagramTransport,
     TransportError,
 )
 
 __all__ = [
-    'ClientTransport',
-    'ServerTransport',
+    'RequestResponseTransport',
+    'RequestResponseServer',
+    'StreamTransport',
+    'DatagramTransport',
     'TransportError',
 ]

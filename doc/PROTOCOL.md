@@ -12,7 +12,8 @@
 └──────────────────────────────────────┘
 ```
 
-Default max packet size: 1450 bytes (configurable per transport)
+Protocol max packet size: 1450 bytes (configurable per transport)
+Pre-negotiation packet size limit is 100 bytes for all transports until MTU_OK.
 
 Packet encryption is optional. When enabled, the entire packet is encrypted
 with PSK before transmission. Transports may impose a smaller MTU than the

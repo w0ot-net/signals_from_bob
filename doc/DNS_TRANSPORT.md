@@ -10,8 +10,8 @@ MTU calculations, and implementation details for both Alice (client) and Bob
 
 The DNS transport tunnels data over DNS queries and responses:
 
-- Alice encodes tunnel packets into DNS TXT query names
-- Bob runs a DNS server and responds with TXT records containing tunnel data
+- Alice encodes tunnel packets into DNS TXT (or NULL) query names
+- Bob runs a DNS server and responds with TXT (or NULL) records containing tunnel data
 - Alice decodes the TXT response to recover Bob's packet
 
 This leverages the fact that DNS queries and responses can traverse most
@@ -104,6 +104,9 @@ Where:
 - `label_0` through `label_n` contain base32-encoded packet data
 - `base_domain` is the configured tunnel domain (e.g., `tunnel.example.com`)
 
+Compression pointers are not permitted in DNS queries. Alice always sends a
+fresh, uncompressed QNAME, and Bob treats compressed QNAMEs as malformed.
+
 ### Example
 
 Tunnel packet (hex): `48 65 6c 6c 6f` ("Hello")
@@ -194,6 +197,7 @@ NULL <base64_encoded_packet>
 ```
 
 NULL records have no internal structure, avoiding TXT string overhead.
+Payloads are still base64-encoded for consistency with TXT responses.
 Combined with EDNS0 (4096-byte UDP), this allows ~3KB per response.
 
 ### DNS Constraints
@@ -223,7 +227,7 @@ DNS query and response. The MTU depends on the base domain length.
 available_chars = 253 - len(base_domain) - 1 - 5  # -1 trailing dot, -5 nonce+dot
 label_overhead = floor(available_chars / 64)      # dots between labels
 usable_chars = available_chars - label_overhead
-query_mtu = floor(usable_chars * 8 / 13)          # base32 decode ratio
+query_mtu = floor(usable_chars * 5 / 8)           # base32 decode ratio
 ```
 
 **Example with `tunnel.example.com` (19 chars):**
@@ -232,7 +236,7 @@ query_mtu = floor(usable_chars * 8 / 13)          # base32 decode ratio
 available_chars = 253 - 19 - 1 - 5 = 228
 label_overhead = floor(228 / 64) = 3
 usable_chars = 228 - 3 = 225
-query_mtu = floor(225 * 8 / 13) = 138 bytes
+query_mtu = floor(225 * 5 / 8) = 140 bytes
 ```
 
 ### Response-Side MTU
@@ -265,8 +269,8 @@ The transport MTU is the minimum of query and response MTU:
 transport_mtu = min(query_mtu, response_mtu)
 ```
 
-For `tunnel.example.com`: `min(138, 191) = 138 bytes` (standard)
-For `tunnel.example.com` with EDNS0: `min(138, 3038) = 138 bytes`
+For `tunnel.example.com`: `min(140, 191) = 140 bytes` (standard)
+For `tunnel.example.com` with EDNS0: `min(140, 3038) = 140 bytes`
 
 The query side is always the bottleneck due to base32's higher overhead and
 DNS name length limits. However, EDNS0's larger response capacity is valuable
@@ -277,11 +281,11 @@ In this case, Bob can pack multiple tunnel packets into a single DNS response.
 
 | Base Domain | Length | Query MTU | Response MTU | Effective MTU |
 |-------------|--------|-----------|--------------|---------------|
-| `t.co` | 4 | 149 | 191 | 149 |
+| `t.co` | 4 | 150 | 191 | 150 |
 | `example.com` | 11 | 145 | 191 | 145 |
-| `tunnel.example.com` | 19 | 138 | 191 | 138 |
-| `sub.tunnel.example.com` | 23 | 135 | 191 | 135 |
-| `very.long.subdomain.example.com` | 31 | 130 | 191 | 130 |
+| `tunnel.example.com` | 19 | 140 | 191 | 140 |
+| `sub.tunnel.example.com` | 23 | 138 | 191 | 138 |
+| `very.long.subdomain.example.com` | 31 | 133 | 191 | 133 |
 
 Shorter domains provide higher MTU and thus higher throughput.
 
@@ -360,9 +364,9 @@ responses.
 be any valid domain suffix (e.g., `x.local`); it just needs to match Bob's
 configuration.
 
-**Authoritative mode:** `resolver` is optional. If unset, Alice uses the
-system's configured DNS resolver. The `base_domain` must be the domain Bob is
-authoritative for.
+**Authoritative mode:** `resolver` is optional. If unset, Alice reads
+`/etc/resolv.conf` to discover system resolvers. The `base_domain` must be the
+domain Bob is authoritative for.
 
 **Performance tuning:** Set `edns_size=4096` for larger responses. Use
 `qtype=NULL` in direct mode for maximum capacity (may not work through all
@@ -372,15 +376,12 @@ resolvers).
 
 ```python
 class DnsTransport:
-    def send_pkt(self, packet: bytes) -> None:
-        """Encode packet and send DNS query. Non-blocking."""
+    def exchange(self, packet: bytes) -> bytes:
+        """Encode packet, send DNS query, wait for response."""
         query_name = self.encode_query(packet)
         query_id = self.next_query_id()
         self.pending[query_id] = time.now()
         self.send_dns_query(query_name, query_id, qtype=TXT)
-
-    def recv_pkt(self) -> bytes:
-        """Receive DNS response and decode packet. Blocking."""
         while True:
             response = self.recv_dns_response()  # blocks
             if response.query_id in self.pending:
@@ -391,21 +392,31 @@ class DnsTransport:
     def close(self) -> None:
         """Close UDP socket."""
         self.socket.close()
+
+    @property
+    def send_mtu(self) -> int:
+        """Maximum bytes that can be sent in one exchange."""
+        return self._send_mtu
+
+    @property
+    def recv_mtu(self) -> int:
+        """Maximum bytes that can be received in one exchange."""
+        return self._recv_mtu
 ```
 
 ### Pipelining
 
-Alice can have multiple queries in-flight (up to `max_in_flight`):
+DNS transports can pipeline by sending multiple queries and draining responses
+out of order. This is transport-specific (not part of the base interface). One
+approach is to expose internal helpers for query send/receive:
 
 ```python
-# Send multiple queries without waiting
+# DNS-specific helpers, not part of base interface
 for packet in packets[:max_in_flight]:
-    transport.send_pkt(packet)
+    transport.send_query(packet)
 
-# Receive responses (may arrive out of order)
 for _ in range(len(packets)):
-    response = transport.recv_pkt()
-    # Reliability layer matches seq/ack
+    response = transport.recv_response()
 ```
 
 Responses may arrive out of order. The reliability layer uses sequence numbers
@@ -492,26 +503,31 @@ With this configuration, queries for `*.tunnel.example.com` are routed to Bob.
 
 ```python
 class DnsTransport:
-    def recv_pkt(self) -> bytes:
+    def recv(self) -> (bytes, callable):
         """Receive DNS query and decode packet. Blocking."""
         while True:
             query, client_addr = self.recv_dns_query()  # blocks
             if not query.name.endswith(self.base_domain):
                 continue  # Ignore non-tunnel queries
-            # Store context for send_pkt
-            self.pending_query = (query.id, client_addr)
-            return self.decode_query(query.name)
-
-    def send_pkt(self, packet: bytes) -> None:
-        """Encode packet and send DNS response. Must follow recv_pkt."""
-        query_id, client_addr = self.pending_query
-        self.pending_query = None
-        txt_data = self.encode_response(packet)
-        self.send_dns_response(query_id, client_addr, txt_data)
+            decoded = self.decode_query(query.name)
+            def responder(packet):
+                txt_data = self.encode_response(packet)
+                self.send_dns_response(query.id, client_addr, txt_data)
+            return decoded, responder
 
     def close(self) -> None:
         """Close UDP socket."""
         self.socket.close()
+
+    @property
+    def recv_mtu(self) -> int:
+        """Maximum bytes that can be received in one poll."""
+        return self._recv_mtu
+
+    @property
+    def send_mtu(self) -> int:
+        """Maximum bytes that can be sent in one response."""
+        return self._send_mtu
 ```
 
 ### Serial Processing
@@ -520,9 +536,9 @@ Bob must respond to each query before receiving the next:
 
 ```python
 while running:
-    alice_packet = transport.recv_pkt()   # blocks
-    bob_packet = process(alice_packet)    # tunnel processing
-    transport.send_pkt(bob_packet)        # respond to that query
+    alice_packet, responder = transport.recv()   # blocks
+    bob_packet = process(alice_packet)           # tunnel processing
+    responder(bob_packet)                        # respond to that query
 ```
 
 This is not a bottleneck—tunnel processing is sub-millisecond. Throughput is
@@ -530,17 +546,8 @@ limited by Alice's query rate, not Bob's processing speed.
 
 ### Query Context Tracking
 
-Between `recv_pkt()` and `send_pkt()`, Bob holds the query context (query ID
-and client address) to construct the matching response:
-
-```python
-self.pending_query = None  # (query_id, client_addr) or None
-
-# recv_pkt sets it
-# send_pkt uses and clears it
-```
-
-If `send_pkt()` is called without a pending query, it raises an error.
+Between `recv()` and the responder callback, Bob holds the query context
+(query ID and client address) to construct the matching response.
 
 ### Response TTL
 
@@ -818,15 +825,15 @@ response_mtu = floor(available_chars * 3 / 4) # base64 decode ratio
 With 4096-byte EDNS0: `response_mtu = floor(4051 * 3 / 4) = 3038 bytes`
 
 This dramatically increases response capacity. However, the query side remains
-constrained by DNS name length limits (~138 bytes for typical domains).
+constrained by DNS name length limits (~140 bytes for typical domains).
 
 ### NULL Record Type
 
-The NULL record type (QTYPE=10) has no defined format, allowing arbitrary
-binary data without the 255-character string limit of TXT records.
+The NULL record type (QTYPE=10) has no defined format, avoiding the 255-character
+string limit of TXT records.
 
 **Advantages:**
-- No string length limit within the record
+- No 255-character string limit within the record
 - Slightly lower overhead than TXT (no length prefix per string)
 - Less commonly filtered than TXT
 
@@ -836,7 +843,7 @@ binary data without the 255-character string limit of TXT records.
 # Alice: query for NULL record
 query.qtype = NULL  # 10
 
-# Bob: respond with NULL record containing raw base64
+# Bob: respond with NULL record containing base64
 response.add_answer(qtype=NULL, data=base64_data)
 ```
 
@@ -887,10 +894,10 @@ Shorter base domains provide higher query-side MTU:
 
 | Base Domain | Query MTU | Improvement |
 |-------------|-----------|-------------|
-| `t.co` | 149 | +14 bytes vs 19-char domain |
-| `a.io` | 149 | +14 bytes |
-| `x.local` (direct mode) | 147 | +12 bytes |
-| `tunnel.example.com` | 138 | baseline |
+| `t.co` | 150 | +10 bytes vs 19-char domain |
+| `a.io` | 150 | +10 bytes |
+| `x.local` (direct mode) | 148 | +8 bytes |
+| `tunnel.example.com` | 140 | baseline |
 
 For direct mode, use the shortest possible domain (e.g., `x.x` = 3 chars).
 
@@ -904,11 +911,11 @@ while data_to_send or pending_responses:
     # Send up to max_in_flight
     while len(pending) < max_in_flight and data_to_send:
         packet = next_packet()
-        transport.send_pkt(packet)
+        transport.send_query(packet)
         pending.add(packet.seq)
 
     # Receive one response (non-blocking if possible)
-    response = transport.recv_pkt()
+    response = transport.recv_response()
     pending.remove(response.ack)
     process(response)
 ```
@@ -927,10 +934,10 @@ while running:
     # Send burst of queries
     for _ in range(max_in_flight):
         if packet := next_outbound():
-            transport.send_pkt(packet)
+            transport.send_query(packet)
 
     # Process responses with short timeout
-    while response := transport.recv_pkt(timeout=10ms):
+    while response := transport.recv_response(timeout=10ms):
         process(response)
 ```
 
@@ -960,10 +967,10 @@ def prepare_response(mtu):
 
 | Configuration | Query MTU | Response MTU | Effective |
 |---------------|-----------|--------------|-----------|
-| Standard TXT | 138 | 191 | 138 |
-| Short domain (direct) | 149 | 191 | 149 |
-| EDNS0 4096 + TXT | 138 | 3038 | 138* |
-| EDNS0 4096 + NULL | 138 | 3038 | 138* |
+| Standard TXT | 140 | 191 | 140 |
+| Short domain (direct) | 150 | 191 | 150 |
+| EDNS0 4096 + TXT | 140 | 3038 | 140* |
+| EDNS0 4096 + NULL | 140 | 3038 | 140* |
 
 *Query-side is the bottleneck. Response capacity is useful when Bob has more
 data than Alice (asymmetric traffic).

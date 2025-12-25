@@ -49,9 +49,16 @@ class RecvWindow(object):
         Returns:
             list: List of (seq, packet_data) in order, ready for delivery.
         """
+        # Reject packets already received
         if seq_lt(seq, self._next_expected):
             return []
 
+        # Reject packets beyond SACK window (can't represent in SACK bitmap)
+        offset = seq_diff(seq, self._next_expected)
+        if offset > SACK_BITS:
+            return []
+
+        # Reject duplicates
         if seq in self._buffer:
             return []
 

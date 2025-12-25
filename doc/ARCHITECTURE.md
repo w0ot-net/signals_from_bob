@@ -66,6 +66,8 @@ Polling transports (DNS, ICMP): Alice beacons continuously, Bob responds.
 TLS-handshake transport is future-only and not part of the current
 architecture.
 
+All transports start with a 100-byte packet limit until MTU_OK completes.
+
 ### Crypto
 
 PSK-based encryption. When enabled, the entire packet is encrypted before

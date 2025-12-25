@@ -12,7 +12,7 @@ unless Alice sends one first.**
 
 For polling transports (DNS, ICMP):
 - Alice sends queries; Bob can only respond to queries
-- Bob's `send_pkt()` must respond to a just-received query
+- Bob's response must follow a just-received query
 - If Alice stops polling, Bob cannot transmit anything
 
 This is a hard network-level constraint. However, at the tunnel level, both

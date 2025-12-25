@@ -1,37 +1,62 @@
 # Transport Notes
 
-## Transport Interface
+## Transport Interfaces
 
-All transports implement:
+There are two transport families:
 
+### Request/Response (Polling)
+
+Used for DNS today (ICMP and TLS-handshake are future). Alice sends a request
+and receives Bob's response in the same exchange. Full TLS tunneling is not
+planned.
+
+Client side:
 ```
-send_mtu                # Max bytes that can be sent
-recv_mtu                # Max bytes that can be received
+exchange(data: bytes) -> bytes
+send_mtu
+recv_mtu
 close()
 ```
 
-The interface is symmetric, but the usage patterns differ for polling
-transports.
+Server side:
+```
+recv(timeout=None) -> (data, responder)
+send_mtu
+recv_mtu
+close()
+```
+
+`responder` is a callable that takes bytes and sends the response tied
+to the just-received poll.
+
+### Stream / Datagram
+
+Used for TCP (stream) or UDP (datagram) style transports.
+
+Stream:
+```
+send(data: bytes)
+recv(size: int, timeout=None) -> bytes
+send_mtu
+recv_mtu
+close()
+```
+
+Datagram:
+```
+sendto(data: bytes, addr)
+recvfrom(timeout=None) -> (data, addr)
+send_mtu
+recv_mtu
+close()
+```
 
 ### Alice: Parallel Queries (Pipelining)
 
-Alice can send multiple queries before receiving responses:
-
-```python
-# Send multiple packets (non-blocking UDP sends)
-transport.send_pkt(packet1)
-transport.send_pkt(packet2)
-transport.send_pkt(packet3)
-
-# Receive responses (may arrive out of order)
-response = transport.recv_pkt()
-response = transport.recv_pkt()
-response = transport.recv_pkt()
-```
-
-This pipelining enables throughput - Alice can have up to `max_in_flight`
-queries outstanding. The reliability layer handles out-of-order responses
-by matching seq/ack numbers.
+For request/response transports, pipelining is transport-specific. A DNS
+implementation can maintain multiple in-flight queries internally and map
+responses back to requests. The reliability layer still handles out-of-order
+responses by matching seq/ack numbers.
 
 ### Bob: Serial Processing
 
@@ -39,21 +64,21 @@ Bob processes one query at a time:
 
 ```python
 while True:
-    alice_data = transport.recv_pkt()  # blocks until query arrives
+    alice_data, responder = transport.recv()  # blocks until query arrives
     bob_data = process(alice_data)
-    transport.send_pkt(bob_data)       # responds to that query
+    responder(bob_data)  # responds to that query
 ```
 
 The transport internally tracks query/response pairing (e.g., DNS query ID).
-Between `recv_pkt()` and `send_pkt()`, the query context is held implicitly.
-Bob must call `send_pkt()` before the next `recv_pkt()`.
+Between `recv()` and `responder()`, the query context is held implicitly.
+Bob must call `responder()` before the next `recv()`.
 
 Serial processing is not a bottleneck - Bob's processing is microseconds of
 crypto and buffer operations. The throughput limit is Alice's query rate.
 
 ### Network-Level Constraint
 
-Bob cannot call `send_pkt()` without a pending query from Alice. This is the
+Bob cannot send without a pending query from Alice. This is the
 fundamental asymmetry: Alice initiates all transport-level connections. At
 the tunnel level, both sides can initiate operations - Bob just has latency
 waiting for the next poll.

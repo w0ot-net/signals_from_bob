@@ -7,30 +7,16 @@ Encodes tunnel packets into DNS TXT queries and decodes responses.
 
 from __future__ import absolute_import
 
-import base64
+import os
 import random
 import socket
 import struct
 
-from ..transport_base import ClientTransport, TransportError
+from ..transport_base import RequestResponseTransport, TransportError
+from . import codec
 
 
-# DNS constants
-QTYPE_TXT = 16
-QTYPE_NULL = 10
-QCLASS_IN = 1
-
-# DNS header flags
-FLAG_RD = 0x0100  # Recursion Desired
-FLAG_QR = 0x8000  # Response
-
-# Limits
-MAX_LABEL_LEN = 63
-MAX_NAME_LEN = 253
-NONCE_LEN = 4
-
-
-class DnsClient(ClientTransport):
+class DnsClient(RequestResponseTransport):
     """
     DNS client transport for Alice.
 
@@ -39,7 +25,8 @@ class DnsClient(ClientTransport):
     (use system DNS).
     """
 
-    def __init__(self, base_domain, resolver=None, timeout=5.0, qtype=QTYPE_TXT):
+    def __init__(self, base_domain, resolver=None, timeout=5.0,
+                 qtype=codec.QTYPE_TXT, edns_size=512):
         """
         Initialize DNS client transport.
 
@@ -48,46 +35,36 @@ class DnsClient(ClientTransport):
             resolver: DNS server as 'host:port' or 'host' (default: system DNS)
             timeout: Query timeout in seconds
             qtype: Query type (QTYPE_TXT or QTYPE_NULL)
+            edns_size: EDNS0 UDP buffer size (512=standard, 4096=large)
         """
         self._base_domain = base_domain.lower().rstrip('.')
         self._timeout = timeout
         self._qtype = qtype
+        self._edns_size = edns_size
         self._nonce = random.randint(0, 0xFFFF)
         self._query_id = random.randint(0, 0xFFFF)
 
-        # Parse resolver address
+        # Parse resolver address or use system resolver
         if resolver:
             if ':' in resolver:
                 host, port = resolver.rsplit(':', 1)
-                self._resolver = (host, int(port))
+                self._resolvers = [(host, int(port))]
             else:
-                self._resolver = (resolver, 53)
+                self._resolvers = [(resolver, 53)]
         else:
-            self._resolver = None  # Use system resolver
+            self._resolvers = self._load_system_resolvers()
+            if not self._resolvers:
+                raise TransportError('No system resolvers found')
+        self._resolver_index = 0
 
         # Create UDP socket
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.settimeout(timeout)
 
         # Calculate MTUs
-        self._send_mtu = self._calc_query_mtu()
-        self._recv_mtu = self._calc_response_mtu()
-
-    def _calc_query_mtu(self):
-        """Calculate max bytes that can be sent in a query."""
-        # available = 253 - len(base_domain) - 1 (trailing dot) - 5 (nonce+dot)
-        available = MAX_NAME_LEN - len(self._base_domain) - 1 - NONCE_LEN - 1
-        # Account for dots between labels
-        label_overhead = available // (MAX_LABEL_LEN + 1)
-        usable = available - label_overhead
-        # Base32: 8 bytes -> 13 chars, so chars * 5 / 8
-        return (usable * 5) // 8
-
-    def _calc_response_mtu(self):
-        """Calculate max bytes that can be received in a response."""
-        # Standard TXT: 255 chars base64 -> 191 bytes
-        # Base64: 4 chars -> 3 bytes
-        return (255 * 3) // 4
+        self._send_mtu = codec.calc_query_mtu(self._base_domain)
+        self._recv_mtu = codec.calc_response_mtu(edns_size)
+        self._recv_bufsize = max(self._edns_size, 4096)
 
     @property
     def send_mtu(self):
@@ -114,52 +91,55 @@ class DnsClient(ClientTransport):
             raise TransportError(
                 'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
             )
+        self._resolver_index = 0
 
         # Build query
         query_name = self._encode_query(data)
         query_id = self._next_query_id()
         query_pkt = self._build_query(query_id, query_name)
 
-        # Send query
-        try:
-            if self._resolver:
-                self._sock.sendto(query_pkt, self._resolver)
-            else:
-                raise TransportError('System resolver not implemented')
-        except socket.error as e:
-            raise TransportError('Send failed: %s' % e)
+        for _ in range(len(self._resolvers)):
+            # Send query
+            try:
+                self._send_query(query_pkt)
+            except socket.error as e:
+                raise TransportError('Send failed: %s' % e)
 
-        # Receive response
-        try:
-            while True:
-                resp_data, addr = self._sock.recvfrom(4096)
-                resp_id, resp_payload = self._parse_response(resp_data)
-                if resp_id == query_id:
+            # Receive response
+            try:
+                while True:
+                    resp_data, addr = self._sock.recvfrom(self._recv_bufsize)
+                    result = self._parse_response(resp_data)
+
+                    if result is None:
+                        # Malformed packet, ignore
+                        continue
+
+                    resp_id, resp_payload = result
+
+                    if resp_id != query_id:
+                        # Wrong query ID (stale response), ignore
+                        continue
+
+                    if resp_payload is None:
+                        # RCODE error or no answer - keep waiting, let timeout
+                        # trigger reliability layer retransmit
+                        continue
+
                     return resp_payload
-                # Ignore mismatched query IDs (stale responses)
-        except socket.timeout:
-            raise TransportError('Query timeout')
-        except socket.error as e:
-            raise TransportError('Receive failed: %s' % e)
+            except socket.timeout:
+                if not self._advance_resolver():
+                    break
+            except socket.error as e:
+                raise TransportError('Receive failed: %s' % e)
+
+        raise TransportError('Query timeout')
 
     def _encode_query(self, data):
         """Encode data into DNS query name with nonce."""
-        # Generate nonce
-        nonce = _base32_encode(struct.pack('>H', self._nonce))[:NONCE_LEN]
+        nonce = self._nonce
         self._nonce = (self._nonce + 1) & 0xFFFF
-
-        # Base32 encode data
-        b32 = _base32_encode(data)
-
-        # Split into labels
-        labels = [nonce]
-        while b32:
-            labels.append(b32[:MAX_LABEL_LEN])
-            b32 = b32[MAX_LABEL_LEN:]
-
-        # Append base domain
-        labels.extend(self._base_domain.split('.'))
-        return '.'.join(labels)
+        return codec.encode_query_name(data, self._base_domain, nonce)
 
     def _next_query_id(self):
         """Generate next query ID."""
@@ -169,92 +149,91 @@ class DnsClient(ClientTransport):
 
     def _build_query(self, query_id, name):
         """Build DNS query packet."""
-        # Header: ID, FLAGS, QDCOUNT=1, ANCOUNT=0, NSCOUNT=0, ARCOUNT=0
+        # Include OPT record for EDNS0 if enabled
+        if self._edns_size > 512:
+            arcount = 1
+            additional = codec.build_opt_record(self._edns_size)
+        else:
+            arcount = 0
+            additional = b''
+
         header = struct.pack('>HHHHHH',
             query_id,
-            FLAG_RD,  # Recursion Desired
+            codec.FLAG_RD,
             1,  # QDCOUNT
             0,  # ANCOUNT
             0,  # NSCOUNT
-            0   # ARCOUNT
+            arcount
         )
-
-        # Question: QNAME, QTYPE, QCLASS
-        qname = _encode_dns_name(name)
-        question = qname + struct.pack('>HH', self._qtype, QCLASS_IN)
-
-        return header + question
+        qname = codec.encode_name(name)
+        question = qname + struct.pack('>HH', self._qtype, codec.QCLASS_IN)
+        return header + question + additional
 
     def _parse_response(self, data):
         """
         Parse DNS response packet.
 
         Returns:
-            tuple: (query_id, payload_bytes)
+            tuple: (query_id, payload_bytes) on success
+            tuple: (query_id, None) if RCODE indicates error (drop, let reliability retry)
+            None: if packet is malformed (ignore)
 
         Raises:
             TransportError: on parse error
         """
         if len(data) < 12:
-            raise TransportError('Response too short')
+            return None  # Malformed, ignore
 
-        # Parse header
         query_id, flags, qdcount, ancount, nscount, arcount = struct.unpack(
             '>HHHHHH', data[:12]
         )
 
-        if not (flags & FLAG_QR):
-            raise TransportError('Not a response')
+        if not (flags & codec.FLAG_QR):
+            return None  # Not a response, ignore
+
+        # Check RCODE - if not NOERROR, drop and let reliability retry
+        rcode = flags & codec.RCODE_MASK
+        if rcode != codec.RCODE_NOERROR:
+            return query_id, None  # Error response, drop
 
         # Skip questions
         offset = 12
         for _ in range(qdcount):
-            offset = _skip_dns_name(data, offset)
+            offset = codec.skip_name(data, offset)
             offset += 4  # QTYPE + QCLASS
 
-        # Parse first answer
         if ancount < 1:
-            raise TransportError('No answer in response')
+            return query_id, None  # No answer, drop
 
-        offset = _skip_dns_name(data, offset)  # NAME
+        offset = codec.skip_name(data, offset)  # NAME
 
         if offset + 10 > len(data):
-            raise TransportError('Answer too short')
+            return None
 
         rtype, rclass, ttl, rdlength = struct.unpack(
             '>HHIH', data[offset:offset + 10]
         )
         offset += 10
 
+        if rclass != codec.QCLASS_IN:
+            return None
+
         if offset + rdlength > len(data):
-            raise TransportError('RDATA truncated')
+            return None
 
         rdata = data[offset:offset + rdlength]
 
-        # Decode based on record type
-        if rtype == QTYPE_TXT:
-            payload = self._decode_txt_rdata(rdata)
-        elif rtype == QTYPE_NULL:
-            payload = _base64_decode(rdata.decode('ascii'))
+        if rtype == codec.QTYPE_TXT:
+            payload = codec.decode_txt_rdata(rdata)
+        elif rtype == codec.QTYPE_NULL:
+            try:
+                payload = codec.base64_decode(rdata.decode('ascii'))
+            except (UnicodeDecodeError, ValueError):
+                return None
         else:
-            raise TransportError('Unexpected record type %d' % rtype)
+            return None
 
         return query_id, payload
-
-    def _decode_txt_rdata(self, rdata):
-        """Decode TXT record RDATA (concatenate strings, base64 decode)."""
-        strings = []
-        offset = 0
-        while offset < len(rdata):
-            length = rdata[offset] if isinstance(rdata[offset], int) else ord(rdata[offset])
-            offset += 1
-            if offset + length > len(rdata):
-                raise TransportError('TXT string truncated')
-            strings.append(rdata[offset:offset + length])
-            offset += length
-
-        b64 = b''.join(strings).decode('ascii')
-        return _base64_decode(b64)
 
     def close(self):
         """Close the UDP socket."""
@@ -262,52 +241,123 @@ class DnsClient(ClientTransport):
             self._sock.close()
             self._sock = None
 
+    def _send_query(self, query_pkt):
+        self._sock.sendto(query_pkt, self._resolvers[self._resolver_index])
 
-def _base32_encode(data):
-    """Encode bytes to base32 without padding, uppercase."""
-    return base64.b32encode(data).rstrip(b'=').decode('ascii')
+    def _advance_resolver(self):
+        if self._resolver_index + 1 >= len(self._resolvers):
+            return False
+        self._resolver_index += 1
+        return True
 
+    def _load_system_resolvers(self):
+        if os.name == 'nt':
+            return self._load_windows_resolvers()
+        resolvers = []
+        try:
+            handle = open('/etc/resolv.conf', 'r')
+        except (IOError, OSError):
+            return []
+        with handle:
+            for line in handle:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split()
+                if parts[0] != 'nameserver' or len(parts) < 2:
+                    continue
+                host = parts[1]
+                for addr in self._resolve_host(host, 53):
+                    if addr not in resolvers:
+                        resolvers.append(addr)
+        return resolvers
 
-def _base32_decode(s):
-    """Decode base32 string to bytes (handles missing padding)."""
-    # Add padding
-    pad = (8 - len(s) % 8) % 8
-    s = s.upper() + '=' * pad
-    return base64.b32decode(s)
+    def _load_windows_resolvers(self):
+        resolvers = []
+        try:
+            try:
+                import winreg
+            except ImportError:
+                import _winreg as winreg
+        except ImportError:
+            return []
 
+        values = []
+        base_path = r'SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters'
+        values.extend(self._read_registry_nameservers(winreg, base_path))
+        interfaces = base_path + r'\\Interfaces'
+        for subkey in self._enum_registry_keys(winreg, interfaces):
+            values.extend(self._read_registry_nameservers(
+                winreg, interfaces + r'\\' + subkey
+            ))
 
-def _base64_encode(data):
-    """Encode bytes to base64 without padding."""
-    return base64.b64encode(data).rstrip(b'=').decode('ascii')
+        for host in self._split_nameserver_values(values):
+            for addr in self._resolve_host(host, 53):
+                if addr not in resolvers:
+                    resolvers.append(addr)
 
+        return resolvers
 
-def _base64_decode(s):
-    """Decode base64 string to bytes (handles missing padding)."""
-    # Add padding
-    pad = (4 - len(s) % 4) % 4
-    s = s + '=' * pad
-    return base64.b64decode(s)
+    def _read_registry_nameservers(self, winreg, path):
+        values = []
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path)
+        except OSError:
+            return values
+        try:
+            for name in ('NameServer', 'DhcpNameServer'):
+                try:
+                    value, _ = winreg.QueryValueEx(key, name)
+                except OSError:
+                    continue
+                if value:
+                    values.append(value)
+        finally:
+            winreg.CloseKey(key)
+        return values
 
+    def _enum_registry_keys(self, winreg, path):
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path)
+        except OSError:
+            return []
+        names = []
+        index = 0
+        try:
+            while True:
+                try:
+                    name = winreg.EnumKey(key, index)
+                except OSError:
+                    break
+                names.append(name)
+                index += 1
+        finally:
+            winreg.CloseKey(key)
+        return names
 
-def _encode_dns_name(name):
-    """Encode domain name to DNS wire format."""
-    parts = []
-    for label in name.split('.'):
-        if label:
-            encoded = label.encode('ascii')
-            parts.append(struct.pack('B', len(encoded)) + encoded)
-    parts.append(b'\x00')  # Root label
-    return b''.join(parts)
+    def _split_nameserver_values(self, values):
+        hosts = []
+        for value in values:
+            try:
+                text = value.strip()
+            except AttributeError:
+                continue
+            if not text:
+                continue
+            text = text.replace(',', ' ')
+            for host in text.split():
+                if host and host not in hosts:
+                    hosts.append(host)
+        return hosts
 
-
-def _skip_dns_name(data, offset):
-    """Skip a DNS name in wire format, return new offset."""
-    while offset < len(data):
-        length = data[offset] if isinstance(data[offset], int) else ord(data[offset])
-        if length == 0:
-            return offset + 1
-        if (length & 0xC0) == 0xC0:
-            # Compression pointer
-            return offset + 2
-        offset += 1 + length
-    raise TransportError('Invalid DNS name')
+    def _resolve_host(self, host, port):
+        addrs = []
+        try:
+            infos = socket.getaddrinfo(host, port, socket.AF_INET,
+                                       socket.SOCK_DGRAM)
+        except socket.gaierror:
+            return []
+        for family, socktype, proto, canonname, addr in infos:
+            if addr not in addrs:
+                addrs.append(addr)
+        return addrs

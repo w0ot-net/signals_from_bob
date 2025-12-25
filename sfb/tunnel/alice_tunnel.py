@@ -11,7 +11,12 @@ from __future__ import absolute_import
 import time
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
-from ..tunnel_control_messages import tun_ping, encode as encode_message
+from .tunnel_control_messages import (
+    tun_ping,
+    tun_mtu,
+    tun_window,
+    encode as encode_message,
+)
 from ..protocol import (
     Packet,
     FLAG_SYN,
@@ -49,6 +54,9 @@ class AliceTunnel(BaseTunnel):
         )
         self._transport = transport
         self._keepalive_interval = keepalive_interval
+
+        # Set proposed MTU from transport (for negotiation)
+        self._proposed_mtu = transport.send_mtu - PACKET_HEADER_SIZE
 
         # RTT estimation (Alice only)
         self._rtt = RttEstimator()
@@ -163,10 +171,25 @@ class AliceTunnel(BaseTunnel):
             self._logger.info('Connected (local_isn=%d, remote_isn=%d)',
                               self._local_isn, self._remote_isn)
 
+            # Initiate MTU and window negotiation
+            self._send_negotiation()
+
         except Exception as e:
             self._logger.warning('Failed to send ACK: %s', e)
             # Still mark as connected - Bob will accept data as implicit ACK
             self._set_state(TunnelState.CONNECTED)
+            # Still try to negotiate
+            self._send_negotiation()
+
+    def _send_negotiation(self):
+        """Queue MTU and window negotiation messages."""
+        # Queue MTU request
+        self.control.send_message(tun_mtu(self._proposed_mtu))
+        self._logger.debug('Requesting MTU: %d', self._proposed_mtu)
+
+        # Queue window request
+        self.control.send_message(tun_window(self._proposed_max_in_flight))
+        self._logger.debug('Requesting window: %d', self._proposed_max_in_flight)
 
     def poll(self):
         """
@@ -214,8 +237,8 @@ class AliceTunnel(BaseTunnel):
                 # No unacked packets but window full? Shouldn't happen
                 return True
         else:
-            # Build new packet
-            max_payload = self._transport.send_mtu - PACKET_HEADER_SIZE
+            # Build new packet - use negotiated MTU
+            max_payload = self._negotiated_mtu
             segments = self._collect_segments(max_payload)
 
             # If no data, check if keepalive needed

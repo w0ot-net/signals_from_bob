@@ -165,7 +165,7 @@ sfb/
 ├── compat.py                  # Python 2/3 compatibility
 ├── crypto.py                  # Cipher implementations
 ├── logging_util.py            # Logging utilities
-├── tunnel_control_messages.py # Control message constants/helpers
+├── control_message.py         # ControlMessage base + encode/validate
 ├── protocol/
 │   ├── __init__.py
 │   ├── constants.py           # Protocol constants
@@ -193,5 +193,6 @@ sfb/
     ├── __init__.py            # Exports AliceTunnel, BobTunnel
     ├── base_tunnel.py         # BaseTunnel with shared functionality
     ├── alice_tunnel.py        # AliceTunnel implementation
-    └── bob_tunnel.py          # BobTunnel implementation
+    ├── bob_tunnel.py          # BobTunnel implementation
+    └── tunnel_control_messages.py  # Tunnel control message helpers
 ```

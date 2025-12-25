@@ -42,6 +42,11 @@ All control messages are JSON objects with the following fields:
 
 Additional fields depend on the specific command.
 
+Implementation note: use the `ControlMessage` base class in
+`sfb/control_message.py` and the helpers in
+`sfb/tunnel/tunnel_control_messages.py` to build and encode messages with
+required `t` and `c` fields.
+
 ### Example Messages
 
 ```json

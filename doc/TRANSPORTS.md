@@ -68,12 +68,33 @@ class RequestResponseServer:
 
 ## Pipelining
 
-### Alice: Parallel Queries
+### Current Implementation: Synchronous
 
-For request/response transports, pipelining is transport-specific. A DNS
-implementation can maintain multiple in-flight queries internally and map
-responses back to requests. The reliability layer still handles out-of-order
-responses by matching seq/ack numbers.
+The current transport implementation is synchronous:
+
+- Alice's `exchange()` sends a query and blocks until the response arrives
+- Alice's `poll()` calls `exchange()` once per invocation
+- Effective transport-level in-flight is 1
+
+This is sufficient for correctness. The reliability layer handles multiple
+unacked packets, retransmission, and SACK - these work regardless of whether
+the transport sends one query at a time or many.
+
+### Future Enhancement: Parallel Queries
+
+A transport could support pipelining internally:
+
+```python
+# Conceptual async transport (not yet implemented)
+class PipelinedTransport:
+    def exchange_async(self, data: bytes) -> Future:
+        """Send data, return future for response."""
+        ...
+```
+
+For DNS, this would mean maintaining multiple in-flight queries and matching
+responses by query ID. The reliability layer already handles out-of-order
+responses via sequence numbers.
 
 ### Bob: Serial Processing
 
@@ -192,7 +213,7 @@ Alice                                          Bob
 All queries include a unique nonce prefix (A1, A2, ...) for cache busting.
 Packets are base32-encoded in query labels, base64-encoded in TXT responses.
 
-### Example Flow (Pipelined)
+### Example Flow (Pipelined - Future Enhancement)
 
 ```
 Alice                                          Bob
@@ -207,9 +228,10 @@ Alice                                          Bob
   │                                              │
 ```
 
-Pipelining allows Alice to have up to `max_in_flight` (16) queries in flight.
-Bob processes queries as they arrive and responds to each. The reliability
-layer handles out-of-order responses via sequence numbers.
+**Note:** This pipelined flow is a future enhancement. The current DNS
+transport is synchronous (one query at a time). Pipelining would allow Alice
+to have up to `max_in_flight` (16) queries in flight, with the reliability
+layer handling out-of-order responses via sequence numbers.
 
 ---
 

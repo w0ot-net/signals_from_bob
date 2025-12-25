@@ -11,7 +11,7 @@ from __future__ import absolute_import
 import time
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
-from ..tunnel_control_messages import tun_pong, encode as encode_message
+from .tunnel_control_messages import tun_pong, encode as encode_message
 from ..protocol import (
     Packet,
     FLAG_SYN,
@@ -48,6 +48,9 @@ class BobTunnel(BaseTunnel):
         )
         self._transport = transport
         self._idle_timeout = idle_timeout
+
+        # Set proposed MTU from transport (for negotiation)
+        self._proposed_mtu = transport.send_mtu - PACKET_HEADER_SIZE
 
         # Timing
         self._last_request_time = 0
@@ -190,7 +193,7 @@ class BobTunnel(BaseTunnel):
             # Window full but no unacked? Shouldn't happen - log and send pong
             # to maintain request/response contract
             self._logger.error('Send window full but no unacked packets')
-            max_payload = self._transport.send_mtu - PACKET_HEADER_SIZE
+            max_payload = self._negotiated_mtu
             segments = self._collect_segments(
                 max_payload,
                 keepalive_data=encode_message(tun_pong())
@@ -202,8 +205,8 @@ class BobTunnel(BaseTunnel):
             responder(response_data)
             return
 
-        # Collect new segments
-        max_payload = self._transport.send_mtu - PACKET_HEADER_SIZE
+        # Collect new segments - use negotiated MTU
+        max_payload = self._negotiated_mtu
         segments = self._collect_segments(max_payload)
 
         # If no data, send pong

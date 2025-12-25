@@ -79,11 +79,11 @@ class ControlChannelTests(unittest.TestCase):
     def test_send_recv_message_roundtrip(self):
         ctrl = ControlChannel()
         ctrl._set_state(STATE_OPEN)
-        ctrl.send_message({'cmd': 'ping'})
+        ctrl.send_message({'t': 'tun', 'c': 'ping'})
         data = ctrl._take_send_data(1024)
         ctrl._deliver(data)
         msg = ctrl.recv_message(timeout=0.1)
-        self.assertEqual(msg, {'cmd': 'ping'})
+        self.assertEqual(msg, {'t': 'tun', 'c': 'ping'})
 
     def test_recv_message_invalid_json(self):
         ctrl = ControlChannel()
@@ -95,7 +95,7 @@ class ControlChannelTests(unittest.TestCase):
     def test_recv_message_partial_on_close(self):
         ctrl = ControlChannel()
         ctrl._set_state(STATE_OPEN)
-        ctrl._deliver(b'{"cmd":"ping"')
+        ctrl._deliver(b'{"t":"tun","c":"ping"')
         ctrl._set_state(STATE_CLOSED)
         with self.assertRaises(ChannelError):
             ctrl.recv_message(timeout=0.1)

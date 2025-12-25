@@ -1,18 +1,15 @@
 # -*- coding: ascii -*-
 """
-Core control message factories for tunnel and channel layers.
+Tunnel control message helpers.
 
-Messages use the format: {"t": "<type>", "c": "<command>", ...}
-
-This module defines factories for reserved message types:
-- tun: Tunnel-level messages (ping, pong, mtu, window)
-- ch: Channel-level messages (open, close)
-
-Module-specific messages (file, sh, sock) are defined in their
-respective modules, not here.
+Defines the ControlMessage base class and message factories used by the
+tunnel and channel layers.
 """
 
 from __future__ import absolute_import
+
+from ..control_message import ControlMessage, encode, validate
+
 
 # Reserved message types
 T_TUNNEL = 'tun'
@@ -24,12 +21,12 @@ T_CHANNEL = 'ch'
 
 def tun_ping():
     """Keepalive request from Alice."""
-    return {'t': T_TUNNEL, 'c': 'ping'}
+    return ControlMessage(T_TUNNEL, 'ping')
 
 
 def tun_pong():
     """Keepalive response from Bob."""
-    return {'t': T_TUNNEL, 'c': 'pong'}
+    return ControlMessage(T_TUNNEL, 'pong')
 
 
 def tun_mtu(size):
@@ -39,7 +36,7 @@ def tun_mtu(size):
     Args:
         size: Proposed maximum packet size in bytes
     """
-    return {'t': T_TUNNEL, 'c': 'mtu', 'size': size}
+    return ControlMessage(T_TUNNEL, 'mtu', size=size)
 
 
 def tun_mtu_ok(size):
@@ -49,7 +46,7 @@ def tun_mtu_ok(size):
     Args:
         size: Agreed maximum packet size in bytes
     """
-    return {'t': T_TUNNEL, 'c': 'mtu_ok', 'size': size}
+    return ControlMessage(T_TUNNEL, 'mtu_ok', size=size)
 
 
 def tun_window(size):
@@ -59,7 +56,7 @@ def tun_window(size):
     Args:
         size: Proposed max in-flight packets
     """
-    return {'t': T_TUNNEL, 'c': 'window', 'size': size}
+    return ControlMessage(T_TUNNEL, 'window', size=size)
 
 
 def tun_window_ok(size):
@@ -69,7 +66,7 @@ def tun_window_ok(size):
     Args:
         size: Agreed max in-flight packets
     """
-    return {'t': T_TUNNEL, 'c': 'window_ok', 'size': size}
+    return ControlMessage(T_TUNNEL, 'window_ok', size=size)
 
 
 # =============================================================================
@@ -86,14 +83,14 @@ def ch_open(ch, atype, addr, port):
         addr: Target address
         port: Target port
     """
-    return {
-        't': T_CHANNEL,
-        'c': 'open',
-        'ch': ch,
-        'atype': atype,
-        'addr': addr,
-        'port': port,
-    }
+    return ControlMessage(
+        T_CHANNEL,
+        'open',
+        ch=ch,
+        atype=atype,
+        addr=addr,
+        port=port,
+    )
 
 
 def ch_open_ok(ch):
@@ -103,7 +100,7 @@ def ch_open_ok(ch):
     Args:
         ch: Channel ID
     """
-    return {'t': T_CHANNEL, 'c': 'open_ok', 'ch': ch}
+    return ControlMessage(T_CHANNEL, 'open_ok', ch=ch)
 
 
 def ch_open_fail(ch, reason):
@@ -114,7 +111,7 @@ def ch_open_fail(ch, reason):
         ch: Channel ID
         reason: Failure reason string
     """
-    return {'t': T_CHANNEL, 'c': 'open_fail', 'ch': ch, 'reason': reason}
+    return ControlMessage(T_CHANNEL, 'open_fail', ch=ch, reason=reason)
 
 
 def ch_close(ch):
@@ -124,7 +121,7 @@ def ch_close(ch):
     Args:
         ch: Channel ID
     """
-    return {'t': T_CHANNEL, 'c': 'close', 'ch': ch}
+    return ControlMessage(T_CHANNEL, 'close', ch=ch)
 
 
 def ch_close_ok(ch):
@@ -134,23 +131,4 @@ def ch_close_ok(ch):
     Args:
         ch: Channel ID
     """
-    return {'t': T_CHANNEL, 'c': 'close_ok', 'ch': ch}
-
-
-# =============================================================================
-# Serialization Helpers
-# =============================================================================
-
-def encode(msg):
-    """
-    Encode a message dict to bytes for transmission.
-
-    Args:
-        msg: Message dict
-
-    Returns:
-        bytes: JSON-encoded message with newline terminator
-    """
-    import json
-    line = json.dumps(msg, separators=(',', ':'), ensure_ascii=True)
-    return line.encode('ascii') + b'\n'
+    return ControlMessage(T_CHANNEL, 'close_ok', ch=ch)

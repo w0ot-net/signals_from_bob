@@ -441,6 +441,10 @@ class WindowEnforcementTests(unittest.TestCase):
         transport = MockTransport()
         alice = AliceTunnel(transport, crypto=Plain(), max_in_flight=2)
 
+        # Simulate post-negotiation state (window starts at 1 until negotiated)
+        alice._send_window._max_in_flight = 2
+        alice._negotiated_window = 2
+
         # Fill the window manually with segment lists
         alice._send_window.send([Segment(0, b'pkt1')])
         alice._send_window.send([Segment(0, b'pkt2')])
@@ -452,6 +456,10 @@ class WindowEnforcementTests(unittest.TestCase):
         from sfb.protocol import Segment
         server = MockServer()
         bob = BobTunnel(server, crypto=Plain(), max_in_flight=2)
+
+        # Simulate post-negotiation state (window starts at 1 until negotiated)
+        bob._send_window._max_in_flight = 2
+        bob._negotiated_window = 2
 
         # Simulate connected state
         bob._set_state(TunnelState.CONNECTED)
@@ -554,6 +562,93 @@ class ControlMessageTests(unittest.TestCase):
         tunnel._dispatch_control_message({'foo': 'bar'})
 
 
+class NegotiationTests(unittest.TestCase):
+    """Tests for MTU/window negotiation."""
+
+    def test_mtu_negotiation_bob_responds(self):
+        """Verify Bob responds to MTU request with mtu_ok."""
+        from sfb.tunnel.base_tunnel import BaseTunnel
+
+        tunnel = BaseTunnel(is_initiator=False)
+        tunnel._proposed_mtu = 200  # Bob's max
+
+        # Alice requests MTU of 500
+        tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu', 'size': 500})
+
+        # Bob should agree to min(500, 200) = 200
+        self.assertEqual(tunnel._negotiated_mtu, 200)
+        self.assertTrue(tunnel._mtu_negotiated)
+
+        # Check mtu_ok was queued
+        send_data = b''.join(tunnel.control._send_buf)
+        self.assertIn(b'"c":"mtu_ok"', send_data)
+        self.assertIn(b'"size":200', send_data)
+
+    def test_mtu_negotiation_alice_accepts(self):
+        """Verify Alice accepts mtu_ok and updates negotiated_mtu."""
+        from sfb.tunnel.base_tunnel import BaseTunnel
+
+        tunnel = BaseTunnel(is_initiator=True)
+
+        # Default is 100
+        self.assertEqual(tunnel._negotiated_mtu, 100)
+
+        # Bob sends mtu_ok
+        tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu_ok', 'size': 150})
+
+        self.assertEqual(tunnel._negotiated_mtu, 150)
+        self.assertTrue(tunnel._mtu_negotiated)
+
+    def test_window_negotiation_bob_responds(self):
+        """Verify Bob responds to window request with window_ok."""
+        from sfb.tunnel.base_tunnel import BaseTunnel
+
+        tunnel = BaseTunnel(is_initiator=False, max_in_flight=8)
+
+        # Alice requests window of 16
+        tunnel._dispatch_control_message({'t': 'tun', 'c': 'window', 'size': 16})
+
+        # Bob should agree to min(16, 8, 16) = 8
+        self.assertEqual(tunnel._negotiated_window, 8)
+        self.assertTrue(tunnel._window_negotiated)
+        self.assertEqual(tunnel._send_window._max_in_flight, 8)
+
+        # Check window_ok was queued
+        send_data = b''.join(tunnel.control._send_buf)
+        self.assertIn(b'"c":"window_ok"', send_data)
+        self.assertIn(b'"size":8', send_data)
+
+    def test_window_negotiation_alice_accepts(self):
+        """Verify Alice accepts window_ok and updates window limit."""
+        from sfb.tunnel.base_tunnel import BaseTunnel
+
+        tunnel = BaseTunnel(is_initiator=True)
+
+        # Default is 1
+        self.assertEqual(tunnel._negotiated_window, 1)
+        self.assertEqual(tunnel._send_window._max_in_flight, 1)
+
+        # Bob sends window_ok
+        tunnel._dispatch_control_message({'t': 'tun', 'c': 'window_ok', 'size': 12})
+
+        self.assertEqual(tunnel._negotiated_window, 12)
+        self.assertTrue(tunnel._window_negotiated)
+        self.assertEqual(tunnel._send_window._max_in_flight, 12)
+
+    def test_initial_state_conservative(self):
+        """Verify tunnel starts with conservative MTU/window."""
+        from sfb.tunnel.base_tunnel import BaseTunnel
+
+        tunnel = BaseTunnel()
+
+        # Pre-negotiation defaults
+        self.assertEqual(tunnel._negotiated_mtu, 100)
+        self.assertEqual(tunnel._negotiated_window, 1)
+        self.assertEqual(tunnel._send_window._max_in_flight, 1)
+        self.assertFalse(tunnel._mtu_negotiated)
+        self.assertFalse(tunnel._window_negotiated)
+
+
 class ModuleRegistrationTests(unittest.TestCase):
     """Tests for module registration and dispatch."""
 
@@ -645,54 +740,54 @@ class MessageFactoryTests(unittest.TestCase):
 
     def test_tun_ping(self):
         """Verify tun_ping creates correct message."""
-        from sfb.tunnel_control_messages import tun_ping
-        msg = tun_ping()
+        from sfb.tunnel.tunnel_control_messages import tun_ping
+        msg = tun_ping().to_dict()
         self.assertEqual(msg['t'], 'tun')
         self.assertEqual(msg['c'], 'ping')
 
     def test_tun_pong(self):
         """Verify tun_pong creates correct message."""
-        from sfb.tunnel_control_messages import tun_pong
-        msg = tun_pong()
+        from sfb.tunnel.tunnel_control_messages import tun_pong
+        msg = tun_pong().to_dict()
         self.assertEqual(msg['t'], 'tun')
         self.assertEqual(msg['c'], 'pong')
 
     def test_tun_mtu(self):
         """Verify tun_mtu creates correct message."""
-        from sfb.tunnel_control_messages import tun_mtu
-        msg = tun_mtu(500)
+        from sfb.tunnel.tunnel_control_messages import tun_mtu
+        msg = tun_mtu(500).to_dict()
         self.assertEqual(msg['t'], 'tun')
         self.assertEqual(msg['c'], 'mtu')
         self.assertEqual(msg['size'], 500)
 
     def test_tun_mtu_ok(self):
         """Verify tun_mtu_ok creates correct message."""
-        from sfb.tunnel_control_messages import tun_mtu_ok
-        msg = tun_mtu_ok(512)
+        from sfb.tunnel.tunnel_control_messages import tun_mtu_ok
+        msg = tun_mtu_ok(512).to_dict()
         self.assertEqual(msg['t'], 'tun')
         self.assertEqual(msg['c'], 'mtu_ok')
         self.assertEqual(msg['size'], 512)
 
     def test_tun_window(self):
         """Verify tun_window creates correct message."""
-        from sfb.tunnel_control_messages import tun_window
-        msg = tun_window(16)
+        from sfb.tunnel.tunnel_control_messages import tun_window
+        msg = tun_window(16).to_dict()
         self.assertEqual(msg['t'], 'tun')
         self.assertEqual(msg['c'], 'window')
         self.assertEqual(msg['size'], 16)
 
     def test_tun_window_ok(self):
         """Verify tun_window_ok creates correct message."""
-        from sfb.tunnel_control_messages import tun_window_ok
-        msg = tun_window_ok(8)
+        from sfb.tunnel.tunnel_control_messages import tun_window_ok
+        msg = tun_window_ok(8).to_dict()
         self.assertEqual(msg['t'], 'tun')
         self.assertEqual(msg['c'], 'window_ok')
         self.assertEqual(msg['size'], 8)
 
     def test_ch_open(self):
         """Verify ch_open creates correct message."""
-        from sfb.tunnel_control_messages import ch_open
-        msg = ch_open(1, 'ipv4', '127.0.0.1', 80)
+        from sfb.tunnel.tunnel_control_messages import ch_open
+        msg = ch_open(1, 'ipv4', '127.0.0.1', 80).to_dict()
         self.assertEqual(msg['t'], 'ch')
         self.assertEqual(msg['c'], 'open')
         self.assertEqual(msg['ch'], 1)
@@ -702,16 +797,16 @@ class MessageFactoryTests(unittest.TestCase):
 
     def test_ch_open_ok(self):
         """Verify ch_open_ok creates correct message."""
-        from sfb.tunnel_control_messages import ch_open_ok
-        msg = ch_open_ok(3)
+        from sfb.tunnel.tunnel_control_messages import ch_open_ok
+        msg = ch_open_ok(3).to_dict()
         self.assertEqual(msg['t'], 'ch')
         self.assertEqual(msg['c'], 'open_ok')
         self.assertEqual(msg['ch'], 3)
 
     def test_ch_open_fail(self):
         """Verify ch_open_fail creates correct message."""
-        from sfb.tunnel_control_messages import ch_open_fail
-        msg = ch_open_fail(5, 'connection refused')
+        from sfb.tunnel.tunnel_control_messages import ch_open_fail
+        msg = ch_open_fail(5, 'connection refused').to_dict()
         self.assertEqual(msg['t'], 'ch')
         self.assertEqual(msg['c'], 'open_fail')
         self.assertEqual(msg['ch'], 5)
@@ -719,23 +814,23 @@ class MessageFactoryTests(unittest.TestCase):
 
     def test_ch_close(self):
         """Verify ch_close creates correct message."""
-        from sfb.tunnel_control_messages import ch_close
-        msg = ch_close(7)
+        from sfb.tunnel.tunnel_control_messages import ch_close
+        msg = ch_close(7).to_dict()
         self.assertEqual(msg['t'], 'ch')
         self.assertEqual(msg['c'], 'close')
         self.assertEqual(msg['ch'], 7)
 
     def test_ch_close_ok(self):
         """Verify ch_close_ok creates correct message."""
-        from sfb.tunnel_control_messages import ch_close_ok
-        msg = ch_close_ok(9)
+        from sfb.tunnel.tunnel_control_messages import ch_close_ok
+        msg = ch_close_ok(9).to_dict()
         self.assertEqual(msg['t'], 'ch')
         self.assertEqual(msg['c'], 'close_ok')
         self.assertEqual(msg['ch'], 9)
 
     def test_encode(self):
         """Verify encode produces valid JSON bytes."""
-        from sfb.tunnel_control_messages import encode, tun_ping
+        from sfb.tunnel.tunnel_control_messages import encode, tun_ping
         msg = tun_ping()
         encoded = encode(msg)
         self.assertIsInstance(encoded, bytes)
@@ -743,11 +838,11 @@ class MessageFactoryTests(unittest.TestCase):
         # Verify it's valid JSON
         import json
         decoded = json.loads(encoded.decode('ascii'))
-        self.assertEqual(decoded, msg)
+        self.assertEqual(decoded, msg.to_dict())
 
     def test_encode_compact_format(self):
         """Verify encode uses compact JSON format."""
-        from sfb.tunnel_control_messages import encode, ch_open
+        from sfb.tunnel.tunnel_control_messages import encode, ch_open
         msg = ch_open(1, 'ipv4', '10.0.0.1', 443)
         encoded = encode(msg)
         # Should have no spaces after separators

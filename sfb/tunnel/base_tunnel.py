@@ -17,7 +17,14 @@ import time
 
 from ..channel import ChannelManager, ChannelError
 from ..crypto import Plain
-from ..tunnel_control_messages import tun_pong, encode as encode_message
+from .tunnel_control_messages import (
+    tun_pong,
+    tun_mtu,
+    tun_mtu_ok,
+    tun_window,
+    tun_window_ok,
+    encode as encode_message,
+)
 from ..protocol import (
     Packet,
     PacketHeader,
@@ -54,6 +61,11 @@ class BaseTunnel(object):
     # Reserved message types - cannot be overridden by modules
     RESERVED_TYPES = frozenset(['tun', 'ch'])
 
+    # Pre-negotiation limits (conservative defaults)
+    DEFAULT_MTU = 100  # Bytes, before MTU negotiation
+    DEFAULT_WINDOW = 1  # Packets, before window negotiation
+    MAX_WINDOW = 16  # SACK bitmap size limit
+
     def __init__(self, crypto=None, is_initiator=True, max_in_flight=16,
                  logger=None):
         """
@@ -62,7 +74,7 @@ class BaseTunnel(object):
         Args:
             crypto: Cipher instance (default: Plain)
             is_initiator: True if this side initiates handshake (Alice)
-            max_in_flight: Max unacked packets
+            max_in_flight: Max unacked packets (proposed, subject to negotiation)
             logger: Optional logger instance
         """
         self._crypto = crypto if crypto is not None else Plain()
@@ -73,13 +85,21 @@ class BaseTunnel(object):
         # Channel management
         self._channel_manager = ChannelManager(is_alice=is_initiator)
 
-        # Reliability
-        self._send_window = SendWindow(max_in_flight=max_in_flight)
-        self._recv_window = RecvWindow(max_buffer=max_in_flight)
+        # Reliability - start with window=1 until negotiated
+        self._proposed_max_in_flight = min(max_in_flight, self.MAX_WINDOW)
+        self._send_window = SendWindow(max_in_flight=self.DEFAULT_WINDOW)
+        self._recv_window = RecvWindow(max_buffer=self._proposed_max_in_flight)
 
         # Sequence numbers
         self._local_isn = None  # Set during handshake
         self._remote_isn = None  # Set during handshake
+
+        # MTU/Window negotiation state
+        self._proposed_mtu = None  # Set by subclass from transport
+        self._negotiated_mtu = self.DEFAULT_MTU
+        self._negotiated_window = self.DEFAULT_WINDOW
+        self._mtu_negotiated = False
+        self._window_negotiated = False
 
         # Module handlers for control message dispatch
         # Maps message type (t field) to handler callable
@@ -110,6 +130,16 @@ class BaseTunnel(object):
     def control(self):
         """Control channel (channel 0)."""
         return self._channel_manager.control
+
+    @property
+    def negotiated_mtu(self):
+        """Current effective MTU (100 until negotiated)."""
+        return self._negotiated_mtu
+
+    @property
+    def negotiated_window(self):
+        """Current effective window size (1 until negotiated)."""
+        return self._negotiated_window
 
     def _set_state(self, new_state):
         """Transition to a new state."""
@@ -356,24 +386,80 @@ class BaseTunnel(object):
         self.control.send_message(tun_pong())
 
     def _handle_mtu(self, msg):
-        """Handle MTU negotiation request (future)."""
-        # TODO: Implement MTU negotiation
-        pass
+        """
+        Handle MTU negotiation request (Bob receives from Alice).
+
+        Responds with mtu_ok containing min(requested, our_max).
+        """
+        requested = msg.get('size', self.DEFAULT_MTU)
+        if not isinstance(requested, int) or requested < 1:
+            self._logger.warning('Invalid MTU request: %s', requested)
+            return
+
+        # Negotiate: use minimum of requested and our transport's max
+        agreed = min(requested, self._proposed_mtu or self.DEFAULT_MTU)
+        self._negotiated_mtu = agreed
+        self._mtu_negotiated = True
+
+        # Send confirmation
+        self.control.send_message(tun_mtu_ok(agreed))
+        self._logger.debug('MTU negotiated: %d (requested %d)', agreed, requested)
 
     def _handle_mtu_ok(self, msg):
-        """Handle MTU negotiation response (future)."""
-        # TODO: Implement MTU negotiation
-        pass
+        """
+        Handle MTU negotiation response (Alice receives from Bob).
+
+        Updates negotiated_mtu to the agreed value.
+        """
+        agreed = msg.get('size', self.DEFAULT_MTU)
+        if not isinstance(agreed, int) or agreed < 1:
+            self._logger.warning('Invalid MTU response: %s', agreed)
+            return
+
+        self._negotiated_mtu = agreed
+        self._mtu_negotiated = True
+        self._logger.debug('MTU negotiated: %d', agreed)
 
     def _handle_window(self, msg):
-        """Handle window negotiation request (future)."""
-        # TODO: Implement window negotiation
-        pass
+        """
+        Handle window negotiation request (Bob receives from Alice).
+
+        Responds with window_ok containing min(requested, our_max, 16).
+        """
+        requested = msg.get('size', self.DEFAULT_WINDOW)
+        if not isinstance(requested, int) or requested < 1:
+            self._logger.warning('Invalid window request: %s', requested)
+            return
+
+        # Negotiate: use minimum of requested, our proposed, and max (16)
+        agreed = min(requested, self._proposed_max_in_flight, self.MAX_WINDOW)
+        self._negotiated_window = agreed
+        self._window_negotiated = True
+
+        # Update send window limit
+        self._send_window._max_in_flight = agreed
+
+        # Send confirmation
+        self.control.send_message(tun_window_ok(agreed))
+        self._logger.debug('Window negotiated: %d (requested %d)', agreed, requested)
 
     def _handle_window_ok(self, msg):
-        """Handle window negotiation response (future)."""
-        # TODO: Implement window negotiation
-        pass
+        """
+        Handle window negotiation response (Alice receives from Bob).
+
+        Updates negotiated_window and send_window limit.
+        """
+        agreed = msg.get('size', self.DEFAULT_WINDOW)
+        if not isinstance(agreed, int) or agreed < 1:
+            self._logger.warning('Invalid window response: %s', agreed)
+            return
+
+        self._negotiated_window = agreed
+        self._window_negotiated = True
+
+        # Update send window limit
+        self._send_window._max_in_flight = agreed
+        self._logger.debug('Window negotiated: %d', agreed)
 
     # Keep old method name as alias during transition
     def _handle_control_message(self, msg):

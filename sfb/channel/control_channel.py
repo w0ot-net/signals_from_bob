@@ -26,8 +26,8 @@ class ControlChannel(Channel):
         self._line_buf = bytearray()
 
     def send_message(self, obj):
-        line = json.dumps(obj, separators=(',', ':'), ensure_ascii=True)
-        data = line.encode('ascii') + b'\n'
+        from ..tunnel.tunnel_control_messages import encode as encode_message
+        data = encode_message(obj)
         return self.write(data)
 
     def recv_message(self, timeout=None):

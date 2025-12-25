@@ -326,19 +326,18 @@ guess which packets to retransmit. Every gap is visible via SACK.
 - Retransmits reuse an existing sequence number and do not add to the
   outstanding count
 
-For polling transports, max_in_flight enables pipelining:
+The send window tracks reliability (how many unacked packets are outstanding).
+Parallelism at the transport layer is a separate capability:
 
-**Alice:** Sends up to max_in_flight queries in parallel. Each query carries
-one packet. Responses (containing acks) may arrive out of order. As acks
-arrive, the window slides and Alice can send more.
+**Current implementation:** The transport layer is synchronous. Alice's
+`poll()` sends one packet and waits for Bob's response before returning.
+This means effective in-flight is 1 at the transport level, though the
+reliability layer correctly handles up to `max_in_flight` unacked packets.
 
-**Bob:** Responds to each of Alice's queries. If Alice sends 8 queries and Bob
-has 8 packets queued, Bob can send all 8 (one per response). Bob's packets are
-in-flight until Alice's subsequent queries carry acks for them.
-
-Both sides can have multiple packets in-flight simultaneously. Bob's throughput
-is bounded by Alice's query rate - he can only send as many packets as Alice
-sends queries.
+**Future enhancement:** A transport could support pipelining by sending
+multiple queries in parallel (e.g., concurrent DNS queries). The reliability
+layer already handles out-of-order responses via sequence numbers. This would
+be a transport-level optimization, not a protocol change.
 
 ### Flow Control (Natural Throttling)
 

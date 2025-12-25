@@ -14,7 +14,6 @@ from __future__ import absolute_import
 
 import threading
 
-from ..tunnel_control_messages import ch_open, ch_open_ok, ch_open_fail, ch_close, ch_close_ok
 from .channel import (
     Channel,
     ChannelError,
@@ -101,6 +100,7 @@ class ChannelManager(object):
             self._channels[channel_id] = channel
 
         # Send OPEN control message
+        from ..tunnel.tunnel_control_messages import ch_open
         self._control.send_message(ch_open(channel_id, atype, addr, port))
 
         return channel
@@ -134,6 +134,7 @@ class ChannelManager(object):
             channel._set_state(STATE_CLOSING)
 
         # Send CLOSE control message
+        from ..tunnel.tunnel_control_messages import ch_close
         self._control.send_message(ch_close(channel_id))
 
     def deliver_segment(self, segment):
@@ -161,8 +162,9 @@ class ChannelManager(object):
         Args:
             msg: Parsed JSON control message (dict)
         """
-        # Support both new format (c) and old format (cmd) during transition
-        cmd = msg.get('c') or msg.get('cmd')
+        cmd = msg.get('c')
+        if not cmd:
+            return
 
         if cmd == 'open':
             self._handle_open(msg)
@@ -340,8 +342,10 @@ class ChannelManager(object):
                 channel._set_state(STATE_OPEN)
                 self._channels[channel_id] = channel
 
+            from ..tunnel.tunnel_control_messages import ch_open_ok
             self._control.send_message(ch_open_ok(channel_id))
         else:
+            from ..tunnel.tunnel_control_messages import ch_open_fail
             self._control.send_message(ch_open_fail(channel_id, 'rejected'))
 
     def _handle_open_ok(self, msg):
@@ -391,6 +395,7 @@ class ChannelManager(object):
             return
 
         # Send CLOSE_OK
+        from ..tunnel.tunnel_control_messages import ch_close_ok
         self._control.send_message(ch_close_ok(channel_id))
 
         channel._set_state(STATE_CLOSED)

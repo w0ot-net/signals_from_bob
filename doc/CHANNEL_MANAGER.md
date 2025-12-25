@@ -43,7 +43,7 @@ Channel 0 handling is special in segment packing:
 
 1. Allocate a channel ID for the local side.
 2. Create a `Channel` in `OPENING` state.
-3. Emit `{"cmd":"open", ...}` on channel 0.
+3. Emit `{"t":"ch","c":"open", ...}` on channel 0.
 
 ### Remote Open
 

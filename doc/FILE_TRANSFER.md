@@ -3,6 +3,8 @@
 This document specifies the file transfer module that runs over tunnel
 channels. Either side (Alice or Bob) can initiate operations.
 
+**Message type**: `file` (see `doc/CONTROL_MESSAGES.md`)
+
 ---
 
 ## Overview
@@ -15,73 +17,82 @@ channels. Either side (Alice or Bob) can initiate operations.
 
 ## Control Messages
 
-All control messages are JSON objects encoded in ASCII, one per line, terminated
-with a newline (`\n`).
+All file transfer messages use `t="file"`. Commands are:
+
+| Command | Description |
+|---------|-------------|
+| `list` | Request directory listing |
+| `list_ok` | Directory listing response |
+| `get` | Request file download |
+| `get_ok` | File download confirmed |
+| `put` | Request file upload |
+| `put_ok` | File upload confirmed |
+| `err` | Error response |
 
 ### List Directory
 
 Request a directory listing.
 
 ```json
-{"cmd":"file_list","path":"/home/user"}
+{"t":"file","c":"list","path":"/home/user"}
 ```
 
 Response:
 
 ```json
-{"cmd":"file_list_ok","files":[{"name":"a.txt","size":1024,"dir":false}]}
+{"t":"file","c":"list_ok","files":[{"name":"a.txt","size":1024,"dir":false}]}
 ```
 
 If the request fails:
 
 ```json
-{"cmd":"file_err","reason":"not found"}
+{"t":"file","c":"err","reason":"not found"}
 ```
 
-### Download (file_get)
+### Download (get)
 
 Request to receive a file from the peer.
 
 ```json
-{"cmd":"file_get","ch":4,"path":"/home/user/a.txt"}
+{"t":"file","c":"get","ch":4,"path":"/home/user/a.txt"}
 ```
 
 Response on success:
 
 ```json
-{"cmd":"file_get_ok","ch":4,"size":1024}
+{"t":"file","c":"get_ok","ch":4,"size":1024}
 ```
 
 Response on failure:
 
 ```json
-{"cmd":"file_err","ch":4,"reason":"not found"}
+{"t":"file","c":"err","ch":4,"reason":"not found"}
 ```
 
-After `file_get_ok`, the sender transmits exactly `size` bytes on channel `ch`.
+After `get_ok`, the sender transmits exactly `size` bytes on channel `ch`.
 The receiver reads until `size` bytes are received, then closes the channel.
 
-### Upload (file_put)
+### Upload (put)
 
 Request to send a file to the peer.
 
 ```json
-{"cmd":"file_put","ch":4,"path":"/tmp/b.txt","size":2048}
+{"t":"file","c":"put","ch":4,"path":"/tmp/b.txt","size":2048}
 ```
 
 Response on success:
 
 ```json
-{"cmd":"file_put_ok","ch":4}
+{"t":"file","c":"put_ok","ch":4}
 ```
 
 Response on failure:
 
 ```json
-{"cmd":"file_err","ch":4,"reason":"permission denied"}
+{"t":"file","c":"err","ch":4,"reason":"permission denied"}
 ```
 
-After `file_put_ok`, the sender transmits exactly `size` bytes on channel `ch`.
+After `put_ok`, the sender transmits exactly `size` bytes on channel `ch`.
 The receiver reads until `size` bytes are received, then closes the channel.
 
 ---
@@ -90,8 +101,8 @@ The receiver reads until `size` bytes are received, then closes the channel.
 
 - `ch` must follow the even/odd convention (Alice opens odd, Bob opens even).
 - The **command initiator** opens the channel and includes `ch` in the request.
-  For `file_get`, the initiator requests data and opens the channel; the peer
-  sends data on that channel. For `file_put`, the initiator opens the channel
+  For `get`, the initiator requests data and opens the channel; the peer
+  sends data on that channel. For `put`, the initiator opens the channel
   and sends data on it.
 - The data channel carries raw file bytes, no framing.
 - The receiver relies on the announced `size` to know when the transfer ends.
@@ -108,8 +119,8 @@ the file data on channel 4.
 ```
 Bob                                 Alice
  │                                     │
- │── file_get {ch:4,path:/x} ─────────▶│  Bob opens ch:4, requests file
- │◀─ file_get_ok {ch:4,size:N} ────────│  Alice confirms
+ │── {t:file,c:get,ch:4,path:/x} ─────▶│  Bob opens ch:4, requests file
+ │◀─ {t:file,c:get_ok,ch:4,size:N} ────│  Alice confirms
  │◀═ channel 4: N bytes ═══════════════│  Alice sends data TO Bob
  │                                     │
 ```
@@ -121,8 +132,8 @@ Bob opens channel 4 and sends the file data on it.
 ```
 Bob                                 Alice
  │                                     │
- │── file_put {ch:4,path:/y,size:N} ──▶│  Bob opens ch:4, announces upload
- │◀─ file_put_ok {ch:4} ───────────────│  Alice confirms
+ │── {t:file,c:put,ch:4,path:/y,...} ─▶│  Bob opens ch:4, announces upload
+ │◀─ {t:file,c:put_ok,ch:4} ───────────│  Alice confirms
  │═▶ channel 4: N bytes ═══════════════│  Bob sends data TO Alice
  │                                     │
 ```
@@ -135,8 +146,8 @@ the file data on channel 3.
 ```
 Alice                               Bob
  │                                     │
- │── file_get {ch:3,path:/x} ─────────▶│  Alice opens ch:3, requests file
- │◀─ file_get_ok {ch:3,size:N} ────────│  Bob confirms
+ │── {t:file,c:get,ch:3,path:/x} ─────▶│  Alice opens ch:3, requests file
+ │◀─ {t:file,c:get_ok,ch:3,size:N} ────│  Bob confirms
  │◀═ channel 3: N bytes ═══════════════│  Bob sends data TO Alice
  │                                     │
 ```
@@ -145,10 +156,10 @@ Alice                               Bob
 
 ## Errors and Edge Cases
 
-- If a `file_err` is returned, the initiator should close the channel (if open)
+- If an `err` is returned, the initiator should close the channel (if open)
   and report the error to the user.
-- If the sender cannot read the file after `file_get_ok`, it should close the
-  channel and send `file_err` on channel 0.
+- If the sender cannot read the file after `get_ok`, it should close the
+  channel and send `err` on channel 0.
 - If the receiver gets fewer than `size` bytes before disconnect, treat the
   transfer as failed.
 

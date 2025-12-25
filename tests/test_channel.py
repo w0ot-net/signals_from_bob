@@ -116,7 +116,8 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertEqual(ch.state, STATE_OPENING)
         msgs = self._drain_control_messages(mgr)
         self.assertEqual(len(msgs), 1)
-        self.assertEqual(msgs[0]['cmd'], 'open')
+        self.assertEqual(msgs[0]['t'], 'ch')
+        self.assertEqual(msgs[0]['c'], 'open')
         self.assertTrue(is_alice_channel(msgs[0]['ch']))
 
     def test_close_channel_sends_close(self):
@@ -127,7 +128,8 @@ class ChannelManagerTests(unittest.TestCase):
         mgr.close_channel(1)
         self.assertEqual(ch.state, STATE_CLOSING)
         msgs = self._drain_control_messages(mgr)
-        self.assertEqual(msgs[0]['cmd'], 'close')
+        self.assertEqual(msgs[0]['t'], 'ch')
+        self.assertEqual(msgs[0]['c'], 'close')
         self.assertEqual(msgs[0]['ch'], 1)
 
     def test_handle_open_accept(self):
@@ -140,7 +142,7 @@ class ChannelManagerTests(unittest.TestCase):
 
         mgr.set_channel_request_handler(handler)
         mgr.handle_control_message({
-            'cmd': 'open',
+            'c': 'open',
             'ch': 2,
             'atype': 'ipv4',
             'addr': '127.0.0.1',
@@ -151,14 +153,15 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertIsNotNone(ch)
         self.assertEqual(ch.state, STATE_OPEN)
         msgs = self._drain_control_messages(mgr)
-        self.assertEqual(msgs[0]['cmd'], 'open_ok')
+        self.assertEqual(msgs[0]['t'], 'ch')
+        self.assertEqual(msgs[0]['c'], 'open_ok')
         self.assertEqual(msgs[0]['ch'], 2)
 
     def test_handle_open_reject(self):
         mgr = ChannelManager(is_alice=True)
         mgr.set_channel_request_handler(lambda *args: False)
         mgr.handle_control_message({
-            'cmd': 'open',
+            'c': 'open',
             'ch': 2,
             'atype': 'ipv4',
             'addr': '127.0.0.1',
@@ -166,7 +169,8 @@ class ChannelManagerTests(unittest.TestCase):
         })
         self.assertIsNone(mgr.get_channel(2))
         msgs = self._drain_control_messages(mgr)
-        self.assertEqual(msgs[0]['cmd'], 'open_fail')
+        self.assertEqual(msgs[0]['t'], 'ch')
+        self.assertEqual(msgs[0]['c'], 'open_fail')
         self.assertEqual(msgs[0]['ch'], 2)
 
     def test_handle_open_ok_and_fail(self):
@@ -174,12 +178,12 @@ class ChannelManagerTests(unittest.TestCase):
         ch = Channel(1)
         ch._set_state(STATE_OPENING)
         mgr._channels[1] = ch
-        mgr.handle_control_message({'cmd': 'open_ok', 'ch': 1})
+        mgr.handle_control_message({'c': 'open_ok', 'ch': 1})
         self.assertEqual(ch.state, STATE_OPEN)
         ch_fail = Channel(3)
         ch_fail._set_state(STATE_OPENING)
         mgr._channels[3] = ch_fail
-        mgr.handle_control_message({'cmd': 'open_fail', 'ch': 3,
+        mgr.handle_control_message({'c': 'open_fail', 'ch': 3,
                                     'reason': 'nope'})
         self.assertIsNone(mgr.get_channel(3))
 
@@ -188,14 +192,15 @@ class ChannelManagerTests(unittest.TestCase):
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
         mgr._channels[1] = ch
-        mgr.handle_control_message({'cmd': 'close', 'ch': 1})
+        mgr.handle_control_message({'c': 'close', 'ch': 1})
         self.assertIsNone(mgr.get_channel(1))
         msgs = self._drain_control_messages(mgr)
-        self.assertEqual(msgs[0]['cmd'], 'close_ok')
+        self.assertEqual(msgs[0]['t'], 'ch')
+        self.assertEqual(msgs[0]['c'], 'close_ok')
         ch = Channel(3)
         ch._set_state(STATE_CLOSING)
         mgr._channels[3] = ch
-        mgr.handle_control_message({'cmd': 'close_ok', 'ch': 3})
+        mgr.handle_control_message({'c': 'close_ok', 'ch': 3})
         self.assertIsNone(mgr.get_channel(3))
 
     def test_deliver_segment_routes(self):
@@ -209,7 +214,7 @@ class ChannelManagerTests(unittest.TestCase):
     def test_collect_segments_control_priority(self):
         mgr = ChannelManager(is_alice=True)
         ctrl = mgr.control
-        ctrl.send_message({'cmd': 'open', 'ch': 1, 'atype': 'ipv4',
+        ctrl.send_message({'t': 'ch', 'c': 'open', 'ch': 1, 'atype': 'ipv4',
                            'addr': '127.0.0.1', 'port': 80})
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
@@ -225,7 +230,7 @@ class ChannelManagerTests(unittest.TestCase):
         ch._set_state(STATE_OPEN)
         ch.write(b'abc')
         mgr._channels[1] = ch
-        segments = mgr.collect_segments(64, keepalive_data=b'{"cmd":"ping"}\n')
+        segments = mgr.collect_segments(64, keepalive_data=b'{"t":"tun","c":"ping"}\n')
         channels = [seg.channel for seg in segments]
         self.assertNotIn(CHANNEL_CONTROL, channels)
 

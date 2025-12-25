@@ -104,114 +104,52 @@ ID collisions when both sides open channels concurrently.
 
 ## Control Messages (Channel 0)
 
-Control messages are JSON objects encoded in ASCII, compacted to a single line,
-and terminated with a newline (`\n`). Multiple messages in one segment are
-naturally separated by their newline terminators.
+Control messages are JSON objects sent on channel 0. See `doc/CONTROL_MESSAGES.md`
+for the complete control message specification including:
 
-For constrained transports, control messages may be chunked across multiple
-segments. The receiver buffers channel 0 data and parses complete messages as
-each newline terminator arrives.
+- Message format (`t` type field, `c` command field)
+- Type registry (tunnel, channel, module types)
+- Dispatch rules
+- Full message definitions
 
-**Priority**: Channel 0 segments MUST be transmitted before other channel data
-when multiple segments are queued in the same packet.
+### Quick Reference
 
-### OPEN
-
-Request to open a channel and connect to target.
+All messages use the format `{"t":"<type>","c":"<command>",...}`:
 
 ```json
-{"cmd":"open","ch":2,"atype":"ipv4","addr":"192.168.1.1","port":8080}
-{"cmd":"open","ch":2,"atype":"ipv6","addr":"::1","port":443}
-{"cmd":"open","ch":2,"atype":"domain","addr":"example.com","port":80}
+{"t":"tun","c":"ping"}
+{"t":"tun","c":"mtu","size":500}
+{"t":"ch","c":"open","ch":2,"atype":"ipv4","addr":"192.168.1.1","port":8080}
+{"t":"ch","c":"close","ch":2}
 ```
 
-### OPEN_OK
+### Message Types
 
-Channel opened successfully.
+| Type | Description |
+|------|-------------|
+| `tun` | Tunnel: ping/pong, mtu, window negotiation |
+| `ch` | Channel: open/close lifecycle |
+| `file` | File transfer module |
+| `sock` | SOCKS proxy module |
+| `sh` | Shell module |
 
-```json
-{"cmd":"open_ok","ch":2}
-```
+### MTU Negotiation
 
-### OPEN_FAIL
+Immediately after handshake, Alice and Bob negotiate packet size:
 
-Channel open failed.
+1. Alice sends: `{"t":"tun","c":"mtu","size":X}`
+2. Bob responds: `{"t":"tun","c":"mtu_ok","size":Y}` where Y = min(X, bob_max)
 
-```json
-{"cmd":"open_fail","ch":2,"reason":"connection refused"}
-```
+Until `mtu_ok` is received, both sides limit packets to 100 bytes.
 
-### CLOSE
+### Window Negotiation
 
-Request to close channel.
+After MTU negotiation, Alice and Bob negotiate the send window:
 
-```json
-{"cmd":"close","ch":2}
-```
+1. Alice sends: `{"t":"tun","c":"window","size":X}`
+2. Bob responds: `{"t":"tun","c":"window_ok","size":Y}` where Y = min(X, bob_max, 16)
 
-### CLOSE_OK
-
-Channel closed.
-
-```json
-{"cmd":"close_ok","ch":2}
-```
-
-### MTU
-
-Propose maximum packet size. Sent by Alice immediately after handshake.
-
-```json
-{"cmd":"mtu","size":500}
-```
-
-### MTU_OK
-
-Confirm agreed MTU. Bob responds with `min(alice_size, bob_max)`.
-
-```json
-{"cmd":"mtu_ok","size":150}
-```
-
-### WINDOW
-
-Propose maximum in-flight packets. Sent by Alice immediately after MTU negotiation.
-
-```json
-{"cmd":"window","size":8}
-```
-
-### WINDOW_OK
-
-Confirm agreed window size. Bob responds with `min(alice_size, bob_max, 16)`.
-
-```json
-{"cmd":"window_ok","size":8}
-```
-
-The maximum allowed value is 16, which matches the SACK bitmap size. This ensures
-the SACK field can always represent all out-of-order packets within the window.
-
-### PING
-
-Keepalive sent when Alice has no other data to send.
-
-```json
-{"cmd":"ping"}
-```
-
-### PONG
-
-Keepalive response sent when Bob has no other data to send.
-
-```json
-{"cmd":"pong"}
-```
-
-Alice sends `ping` only when she has no other channel data to transmit. Bob
-sends `pong` only when he has no other channel data to transmit. If either
-side has actual data, the packet itself serves as the keepalive—no ping/pong
-needed.
+Maximum is 16 (SACK bitmap size). Until `window_ok` is received, use max_in_flight = 1.
 
 ---
 
@@ -220,6 +158,8 @@ needed.
 1. Alice sends: SYN flag, seq=1, no segments
 2. Bob sends: SYN+ACK flags, seq=1, ack=2, no segments
 3. Alice sends: ACK flag, seq=2, ack=2, no segments
+
+Initial sequence number (ISN) is fixed at 1 for both sides.
 
 Connection established. Both sides begin normal operation. Only one connection
 is active at a time; Bob ignores any traffic he does not understand.
@@ -235,8 +175,8 @@ For polling transports, the handshake completes in 2 round-trips:
 Both sides start with a default MTU of 100 bytes. Immediately after handshake,
 Alice and Bob negotiate a larger MTU:
 
-1. Alice sends: `{"cmd":"mtu","size":X}` where X is her transport's max
-2. Bob responds: `{"cmd":"mtu_ok","size":Y}` where Y = min(X, bob_max)
+1. Alice sends: `{"t":"tun","c":"mtu","size":X}` where X is her transport's max
+2. Bob responds: `{"t":"tun","c":"mtu_ok","size":Y}` where Y = min(X, bob_max)
 3. Both sides now use Y as the packet size limit
 
 ```
@@ -244,8 +184,8 @@ Alice                              Bob
   │                                  │
   │←───────── (handshake) ──────────→│
   │                                  │
-  │── {"cmd":"mtu","size":500} ─────▶│  Alice proposes 500
-  │◀── {"cmd":"mtu_ok","size":150} ──│  Bob's max is 150, use 150
+  │── {t:tun,c:mtu,size:500} ────────▶│  Alice proposes 500
+  │◀── {t:tun,c:mtu_ok,size:150} ────│  Bob's max is 150, use 150
   │                                  │
   │         MTU is now 150           │
 ```
@@ -264,8 +204,8 @@ DNS queries, base64 for DNS responses).
 
 Immediately after MTU negotiation, Alice and Bob negotiate the send window:
 
-1. Alice sends: `{"cmd":"window","size":X}` where X is her preferred max_in_flight
-2. Bob responds: `{"cmd":"window_ok","size":Y}` where Y = min(X, bob_max, 16)
+1. Alice sends: `{"t":"tun","c":"window","size":X}` where X is her preferred max_in_flight
+2. Bob responds: `{"t":"tun","c":"window_ok","size":Y}` where Y = min(X, bob_max, 16)
 3. Both sides now use Y as max_in_flight
 
 ```
@@ -274,8 +214,8 @@ Alice                              Bob
   │←───────── (handshake) ──────────→│
   │←──────── (MTU negotiation) ─────→│
   │                                  │
-  │── {"cmd":"window","size":16} ───▶│  Alice proposes 16
-  │◀── {"cmd":"window_ok","size":8} ─│  Bob's max is 8, use 8
+  │── {t:tun,c:window,size:16} ──────▶│  Alice proposes 16
+  │◀── {t:tun,c:window_ok,size:8} ───│  Bob's max is 8, use 8
   │                                  │
   │      max_in_flight is now 8      │
 ```

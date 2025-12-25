@@ -61,6 +61,9 @@ instance with helpers:
   close. Note: the timeout applies to each internal `read()` call, not the
   entire message assembly—partial data may accumulate across timeout periods.
 
+The tunnel layer should catch `ChannelError` from `recv_message()`, log the
+error, and continue—invalid control messages are dropped, not fatal.
+
 ## Buffering
 
 - Send data is buffered in a FIFO deque up to `max_send_buf`.

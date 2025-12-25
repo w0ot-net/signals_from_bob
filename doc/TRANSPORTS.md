@@ -174,7 +174,7 @@ Bob queues outgoing packets. On each query from Alice:
 1. Parse incoming data (if any)
 2. Check outbound queue
 3. If data queued: respond with next packet
-4. If no channel data is queued: respond with packet containing `{"cmd":"pong"}` on channel 0
+4. If no channel data is queued: respond with packet containing `{"t":"tun","c":"pong"}` on channel 0
 
 ### Example Flow (Serial)
 

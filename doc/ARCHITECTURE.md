@@ -132,8 +132,8 @@ Transition:
 - Idle → Active: received packet with non-pong data
 - Active → Idle: N consecutive pong-only packets
 
-Bob signals "nothing to send" via `{"cmd":"pong"}` control message. Alice uses
-this to slow down.
+Bob signals "nothing to send" via `{"t":"tun","c":"pong"}` control message.
+Alice uses this to slow down.
 
 ---
 
@@ -160,37 +160,38 @@ Alice                              Bob
 ## File Structure
 
 ```
-tunnel/
+sfb/
 ├── __init__.py
-├── compat.py              # Python 2/3 compatibility
-├── crypto.py              # Cipher implementations
-├── logging_util.py        # Logging utilities
+├── compat.py                  # Python 2/3 compatibility
+├── crypto.py                  # Cipher implementations
+├── logging_util.py            # Logging utilities
+├── tunnel_control_messages.py # Control message constants/helpers
 ├── protocol/
 │   ├── __init__.py
-│   ├── constants.py       # Protocol constants
-│   ├── packet.py          # Packet structure
-│   └── segment.py         # Segment structure
+│   ├── constants.py           # Protocol constants
+│   ├── packet.py              # Packet structure
+│   └── segment.py             # Segment structure
 ├── reliability/
 │   ├── __init__.py
-│   ├── rtt.py             # RTT estimation (Alice)
-│   ├── send_window.py     # Send window management
-│   └── recv_window.py     # Receive window, SACK
+│   ├── rtt.py                 # RTT estimation (Alice)
+│   ├── send_window.py         # Send window management
+│   └── recv_window.py         # Receive window, SACK
 ├── channel/
 │   ├── __init__.py
-│   ├── channel.py         # Channel class
-│   ├── channel_manager.py # Channel multiplexing
-│   └── control_channel.py # Control message helpers
+│   ├── channel.py             # Channel class
+│   ├── channel_manager.py     # Channel multiplexing
+│   └── control_channel.py     # Control message helpers
 ├── transport/
 │   ├── __init__.py
-│   ├── transport_base.py  # Transport interface
+│   ├── transport_base.py      # Transport interface
 │   └── dns/
 │       ├── __init__.py
-│       ├── codec.py       # Base32/64 encoding
-│       ├── dns_client.py  # Alice's DNS client
-│       └── dns_server.py  # Bob's DNS server
-├── modules/               # (future)
-│   ├── socks.py           # SOCKS5 proxy
-│   └── files.py           # File transfer
-├── alice.py               # Client entrypoint (future)
-└── bob.py                 # Server entrypoint (future)
+│       ├── codec.py           # Base32/64 encoding
+│       ├── dns_client.py      # Alice's DNS client
+│       └── dns_server.py      # Bob's DNS server
+└── tunnel/
+    ├── __init__.py            # Exports AliceTunnel, BobTunnel
+    ├── base_tunnel.py         # BaseTunnel with shared functionality
+    ├── alice_tunnel.py        # AliceTunnel implementation
+    └── bob_tunnel.py          # BobTunnel implementation
 ```

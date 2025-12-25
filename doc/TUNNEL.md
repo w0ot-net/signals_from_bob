@@ -3,7 +3,7 @@
 The tunnel layer orchestrates all lower layers (transport, reliability, crypto,
 channels) into a cohesive bidirectional pipe between Alice and Bob.
 
-**Status**: Design specification. Implementation does not exist yet.
+**Implementation**: `sfb/tunnel/`
 
 ---
 
@@ -48,17 +48,16 @@ The handshake establishes initial sequence numbers and confirms connectivity.
 ```
 Alice                                    Bob
   │                                        │
-  │─── SYN (seq=A_ISN, ack=0) ────────────▶│
+  │─── SYN (seq=1, ack=0) ────────────────▶│
   │                                        │
-  │◀── SYN+ACK (seq=B_ISN, ack=A_ISN+1) ───│
+  │◀── SYN+ACK (seq=1, ack=2) ─────────────│
   │                                        │
-  │─── ACK (seq=A_ISN+1, ack=B_ISN+1) ────▶│
+  │─── ACK (seq=2, ack=2) ────────────────▶│
   │                                        │
   ════════════ CONNECTED ══════════════════
 ```
 
-- **A_ISN**: Alice's Initial Sequence Number (random)
-- **B_ISN**: Bob's Initial Sequence Number (random)
+- Initial sequence number (ISN) is fixed at 1 for both sides.
 - The SYN flag is set in the packet header's flags field.
 - After handshake, both sides know each other's starting sequence.
 
@@ -178,13 +177,86 @@ When no data is pending, Alice sends periodic keepalive packets to:
 
 Keepalive is a packet with:
 - Valid seq/ack/sack
-- A ping control message on channel 0 (or empty payload)
+- A `{"t":"tun","c":"ping"}` control message on channel 0
 
-Bob responds with pong (or his pending data).
+Bob responds with `{"t":"tun","c":"pong"}` (or his pending data if he has any).
+If either side has actual data to send, the packet itself serves as
+keepalive—no explicit ping/pong needed.
 
 Keepalive interval is configurable (default: 5 seconds).
 
 ---
+
+## Control Message Dispatch
+
+Control messages arrive on channel 0 and are dispatched based on their type
+field. See `doc/CONTROL_MESSAGES.md` for the message format specification.
+
+### Dispatch Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                       Tunnel                                 │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │              Core Handlers (built-in)                  │  │
+│  │  t="tun" ──▶ _handle_tunnel_message()                 │  │
+│  │              (ping, pong, mtu, window)                │  │
+│  │  t="ch"  ──▶ channel_manager.handle_control_message() │  │
+│  │              (open, close)                            │  │
+│  └───────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │              Module Handlers (registered)              │  │
+│  │  t="file" ──▶ FileModule.handle_message()             │  │
+│  │  t="sh"   ──▶ ShellModule.handle_message()            │  │
+│  │  t="sock" ──▶ SocksModule.handle_message()            │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Reserved Types
+
+The tunnel owns two reserved message types that cannot be overridden:
+
+| Type | Handler | Messages |
+|------|---------|----------|
+| `tun` | Tunnel | ping, pong, mtu, mtu_ok, window, window_ok |
+| `ch` | ChannelManager | open, open_ok, open_fail, close, close_ok |
+
+### Module Registration
+
+Modules register handlers for their message types:
+
+```python
+class FileModule:
+    TYPE = 'file'
+
+    def __init__(self, tunnel):
+        self._tunnel = tunnel
+        tunnel.register_module(self.TYPE, self.handle_message)
+
+    def handle_message(self, msg):
+        cmd = msg.get('c')
+        if cmd == 'get':
+            self._handle_get(msg)
+        elif cmd == 'put':
+            self._handle_put(msg)
+        # ...
+```
+
+Registration API:
+
+```python
+# Register a module handler
+tunnel.register_module('file', file_module.handle_message)
+
+# Unregister (e.g., when module is unloaded)
+tunnel.unregister_module('file')
+```
+
+Constraints:
+- Reserved types (`tun`, `ch`) cannot be registered
+- Duplicate registration raises `ValueError`
+- Module handler exceptions are caught and logged (don't crash tunnel)
 
 ## MTU Handling
 
@@ -204,23 +276,23 @@ also be accounted for.
 
 ## Encryption
 
-All packets are encrypted before transmission:
+All packets pass through the configured cipher before transmission:
 
 ```
 ┌─────────────────────────────────────────┐
-│            Encrypted Packet             │
+│              Packet                     │
 ├─────────────────────────────────────────┤
-│  encrypt(header + segment1 + segment2)  │
+│  cipher(header + segment1 + segment2)   │
 └─────────────────────────────────────────┘
 ```
 
 Supported ciphers:
-- `Plain`: No encryption (testing only)
+- `Plain`: No encryption (passthrough, for testing only)
 - `XOR`: Simple XOR with key (lightweight obfuscation)
 - `RC4`: RC4 stream cipher
 
 Cipher is configured at tunnel creation. Both sides must use the same cipher
-and key.
+and key. Use `Plain` only for debugging; production should use `RC4` or better.
 
 ---
 
@@ -250,9 +322,7 @@ Bob detects connection loss when:
 
 ---
 
-## Proposed API
-
-The following API is the target design. Implementation does not exist yet.
+## API
 
 ### AliceTunnel
 
@@ -266,6 +336,9 @@ tunnel = AliceTunnel(
     crypto=RC4(key),
     keepalive_interval=5.0,
 )
+
+# Register module handlers (optional)
+tunnel.register_module('file', file_module.handle_message)
 
 # Connect with handshake
 tunnel.connect(timeout=10.0)
@@ -295,7 +368,10 @@ tunnel = BobTunnel(
     idle_timeout=60.0,
 )
 
-# Set up channel handler
+# Register module handlers
+tunnel.register_module('file', file_module.handle_message)
+
+# Set up channel handler (optional)
 def on_channel_request(channel_id, atype, addr, port):
     # Connect to target and return True to accept
     return True
@@ -332,12 +408,12 @@ The tunnel classes are **not thread-safe**. For multi-threaded use:
 
 ---
 
-## Proposed File Structure
+## File Structure
 
 ```
 sfb/tunnel/
-├── __init__.py       # Exports AliceTunnel, BobTunnel
-├── base.py           # BaseTunnel with shared functionality
-├── alice.py          # AliceTunnel implementation
-└── bob.py            # BobTunnel implementation
+├── __init__.py       # Exports AliceTunnel, BobTunnel, TunnelState, TunnelError
+├── base_tunnel.py    # BaseTunnel with shared functionality
+├── alice_tunnel.py   # AliceTunnel implementation
+└── bob_tunnel.py     # BobTunnel implementation
 ```

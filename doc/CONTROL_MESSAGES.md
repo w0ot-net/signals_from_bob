@@ -1,20 +1,19 @@
 # Control Messages
 
-Control messages are JSON objects sent on channel 0. They coordinate actions
-such as opening channels, negotiating parameters, and module-specific commands.
+Control messages are JSON objects sent on channel 0. They coordinate tunnel
+operations, channel lifecycle, and module-specific commands.
 
 ---
 
 ## Encoding and Framing
 
-- Encoding: ASCII JSON
+- Encoding: ASCII JSON, compacted (no extra whitespace)
 - One message per line
 - Each message ends with a newline (`\n`)
 - Multiple messages can be sent in a single segment or packet
 
 Receivers parse channel 0 by buffering bytes until a newline is found, then
-decoding a complete JSON object. Invalid JSON should be rejected and the
-message dropped.
+decoding a complete JSON object. Invalid JSON should be logged and dropped.
 
 ---
 
@@ -32,9 +31,232 @@ This allows large control messages without changing the framing rules.
 
 ---
 
-## Common Messages
+## Message Format
 
-This document only defines framing and chunking. Message definitions are in:
+All control messages are JSON objects with the following fields:
 
-- `doc/PROTOCOL.md` (handshake, MTU, window, ping/pong, open/close)
-- `doc/FILE_TRANSFER.md` (file module commands)
+| Field | Required | Description |
+|-------|----------|-------------|
+| `t`   | Yes      | Message type (string) - identifies which layer handles the message |
+| `c`   | Yes      | Command (string) - the specific operation within that type |
+
+Additional fields depend on the specific command.
+
+### Example Messages
+
+```json
+{"t":"tun","c":"ping"}
+{"t":"tun","c":"mtu","size":500}
+{"t":"ch","c":"open","ch":2,"atype":"ipv4","addr":"10.0.0.1","port":80}
+{"t":"ch","c":"close","ch":2}
+{"t":"file","c":"get","ch":4,"path":"/etc/passwd"}
+{"t":"sh","c":"open","ch":6,"rows":24,"cols":80}
+```
+
+---
+
+## Type Registry
+
+Message types are organized into two categories: reserved types (handled by
+the tunnel core) and module types (handled by registered modules).
+
+### Reserved Types
+
+These types are built-in and cannot be overridden by modules.
+
+| Type | Layer | Description |
+|------|-------|-------------|
+| `tun` | Tunnel | Keepalive, MTU/window negotiation |
+| `ch` | Channel | Channel open/close lifecycle |
+
+### Module Types
+
+Modules register handlers for their message types. The tunnel dispatches
+messages to the appropriate module based on the `t` field.
+
+| Type | Module | Description |
+|------|--------|-------------|
+| `file` | File Transfer | List, get, put files |
+| `sock` | SOCKS Proxy | SOCKS5 proxy control |
+| `sh` | Shell | Interactive shell sessions |
+| `fwd` | Port Forward | TCP port forwarding (future) |
+
+New modules should choose a short, unique type code (2-4 characters).
+
+---
+
+## Dispatch Rules
+
+When a control message is received:
+
+1. Parse JSON and extract `t` field
+2. Dispatch based on type:
+   - `tun`: Tunnel handles internally (ping/pong, negotiation)
+   - `ch`: Channel manager handles (open/close)
+   - Other: Dispatch to registered module handler
+3. Unknown types are logged and dropped
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Control Message                       │
+│                  {"t":"X", "c":"Y", ...}                │
+└─────────────────────────┬───────────────────────────────┘
+                          │
+                          ▼
+                    ┌───────────┐
+                    │  t = ?    │
+                    └─────┬─────┘
+          ┌───────────────┼───────────────┐
+          ▼               ▼               ▼
+     ┌─────────┐    ┌───────────┐   ┌───────────┐
+     │ t="tun" │    │  t="ch"   │   │  t=other  │
+     └────┬────┘    └─────┬─────┘   └─────┬─────┘
+          │               │               │
+          ▼               ▼               ▼
+     ┌─────────┐    ┌───────────┐   ┌───────────┐
+     │ Tunnel  │    │  Channel  │   │  Module   │
+     │ Handler │    │  Manager  │   │  Handler  │
+     └─────────┘    └───────────┘   └───────────┘
+```
+
+---
+
+## Tunnel Messages (t="tun")
+
+Tunnel-level messages handle keepalive and parameter negotiation.
+
+### ping / pong
+
+Keepalive messages. Alice sends `ping` when idle; Bob responds with `pong`.
+
+```json
+{"t":"tun","c":"ping"}
+{"t":"tun","c":"pong"}
+```
+
+If either side has actual data to send, the packet itself serves as keepalive.
+Ping/pong are only sent when no other data is pending.
+
+### mtu / mtu_ok
+
+MTU negotiation. Sent immediately after handshake.
+
+```json
+{"t":"tun","c":"mtu","size":500}
+{"t":"tun","c":"mtu_ok","size":150}
+```
+
+Alice proposes her transport's max packet size. Bob responds with
+`min(alice_size, bob_max)`. Both sides use the agreed size.
+
+Until `mtu_ok` is received, both sides limit packets to 100 bytes.
+
+### window / window_ok
+
+Send window negotiation. Sent after MTU negotiation.
+
+```json
+{"t":"tun","c":"window","size":16}
+{"t":"tun","c":"window_ok","size":8}
+```
+
+Alice proposes max in-flight packets. Bob responds with
+`min(alice_size, bob_max, 16)`. Maximum is 16 (SACK bitmap size).
+
+Until `window_ok` is received, both sides use max_in_flight = 1.
+
+---
+
+## Channel Messages (t="ch")
+
+Channel messages manage the lifecycle of data channels.
+
+### open
+
+Request to open a channel and connect to a target.
+
+```json
+{"t":"ch","c":"open","ch":2,"atype":"ipv4","addr":"192.168.1.1","port":8080}
+{"t":"ch","c":"open","ch":2,"atype":"ipv6","addr":"::1","port":443}
+{"t":"ch","c":"open","ch":2,"atype":"domain","addr":"example.com","port":80}
+```
+
+| Field | Description |
+|-------|-------------|
+| `ch` | Channel ID (odd=Alice, even=Bob) |
+| `atype` | Address type: `ipv4`, `ipv6`, or `domain` |
+| `addr` | Target address |
+| `port` | Target port |
+
+### open_ok
+
+Channel opened successfully.
+
+```json
+{"t":"ch","c":"open_ok","ch":2}
+```
+
+### open_fail
+
+Channel open failed.
+
+```json
+{"t":"ch","c":"open_fail","ch":2,"reason":"connection refused"}
+```
+
+### close
+
+Request to close a channel.
+
+```json
+{"t":"ch","c":"close","ch":2}
+```
+
+### close_ok
+
+Channel closed.
+
+```json
+{"t":"ch","c":"close_ok","ch":2}
+```
+
+---
+
+## Module Messages
+
+Module-specific messages are documented in their respective files:
+
+- **File Transfer** (`t="file"`): See `doc/FILE_TRANSFER.md`
+- **SOCKS Proxy** (`t="sock"`): See `doc/MODULES.md#socks-proxy-module`
+- **Shell** (`t="sh"`): See `doc/MODULES.md#shell-module-future`
+
+### Module Message Guidelines
+
+When defining messages for a new module:
+
+1. Choose a short type code (2-4 chars, lowercase)
+2. Use short field names to minimize overhead
+3. Include `ch` field when the message relates to a specific channel
+4. Define both request and response messages
+5. Include error responses with `reason` field
+
+Example module message pattern:
+
+```json
+{"t":"mymod","c":"start","ch":4,"param":"value"}
+{"t":"mymod","c":"start_ok","ch":4}
+{"t":"mymod","c":"err","ch":4,"reason":"invalid param"}
+```
+
+---
+
+## Priority
+
+Channel 0 segments containing control messages MUST be transmitted before
+other channel data when multiple segments are queued in the same packet.
+
+Within channel 0, messages are processed in order received.
+
+---
+
+The handshake uses packet header flags (SYN/ACK), not control messages.

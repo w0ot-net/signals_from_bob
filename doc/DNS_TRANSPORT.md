@@ -128,13 +128,13 @@ Every query includes a unique nonce as the first label. This ensures that:
 - Each query is treated as a fresh lookup
 - TTL=0 in responses is reinforced by query uniqueness
 
-The nonce is a 2-4 character base32 string derived from a counter or random
+The nonce is a 4-character base32 string derived from a counter or random
 value. Bob strips the first label before decoding the packet data.
 
 ```python
 # Alice: generate unique nonce for each query
 self.nonce_counter += 1
-nonce = base32_encode(self.nonce_counter & 0xFFFF)[:4]
+nonce = base32_encode(self.nonce_counter & 0xFFFF).zfill(4)[:4]
 query_name = nonce + '.' + encode_data(packet) + '.' + base_domain
 
 # Bob: strip nonce before decoding
@@ -142,8 +142,8 @@ labels = query_name.split('.')
 data_labels = labels[1:-len(base_domain.split('.'))]  # skip nonce, skip base_domain
 ```
 
-The nonce consumes 3-5 characters of the 253-character name limit (including
-the dot separator). This is a small cost for guaranteed cache bypass.
+The nonce consumes 5 characters of the 253-character name limit (4 chars + dot).
+This is a small cost for guaranteed cache bypass.
 
 ### DNS Constraints
 
@@ -188,25 +188,17 @@ Base64 encoded: `SGVsbG8gV29ybGQ`
 
 TXT response: `TXT "SGVsbG8gV29ybGQ"`
 
-### High-Performance Format (NULL + EDNS0)
-
-For maximum throughput, use NULL records with EDNS0:
-
-```
-NULL <base64_encoded_packet>
-```
-
-NULL records have no internal structure, avoiding TXT string overhead.
-Payloads are still base64-encoded for consistency with TXT responses.
-Combined with EDNS0 (4096-byte UDP), this allows ~3KB per response.
-
 ### DNS Constraints
 
-| Constraint | Standard | With EDNS0 |
-|------------|----------|------------|
-| UDP packet size | 512 bytes | 4096 bytes |
-| TXT string length | 255 characters | 255 characters |
-| Usable per response | ~190 bytes | ~3000 bytes |
+| Constraint | Limit |
+|------------|-------|
+| UDP packet size | 512 bytes |
+| TXT string length | 255 characters |
+| Usable per response | ~190 bytes |
+
+Note: While EDNS0 allows larger UDP responses, the query-side MTU (limited by
+DNS name length) is always the bottleneck. Response capacity beyond the query
+MTU provides no benefit since Alice and Bob exchange packets symmetrically.
 
 ### Base64 Encoding
 
@@ -230,36 +222,22 @@ usable_chars = available_chars - label_overhead
 query_mtu = floor(usable_chars * 5 / 8)           # base32 decode ratio
 ```
 
-**Example with `tunnel.example.com` (19 chars):**
+**Example with `tunnel.example.com` (18 chars):**
 
 ```
-available_chars = 253 - 19 - 1 - 5 = 228
-label_overhead = floor(228 / 64) = 3
-usable_chars = 228 - 3 = 225
-query_mtu = floor(225 * 5 / 8) = 140 bytes
+available_chars = 253 - 18 - 1 - 5 = 229
+label_overhead = floor(229 / 64) = 3
+usable_chars = 229 - 3 = 226
+query_mtu = floor(226 * 5 / 8) = 141 bytes
 ```
 
 ### Response-Side MTU
-
-**Standard (single TXT string, 512-byte UDP):**
 
 ```
 available_chars = 255                         # single TXT string max
 response_mtu = floor(available_chars * 3 / 4) # base64 decode ratio
             = floor(255 * 3 / 4) = 191 bytes
 ```
-
-**With EDNS0 (4096-byte UDP):**
-
-```
-udp_size = 4096
-overhead = 45                                 # DNS header + answer overhead
-available = udp_size - overhead = 4051
-response_mtu = floor(available * 3 / 4)       # base64 decode ratio
-            = floor(4051 * 3 / 4) = 3038 bytes
-```
-
-The transport should negotiate EDNS0 support and use the maximum available.
 
 ### Effective MTU
 
@@ -269,13 +247,10 @@ The transport MTU is the minimum of query and response MTU:
 transport_mtu = min(query_mtu, response_mtu)
 ```
 
-For `tunnel.example.com`: `min(140, 191) = 140 bytes` (standard)
-For `tunnel.example.com` with EDNS0: `min(140, 3038) = 140 bytes`
+For `tunnel.example.com`: `min(141, 191) = 141 bytes`
 
 The query side is always the bottleneck due to base32's higher overhead and
-DNS name length limits. However, EDNS0's larger response capacity is valuable
-for asymmetric traffic where Bob sends more data than Alice (e.g., downloads).
-In this case, Bob can pack multiple tunnel packets into a single DNS response.
+DNS name length limits.
 
 ### MTU Examples by Domain Length
 
@@ -283,8 +258,8 @@ In this case, Bob can pack multiple tunnel packets into a single DNS response.
 |-------------|--------|-----------|--------------|---------------|
 | `t.co` | 4 | 150 | 191 | 150 |
 | `example.com` | 11 | 145 | 191 | 145 |
-| `tunnel.example.com` | 19 | 140 | 191 | 140 |
-| `sub.tunnel.example.com` | 23 | 138 | 191 | 138 |
+| `tunnel.example.com` | 18 | 141 | 191 | 141 |
+| `sub.tunnel.example.com` | 22 | 138 | 191 | 138 |
 | `very.long.subdomain.example.com` | 31 | 133 | 191 | 133 |
 
 Shorter domains provide higher MTU and thus higher throughput.
@@ -357,8 +332,6 @@ responses.
 | `base_domain` | Tunnel domain suffix | `tunnel.example.com` |
 | `resolver` | DNS server to query | `203.0.113.1:53` |
 | `timeout` | Query timeout | `5s` |
-| `edns_size` | EDNS0 UDP buffer size | `4096` |
-| `qtype` | Query type (TXT or NULL) | `TXT` |
 
 **Direct mode:** `resolver` must be set to Bob's address. The `base_domain` can
 be any valid domain suffix (e.g., `x.local`); it just needs to match Bob's
@@ -367,10 +340,6 @@ configuration.
 **Authoritative mode:** `resolver` is optional. If unset, Alice reads
 `/etc/resolv.conf` to discover system resolvers. The `base_domain` must be the
 domain Bob is authoritative for.
-
-**Performance tuning:** Set `edns_size=4096` for larger responses. Use
-`qtype=NULL` in direct mode for maximum capacity (may not work through all
-resolvers).
 
 ### Transport Interface
 
@@ -467,8 +436,6 @@ Bob is the tunnel server. He runs a DNS server and responds to Alice's queries.
 | `base_domain` | Tunnel domain suffix to recognize | `tunnel.example.com` |
 | `listen_addr` | UDP address to listen on | `0.0.0.0:53` |
 | `ttl` | TTL for responses | `0` (no caching) |
-| `edns_size` | EDNS0 UDP buffer size | `4096` |
-| `rtype` | Response record type (TXT or NULL) | `TXT` |
 
 ### DNS Server Setup
 
@@ -602,7 +569,7 @@ Bob queues outbound packets. When Alice polls:
 2. Pass to reliability/muxer layers
 3. Check outbound queue for response data
 4. If data: encode and send
-5. If no channel data is queued: send packet with `{"cmd":"pong"}` on channel 0
+5. If no channel data is queued: send packet with `{"t":"tun","c":"pong"}` on channel 0
 
 The response always contains a valid tunnel packet (with seq/ack headers). When
 no data is queued, the payload may be a pong control message.
@@ -710,9 +677,7 @@ No domain setup required. Alice queries Bob directly with maximum performance.
 transport = DnsTransport(
     base_domain='x',                 # Shortest possible domain
     resolver='203.0.113.1:53',       # Bob's address (required)
-    timeout=5.0,
-    edns_size=4096,                  # Large responses
-    qtype=NULL                       # Maximum capacity
+    timeout=5.0
 )
 ```
 
@@ -721,14 +686,12 @@ transport = DnsTransport(
 transport = DnsTransport(
     base_domain='x',                 # Must match Alice
     listen_addr='0.0.0.0:53',
-    ttl=0,
-    edns_size=4096,                  # Large responses
-    rtype=NULL                       # Maximum capacity
+    ttl=0
 )
 ```
 
-This configuration provides maximum throughput: ~150 bytes per query,
-~3000 bytes per response, with 16x pipelining.
+This configuration provides maximum throughput: ~150 bytes per packet
+with 16x pipelining.
 
 ### Authoritative Mode
 
@@ -790,103 +753,6 @@ This section describes techniques to maximize throughput over the DNS transport.
 | Encoding overhead (query) | 1.625x | Base32 |
 | Encoding overhead (response) | 1.333x | Base64 |
 | Base MTU | 130-150 bytes | Standard TXT, depends on domain |
-
-### EDNS0 for Larger Responses
-
-EDNS0 (Extension Mechanisms for DNS) allows UDP responses larger than the
-traditional 512-byte limit. By advertising a larger buffer size, Bob can
-send more data per response.
-
-**Implementation:**
-
-Alice includes an OPT record in queries advertising her buffer size:
-
-```python
-# Alice: add EDNS0 OPT record to query
-query.add_opt_record(udp_payload_size=4096)
-```
-
-Bob includes an OPT record in responses:
-
-```python
-# Bob: add EDNS0 OPT record to response
-response.add_opt_record(udp_payload_size=4096)
-```
-
-**Response MTU with EDNS0:**
-
-```
-edns_buffer = 4096                            # or negotiated size
-response_overhead = 45                        # DNS header + answer overhead
-available_chars = edns_buffer - response_overhead
-response_mtu = floor(available_chars * 3 / 4) # base64 decode ratio
-```
-
-With 4096-byte EDNS0: `response_mtu = floor(4051 * 3 / 4) = 3038 bytes`
-
-This dramatically increases response capacity. However, the query side remains
-constrained by DNS name length limits (~140 bytes for typical domains).
-
-### NULL Record Type
-
-The NULL record type (QTYPE=10) has no defined format, avoiding the 255-character
-string limit of TXT records.
-
-**Advantages:**
-- No 255-character string limit within the record
-- Slightly lower overhead than TXT (no length prefix per string)
-- Less commonly filtered than TXT
-
-**Implementation:**
-
-```python
-# Alice: query for NULL record
-query.qtype = NULL  # 10
-
-# Bob: respond with NULL record containing base64
-response.add_answer(qtype=NULL, data=base64_data)
-```
-
-**Considerations:**
-- Some resolvers may not forward NULL queries
-- Works reliably in direct mode
-- Combine with EDNS0 for maximum capacity
-
-### Multiple TXT Strings
-
-TXT records can contain multiple strings (each up to 255 characters),
-concatenated by the receiver. This increases response capacity without EDNS0.
-
-**Format:**
-```
-TXT "string1" "string2" "string3" ...
-```
-
-**Implementation:**
-
-```python
-# Bob: split base64 data into 255-char chunks
-def encode_txt_response(data):
-    b64 = base64_encode(data)
-    strings = []
-    while b64:
-        strings.append(b64[:255])
-        b64 = b64[255:]
-    return strings
-
-# Response with multiple strings
-response.add_answer(qtype=TXT, data=strings)
-```
-
-**Capacity:**
-
-Standard 512-byte UDP: ~450 bytes available for TXT data
-- 450 / 256 = ~1.7 strings (accounting for length prefixes)
-- Usable: ~340 bytes of base64 → ~255 bytes decoded
-
-With EDNS0 (4096 bytes): ~4000 bytes for TXT data
-- 4000 / 256 = ~15 strings
-- Usable: ~3800 bytes of base64 → ~2850 bytes decoded
 
 ### Optimal Domain Selection
 
@@ -969,11 +835,8 @@ def prepare_response(mtu):
 |---------------|-----------|--------------|-----------|
 | Standard TXT | 140 | 191 | 140 |
 | Short domain (direct) | 150 | 191 | 150 |
-| EDNS0 4096 + TXT | 140 | 3038 | 140* |
-| EDNS0 4096 + NULL | 140 | 3038 | 140* |
 
-*Query-side is the bottleneck. Response capacity is useful when Bob has more
-data than Alice (asymmetric traffic).
+The query-side MTU is always the bottleneck due to DNS name length limits.
 
 ### Throughput Estimates
 

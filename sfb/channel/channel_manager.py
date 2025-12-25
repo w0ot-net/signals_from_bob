@@ -14,6 +14,7 @@ from __future__ import absolute_import
 
 import threading
 
+from ..tunnel_control_messages import ch_open, ch_open_ok, ch_open_fail, ch_close, ch_close_ok
 from .channel import (
     Channel,
     ChannelError,
@@ -100,13 +101,7 @@ class ChannelManager(object):
             self._channels[channel_id] = channel
 
         # Send OPEN control message
-        self._control.send_message({
-            'cmd': 'open',
-            'ch': channel_id,
-            'atype': atype,
-            'addr': addr,
-            'port': port,
-        })
+        self._control.send_message(ch_open(channel_id, atype, addr, port))
 
         return channel
 
@@ -139,10 +134,7 @@ class ChannelManager(object):
             channel._set_state(STATE_CLOSING)
 
         # Send CLOSE control message
-        self._control.send_message({
-            'cmd': 'close',
-            'ch': channel_id,
-        })
+        self._control.send_message(ch_close(channel_id))
 
     def deliver_segment(self, segment):
         """
@@ -169,7 +161,8 @@ class ChannelManager(object):
         Args:
             msg: Parsed JSON control message (dict)
         """
-        cmd = msg.get('cmd')
+        # Support both new format (c) and old format (cmd) during transition
+        cmd = msg.get('c') or msg.get('cmd')
 
         if cmd == 'open':
             self._handle_open(msg)
@@ -181,7 +174,7 @@ class ChannelManager(object):
             self._handle_close(msg)
         elif cmd == 'close_ok':
             self._handle_close_ok(msg)
-        # ping/pong and other messages handled elsewhere
+        # ping/pong and other messages handled by tunnel
 
     def collect_segments(self, max_payload, keepalive_data=None):
         """
@@ -347,16 +340,9 @@ class ChannelManager(object):
                 channel._set_state(STATE_OPEN)
                 self._channels[channel_id] = channel
 
-            self._control.send_message({
-                'cmd': 'open_ok',
-                'ch': channel_id,
-            })
+            self._control.send_message(ch_open_ok(channel_id))
         else:
-            self._control.send_message({
-                'cmd': 'open_fail',
-                'ch': channel_id,
-                'reason': 'rejected',
-            })
+            self._control.send_message(ch_open_fail(channel_id, 'rejected'))
 
     def _handle_open_ok(self, msg):
         """Handle OPEN_OK response."""
@@ -405,10 +391,7 @@ class ChannelManager(object):
             return
 
         # Send CLOSE_OK
-        self._control.send_message({
-            'cmd': 'close_ok',
-            'ch': channel_id,
-        })
+        self._control.send_message(ch_close_ok(channel_id))
 
         channel._set_state(STATE_CLOSED)
 

@@ -1,0 +1,25 @@
+# -*- coding: ascii -*-
+"""
+Tunnel layer - orchestrates transport, reliability, channels, and crypto.
+
+The tunnel provides a bidirectional multiplexed channel abstraction over
+covert request/response transports.
+"""
+
+from __future__ import absolute_import
+
+from .base_tunnel import (
+    BaseTunnel,
+    TunnelError,
+    TunnelState,
+)
+from .alice_tunnel import AliceTunnel
+from .bob_tunnel import BobTunnel
+
+__all__ = [
+    'BaseTunnel',
+    'AliceTunnel',
+    'BobTunnel',
+    'TunnelError',
+    'TunnelState',
+]

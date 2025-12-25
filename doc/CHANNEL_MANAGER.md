@@ -1,7 +1,7 @@
 # Channel Manager
 
 This document describes the channel manager behavior and its segment packing
-policy. It reflects the implementation in `tunnel/channel/channel_manager.py`.
+policy. It reflects the implementation in `sfb/channel/channel_manager.py`.
 
 ---
 

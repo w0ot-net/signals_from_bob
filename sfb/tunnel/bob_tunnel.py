@@ -187,8 +187,19 @@ class BobTunnel(BaseTunnel):
 
         # No retransmits needed - check window before sending new data
         if not self._send_window.can_send:
-            # Window full but no unacked? Shouldn't happen, but just return
-            self._logger.debug('Send window full, no unacked packets')
+            # Window full but no unacked? Shouldn't happen - log and send pong
+            # to maintain request/response contract
+            self._logger.error('Send window full but no unacked packets')
+            max_payload = self._transport.send_mtu - PACKET_HEADER_SIZE
+            segments = self._collect_segments(
+                max_payload,
+                keepalive_data=encode_message(tun_pong())
+            )
+            packet, _ = self._build_packet(segments=segments)
+            response_data = self._encode_packet(packet)
+            self._packets_sent += 1
+            self._bytes_sent += len(response_data)
+            responder(response_data)
             return
 
         # Collect new segments

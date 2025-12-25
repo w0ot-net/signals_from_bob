@@ -35,12 +35,13 @@ Both sides buffer unacked packets, but retransmission triggers differ:
 - Tracks round-trip time (RTT) using exponential moving average
 - Computes retransmission timeout: `RTO = SRTT * 2`
 - When RTO expires, retransmits oldest unacked packet
+- Retransmits reuse existing sequence numbers; outstanding count stays capped
 - Can act proactively based on time
 
 **Bob (opportunity-driven):**
 - Cannot act on timers; only transmits in response to polls
 - On each poll: if unacked packets exist, retransmit oldest unacked packet
-- Retransmits do not count against the send window
+- Retransmits reuse existing sequence numbers; outstanding count stays capped
 - Retransmits when the opportunity arises, not when a timer fires
 - Does not track RTT (Alice's polling interval dominates latency)
 

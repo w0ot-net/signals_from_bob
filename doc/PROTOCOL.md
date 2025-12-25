@@ -246,16 +246,19 @@ because he can only transmit when Alice polls. This affects retransmission:
 **Alice:**
 - Tracks RTT and computes retransmit timeout (RTO)
 - Retransmits unacked packets when RTO expires
-- Retransmits do not count against the send window
+- Retransmits reuse an in-flight sequence number and do not create new
+  outstanding slots
 - Timer-driven: can decide *when* to retransmit
+ - Retransmits carry current ack/sack state in the packet header
 
 **Bob:**
 - Cannot act on timers; can only transmit in response to polls
 - On each poll: if unacked packets exist, retransmit oldest unacked packet
-- Retransmits do not count against the send window (they replace data already
-  counted when originally sent; blocking retransmits on window would deadlock)
+- Retransmits reuse an in-flight sequence number and do not create new
+  outstanding slots
 - Opportunity-driven: retransmits when polled, not when a timer fires
 - Does not track RTT (Alice's polling interval dominates, not network latency)
+ - Retransmits carry current ack/sack state in the packet header
 
 ### Sequence Number Wraparound
 
@@ -318,9 +321,10 @@ guess which packets to retransmit. Every gap is visible via SACK.
 
 - Both sides use the negotiated max_in_flight (see Window Negotiation)
 - Maximum value is 16 (SACK bitmap size); minimum is 1
-- Sender can have up to max_in_flight unacked packets in-flight
+- Sender can have up to max_in_flight unacked packets outstanding
 - Window slides forward as cumulative acks are received
-- Retransmits do not count against the window; only new packets do
+- Retransmits reuse an existing sequence number and do not add to the
+  outstanding count
 
 For polling transports, max_in_flight enables pipelining:
 

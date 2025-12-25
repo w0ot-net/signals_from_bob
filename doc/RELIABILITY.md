@@ -57,11 +57,12 @@ retransmit dropped packets based on SACK feedback.
 ## Send Path
 
 - Maintain a transmit queue of unacked packets.
-- The sender may have up to `max_in_flight` new packets in-flight (see Window
-  Negotiation in PROTOCOL.md). Maximum value is 16.
+- The sender may have up to `max_in_flight` unacked packets outstanding (see
+  Window Negotiation in PROTOCOL.md). Maximum value is 16.
 - On ACK or SACK, remove acknowledged packets from the queue.
 - If a packet remains unacked past the retransmission timeout (RTO),
-  retransmit it. Retransmits do not consume window slots.
+  retransmit it. Retransmits reuse an existing sequence number and do not
+  create new outstanding slots.
 
 ---
 
@@ -89,9 +90,10 @@ polling interval.
 
 ### Retransmit Window Rules
 
-Retransmits do not count against max_in_flight. The window limits new data
-in-flight, not total packets. Blocking retransmits on window state would cause
-deadlock when the window is full and contains lost packets.
+Retransmits reuse an existing in-flight sequence number. The total number of
+unacked packets remains capped at max_in_flight, ensuring the SACK bitmap
+always covers the entire outstanding set. Retransmits are always allowed even
+when the window is full, avoiding deadlock during loss recovery.
 
 ---
 

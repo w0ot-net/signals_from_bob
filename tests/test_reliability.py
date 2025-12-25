@@ -73,7 +73,7 @@ class SendWindowTests(unittest.TestCase):
         win.send(b'a', now=1.0)
         self.assertFalse(win.can_send)
         win.mark_retransmit(0, now=2.0)
-        self.assertTrue(win.can_send)
+        self.assertFalse(win.can_send)
 
     def test_get_retransmits(self):
         win = SendWindow(max_in_flight=2)

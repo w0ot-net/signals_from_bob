@@ -395,21 +395,6 @@ class BaseTunnel(object):
             max_payload, keepalive_data=keepalive_data
         )
 
-    def _record_send(self, packet_data, seq, now=None):
-        """
-        Record a packet being sent.
-
-        Args:
-            packet_data: Encoded packet bytes (for retransmit)
-            seq: Sequence number
-            now: Current time
-        """
-        if now is None:
-            now = time.time()
-        self._send_window.send(packet_data, now=now)
-        self._packets_sent += 1
-        self._bytes_sent += len(packet_data)
-
     def close(self):
         """Close the tunnel."""
         if self._state == TunnelState.CLOSED:

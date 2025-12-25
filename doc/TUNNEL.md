@@ -153,7 +153,8 @@ RTO  = 2 * SRTT                         (clamped to [MIN_RTO, MAX_RTO])
 - Karn's rule: Retransmitted packets don't contribute RTT samples
 
 Alice checks `send_window.get_retransmits(rto)` each poll cycle and resends
-any packets whose time since last send exceeds RTO.
+any packets whose time since last send exceeds RTO. Retransmits reuse the
+original sequence number and are rebuilt with current ack/sack.
 
 ### Bob (Opportunistic)
 
@@ -165,6 +166,9 @@ Over multiple polls, all unacked packets eventually get retransmitted. This
 approach prioritizes the oldest data and avoids flooding responses with
 redundant retransmits. If faster recovery is needed, Bob can call
 `get_oldest_unacked()` multiple times to include more retransmits.
+
+The total number of unacked packets remains capped at max_in_flight, so the
+SACK bitmap always covers all outstanding packets.
 
 ---
 

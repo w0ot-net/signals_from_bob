@@ -35,7 +35,6 @@ class SendWindow(object):
         self._next_seq = 0
         self._unacked = {}  # seq -> _UnackedPacket
         self._send_order = deque()
-        self._new_in_flight = 0  # Count of new (non-retransmit) packets
 
     @property
     def next_seq(self):
@@ -45,7 +44,7 @@ class SendWindow(object):
     @property
     def can_send(self):
         """True if window has room for a new packet."""
-        return self._new_in_flight < self._max_in_flight
+        return len(self._unacked) < self._max_in_flight
 
     @property
     def unacked_count(self):
@@ -65,6 +64,9 @@ class SendWindow(object):
         if now is None:
             now = time.time()
 
+        if not self.can_send:
+            raise ValueError('Send window full')
+
         seq = self._next_seq
         self._next_seq = (self._next_seq + 1) & SEQ_MAX
 
@@ -75,7 +77,6 @@ class SendWindow(object):
             retransmit_count=0,
         )
         self._send_order.append(seq)
-        self._new_in_flight += 1
 
         return seq
 
@@ -99,6 +100,8 @@ class SendWindow(object):
         """
         Get packets that need retransmission (Alice, timer-driven).
 
+        Returns in send order (oldest first) for consistent behavior.
+
         Returns:
             list: List of (seq, segments) to retransmit
         """
@@ -106,8 +109,9 @@ class SendWindow(object):
             now = time.time()
 
         retransmits = []
-        for seq, pkt in self._unacked.items():
-            if now - pkt.send_time >= rto_sec:
+        for seq in self._send_order:
+            pkt = self._unacked.get(seq)
+            if pkt is not None and now - pkt.send_time >= rto_sec:
                 retransmits.append((seq, pkt.segments))
 
         return retransmits
@@ -141,8 +145,6 @@ class SendWindow(object):
         if pkt is None:
             return
 
-        if pkt.retransmit_count == 0:
-            self._new_in_flight -= 1
         pkt.retransmit_count += 1
         pkt.send_time = now
 
@@ -167,7 +169,6 @@ class SendWindow(object):
         if pkt is None:
             return
         if pkt.retransmit_count == 0:
-            self._new_in_flight -= 1
             rtt_ms = (now - pkt.send_time) * 1000
             rtt_samples.append(rtt_ms)
 

@@ -344,84 +344,156 @@ domain Bob is authoritative for.
 ### Transport Interface
 
 ```python
-class DnsTransport:
-    def exchange(self, packet: bytes) -> bytes:
-        """Encode packet, send DNS query, wait for response."""
-        query_name = self.encode_query(packet)
-        query_id = self.next_query_id()
-        self.pending[query_id] = time.now()
-        self.send_dns_query(query_name, query_id, qtype=TXT)
-        while True:
-            response = self.recv_dns_response()  # blocks
-            if response.query_id in self.pending:
-                del self.pending[response.query_id]
-                return self.decode_response(response.txt_data)
-            # Ignore unexpected responses
+class DnsTransport(Transport):
+    """
+    DNS transport with pipelining support.
 
-    def close(self) -> None:
-        """Close UDP socket."""
-        self.socket.close()
+    Uses non-blocking I/O to manage multiple in-flight queries.
+    Correlation IDs map to DNS query IDs internally.
+    """
+
+    def __init__(self, base_domain, resolver=None, max_pending=16, timeout=5.0):
+        self._socket = socket.socket(AF_INET, SOCK_DGRAM)
+        self._socket.setblocking(False)
+        self._pending = {}      # corr_id -> _PendingQuery
+        self._dns_id_map = {}   # dns_query_id -> corr_id
+        self._next_corr_id = 1
+        self._max_pending = max_pending
+
+    def send(self, packet: bytes) -> int:
+        """Encode packet, send DNS query, return correlation ID."""
+        corr_id = self._next_corr_id
+        self._next_corr_id += 1
+
+        query_name = self.encode_query(packet)
+        dns_id = self.next_dns_id()
+
+        self._pending[corr_id] = _PendingQuery(
+            corr_id=corr_id,
+            dns_id=dns_id,
+            send_time=time.time(),
+        )
+        self._dns_id_map[dns_id] = corr_id
+
+        self.send_dns_query(query_name, dns_id, qtype=TXT)
+        return corr_id
+
+    def recv(self, timeout: float = None) -> tuple:
+        """
+        Receive next available response.
+
+        Uses select() to wait for socket readability.
+        Returns (corr_id, data) or (None, None) on timeout.
+        """
+        # Wait for socket readable
+        readable, _, _ = select.select([self._socket], [], [], timeout)
+        if not readable:
+            return (None, None)
+
+        # Read response
+        raw, addr = self._socket.recvfrom(4096)
+        dns_id, txt_data = self.decode_dns_response(raw)
+
+        # Match to correlation ID
+        corr_id = self._dns_id_map.pop(dns_id, None)
+        if corr_id is None:
+            return (None, None)  # Unknown/duplicate
+
+        self._pending.pop(corr_id, None)
+        return (corr_id, self.decode_response(txt_data))
+
+    def pending_count(self) -> int:
+        return len(self._pending)
+
+    @property
+    def max_pending(self) -> int:
+        return self._max_pending
 
     @property
     def send_mtu(self) -> int:
-        """Maximum bytes that can be sent in one exchange."""
         return self._send_mtu
 
     @property
     def recv_mtu(self) -> int:
-        """Maximum bytes that can be received in one exchange."""
         return self._recv_mtu
+
+    def close(self):
+        self._socket.close()
 ```
 
-### Pipelining
+### Usage Patterns
 
-DNS transports can pipeline by sending multiple queries and draining responses
-out of order. This is transport-specific (not part of the base interface). One
-approach is to expose internal helpers for query send/receive:
+**Serial (max_pending=1 or explicit recv after each send):**
 
 ```python
-# DNS-specific helpers, not part of base interface
-for packet in packets[:max_in_flight]:
-    transport.send_query(packet)
+transport = DnsTransport(domain, resolver, max_pending=1)
+corr_id = transport.send(packet)
+corr_id, response = transport.recv(timeout=5.0)
+```
 
-for _ in range(len(packets)):
-    response = transport.recv_response()
+**Pipelined:**
+
+```python
+transport = DnsTransport(domain, resolver, max_pending=16)
+
+# Alice's tick loop
+def tick():
+    # Drain available responses (non-blocking)
+    while True:
+        corr_id, response = transport.recv(timeout=0)
+        if corr_id is None:
+            break
+        process_response(corr_id, response)
+
+    # Send new packets up to limit
+    while transport.pending_count() < transport.max_pending:
+        if packet := next_packet():
+            transport.send(packet)
+        else:
+            break
 ```
 
 Responses may arrive out of order. The reliability layer uses sequence numbers
 to reorder them.
 
-### Query ID Tracking
+### Correlation ID Tracking
 
-Alice generates unique 16-bit query IDs for each DNS query. She tracks pending
-queries to match responses:
+The transport maps correlation IDs (returned by `send()`) to DNS query IDs
+internally. This allows the tunnel layer to track in-flight packets without
+knowing DNS details:
 
 ```python
-self.pending = {}  # query_id -> send_timestamp
-self.next_id = random.randint(0, 65535)
+# Tunnel layer tracks: corr_id -> (seq, send_time, is_retransmit)
+corr_id = transport.send(packet_data)
+in_flight[corr_id] = InFlightPacket(seq, time.time(), is_retransmit=False)
 
-def next_query_id(self):
-    qid = self.next_id
-    self.next_id = (self.next_id + 1) & 0xFFFF
-    return qid
+# When response arrives
+corr_id, response = transport.recv(timeout=0)
+if corr_id in in_flight:
+    info = in_flight.pop(corr_id)
+    if not info.is_retransmit:
+        rtt_sample = time.time() - info.send_time
 ```
 
 ### Timeout Handling
 
-If a response does not arrive within `timeout`, Alice does not explicitly
-retry at the transport layer. The reliability layer detects missing acks and
-triggers retransmission at the tunnel level.
+The transport does not retry - that's the reliability layer's job. Stale
+pending entries are pruned when no response arrives:
 
 ```python
-# Transport does not retry - reliability layer handles this
-# Stale pending entries can be pruned periodically
-def prune_pending(self):
-    now = time.now()
-    stale = [qid for qid, ts in self.pending.items()
-             if now - ts > self.timeout * 2]
-    for qid in stale:
-        del self.pending[qid]
+def prune_stale(self, max_age):
+    """Remove pending queries older than max_age seconds."""
+    now = time.time()
+    stale = [cid for cid, pq in self._pending.items()
+             if now - pq.send_time > max_age]
+    for cid in stale:
+        dns_id = self._pending[cid].dns_id
+        del self._pending[cid]
+        self._dns_id_map.pop(dns_id, None)
 ```
+
+The tunnel calls this periodically or relies on the reliability layer's
+retransmit logic to resend lost packets.
 
 ---
 
@@ -769,24 +841,27 @@ For direct mode, use the shortest possible domain (e.g., `x.x` = 3 chars).
 
 ### Aggressive Pipelining
 
-Alice should maintain `max_in_flight` queries in-flight at all times:
+Alice should maintain `max_pending` queries in-flight at all times:
 
 ```python
 # Optimal pipelining loop
-while data_to_send or pending_responses:
-    # Send up to max_in_flight
-    while len(pending) < max_in_flight and data_to_send:
+while data_to_send or transport.pending_count() > 0:
+    # Send up to max_pending
+    while transport.pending_count() < transport.max_pending and data_to_send:
         packet = next_packet()
-        transport.send_query(packet)
-        pending.add(packet.seq)
+        corr_id = transport.send(packet)
+        in_flight[corr_id] = packet.seq
 
-    # Receive one response (non-blocking if possible)
-    response = transport.recv_response()
-    pending.remove(response.ack)
-    process(response)
+    # Drain all available responses (non-blocking)
+    while True:
+        corr_id, response = transport.recv(timeout=0)
+        if corr_id is None:
+            break
+        in_flight.pop(corr_id, None)
+        process(response)
 ```
 
-With `max_in_flight=16` and 100ms RTT:
+With `max_pending=16` and 100ms RTT:
 - Sequential: 10 packets/second
 - Pipelined: 160 packets/second (16x improvement)
 
@@ -797,13 +872,18 @@ For direct mode, Alice can send queries as fast as the network allows:
 ```python
 # High-performance query loop (direct mode)
 while running:
-    # Send burst of queries
-    for _ in range(max_in_flight):
+    # Send burst of queries up to max_pending
+    while transport.pending_count() < transport.max_pending:
         if packet := next_outbound():
-            transport.send_query(packet)
+            transport.send(packet)
+        else:
+            break
 
     # Process responses with short timeout
-    while response := transport.recv_response(timeout=10ms):
+    while True:
+        corr_id, response = transport.recv(timeout=0.01)
+        if corr_id is None:
+            break
         process(response)
 ```
 

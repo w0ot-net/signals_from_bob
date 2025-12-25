@@ -2,61 +2,112 @@
 
 ## Overview
 
-All transports use a **request/response** pattern. Alice (client) sends a
-request containing her data, and Bob (server) responds with his data. This
-design reflects the fundamental asymmetry of covert channels: Alice initiates
-all communication, Bob can only respond.
+All transports use a **request/response** pattern at the wire level. Alice
+(client) sends requests, Bob (server) responds. This reflects the fundamental
+asymmetry of covert channels: Alice initiates all communication.
+
+The transport interface separates `send()` and `recv()` to support pipelining -
+multiple requests in flight simultaneously. For serial operation, simply call
+`recv()` after each `send()`, or set `max_pending=1`.
 
 ---
 
-## Transport Interfaces
+## Transport Interface
 
 ### Client Side (Alice)
 
 ```python
-class RequestResponseTransport:
-    def exchange(self, data: bytes) -> bytes:
-        """Send data to Bob, return his response."""
+class Transport:
+    """
+    Client transport with pipelining support.
+
+    Separates send/recv to allow multiple in-flight requests.
+    Correlation IDs match responses to requests.
+    """
+
+    def send(self, data: bytes) -> int:
+        """
+        Send data to Bob.
+
+        Args:
+            data: Packet bytes to send
+
+        Returns:
+            Correlation ID for matching response
+        """
+        ...
+
+    def recv(self, timeout: float = None) -> tuple:
+        """
+        Receive next available response.
+
+        Args:
+            timeout: Max seconds to wait
+                     None = block until response
+                     0 = non-blocking poll
+
+        Returns:
+            (correlation_id, data) on success
+            (None, None) on timeout
+        """
+        ...
+
+    def pending_count(self) -> int:
+        """Number of requests awaiting response."""
+        ...
+
+    @property
+    def max_pending(self) -> int:
+        """Max concurrent in-flight requests (transport limit)."""
         ...
 
     @property
     def send_mtu(self) -> int:
-        """Max bytes that can be sent in one exchange."""
+        """Max bytes per send."""
         ...
 
     @property
     def recv_mtu(self) -> int:
-        """Max bytes that can be received in one exchange."""
+        """Max bytes per recv."""
         ...
 
     def close(self):
-        """Release resources."""
+        """Release resources, cancel pending requests."""
         ...
 ```
 
 ### Server Side (Bob)
 
 ```python
-class RequestResponseServer:
-    def recv(self, timeout=None) -> tuple:
+class Server:
+    """
+    Server transport for request/response.
+
+    Bob receives requests and must respond to each before
+    calling recv() again.
+    """
+
+    def recv(self, timeout: float = None) -> tuple:
         """
         Wait for request from Alice.
 
+        Args:
+            timeout: Max seconds to wait (None = block)
+
         Returns:
-            (data, responder) - data is Alice's bytes, responder is
-            a callable that takes bytes and sends the response.
-            Returns (None, None) on timeout.
+            (data, responder) where responder is a callable
+            (None, None) on timeout
         """
         ...
 
     @property
     def send_mtu(self) -> int:
-        """Max bytes that can be sent in one response."""
+        """Max bytes per response."""
         ...
 
     @property
     def recv_mtu(self) -> int:
-        """Max bytes that can be received in one request."""
+        """Max bytes per request."""
         ...
 
     def close(self):
@@ -66,60 +117,89 @@ class RequestResponseServer:
 
 ---
 
-## Pipelining
+## Usage Patterns
 
-### Current Implementation: Synchronous
-
-The current transport implementation is synchronous:
-
-- Alice's `exchange()` sends a query and blocks until the response arrives
-- Alice's `poll()` calls `exchange()` once per invocation
-- Effective transport-level in-flight is 1
-
-This is sufficient for correctness. The reliability layer handles multiple
-unacked packets, retransmission, and SACK - these work regardless of whether
-the transport sends one query at a time or many.
-
-### Future Enhancement: Parallel Queries
-
-A transport could support pipelining internally:
+### Serial (max_pending=1 or explicit)
 
 ```python
-# Conceptual async transport (not yet implemented)
-class PipelinedTransport:
-    def exchange_async(self, data: bytes) -> Future:
-        """Send data, return future for response."""
-        ...
+# Equivalent to old exchange() - one request, wait for response
+corr_id = transport.send(packet_data)
+corr_id, response_data = transport.recv(timeout=5.0)
 ```
 
-For DNS, this would mean maintaining multiple in-flight queries and matching
-responses by query ID. The reliability layer already handles out-of-order
-responses via sequence numbers.
+### Pipelined
 
-### Bob: Serial Processing
+```python
+# Alice's main loop
+def tick():
+    # Receive all available responses (non-blocking)
+    while True:
+        corr_id, response = transport.recv(timeout=0)
+        if corr_id is None:
+            break
+        process_response(corr_id, response)
 
-Bob processes one query at a time:
+    # Send new packets up to limit
+    while can_send_more():
+        corr_id = transport.send(next_packet())
+        track_in_flight(corr_id)
+
+def can_send_more():
+    return (transport.pending_count() < transport.max_pending and
+            tunnel.send_window.can_send)
+```
+
+### Effective In-Flight Limit
+
+The actual in-flight count is bounded by:
+
+```python
+effective_limit = min(
+    transport.max_pending,      # Transport capacity (e.g., 16)
+    tunnel.negotiated_window,   # Tunnel negotiated limit
+)
+```
+
+---
+
+## Correlation IDs
+
+The correlation ID returned by `send()` is opaque to the tunnel layer. The
+transport uses it internally to match responses:
+
+| Transport | Correlation Strategy |
+|-----------|---------------------|
+| DNS | Maps to DNS query ID (16-bit) |
+| ICMP | Maps to ICMP sequence number |
+| HTTP | Maps to request context |
+
+The tunnel tracks `{corr_id: (seq, send_time, is_retransmit)}` for:
+- RTT calculation (only from first transmissions)
+- Timeout detection
+- Response processing
+
+---
+
+## Bob: Serial Processing
+
+Bob processes one request at a time:
 
 ```python
 while True:
-    alice_data, responder = transport.recv()  # blocks until query arrives
-    bob_data = process(alice_data)
-    responder(bob_data)  # responds to that query
+    data, responder = server.recv(timeout=1.0)
+    if data is None:
+        check_idle_timeout()
+        continue
+
+    response = process(data)
+    responder(response)
 ```
 
-The transport internally tracks query/response pairing (e.g., DNS query ID).
-Between `recv()` and `responder()`, the query context is held implicitly.
+The server tracks request/response pairing internally (e.g., DNS query ID).
 Bob must call `responder()` before the next `recv()`.
 
 Serial processing is not a bottleneck - Bob's processing is microseconds of
-crypto and buffer operations. The throughput limit is Alice's query rate.
-
-### Network-Level Constraint
-
-Bob cannot send without a pending query from Alice. This is the
-fundamental asymmetry: Alice initiates all transport-level connections. At
-the tunnel level, both sides can initiate operations - Bob just has latency
-waiting for the next poll.
+crypto and buffer operations. Throughput is limited by Alice's send rate.
 
 ---
 
@@ -129,10 +209,10 @@ See `DNS_TRANSPORT.md` for complete specification.
 
 ### Overview
 
-- Alice sends TXT/NULL queries to Bob (direct or via resolvers)
-- Data encoded in subdomain labels with nonce prefix for cache busting
-- Bob responds with TXT/NULL records containing data
-- Supports EDNS0 for larger responses
+- Alice sends TXT queries to Bob (direct or via resolvers)
+- Data encoded in subdomain labels with nonce prefix
+- Bob responds with TXT records containing data
+- `max_pending` controls concurrent queries (default: 16)
 
 ### Query Format (Alice → Bob)
 
@@ -145,75 +225,15 @@ Example:
 A7B3.JBSWY3DP.KNQWG5A.tunnel.example.com
 ```
 
-- Nonce: 2-4 char unique prefix to prevent caching
-- Data: base32 encoded (RFC 4648, no padding), split across 63-char labels
-- Base domain: configured (shorter = higher MTU)
-
 ### Response Format (Bob → Alice)
 
-TXT or NULL record containing base64-encoded packet.
+TXT record with base64-encoded packet:
 
 ```
 TXT "SGVsbG8gV29ybGQ..."
 ```
 
-For larger packets, multiple TXT strings are concatenated:
-
-```
-TXT "<first 255 chars>" "<next 255 chars>" ...
-```
-
-With EDNS0 (4096-byte UDP), responses can hold ~3KB of data.
-
-### Operating Modes
-
-| Mode | Description |
-|------|-------------|
-| Direct | Alice queries Bob directly (no domain setup needed) |
-| Authoritative | Bob is NS for domain (works through resolvers) |
-
-### Encoding
-
-| Direction | Encoding | Overhead |
-|-----------|----------|----------|
-| Query (A→B) | Base32 | 1.625x |
-| Response (B→A) | Base64 | 1.333x |
-
-### Capacity
-
-| Configuration | Query MTU | Response MTU |
-|---------------|-----------|--------------|
-| Standard TXT | ~138 bytes | ~191 bytes |
-| EDNS0 + NULL | ~138 bytes | ~3038 bytes |
-
-Query-side is the bottleneck. See `DNS_TRANSPORT.md` for MTU calculations.
-
-### Bob's Outbound Buffer
-
-Bob queues outgoing packets. On each query from Alice:
-
-1. Parse incoming data (if any)
-2. Check outbound queue
-3. If data queued: respond with next packet
-4. If no channel data is queued: respond with packet containing `{"t":"tun","c":"pong"}` on channel 0
-
-### Example Flow (Serial)
-
-```
-Alice                                          Bob
-  │                                              │
-  │─ TXT? A1.<ping_pkt>.tunnel.example.com ────▶│  (nonce + packet)
-  │◀── TXT "<pong_pkt>" ────────────────────────│  (nothing else queued)
-  │                                              │
-  │─ TXT? A2.<data_pkt>.tunnel.example.com ────▶│  (nonce + data packet)
-  │◀── TXT "<response_pkt>" ────────────────────│  (Bob had data)
-  │                                              │
-```
-
-All queries include a unique nonce prefix (A1, A2, ...) for cache busting.
-Packets are base32-encoded in query labels, base64-encoded in TXT responses.
-
-### Example Flow (Pipelined - Future Enhancement)
+### Example Flow (Pipelined)
 
 ```
 Alice                                          Bob
@@ -222,16 +242,22 @@ Alice                                          Bob
   │─── TXT? A2.<pkt2>.tunnel.example.com ──────▶│  (queries in flight)
   │─── TXT? A3.<pkt3>.tunnel.example.com ──────▶│
   │                                              │
-  │◀── TXT "<bob_pkt1, ack=1>" ──────────────────│  (responses may be
-  │◀── TXT "<bob_pkt2, ack=2>" ──────────────────│   out of order)
-  │◀── TXT "<bob_pkt3, ack=3>" ──────────────────│
+  │◀── TXT "<bob_pkt1, ack=1>" ──────────────────│  (responses arrive,
+  │◀── TXT "<bob_pkt3, ack=3>" ──────────────────│   possibly reordered)
+  │◀── TXT "<bob_pkt2, ack=2>" ──────────────────│
   │                                              │
 ```
 
-**Note:** This pipelined flow is a future enhancement. The current DNS
-transport is synchronous (one query at a time). Pipelining would allow Alice
-to have up to `max_in_flight` (16) queries in flight, with the reliability
-layer handling out-of-order responses via sequence numbers.
+Alice matches responses to requests via correlation ID (mapped to DNS query
+ID). The reliability layer handles out-of-order via sequence numbers.
+
+### Serial Mode
+
+For serial DNS (one query at a time):
+
+```python
+transport = DnsTransport(resolver, domain, max_pending=1)
+```
 
 ---
 
@@ -241,55 +267,27 @@ layer handling out-of-order responses via sequence numbers.
 
 - Alice sends ICMP echo requests with data in payload
 - Bob responds with echo replies containing response data
+- `max_pending` controls concurrent pings
 
-### Encoding
+### Correlation
 
-ICMP payload is raw bytes. No encoding needed, but:
-- ICMP ID field: unused
-- ICMP seq field: can map to tunnel seq or be independent
-- Payload: encrypted tunnel packet
+- ICMP ID + sequence number maps to correlation ID
+- Responses matched by these fields
 
 ### Considerations
 
 - Requires raw sockets (root/admin)
 - Some networks filter ICMP
-- Payload size varies by network, typically ~1400 bytes safe
-
----
-
-## TLS Handshake Transport (Future Only)
-
-### Overview
-
-Abuse TLS handshake messages for covert data. This does not establish or use
-TLS connections; only the handshake is used, then the connection is reset.
-This transport is not part of the current implementation.
-
-- Alice sends ClientHello with data in SNI or extensions
-- Bob sends ServerHello with data in extensions
-- Reset and repeat
-
-### Encoding
-
-Data hidden in:
-- SNI (Server Name Indication): limited size
-- Session ID: 32 bytes
-- Extensions: variable
-
-### Considerations
-
-- Very limited bandwidth
-- Looks like failed TLS connections
-- Detection possible via pattern analysis
+- Payload size varies, typically ~1400 bytes safe
 
 ---
 
 ## Adding New Transports
 
 1. Create `sfb/transport/new_transport.py`
-2. Implement `RequestResponseTransport` (client) and/or `RequestResponseServer` (server)
-3. Handle medium-specific encoding (e.g., base32 for DNS labels)
-4. Provide `send_mtu` and `recv_mtu` properties
+2. Implement `Transport` (client) and/or `Server`
+3. Handle medium-specific encoding
+4. Implement correlation ID mapping for `send()`/`recv()`
+5. Set appropriate `max_pending` for the medium
 
-The transport is unaware of tunnel protocol—it just moves encrypted bytes
-via the `exchange()` / `recv()`+`responder()` pattern.
+The transport is unaware of tunnel protocol - it just moves encrypted bytes.

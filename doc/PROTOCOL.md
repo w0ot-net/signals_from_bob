@@ -327,17 +327,19 @@ guess which packets to retransmit. Every gap is visible via SACK.
   outstanding count
 
 The send window tracks reliability (how many unacked packets are outstanding).
-Parallelism at the transport layer is a separate capability:
+Transport pipelining is a separate but related limit:
 
-**Current implementation:** The transport layer is synchronous. Alice's
-`poll()` sends one packet and waits for Bob's response before returning.
-This means effective in-flight is 1 at the transport level, though the
-reliability layer correctly handles up to `max_in_flight` unacked packets.
+```
+effective_in_flight = min(
+    tunnel.negotiated_window,   # Reliability limit (max 16)
+    transport.max_pending,      # Transport limit
+)
+```
 
-**Future enhancement:** A transport could support pipelining by sending
-multiple queries in parallel (e.g., concurrent DNS queries). The reliability
-layer already handles out-of-order responses via sequence numbers. This would
-be a transport-level optimization, not a protocol change.
+Alice can have up to `effective_in_flight` packets in flight simultaneously.
+The transport's `send()`/`recv()` interface allows multiple outstanding
+requests; responses may arrive out of order. The reliability layer handles
+reordering via sequence numbers and SACK.
 
 ### Flow Control (Natural Throttling)
 

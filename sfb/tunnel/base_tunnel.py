@@ -280,7 +280,7 @@ class BaseTunnel(object):
                 msg = ctrl.recv_message(timeout=0)
                 if msg is None:
                     break
-                self._handle_control_message(msg)
+                self._dispatch_control_message(msg)
             except ChannelError as e:
                 # Invalid JSON - log and drop
                 self._logger.warning('Invalid control message: %s', e)
@@ -468,11 +468,6 @@ class BaseTunnel(object):
         # Update send window limit
         self._send_window._max_in_flight = agreed
         self._logger.debug('Window negotiated: %d', agreed)
-
-    # Keep old method name as alias during transition
-    def _handle_control_message(self, msg):
-        """Dispatch control message (alias for _dispatch_control_message)."""
-        self._dispatch_control_message(msg)
 
     def _collect_segments(self, max_payload, keepalive_data=None):
         """

@@ -154,33 +154,94 @@ Data on channel is raw terminal I/O.
 
 ## Writing New Modules
 
-1. Choose a message type code (2-4 chars, e.g., `mymod`)
-2. Register your module's message handler with the tunnel
-3. Define your control messages following the pattern:
-   ```json
-   {"t":"mymod","c":"start","ch":N,...}
-   {"t":"mymod","c":"start_ok","ch":N}
-   {"t":"mymod","c":"err","ch":N,"reason":"..."}
-   ```
-4. Open channels as needed using `t=ch` messages
-5. Read/write channel data
+Modules inherit from `BaseModule` which provides:
+- Automatic registration with the tunnel
+- Message dispatch to `handle_X` methods
+- Threading support for blocking handlers
+- Error handling and logging
 
-### Module Handler Interface
+### Basic Module
 
 ```python
-class MyModule:
-    TYPE = 'mymod'  # Message type code
+from sfb.modules import BaseModule, blocking
+
+class MyModule(BaseModule):
+    TYPE = 'mymod'  # Message type code (2-4 chars)
 
     def __init__(self, tunnel):
-        tunnel.register_module(self.TYPE, self.handle_message)
+        super(MyModule, self).__init__(tunnel)
 
-    def handle_message(self, msg):
-        cmd = msg.get('c')
-        if cmd == 'start':
-            self._handle_start(msg)
-        elif cmd == 'start_ok':
-            self._handle_start_ok(msg)
-        # ...
+    # Non-blocking handler (runs in tunnel thread)
+    def handle_start_ok(self, msg):
+        # Fast operations only
+        pass
+
+    # Blocking handler (runs in separate thread)
+    @blocking
+    def handle_work(self, msg):
+        # Safe to do I/O here
+        do_slow_operation()
+        self.send_message({'t': 'mymod', 'c': 'work_ok'})
 ```
 
-Modules are independent—multiple can run simultaneously using different channels.
+### Request-Response Pattern
+
+For modules that need request-response with correlation IDs:
+
+```python
+from sfb.modules import BaseModule, RequestResponseMixin, blocking
+
+class MyModule(RequestResponseMixin, BaseModule):
+    TYPE = 'mymod'
+
+    def __init__(self, tunnel):
+        super(MyModule, self).__init__(tunnel)
+
+    def do_request(self, param, timeout=10.0):
+        """Public API - called by user."""
+        rid = self._alloc_rid()
+        pending = self._register_pending(rid)
+        self.send_message({'t': 'mymod', 'c': 'req', 'rid': rid, 'param': param})
+        response = self._wait_response(rid, pending, timeout)
+        return response.get('result')
+
+    def handle_req_ok(self, msg):
+        """Response handler - signals waiter."""
+        self._complete_pending(msg)
+
+    @blocking
+    def handle_req(self, msg):
+        """Incoming request handler."""
+        rid = msg.get('rid')
+        result = process(msg.get('param'))
+        self.send_message({'t': 'mymod', 'c': 'req_ok', 'rid': rid, 'result': result})
+```
+
+### Handler Naming
+
+The dispatcher routes messages based on the `c` (command) field:
+- `{"t":"mymod","c":"start"}` -> `handle_start(msg)`
+- `{"t":"mymod","c":"start_ok"}` -> `handle_start_ok(msg)`
+- `{"t":"mymod","c":"err"}` -> `handle_err(msg)`
+
+Unhandled commands are logged and dropped.
+
+### Threading Rules
+
+- **Non-blocking handlers** run in the tunnel's thread. Keep them fast.
+- **`@blocking` handlers** run in separate threads. Safe for I/O.
+- `send_message()` is thread-safe.
+- Channel operations (`read`/`write`) block and should use `@blocking`.
+
+### Shutdown
+
+Call `module.shutdown()` before destroying a module to wait for handler
+threads to complete:
+
+```python
+module = MyModule(tunnel)
+# ... use module ...
+module.shutdown()
+```
+
+Modules are independent - multiple can run simultaneously using different channels.

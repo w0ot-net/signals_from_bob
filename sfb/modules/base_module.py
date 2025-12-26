@@ -1,0 +1,256 @@
+# -*- coding: ascii -*-
+"""
+Base module infrastructure for tunnel modules.
+
+Provides common functionality for all modules:
+- Registration with tunnel
+- Message dispatch to handle_X methods
+- Threading for blocking handlers
+- Request-response correlation
+"""
+
+from __future__ import absolute_import
+
+import logging
+import threading
+
+
+class ModuleError(Exception):
+    """Base exception for module errors."""
+
+    def __init__(self, code, reason=None):
+        Exception.__init__(self, reason or code)
+        self.code = code
+        self.reason = reason or code
+
+
+class _PendingRequest(object):
+    """Tracks a pending request awaiting response."""
+
+    __slots__ = ('event', 'response')
+
+    def __init__(self):
+        self.event = threading.Event()
+        self.response = None
+
+
+def blocking(func):
+    """
+    Decorator: run handler in separate thread.
+
+    Use this for handlers that perform blocking I/O (file operations,
+    network calls, etc.) to avoid blocking the tunnel's message loop.
+
+    Example:
+        @blocking
+        def handle_get(self, msg):
+            # This runs in its own thread
+            self._send_file(msg)
+    """
+    func._blocking = True
+    return func
+
+
+class BaseModule(object):
+    """
+    Base class for tunnel modules.
+
+    Subclasses must:
+    - Set TYPE class attribute to their message type (e.g., 'file', 'sock')
+    - Implement handle_X methods for each command they handle
+
+    Example:
+        class MyModule(BaseModule):
+            TYPE = 'mymod'
+
+            def handle_start(self, msg):
+                # Handle {"t":"mymod","c":"start",...}
+                pass
+
+            @blocking
+            def handle_work(self, msg):
+                # Blocking handler runs in thread
+                do_slow_io()
+    """
+
+    TYPE = None  # Subclass must override
+
+    def __init__(self, tunnel, logger=None):
+        """
+        Initialize module and register with tunnel.
+
+        Args:
+            tunnel: The tunnel instance to register with.
+            logger: Optional logger. Defaults to module class name.
+        """
+        if self.TYPE is None:
+            raise ValueError('Subclass must define TYPE')
+
+        self._tunnel = tunnel
+        self._logger = logger or logging.getLogger(self.__class__.__name__)
+        self._threads = []
+        self._threads_lock = threading.Lock()
+        self._shutdown = False
+
+        tunnel.register_module(self.TYPE, self._dispatch)
+
+    def shutdown(self):
+        """
+        Stop module and wait for handler threads to complete.
+
+        Call this before destroying the module to ensure clean shutdown.
+        """
+        self._shutdown = True
+        with self._threads_lock:
+            threads = list(self._threads)
+        for t in threads:
+            t.join(timeout=5.0)
+
+    def unregister(self):
+        """Unregister from tunnel."""
+        self._tunnel.unregister_module(self.TYPE)
+
+    def send_message(self, msg):
+        """
+        Send a control message via the tunnel.
+
+        Args:
+            msg: Dict or ControlMessage to send on channel 0.
+        """
+        self._tunnel.control.send_message(msg)
+
+    def _dispatch(self, msg):
+        """
+        Route incoming message to appropriate handle_X method.
+
+        Called by tunnel when a message with matching type arrives.
+        """
+        cmd = msg.get('c')
+        if not cmd:
+            return
+
+        # Look for handle_<command> method
+        handler = getattr(self, 'handle_' + cmd, None)
+        if handler is None:
+            handler = getattr(self, 'handle_unknown', None)
+        if handler is None:
+            self._logger.debug('No handler for command: %s', cmd)
+            return
+
+        # Run blocking handlers in separate thread
+        if getattr(handler, '_blocking', False):
+            t = threading.Thread(
+                target=self._run_handler,
+                args=(handler, msg),
+                name='%s.handle_%s' % (self.TYPE, cmd),
+            )
+            t.daemon = True
+            with self._threads_lock:
+                self._threads.append(t)
+            t.start()
+        else:
+            self._safe_call(handler, msg)
+
+    def _run_handler(self, handler, msg):
+        """Run handler in thread with cleanup."""
+        if self._shutdown:
+            return
+        try:
+            self._safe_call(handler, msg)
+        finally:
+            # Clean up thread reference
+            with self._threads_lock:
+                current = threading.current_thread()
+                if current in self._threads:
+                    self._threads.remove(current)
+
+    def _safe_call(self, handler, msg):
+        """Call handler with exception logging."""
+        try:
+            handler(msg)
+        except Exception as e:
+            self._logger.exception('Handler error: %s', e)
+
+
+class RequestResponseMixin(object):
+    """
+    Mixin for modules that use request-response pattern with rid correlation.
+
+    Provides:
+    - Request ID allocation
+    - Pending request tracking
+    - Blocking wait for responses
+
+    Use with BaseModule:
+        class MyModule(RequestResponseMixin, BaseModule):
+            TYPE = 'mymod'
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(RequestResponseMixin, self).__init__(*args, **kwargs)
+        self._rid_lock = threading.Lock()
+        self._next_rid = 1
+        self._pending = {}  # rid -> _PendingRequest
+
+    def _alloc_rid(self):
+        """Allocate a unique request ID."""
+        with self._rid_lock:
+            rid = self._next_rid
+            self._next_rid += 1
+            return rid
+
+    def _register_pending(self, rid):
+        """
+        Register a pending request for response tracking.
+
+        Args:
+            rid: Request ID to track.
+
+        Returns:
+            _PendingRequest object to wait on.
+        """
+        pending = _PendingRequest()
+        self._pending[rid] = pending
+        return pending
+
+    def _wait_response(self, rid, pending, timeout=None):
+        """
+        Wait for a response to a pending request.
+
+        Args:
+            rid: Request ID.
+            pending: _PendingRequest from _register_pending().
+            timeout: Max seconds to wait.
+
+        Returns:
+            Response message dict.
+
+        Raises:
+            ModuleError: On timeout.
+        """
+        if not pending.event.wait(timeout=timeout):
+            self._pending.pop(rid, None)
+            raise ModuleError('timeout', 'request timed out')
+        return pending.response or {}
+
+    def _complete_pending(self, msg):
+        """
+        Complete a pending request with response.
+
+        Call this from handle_X_ok or handle_err methods.
+
+        Args:
+            msg: Response message with 'rid' field.
+
+        Returns:
+            True if a waiter was signaled, False otherwise.
+        """
+        rid = msg.get('rid')
+        if rid is None:
+            return False
+        pending = self._pending.pop(rid, None)
+        if pending is not None:
+            pending.response = msg
+            pending.event.set()
+            return True
+        return False

@@ -5,13 +5,13 @@ File transfer module implementation.
 
 from __future__ import absolute_import
 
-import logging
 import os
 import tempfile
 import threading
 import time
 
 from ...channel import ChannelError
+from ..base_module import BaseModule, RequestResponseMixin, ModuleError, blocking
 from .file_transfer_control_messages import (
     file_list,
     file_list_ok,
@@ -23,42 +23,38 @@ from .file_transfer_control_messages import (
 )
 
 
-class FileTransferError(Exception):
+class FileTransferError(ModuleError):
     """File transfer error."""
-    def __init__(self, code, reason):
-        Exception.__init__(self, reason)
-        self.code = code
-        self.reason = reason
+    pass
 
 
-class _PendingRequest(object):
-    __slots__ = ('event', 'response')
+class FileTransferModule(RequestResponseMixin, BaseModule):
+    """
+    File transfer module (single active transfer).
 
-    def __init__(self):
-        self.event = threading.Event()
-        self.response = None
+    Provides file listing, download, and upload operations over tunnel
+    channels. Only one transfer is active at a time.
 
-
-class FileTransferModule(object):
-    """File transfer module (single active transfer)."""
+    Handlers for incoming requests (handle_list, handle_get, handle_put)
+    are marked @blocking so they run in separate threads and don't block
+    the tunnel's message loop.
+    """
 
     TYPE = 'file'
 
     def __init__(self, tunnel, max_size=None, chunk_size=8192, logger=None):
-        self._tunnel = tunnel
+        super(FileTransferModule, self).__init__(tunnel, logger=logger)
         self._max_size = max_size
         self._chunk_size = chunk_size
-        self._logger = logger or logging.getLogger(__name__)
 
-        self._lock = threading.Lock()
+        # Single active transfer enforcement
+        self._active_lock = threading.Lock()
         self._active = False
         self._active_rid = None
 
-        self._rid_lock = threading.Lock()
-        self._next_rid = 1
-        self._pending = {}
-
-        tunnel.register_module(self.TYPE, self._handle_message)
+    # -------------------------------------------------------------------------
+    # Public API (called by user, runs in caller's thread)
+    # -------------------------------------------------------------------------
 
     def list_dir(self, path, timeout=None):
         """Request a directory listing from the peer."""
@@ -66,7 +62,7 @@ class FileTransferModule(object):
         self._reserve_active(rid)
         try:
             pending = self._register_pending(rid)
-            self._tunnel.control.send_message(file_list(rid, path))
+            self.send_message(file_list(rid, path))
             response = self._wait_response(rid, pending, timeout)
             if response.get('c') == 'list_ok':
                 return response.get('files', [])
@@ -90,9 +86,7 @@ class FileTransferModule(object):
                 raise FileTransferError('io', 'channel open failed')
 
             pending = self._register_pending(rid)
-            self._tunnel.control.send_message(
-                file_get(rid, channel.id, remote_path)
-            )
+            self.send_message(file_get(rid, channel.id, remote_path))
             response = self._wait_response(rid, pending, timeout)
             if response.get('c') == 'err':
                 raise FileTransferError(
@@ -104,7 +98,7 @@ class FileTransferModule(object):
             if size is None:
                 raise FileTransferError('io', 'missing size')
             if self._max_size is not None and size > self._max_size:
-                self._tunnel.control.send_message(
+                self.send_message(
                     file_err(rid, 'too_large', 'size exceeds limit', channel.id)
                 )
                 raise FileTransferError('too_large', 'size exceeds limit')
@@ -146,9 +140,7 @@ class FileTransferModule(object):
                 raise FileTransferError('io', 'channel open failed')
 
             pending = self._register_pending(rid)
-            self._tunnel.control.send_message(
-                file_put(rid, channel.id, remote_path, size)
-            )
+            self.send_message(file_put(rid, channel.id, remote_path, size))
             response = self._wait_response(rid, pending, timeout)
             if response.get('c') == 'err':
                 raise FileTransferError(
@@ -165,46 +157,50 @@ class FileTransferModule(object):
                 channel.close()
             self._clear_active(rid)
 
-    def _handle_message(self, msg):
-        cmd = msg.get('c')
-        rid = msg.get('rid')
-        if not cmd or rid is None:
-            return
+    # -------------------------------------------------------------------------
+    # Response handlers (non-blocking, signal waiters)
+    # -------------------------------------------------------------------------
 
-        if cmd in ('list_ok', 'get_ok', 'put_ok', 'err'):
-            pending = self._pending.pop(rid, None)
-            if pending is not None:
-                pending.response = msg
-                pending.event.set()
-            return
+    def handle_list_ok(self, msg):
+        """Handle list_ok response."""
+        self._complete_pending(msg)
 
-        if self._is_busy():
-            self._tunnel.control.send_message(
-                file_err(rid, 'busy', 'transfer in progress', msg.get('ch'))
-            )
-            return
+    def handle_get_ok(self, msg):
+        """Handle get_ok response."""
+        self._complete_pending(msg)
 
-        if cmd == 'list':
-            self._handle_list_request(msg)
-        elif cmd == 'get':
-            self._handle_get_request(msg)
-        elif cmd == 'put':
-            self._handle_put_request(msg)
+    def handle_put_ok(self, msg):
+        """Handle put_ok response."""
+        self._complete_pending(msg)
 
-    def _handle_list_request(self, msg):
+    def handle_err(self, msg):
+        """Handle error response."""
+        self._complete_pending(msg)
+
+    # -------------------------------------------------------------------------
+    # Request handlers (blocking, run in separate threads)
+    # -------------------------------------------------------------------------
+
+    @blocking
+    def handle_list(self, msg):
+        """Handle incoming list request."""
         rid = msg.get('rid')
         path = msg.get('path')
         if rid is None or path is None:
             return
-        self._reserve_active(rid)
+
+        if not self._try_reserve_active(rid):
+            self.send_message(
+                file_err(rid, 'busy', 'transfer in progress')
+            )
+            return
+
         try:
             abs_path = os.path.abspath(path)
             try:
                 entries = os.listdir(abs_path)
             except OSError as e:
-                self._tunnel.control.send_message(
-                    file_err(rid, 'not_found', str(e))
-                )
+                self.send_message(file_err(rid, 'not_found', str(e)))
                 return
             files = []
             for name in entries:
@@ -214,39 +210,43 @@ class FileTransferModule(object):
                     'size': os.path.getsize(full) if os.path.isfile(full) else 0,
                     'dir': os.path.isdir(full),
                 })
-            self._tunnel.control.send_message(file_list_ok(rid, files))
+            self.send_message(file_list_ok(rid, files))
         finally:
             self._clear_active(rid)
 
-    def _handle_get_request(self, msg):
+    @blocking
+    def handle_get(self, msg):
+        """Handle incoming get request (send file to peer)."""
         rid = msg.get('rid')
         ch = msg.get('ch')
         path = msg.get('path')
         if rid is None or ch is None or path is None:
             return
-        self._reserve_active(rid)
+
+        if not self._try_reserve_active(rid):
+            self.send_message(
+                file_err(rid, 'busy', 'transfer in progress', ch)
+            )
+            return
+
         channel = None
         in_fp = None
         try:
             abs_path = os.path.abspath(path)
             if not os.path.isfile(abs_path):
-                self._tunnel.control.send_message(
-                    file_err(rid, 'not_found', 'not found', ch)
-                )
+                self.send_message(file_err(rid, 'not_found', 'not found', ch))
                 return
             size = os.path.getsize(abs_path)
             if self._max_size is not None and size > self._max_size:
-                self._tunnel.control.send_message(
+                self.send_message(
                     file_err(rid, 'too_large', 'size exceeds limit', ch)
                 )
                 return
             channel = self._tunnel.channel_manager.get_channel(ch)
             if channel is None or not channel.wait_open(timeout=5.0):
-                self._tunnel.control.send_message(
-                    file_err(rid, 'io', 'channel not open', ch)
-                )
+                self.send_message(file_err(rid, 'io', 'channel not open', ch))
                 return
-            self._tunnel.control.send_message(file_get_ok(rid, ch, size))
+            self.send_message(file_get_ok(rid, ch, size))
             in_fp = open(abs_path, 'rb')
             self._send_from_file(channel, in_fp, size)
         finally:
@@ -256,33 +256,39 @@ class FileTransferModule(object):
                 channel.close()
             self._clear_active(rid)
 
-    def _handle_put_request(self, msg):
+    @blocking
+    def handle_put(self, msg):
+        """Handle incoming put request (receive file from peer)."""
         rid = msg.get('rid')
         ch = msg.get('ch')
         path = msg.get('path')
         size = msg.get('size')
         if rid is None or ch is None or path is None or size is None:
             return
-        self._reserve_active(rid)
+
+        if not self._try_reserve_active(rid):
+            self.send_message(
+                file_err(rid, 'busy', 'transfer in progress', ch)
+            )
+            return
+
         channel = None
         out_fp = None
         tmp_path = None
         try:
             if self._max_size is not None and size > self._max_size:
-                self._tunnel.control.send_message(
+                self.send_message(
                     file_err(rid, 'too_large', 'size exceeds limit', ch)
                 )
                 return
             dest_path = os.path.abspath(path)
             channel = self._tunnel.channel_manager.get_channel(ch)
             if channel is None or not channel.wait_open(timeout=5.0):
-                self._tunnel.control.send_message(
-                    file_err(rid, 'io', 'channel not open', ch)
-                )
+                self.send_message(file_err(rid, 'io', 'channel not open', ch))
                 return
             out_fp, tmp_path = self._open_temp_file(dest_path)
-            self._tunnel.control.send_message(file_put_ok(rid, ch))
-            self._recv_to_file(channel, out_fp, size, timeout=10.0)
+            self.send_message(file_put_ok(rid, ch))
+            self._recv_to_file(channel, out_fp, size, timeout=None)
             out_fp.close()
             out_fp = None
             self._replace_file(tmp_path, dest_path)
@@ -296,7 +302,12 @@ class FileTransferModule(object):
                 channel.close()
             self._clear_active(rid)
 
+    # -------------------------------------------------------------------------
+    # File I/O helpers
+    # -------------------------------------------------------------------------
+
     def _send_from_file(self, channel, fp, total_size):
+        """Send file contents to channel."""
         remaining = total_size
         max_retries = 100
         while remaining > 0:
@@ -319,6 +330,7 @@ class FileTransferModule(object):
             remaining -= len(chunk)
 
     def _recv_to_file(self, channel, fp, total_size, timeout):
+        """Receive file contents from channel."""
         remaining = total_size
         deadline = None
         if timeout is not None:
@@ -341,56 +353,57 @@ class FileTransferModule(object):
             fp.write(chunk)
             remaining -= len(chunk)
 
-    def _alloc_rid(self):
-        with self._rid_lock:
-            rid = self._next_rid
-            self._next_rid += 1
-            return rid
-
-    def _register_pending(self, rid):
-        pending = _PendingRequest()
-        self._pending[rid] = pending
-        return pending
-
-    def _wait_response(self, rid, pending, timeout):
-        if not pending.event.wait(timeout=timeout):
-            self._pending.pop(rid, None)
-            raise FileTransferError('io', 'timeout')
-        return pending.response or {}
-
-    def _reserve_active(self, rid):
-        with self._lock:
-            if self._active:
-                raise FileTransferError('busy', 'transfer in progress')
-            self._active = True
-            self._active_rid = rid
-
-    def _clear_active(self, rid):
-        with self._lock:
-            if self._active_rid == rid:
-                self._active = False
-                self._active_rid = None
-
-    def _is_busy(self):
-        with self._lock:
-            return self._active
-
     def _open_temp_file(self, dest_path):
+        """Create temp file in same directory as destination."""
         dest_dir = os.path.dirname(dest_path)
-        fd, tmp_path = tempfile.mkstemp(prefix='.sfb-', dir=dest_dir)
+        if dest_dir:
+            fd, tmp_path = tempfile.mkstemp(prefix='.sfb-', dir=dest_dir)
+        else:
+            fd, tmp_path = tempfile.mkstemp(prefix='.sfb-')
         return os.fdopen(fd, 'wb'), tmp_path
 
     def _replace_file(self, src, dst):
+        """Atomically replace destination with source."""
         try:
             os.replace(src, dst)
         except AttributeError:
+            # Python 2 fallback
             if os.path.exists(dst):
                 os.remove(dst)
             os.rename(src, dst)
 
     def _safe_remove(self, path):
+        """Remove file, ignoring errors."""
         try:
             if path and os.path.exists(path):
                 os.remove(path)
         except OSError:
             pass
+
+    # -------------------------------------------------------------------------
+    # Active transfer management
+    # -------------------------------------------------------------------------
+
+    def _reserve_active(self, rid):
+        """Reserve active slot (raises if busy)."""
+        with self._active_lock:
+            if self._active:
+                raise FileTransferError('busy', 'transfer in progress')
+            self._active = True
+            self._active_rid = rid
+
+    def _try_reserve_active(self, rid):
+        """Try to reserve active slot (returns False if busy)."""
+        with self._active_lock:
+            if self._active:
+                return False
+            self._active = True
+            self._active_rid = rid
+            return True
+
+    def _clear_active(self, rid):
+        """Clear active slot if we own it."""
+        with self._active_lock:
+            if self._active_rid == rid:
+                self._active = False
+                self._active_rid = None

@@ -183,21 +183,30 @@ class AliceTunnel(BaseTunnel):
         ack_data = self._encode_packet(ack_packet)
 
         try:
-            # Send ACK
-            self._transport.send(ack_data)
             self._set_state(TunnelState.CONNECTED)
             self._last_recv_time = time.time()
             self._packets_since_response = 0
 
-            # Wait for response (may contain data or pong)
-            corr_id, response_data = self._transport.recv(
-                timeout=min(self._rtt.rto_sec, remaining_timeout)
-            )
+            # Retransmit final ACK until we see any response from Bob.
+            start = time.time()
+            while True:
+                remaining = remaining_timeout - (time.time() - start)
+                if remaining <= 0:
+                    raise TunnelError('Handshake timeout')
 
-            if response_data:
-                response = self._decode_packet(response_data)
-                if response:
-                    self._process_incoming_packet(response)
+                self._transport.send(ack_data)
+
+                corr_id, response_data = self._transport.recv(
+                    timeout=min(self._rtt.rto_sec, remaining)
+                )
+
+                if response_data:
+                    response = self._decode_packet(response_data)
+                    if response:
+                        self._process_incoming_packet(response)
+                        break
+
+                self._rtt.backoff()
 
             self._logger.info('Connected (local_isn=%d, remote_isn=%d)',
                               self._local_isn, self._remote_isn)

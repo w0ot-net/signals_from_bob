@@ -8,4 +8,5 @@ Project Rules
 - Keepalive pongs are suppressed when any channel has pending data.
 - Asymmetry rules (doc/ASYMMETRY.md): Alice initiates transport, Bob only responds to polls; Alice uses RTT-based retransmit, Bob retransmits opportunistically; Alice timeouts by packet count, Bob by wall-clock silence; throughput for Bob is bounded by Alice's polling rate.
 - invoke python using  `python3`
-- all these end to ends tests for dns transport should use port 5353
+- all end to ends tests for dns transport in direct mode should use port 5353
+- for authoritative DNS mode we should use port 53

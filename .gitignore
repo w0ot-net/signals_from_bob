@@ -26,3 +26,4 @@ venv/
 env/
 .env/
 .claude/
+private_tests/

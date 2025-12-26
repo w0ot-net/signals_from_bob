@@ -437,6 +437,8 @@ class BaseTunnel(object):
             self._logger.warning('Invalid MTU response: %s', agreed)
             return
 
+        # Clamp to our transport limit to enforce symmetric MTU.
+        agreed = min(agreed, self._proposed_mtu or self.DEFAULT_MTU)
         self._negotiated_mtu = agreed
         self._max_packet_size = agreed + PACKET_HEADER_SIZE
         self._mtu_negotiated = True

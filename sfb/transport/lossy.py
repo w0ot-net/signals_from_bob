@@ -207,9 +207,10 @@ class LossyTransport(Transport):
         self._send_imp = send_impairment or NetworkImpairment()
         self._recv_imp = recv_impairment or self._send_imp
 
-        # Track fake corr_ids for dropped packets
+        # Track fake corr_ids for dropped packets with timestamps
         self._next_fake_id = 0x80000000
-        self._dropped_ids = set()
+        self._dropped_ids = {}  # fake_id -> drop_time
+        self._drop_timeout = 5.0  # Clean up after 5 seconds
 
         # Buffer for delayed/reordered responses
         self._delayed = deque()
@@ -239,7 +240,7 @@ class LossyTransport(Transport):
             # Return fake corr_id - recv will never see a response
             fake_id = self._next_fake_id
             self._next_fake_id += 1
-            self._dropped_ids.add(fake_id)
+            self._dropped_ids[fake_id] = time.time()
             return fake_id
 
         # Check for corruption
@@ -267,10 +268,12 @@ class LossyTransport(Transport):
         if ready is not None:
             return ready
 
-        # Handle dropped packet cleanup (non-blocking)
-        if self._dropped_ids and timeout == 0:
-            # Can't return dropped packets, just continue
-            pass
+        # Clean up old dropped packet IDs
+        if self._dropped_ids:
+            expired = [fid for fid, t in self._dropped_ids.items()
+                       if now - t >= self._drop_timeout]
+            for fid in expired:
+                del self._dropped_ids[fid]
 
         # Calculate adjusted timeout
         if timeout is None:
@@ -360,7 +363,7 @@ class LossyTransport(Transport):
     def cancel(self, corr_id):
         """Cancel a pending request."""
         if corr_id in self._dropped_ids:
-            self._dropped_ids.discard(corr_id)
+            del self._dropped_ids[corr_id]
             return True
         return self._inner.cancel(corr_id)
 

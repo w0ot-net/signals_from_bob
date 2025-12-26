@@ -58,7 +58,11 @@ class AliceTunnel(BaseTunnel):
         self._proposed_mtu = max(1, max_packet - PACKET_HEADER_SIZE)
 
         # RTT estimation (Alice only)
-        self._rtt = RttEstimator()
+        self._rtt = RttEstimator(
+            initial_rto_ms=config.protocol_initial_rto_ms,
+            min_rto_ms=config.protocol_min_rto_ms,
+            max_rto_ms=config.protocol_max_rto_ms,
+        )
 
         # Timing
         self._last_send_time = 0
@@ -70,6 +74,8 @@ class AliceTunnel(BaseTunnel):
 
         # Adaptive polling: poll immediately when Bob sends real data
         self._got_data = False
+        # Track if we have real data packets awaiting ACKs (not just keepalives)
+        self._has_pending_data_acks = False
 
     @property
     def rtt_estimator(self):
@@ -244,6 +250,9 @@ class AliceTunnel(BaseTunnel):
 
         if received_any:
             self._packets_since_response = 0
+            # Clear pending data flag if all data has been acked
+            if self._send_window.unacked_count == 0:
+                self._has_pending_data_acks = False
 
         # Check connection timeout
         if self._packets_since_response >= self._max_packets_without_response:
@@ -264,14 +273,14 @@ class AliceTunnel(BaseTunnel):
         # 3. Send new packets if we can
         while self._can_send_new():
             segments = self._collect_segments(self._negotiated_mtu)
+            is_real_data = bool(segments)
             if not segments:
                 # No data to send - decide whether to poll Bob
                 # Poll immediately if:
                 # - Bob sent real data (not just pong) - more might be coming
-                # - We have unacked packets - need ACKs to complete transfer
+                # - We have real data packets awaiting ACKs (not just keepalives)
                 # Otherwise respect keepalive interval (both sides idle).
-                has_unacked = self._send_window.unacked_count > 0
-                should_poll = self._got_data or has_unacked or (
+                should_poll = self._got_data or self._has_pending_data_acks or (
                     now - self._last_send_time >= self._keepalive_interval
                 )
                 if should_poll:
@@ -279,9 +288,10 @@ class AliceTunnel(BaseTunnel):
                         self._negotiated_mtu,
                         keepalive_data=encode_message(tun_ping())
                     )
-                    # Don't reset _got_data here - let the loop fill the pipeline
                 if not segments:
                     break
+            if is_real_data:
+                self._has_pending_data_acks = True
             self._send_new_packet(segments, now)
 
         return True
@@ -333,7 +343,8 @@ class AliceTunnel(BaseTunnel):
         self._last_recv_time = now
 
         # Check if packet contains real data (not just pong)
-        # Real data = any data segment, or control messages other than pong
+        # Real data = any data segment, or control messages other than pong.
+        # Control segments carry one JSON message per line, not multiple.
         for seg in packet.segments:
             if not seg.is_control:
                 # Data segment - definitely real data

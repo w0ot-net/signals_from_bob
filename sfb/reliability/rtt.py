@@ -23,9 +23,12 @@ class RttEstimator(object):
     ALPHA = 0.125  # weight for new sample
     BETA = 0.875   # weight for old srtt (1 - ALPHA)
 
-    def __init__(self):
+    def __init__(self, initial_rto_ms=None, min_rto_ms=None, max_rto_ms=None):
         self._srtt = None
-        self._rto = DEFAULT_RTO_MS
+        self._initial_rto = initial_rto_ms if initial_rto_ms is not None else DEFAULT_RTO_MS
+        self._min_rto = min_rto_ms if min_rto_ms is not None else MIN_RTO_MS
+        self._max_rto = max_rto_ms if max_rto_ms is not None else MAX_RTO_MS
+        self._rto = self._initial_rto
         self._backoff_count = 0
 
     @property
@@ -63,10 +66,9 @@ class RttEstimator(object):
         if self._srtt is not None:
             self._rto = self._clamp(self._srtt * 2)
 
-    @staticmethod
-    def _clamp(rto):
-        if rto < MIN_RTO_MS:
-            return MIN_RTO_MS
-        if rto > MAX_RTO_MS:
-            return MAX_RTO_MS
+    def _clamp(self, rto):
+        if rto < self._min_rto:
+            return self._min_rto
+        if rto > self._max_rto:
+            return self._max_rto
         return rto

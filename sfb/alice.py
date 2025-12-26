@@ -30,8 +30,8 @@ def parse_args():
         help='Base domain for DNS tunnel (e.g., t.example.com)'
     )
     parser.add_argument(
-        '--resolver', required=True,
-        help='DNS resolver as host:port (e.g., 127.0.0.1:5353 for direct mode)'
+        '--resolver',
+        help='DNS resolver as host:port (default: auto-detect system resolver)'
     )
     parser.add_argument(
         '--psk',
@@ -143,7 +143,8 @@ def main():
 
     try:
         # Connect
-        logger.info('Connecting to %s via %s...', args.domain, args.resolver)
+        resolver_desc = args.resolver or 'system resolver'
+        logger.info('Connecting to %s via %s...', args.domain, resolver_desc)
         tunnel.connect(timeout=args.timeout)
         logger.info('Connected')
 

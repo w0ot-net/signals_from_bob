@@ -52,9 +52,9 @@ required `t` and `c` fields.
 ```json
 {"t":"tun","c":"ping"}
 {"t":"tun","c":"mtu","size":500}
-{"t":"ch","c":"open","ch":2,"atype":"ipv4","addr":"10.0.0.1","port":80}
+{"t":"ch","c":"open","ch":2}
 {"t":"ch","c":"close","ch":2}
-{"t":"file","c":"get","ch":4,"path":"/etc/passwd"}
+{"t":"file","c":"get","rid":1,"ch":4,"path":"/etc/passwd"}
 {"t":"sh","c":"open","ch":6,"rows":24,"cols":80}
 ```
 
@@ -178,20 +178,17 @@ Channel messages manage the lifecycle of data channels.
 
 ### open
 
-Request to open a channel and connect to a target.
+Request to open a channel. Channels are generic bidirectional byte streams;
+application-specific data (like connection targets) is negotiated separately
+by the module using the channel.
 
 ```json
-{"t":"ch","c":"open","ch":2,"atype":"ipv4","addr":"192.168.1.1","port":8080}
-{"t":"ch","c":"open","ch":2,"atype":"ipv6","addr":"::1","port":443}
-{"t":"ch","c":"open","ch":2,"atype":"domain","addr":"example.com","port":80}
+{"t":"ch","c":"open","ch":2}
 ```
 
 | Field | Description |
 |-------|-------------|
 | `ch` | Channel ID (odd=Alice, even=Bob) |
-| `atype` | Address type: `ipv4`, `ipv6`, or `domain` |
-| `addr` | Target address |
-| `port` | Target port |
 
 ### open_ok
 

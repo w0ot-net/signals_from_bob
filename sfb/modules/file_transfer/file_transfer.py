@@ -11,7 +11,6 @@ import tempfile
 import threading
 import time
 
-from ...compat import text_type
 from ...channel import ChannelError
 from .file_transfer_control_messages import (
     file_list,
@@ -45,10 +44,8 @@ class FileTransferModule(object):
 
     TYPE = 'file'
 
-    def __init__(self, tunnel, root=None, max_size=None, chunk_size=8192,
-                 logger=None):
+    def __init__(self, tunnel, max_size=None, chunk_size=8192, logger=None):
         self._tunnel = tunnel
-        self._root = os.path.abspath(root or os.getcwd())
         self._max_size = max_size
         self._chunk_size = chunk_size
         self._logger = logger or logging.getLogger(__name__)
@@ -115,7 +112,7 @@ class FileTransferModule(object):
             dest_path = local_path
             if dest_path is None:
                 dest_path = os.path.basename(remote_path)
-            dest_path = self._normalize_local_path(dest_path)
+            dest_path = os.path.abspath(dest_path)
             out_fp, tmp_path = self._open_temp_file(dest_path)
 
             self._recv_to_file(channel, out_fp, size, timeout)
@@ -139,7 +136,7 @@ class FileTransferModule(object):
         channel = None
         in_fp = None
         try:
-            src_path = self._normalize_local_path(local_path)
+            src_path = os.path.abspath(local_path)
             size = os.path.getsize(src_path)
             if self._max_size is not None and size > self._max_size:
                 raise FileTransferError('too_large', 'size exceeds limit')
@@ -201,7 +198,7 @@ class FileTransferModule(object):
             return
         self._reserve_active(rid)
         try:
-            abs_path = self._normalize_remote_path(path)
+            abs_path = os.path.abspath(path)
             try:
                 entries = os.listdir(abs_path)
             except OSError as e:
@@ -231,7 +228,7 @@ class FileTransferModule(object):
         channel = None
         in_fp = None
         try:
-            abs_path = self._normalize_remote_path(path)
+            abs_path = os.path.abspath(path)
             if not os.path.isfile(abs_path):
                 self._tunnel.control.send_message(
                     file_err(rid, 'not_found', 'not found', ch)
@@ -276,7 +273,7 @@ class FileTransferModule(object):
                     file_err(rid, 'too_large', 'size exceeds limit', ch)
                 )
                 return
-            dest_path = self._normalize_remote_path(path)
+            dest_path = os.path.abspath(path)
             channel = self._tunnel.channel_manager.get_channel(ch)
             if channel is None or not channel.wait_open(timeout=5.0):
                 self._tunnel.control.send_message(
@@ -301,15 +298,21 @@ class FileTransferModule(object):
 
     def _send_from_file(self, channel, fp, total_size):
         remaining = total_size
+        max_retries = 100
         while remaining > 0:
             chunk = fp.read(min(self._chunk_size, remaining))
             if not chunk:
                 break
             offset = 0
+            retries = 0
             while offset < len(chunk):
                 try:
                     sent = channel.write(chunk[offset:])
+                    retries = 0  # Reset on success
                 except ChannelError:
+                    retries += 1
+                    if retries >= max_retries:
+                        raise FileTransferError('io', 'channel write failed')
                     time.sleep(0.01)
                     continue
                 offset += sent
@@ -371,42 +374,6 @@ class FileTransferModule(object):
     def _is_busy(self):
         with self._lock:
             return self._active
-
-    def _normalize_remote_path(self, path):
-        return self._normalize_path(path)
-
-    def _normalize_local_path(self, path):
-        return self._normalize_path(path)
-
-    def _normalize_path(self, path):
-        if not isinstance(path, text_type):
-            raise FileTransferError('invalid_path', 'path must be text')
-        norm = os.path.normpath(path)
-        if self._has_traversal(norm):
-            raise FileTransferError('invalid_path', 'path traversal rejected')
-        if os.path.isabs(norm):
-            candidate = os.path.abspath(norm)
-        else:
-            candidate = os.path.abspath(os.path.join(self._root, norm))
-        if not self._is_within_root(candidate):
-            raise FileTransferError('invalid_path', 'path outside root')
-        return candidate
-
-    def _has_traversal(self, path):
-        sep = os.sep
-        alt = os.path.altsep
-        check = path
-        if alt:
-            check = check.replace(alt, sep)
-        parts = check.split(sep)
-        return '..' in parts
-
-    def _is_within_root(self, path):
-        root = os.path.normcase(self._root)
-        candidate = os.path.normcase(path)
-        if candidate == root:
-            return True
-        return candidate.startswith(root + os.sep)
 
     def _open_temp_file(self, dest_path):
         dest_dir = os.path.dirname(dest_path)

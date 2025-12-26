@@ -350,9 +350,10 @@ tunnel.connect(timeout=10.0)
 while tunnel.connected:
     tunnel.tick()
 
-    # Use channels
-    channel = tunnel.channel_manager.open_channel('ipv4', '10.0.0.1', 80)
-    channel.write(b'GET / HTTP/1.0\r\n\r\n')
+    # Use channels (generic byte streams)
+    channel = tunnel.channel_manager.open_channel()
+    channel.wait_open(timeout=5.0)
+    channel.write(b'Hello, world!')
     response = channel.read(4096, timeout=5.0)
 
 tunnel.close()
@@ -375,8 +376,8 @@ tunnel = BobTunnel(
 tunnel.register_module('file', file_module.handle_message)
 
 # Set up channel handler (optional)
-def on_channel_request(channel_id, atype, addr, port):
-    # Connect to target and return True to accept
+def on_channel_request(channel_id):
+    # Accept all channels (or add logic to reject)
     return True
 
 tunnel.channel_manager.set_channel_request_handler(on_channel_request)

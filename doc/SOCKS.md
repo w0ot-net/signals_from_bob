@@ -42,10 +42,10 @@ The SOCKS module uses two protocol layers:
 Channels are just bidirectional byte streams:
 
 ```json
-{"t": "ch", "c": "open", "ch": 1}
-{"t": "ch", "c": "open_ok", "ch": 1}
-{"t": "ch", "c": "close", "ch": 1}
-{"t": "ch", "c": "close_ok", "ch": 1}
+{"t":"ch","c":"open","ch":1}
+{"t":"ch","c":"open_ok","ch":1}
+{"t":"ch","c":"close","ch":1}
+{"t":"ch","c":"close_ok","ch":1}
 ```
 
 No application-specific data. The channel layer only handles:
@@ -58,21 +58,21 @@ No application-specific data. The channel layer only handles:
 The SOCKS module uses its own message type for connection negotiation:
 
 ```json
-{"t": "sock", "c": "connect", "ch": 1, "atype": "ipv4", "addr": "10.0.0.5", "port": 443}
-{"t": "sock", "c": "connect", "ch": 3, "atype": "domain", "addr": "internal.corp", "port": 80}
-{"t": "sock", "c": "connect_ok", "ch": 1}
-{"t": "sock", "c": "connect_fail", "ch": 1, "err": "refused"}
+{"t":"sock","c":"connect","ch":1,"atype":"ipv4","addr":"10.0.0.5","port":443}
+{"t":"sock","c":"connect","ch":3,"atype":"domain","addr":"internal.corp","port":80}
+{"t":"sock","c":"connect_ok","ch":1}
+{"t":"sock","c":"connect_fail","ch":1,"err":"refused"}
 ```
 
 ### Connection Flow
 
-1. Server opens channel: `ch/open {ch: 1}`
-2. Relay accepts channel: `ch/open_ok {ch: 1}`
-3. Server sends target info: `sock/connect {ch: 1, atype, addr, port}`
+1. Server opens channel: `{"t":"ch","c":"open","ch":1}`
+2. Relay accepts channel: `{"t":"ch","c":"open_ok","ch":1}`
+3. Server sends target info: `{"t":"sock","c":"connect","ch":1,"atype":"...","addr":"...","port":...}`
 4. Relay makes TCP connection to target
-5. Relay responds: `sock/connect_ok {ch: 1}` or `sock/connect_fail {ch: 1, err: ...}`
+5. Relay responds: `{"t":"sock","c":"connect_ok","ch":1}` or `{"t":"sock","c":"connect_fail","ch":1,"err":"..."}`
 6. On success: data flows bidirectionally on channel 1
-7. On failure: server closes channel with `ch/close {ch: 1}`
+7. On failure: server closes channel with `{"t":"ch","c":"close","ch":1}`
 
 ### Error Codes
 
@@ -208,7 +208,7 @@ class SocksServer:
     def _send_sock_connect(self, channel_id, atype, addr, port):
         msg = {'t': 'sock', 'c': 'connect', 'ch': channel_id,
                'atype': atype, 'addr': addr, 'port': port}
-        self._tunnel.control.send_message(msg)
+        self._tunnel.control.send_message(msg)  # Serializes to compact JSON
 ```
 
 ### SocksRelay Class
@@ -283,12 +283,14 @@ class SocksRelay:
         self._send_connect_ok(channel_id)
 
     def _send_connect_ok(self, channel_id):
-        msg = {'t': 'sock', 'c': 'connect_ok', 'ch': channel_id}
-        self._tunnel.control.send_message(msg)
+        self._tunnel.control.send_message(
+            {'t': 'sock', 'c': 'connect_ok', 'ch': channel_id}
+        )
 
     def _send_connect_fail(self, channel_id, err):
-        msg = {'t': 'sock', 'c': 'connect_fail', 'ch': channel_id, 'err': err}
-        self._tunnel.control.send_message(msg)
+        self._tunnel.control.send_message(
+            {'t': 'sock', 'c': 'connect_fail', 'ch': channel_id, 'err': err}
+        )
 
     def relay_tick(self):
         """Called periodically to relay data between channels and sockets."""
@@ -362,58 +364,7 @@ SOCKS Client      Bob (Server)              Tunnel              Alice (Relay)   
      │◀──DATA──────────│                       │                      │                  │
 ```
 
-## Prerequisites
-
-Before implementing the SOCKS module:
-
-### 1. Update `open_channel()` (Required)
-
-The `open_channel()` method currently takes `(atype, addr, port)` but channels should be generic pipes with no application-specific data:
-
-```python
-# Current (application-specific):
-channel = channel_manager.open_channel(atype, addr, port)
-
-# Required (generic):
-channel = channel_manager.open_channel()
-```
-
-The channel layer should also auto-accept channel opens (no handler needed for basic operation).
-
-### 2. Channel `wait_open()` (Required)
-
-The Channel class needs a method to block until the channel opens or fails:
-
-```python
-def wait_open(self, timeout=None):
-    """
-    Wait for channel to open.
-
-    Args:
-        timeout: Max seconds to wait (None = forever)
-
-    Returns:
-        bool: True if channel is now OPEN, False if CLOSED/failed/timeout
-    """
-```
-
-Implementation requires:
-- Add `_open_event = threading.Event()` to Channel
-- Signal `_open_event` in `_set_state()` when state becomes OPEN or CLOSED
-- `wait_open()` waits on the event, then checks `self.state == STATE_OPEN`
-
-### 3. Channel `error` property (Required)
-
-Expose the existing `_error` field:
-
-```python
-@property
-def error(self):
-    """Error message if channel failed to open, or None."""
-    return self._error
-```
-
-### 4. Async I/O loop
+## I/O Loop
 
 The module needs to multiplex between:
 - SOCKS server socket (accepting new clients)
@@ -428,18 +379,25 @@ Options:
 
 ## Configuration
 
+In the typical deployment, Bob runs the SOCKS server (exposing a local proxy
+port) and Alice runs the relay (making outbound TCP connections).
+
+The tunnel class names (`AliceTunnel`/`BobTunnel`) refer to the transport role,
+not the SOCKS role. Alice initiates transport connections (DNS queries); Bob
+responds to them. When Bob runs the SOCKS server, he uses `AliceTunnel` because
+he initiates the DNS transport to reach Alice.
+
 ```python
-# Bob (runs SOCKS server, tunnels to Alice)
-# Note: Bob uses AliceTunnel because he initiates the DNS connection
+# Bob (SOCKS server side)
+# Uses AliceTunnel because Bob initiates DNS queries to reach Alice
 tunnel = AliceTunnel(dns_client, crypto=...)
 socks_server = SocksServer(tunnel, listen_addr='127.0.0.1', port=1080)
 socks_server.start()
 
-# Alice (relay, connects to DMZ targets)
-# Note: Alice uses BobTunnel because she receives DNS queries
+# Alice (SOCKS relay side)
+# Uses BobTunnel because Alice receives and responds to DNS queries
 tunnel = BobTunnel(dns_server, crypto=...)
 socks_relay = SocksRelay(tunnel)
-# Automatically handles channel requests via registered handler
 ```
 
 ## Security Considerations

@@ -180,7 +180,6 @@ Alice                               Bob
 |------|---------|
 | `not_found` | File or directory does not exist |
 | `perm` | Permission denied |
-| `invalid_path` | Path rejected by validation |
 | `too_large` | File exceeds configured limit |
 | `busy` | Another transfer is in progress |
 | `io` | Generic I/O error |
@@ -190,16 +189,10 @@ Alice                               Bob
 ## Path Rules
 
 - `path` is interpreted on the receiver's filesystem.
-- Normalize paths and reject traversal (`..`) after normalization.
-- Resolve paths relative to a configured root directory.
+- Paths are resolved using standard OS path normalization (`os.path.abspath`).
+- Both absolute paths (e.g., `/etc/passwd`, `C:\Windows`) and relative paths are
+  supported. Relative paths resolve from the current working directory.
 - Windows: accept `C:\\path` and `C:/path`, normalize to native separators.
-
----
-
-## Security Notes
-
-- File paths are interpreted on the receiver's filesystem.
-- Implementations should validate and normalize paths to avoid unsafe access.
 
 ---
 

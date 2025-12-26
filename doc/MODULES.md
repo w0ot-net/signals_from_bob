@@ -43,9 +43,11 @@ User App ──▶ Bob SOCKS ══════▶ Alice Relay ──▶ Target
 User                Bob                    Alice              Target
  │                   │                       │                   │
  │── SOCKS CONNECT ─▶│                       │                   │
- │                   │── {t:ch,c:open,...} ─▶│                   │
- │                   │                       │── TCP CONNECT ───▶│
+ │                   │── {t:ch,c:open} ─────▶│                   │
  │                   │◀── {t:ch,c:open_ok} ──│                   │
+ │                   │── {t:sock,c:connect} ▶│                   │
+ │                   │                       │── TCP CONNECT ───▶│
+ │                   │◀── {t:sock,c:connect_ok}                  │
  │◀── SOCKS OK ──────│                       │                   │
  │                   │                       │                   │
  │── data ──────────▶│══ ch2 data ══════════▶│── data ──────────▶│
@@ -69,13 +71,15 @@ Not supported (v1):
 
 ### Control Messages
 
-The SOCKS module uses channel messages (`t=ch`) for connection management:
+The SOCKS module uses generic channel messages for the data pipe, then its own
+message type (`sock`) for target negotiation:
 
 ```json
-{"t":"ch","c":"open","ch":2,"atype":"ipv4","addr":"93.184.216.34","port":80}
-{"t":"ch","c":"open","ch":2,"atype":"domain","addr":"example.com","port":443}
+{"t":"ch","c":"open","ch":2}
 {"t":"ch","c":"open_ok","ch":2}
-{"t":"ch","c":"open_fail","ch":2,"reason":"connection refused"}
+{"t":"sock","c":"connect","ch":2,"atype":"ipv4","addr":"93.184.216.34","port":80}
+{"t":"sock","c":"connect_ok","ch":2}
+{"t":"sock","c":"connect_fail","ch":2,"err":"refused"}
 {"t":"ch","c":"close","ch":2}
 {"t":"ch","c":"close_ok","ch":2}
 ```

@@ -158,13 +158,22 @@ class LossyE2ETest(unittest.TestCase):
             print('Transfer: %d bytes in %.2fs (%.2f KB/s)' % (file_size, elapsed, rate))
 
         if self.alice_tunnel:
-            print('Alice tunnel: sent=%d pkts (%d bytes), recv=%d pkts (%d bytes)' % (
+            print('Alice: sent=%d pkts (%d bytes), recv=%d pkts (%d bytes), retransmits=%d' % (
                 self.alice_tunnel._packets_sent,
                 self.alice_tunnel._bytes_sent,
                 self.alice_tunnel._packets_received,
                 self.alice_tunnel._bytes_received,
+                self.alice_tunnel._send_window._retransmit_count,
             ))
-            print('Alice retransmits: %d' % self.alice_tunnel._send_window._retransmit_count)
+
+        if self.bob_tunnel:
+            print('Bob:   sent=%d pkts (%d bytes), recv=%d pkts (%d bytes), retransmits=%d' % (
+                self.bob_tunnel._packets_sent,
+                self.bob_tunnel._bytes_sent,
+                self.bob_tunnel._packets_received,
+                self.bob_tunnel._bytes_received,
+                self.bob_tunnel._send_window._retransmit_count,
+            ))
 
         if self.lossy_alice:
             stats = self.lossy_alice.stats()

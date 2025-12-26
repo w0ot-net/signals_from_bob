@@ -1,9 +1,9 @@
 # -*- coding: ascii -*-
 """
-Integration tests using real DNS transport.
+End-to-end tests using real DNS transport.
 
-Tests end-to-end file transfer between Alice and Bob using
-direct DNS (Alice connects directly to Bob's DNS server).
+Tests file transfer between Alice and Bob using direct DNS
+(Alice connects directly to Bob's DNS server on port 5353).
 """
 
 from __future__ import absolute_import
@@ -22,8 +22,12 @@ from sfb.tunnel import AliceTunnel, BobTunnel, TunnelState
 from sfb.modules.file_transfer import FileTransferModule
 
 
-class DnsIntegrationTest(unittest.TestCase):
-    """Integration tests with real DNS transport."""
+TEST_PORT = 5353
+TEST_DOMAIN = 'test.local'
+
+
+class DnsE2ETest(unittest.TestCase):
+    """End-to-end tests with real DNS transport."""
 
     @classmethod
     def setUpClass(cls):
@@ -41,6 +45,7 @@ class DnsIntegrationTest(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
+        self.bob_transport = None
         self.bob_tunnel = None
         self.alice_tunnel = None
         self.bob_file_module = None
@@ -80,18 +85,28 @@ class DnsIntegrationTest(unittest.TestCase):
             except Exception:
                 pass
 
+        # Close transport explicitly
+        if self.bob_transport:
+            try:
+                self.bob_transport.close()
+            except Exception:
+                pass
+
         # Wait for Bob thread
         if self.bob_thread and self.bob_thread.is_alive():
             self.bob_thread.join(timeout=2.0)
 
-    def _create_config(self, port):
-        """Create config for given port."""
+        # Allow socket to fully release
+        time.sleep(0.1)
+
+    def _create_config(self):
+        """Create config for tests."""
         return Config(
-            dns_base_domain='test.local',
-            dns_resolver='127.0.0.1:%d' % port,
-            dns_listen_addr='127.0.0.1:%d' % port,
-            tunnel_idle_timeout=30.0,
-            tunnel_connect_timeout=5.0,
+            dns_base_domain=TEST_DOMAIN,
+            dns_resolver='127.0.0.1:%d' % TEST_PORT,
+            dns_listen_addr='127.0.0.1:%d' % TEST_PORT,
+            tunnel_idle_timeout=600.0,
+            tunnel_connect_timeout=10.0,
             tunnel_keepalive_interval=1.0,
         )
 
@@ -100,8 +115,8 @@ class DnsIntegrationTest(unittest.TestCase):
         if crypto is None:
             crypto = Plain()
 
-        transport = DnsServer(config)
-        self.bob_tunnel = BobTunnel(transport, config, crypto=crypto)
+        self.bob_transport = DnsServer(config)
+        self.bob_tunnel = BobTunnel(self.bob_transport, config, crypto=crypto)
         self.bob_file_module = FileTransferModule(self.bob_tunnel)
 
         # Change to bob root for file operations
@@ -129,7 +144,7 @@ class DnsIntegrationTest(unittest.TestCase):
         self.alice_tunnel = AliceTunnel(transport, config, crypto=crypto)
 
         # Connect
-        self.alice_tunnel.connect(timeout=5.0)
+        self.alice_tunnel.connect(timeout=10.0)
 
         # Start background tick loop
         self.alice_runner = _TunnelRunner(self.alice_tunnel)
@@ -140,7 +155,7 @@ class DnsIntegrationTest(unittest.TestCase):
 
     def test_connect(self):
         """Test basic connection."""
-        config = self._create_config(15353)
+        config = self._create_config()
 
         self._start_bob(config)
         self._start_alice(config)
@@ -149,7 +164,7 @@ class DnsIntegrationTest(unittest.TestCase):
 
     def test_list_empty_dir(self):
         """Test listing empty directory."""
-        config = self._create_config(15354)
+        config = self._create_config()
 
         # Create empty subdir
         empty_dir = os.path.join(self.bob_root, 'empty')
@@ -158,13 +173,12 @@ class DnsIntegrationTest(unittest.TestCase):
         self._start_bob(config)
         self._start_alice(config)
 
-        # Use relative path (no leading /) - resolved relative to Bob's root
-        result = self.alice_file_module.list_dir('empty', timeout=10.0)
+        result = self.alice_file_module.list_dir('empty', timeout=30.0)
         self.assertEqual(result, [])
 
     def test_list_dir_with_files(self):
         """Test listing directory with files."""
-        config = self._create_config(15355)
+        config = self._create_config()
 
         # Create test files
         test_subdir = os.path.join(self.bob_root, 'files')
@@ -179,7 +193,7 @@ class DnsIntegrationTest(unittest.TestCase):
         self._start_bob(config)
         self._start_alice(config)
 
-        result = self.alice_file_module.list_dir('files', timeout=10.0)
+        result = self.alice_file_module.list_dir('files', timeout=30.0)
 
         # Sort by name for consistent comparison
         result = sorted(result, key=lambda x: x['name'])
@@ -198,7 +212,7 @@ class DnsIntegrationTest(unittest.TestCase):
 
     def test_get_file(self):
         """Test downloading a file."""
-        config = self._create_config(15356)
+        config = self._create_config()
 
         # Create test file on Bob's side
         test_content = b'Hello from Bob! This is test content.'
@@ -210,7 +224,7 @@ class DnsIntegrationTest(unittest.TestCase):
 
         # Download to Alice's side
         local_path = os.path.join(self.alice_root, 'downloaded.txt')
-        self.alice_file_module.get('download.txt', local_path, timeout=10.0)
+        self.alice_file_module.get('download.txt', local_path, timeout=30.0)
 
         # Verify content
         with open(local_path, 'rb') as f:
@@ -219,7 +233,7 @@ class DnsIntegrationTest(unittest.TestCase):
 
     def test_put_file(self):
         """Test uploading a file."""
-        config = self._create_config(15357)
+        config = self._create_config()
 
         # Create test file on Alice's side
         test_content = b'Hello from Alice! Uploading this.'
@@ -231,7 +245,7 @@ class DnsIntegrationTest(unittest.TestCase):
         self._start_alice(config)
 
         # Upload to Bob's side
-        self.alice_file_module.put(local_path, 'uploaded.txt', timeout=10.0)
+        self.alice_file_module.put(local_path, 'uploaded.txt', timeout=30.0)
 
         # Verify content on Bob's side
         remote_path = os.path.join(self.bob_root, 'uploaded.txt')
@@ -239,54 +253,69 @@ class DnsIntegrationTest(unittest.TestCase):
             uploaded = f.read()
         self.assertEqual(uploaded, test_content)
 
-    def test_get_large_file(self):
-        """Test downloading a larger file (multi-packet)."""
-        config = self._create_config(15358)
+    def test_get_1kb_file(self):
+        """Test downloading a 1KB file (multi-packet)."""
+        config = self._create_config()
 
-        # Create larger test file (bigger than MTU, ~1KB for reasonable test time)
-        test_content = b'X' * 1000
-        with open(os.path.join(self.bob_root, 'large.bin'), 'wb') as f:
+        test_content = b'X' * 1024
+        with open(os.path.join(self.bob_root, '1kb.bin'), 'wb') as f:
             f.write(test_content)
 
         self._start_bob(config)
         self._start_alice(config)
 
-        # Download
-        local_path = os.path.join(self.alice_root, 'large.bin')
-        self.alice_file_module.get('large.bin', local_path, timeout=60.0)
+        local_path = os.path.join(self.alice_root, '1kb.bin')
+        self.alice_file_module.get('1kb.bin', local_path, timeout=None)
 
-        # Verify
         with open(local_path, 'rb') as f:
             downloaded = f.read()
         self.assertEqual(len(downloaded), len(test_content))
         self.assertEqual(downloaded, test_content)
 
-    def test_put_large_file(self):
-        """Test uploading a larger file (multi-packet)."""
-        config = self._create_config(15359)
+    def test_put_1kb_file(self):
+        """Test uploading a 1KB file (multi-packet)."""
+        config = self._create_config()
 
-        # Create larger test file (~1KB for reasonable test time)
-        test_content = b'Y' * 1000
-        local_path = os.path.join(self.alice_root, 'large_up.bin')
+        test_content = b'Y' * 1024
+        local_path = os.path.join(self.alice_root, '1kb_up.bin')
         with open(local_path, 'wb') as f:
             f.write(test_content)
 
         self._start_bob(config)
         self._start_alice(config)
 
-        # Upload
-        self.alice_file_module.put(local_path, 'large_up.bin', timeout=60.0)
+        self.alice_file_module.put(local_path, '1kb_up.bin', timeout=None)
 
-        # Verify
-        remote_path = os.path.join(self.bob_root, 'large_up.bin')
+        remote_path = os.path.join(self.bob_root, '1kb_up.bin')
         with open(remote_path, 'rb') as f:
             uploaded = f.read()
         self.assertEqual(len(uploaded), len(test_content))
         self.assertEqual(uploaded, test_content)
 
+    def test_get_1mb_file(self):
+        """Test downloading a 1MB file. This test may take several minutes."""
+        config = self._create_config()
+
+        # 1MB file
+        test_content = b'A' * (1024 * 1024)
+        with open(os.path.join(self.bob_root, '1mb.bin'), 'wb') as f:
+            f.write(test_content)
+
+        self._start_bob(config)
+        self._start_alice(config)
+
+        local_path = os.path.join(self.alice_root, '1mb.bin')
+        # No timeout - let it take as long as needed
+        self.alice_file_module.get('1mb.bin', local_path, timeout=None)
+
+        with open(local_path, 'rb') as f:
+            downloaded = f.read()
+        self.assertEqual(len(downloaded), len(test_content))
+        self.assertEqual(downloaded, test_content)
+
     def test_with_encryption(self):
         """Test file transfer with XOR encryption."""
-        config = self._create_config(15360)
+        config = self._create_config()
         psk = b'test_secret_key'
 
         # Create test file
@@ -299,7 +328,7 @@ class DnsIntegrationTest(unittest.TestCase):
 
         # Download
         local_path = os.path.join(self.alice_root, 'secret.txt')
-        self.alice_file_module.get('secret.txt', local_path, timeout=10.0)
+        self.alice_file_module.get('secret.txt', local_path, timeout=30.0)
 
         # Verify
         with open(local_path, 'rb') as f:

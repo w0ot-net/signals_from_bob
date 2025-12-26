@@ -45,7 +45,7 @@ class Config:
 
     # --- Tunnel ---
     # Alice: seconds between keepalive packets
-    tunnel_keepalive_interval: float = 5.0
+    tunnel_keepalive_interval: float = 1.0
     # Bob: seconds of inactivity before considering connection dead
     tunnel_idle_timeout: float = 60.0
     # Maximum unacknowledged packets in flight (max 16, SACK bitmap limit)

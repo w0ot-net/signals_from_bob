@@ -68,6 +68,9 @@ class AliceTunnel(BaseTunnel):
         self._packets_since_response = 0
         self._max_packets_without_response = config.tunnel_timeout_packets
 
+        # Adaptive polling: poll immediately when Bob sends real data
+        self._got_data = False
+
     @property
     def rtt_estimator(self):
         """RTT estimator instance."""
@@ -161,8 +164,12 @@ class AliceTunnel(BaseTunnel):
 
     def _complete_handshake(self, remaining_timeout):
         """Send final ACK and transition to CONNECTED."""
+        # Use send_window's next seq for ACK so it advances properly
+        ack_seq = self._send_window._next_seq
+        self._send_window._next_seq = (ack_seq + 1) & 0xFFFF
+
         ack_packet = Packet(
-            seq=(self._local_isn + 1) & 0xFFFF,
+            seq=ack_seq,
             ack=(self._remote_isn + 1) & 0xFFFF,
             sack=0,
             flags=FLAG_ACK,
@@ -227,6 +234,7 @@ class AliceTunnel(BaseTunnel):
 
         # 1. Receive all available responses
         received_any = False
+        self._got_data = False  # Reset - will be set if we get non-pong data
         while True:
             corr_id, data = self._transport.recv(timeout=0)
             if corr_id is None:
@@ -254,15 +262,24 @@ class AliceTunnel(BaseTunnel):
             self._send_retransmit(seq, segments, now)
 
         # 3. Send new packets if we can
+        send_count = 0
         while self._can_send_new():
             segments = self._collect_segments(self._negotiated_mtu)
             if not segments:
-                # Check keepalive
-                if now - self._last_send_time >= self._keepalive_interval:
+                # No data to send - decide whether to poll
+                # Poll immediately if:
+                # - Bob sent real data (not just pong) - need more data
+                # - We received any response - need to send updated ACKs
+                # Otherwise respect keepalive interval
+                should_poll = received_any or self._got_data or (
+                    now - self._last_send_time >= self._keepalive_interval
+                )
+                if should_poll:
                     segments = self._collect_segments(
                         self._negotiated_mtu,
                         keepalive_data=encode_message(tun_ping())
                     )
+                    # Don't reset _got_data here - let the loop fill the pipeline
                 if not segments:
                     break
             self._send_new_packet(segments, now)
@@ -314,6 +331,18 @@ class AliceTunnel(BaseTunnel):
 
         self._bytes_received += len(data)
         self._last_recv_time = now
+
+        # Check if packet contains real data (not just pong)
+        # Real data = any data segment, or control messages other than pong
+        for seg in packet.segments:
+            if not seg.is_control:
+                # Data segment - definitely real data
+                self._got_data = True
+            else:
+                # Control segment - check if it's not just pong
+                # Control data is newline-delimited JSON
+                if b'"c":"pong"' not in seg.data and b'"c": "pong"' not in seg.data:
+                    self._got_data = True
 
         rtt_samples = self._process_incoming_packet(packet, now=now)
 

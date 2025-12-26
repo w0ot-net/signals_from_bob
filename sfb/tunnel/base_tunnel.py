@@ -263,9 +263,13 @@ class BaseTunnel(object):
         # Pass through recv_window for ordering and deduplication
         # recv_window.receive() returns list of (seq, packet) ready for delivery
         ready_packets = self._recv_window.receive(packet.seq, packet)
+        self._logger.debug('recv_window returned %d ready packets for seq=%d',
+                          len(ready_packets), packet.seq)
 
         # Deliver segments from in-order packets only
-        for _, ready_packet in ready_packets:
+        for seq, ready_packet in ready_packets:
+            self._logger.debug('Delivering %d segments from seq=%d',
+                              len(ready_packet.segments), seq)
             for segment in ready_packet.segments:
                 self._channel_manager.deliver_segment(segment)
 
@@ -279,16 +283,21 @@ class BaseTunnel(object):
     def _process_control_messages(self):
         """Process pending control messages from channel 0."""
         ctrl = self._channel_manager.control
+        count = 0
         while True:
             try:
                 msg = ctrl.recv_message(timeout=0)
                 if msg is None:
                     break
+                count += 1
+                self._logger.debug('Dispatching control msg: %s', msg)
                 self._dispatch_control_message(msg)
             except ChannelError as e:
                 # Invalid JSON - log and drop
                 self._logger.warning('Invalid control message: %s', e)
                 break
+        if count > 0:
+            self._logger.debug('Processed %d control messages', count)
 
     def register_module(self, type_code, handler):
         """
@@ -366,6 +375,7 @@ class BaseTunnel(object):
 
         Commands: ping, pong, mtu, mtu_ok, window, window_ok
         """
+        self._logger.debug('_handle_tunnel_message: cmd=%s', cmd)
         if cmd == 'ping':
             self._handle_ping(msg)
         elif cmd == 'pong':
@@ -438,6 +448,7 @@ class BaseTunnel(object):
 
         Responds with window_ok containing min(requested, our_max, 16).
         """
+        self._logger.debug('RECV window request: %s', msg)
         requested = msg.get('size', self.DEFAULT_WINDOW)
         if not isinstance(requested, int) or requested < 1:
             self._logger.warning('Invalid window request: %s', requested)
@@ -453,7 +464,7 @@ class BaseTunnel(object):
 
         # Send confirmation
         self.control.send_message(tun_window_ok(agreed))
-        self._logger.debug('Window negotiated: %d (requested %d)', agreed, requested)
+        self._logger.debug('SEND window_ok: %d (requested %d)', agreed, requested)
 
     def _handle_window_ok(self, msg):
         """
@@ -461,6 +472,7 @@ class BaseTunnel(object):
 
         Updates negotiated_window and send_window limit.
         """
+        self._logger.debug('RECV window_ok: %s', msg)
         agreed = msg.get('size', self.DEFAULT_WINDOW)
         if not isinstance(agreed, int) or agreed < 1:
             self._logger.warning('Invalid window response: %s', agreed)
@@ -471,7 +483,7 @@ class BaseTunnel(object):
 
         # Update send window limit
         self._send_window._max_in_flight = agreed
-        self._logger.debug('Window negotiated: %d', agreed)
+        self._logger.debug('Window updated to: %d', agreed)
 
     def _collect_segments(self, max_payload, keepalive_data=None):
         """

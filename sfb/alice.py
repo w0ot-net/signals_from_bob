@@ -1,0 +1,199 @@
+# -*- coding: ascii -*-
+"""Alice client - DNS tunnel endpoint with file transfer."""
+
+from __future__ import absolute_import
+
+import argparse
+import logging
+import os
+import signal
+import sys
+import threading
+import time
+
+from .config import Config
+from .crypto import Plain, XOR
+from .transport.dns import DnsClient
+from .tunnel import AliceTunnel, TunnelState
+from .modules.file_transfer import FileTransferModule
+
+
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description='Alice DNS tunnel client with file transfer'
+    )
+
+    # Connection options
+    parser.add_argument(
+        '--domain', required=True,
+        help='Base domain for DNS tunnel (e.g., t.example.com)'
+    )
+    parser.add_argument(
+        '--resolver', required=True,
+        help='DNS resolver as host:port (e.g., 127.0.0.1:5353 for direct mode)'
+    )
+    parser.add_argument(
+        '--psk',
+        help='Pre-shared key for XOR encryption (omit for no encryption)'
+    )
+    parser.add_argument(
+        '--timeout', type=float, default=30.0,
+        help='Operation timeout in seconds (default: 30)'
+    )
+    parser.add_argument(
+        '-v', '--verbose', action='store_true',
+        help='Enable debug logging'
+    )
+
+    # Subcommands for file operations
+    subparsers = parser.add_subparsers(dest='command', help='File operation')
+
+    # list command
+    list_parser = subparsers.add_parser('list', help='List directory')
+    list_parser.add_argument('path', help='Remote directory path')
+
+    # get command
+    get_parser = subparsers.add_parser('get', help='Download file')
+    get_parser.add_argument('remote', help='Remote file path')
+    get_parser.add_argument('local', nargs='?', help='Local file path (default: same name)')
+
+    # put command
+    put_parser = subparsers.add_parser('put', help='Upload file')
+    put_parser.add_argument('local', help='Local file path')
+    put_parser.add_argument('remote', help='Remote file path')
+
+    return parser.parse_args()
+
+
+class TunnelRunner(object):
+    """Runs the tunnel tick loop in a background thread."""
+
+    def __init__(self, tunnel, logger):
+        self._tunnel = tunnel
+        self._logger = logger
+        self._stop = False
+        self._thread = None
+
+    def start(self):
+        """Start the background tick loop."""
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        """Stop the background tick loop."""
+        self._stop = True
+        if self._thread:
+            self._thread.join(timeout=2.0)
+
+    def _run(self):
+        """Background tick loop."""
+        while not self._stop and self._tunnel._state == TunnelState.CONNECTED:
+            try:
+                self._tunnel.tick()
+            except Exception as e:
+                self._logger.warning('Tick error: %s', e)
+            time.sleep(0.001)
+
+
+def main():
+    """Main entry point."""
+    args = parse_args()
+
+    if not args.command:
+        print('Error: No command specified. Use list, get, or put.')
+        print('Run with --help for usage.')
+        return 1
+
+    # Setup logging
+    level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s %(name)s %(levelname)s %(message)s'
+    )
+    logger = logging.getLogger('alice')
+
+    # Build config
+    config = Config(
+        dns_base_domain=args.domain,
+        dns_resolver=args.resolver,
+    )
+
+    # Crypto
+    if args.psk:
+        crypto = XOR(args.psk.encode('utf-8'))
+        logger.info('Encryption: XOR')
+    else:
+        crypto = Plain()
+        logger.info('Encryption: none')
+
+    # Components
+    transport = DnsClient(config)
+    tunnel = AliceTunnel(transport, config, crypto=crypto)
+    file_module = None
+    runner = None
+
+    # Signal handling
+    def handle_signal(sig, frame):
+        logger.info('Received signal %d, shutting down...', sig)
+        tunnel.close()
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
+    try:
+        # Connect
+        logger.info('Connecting to %s via %s...', args.domain, args.resolver)
+        tunnel.connect(timeout=args.timeout)
+        logger.info('Connected')
+
+        # Start background tick loop
+        runner = TunnelRunner(tunnel, logger)
+        runner.start()
+
+        # Create file module
+        file_module = FileTransferModule(tunnel, logger=logger)
+
+        # Execute command
+        if args.command == 'list':
+            result = file_module.list_dir(args.path, timeout=args.timeout)
+            for entry in result:
+                if entry.get('dir'):
+                    print('d %10s %s/' % ('-', entry['name']))
+                else:
+                    print('- %10d %s' % (entry.get('size', 0), entry['name']))
+
+        elif args.command == 'get':
+            local_path = args.local or os.path.basename(args.remote)
+            logger.info('Downloading %s -> %s', args.remote, local_path)
+            file_module.get(args.remote, local_path, timeout=args.timeout)
+            logger.info('Download complete: %s', local_path)
+
+        elif args.command == 'put':
+            if not os.path.isfile(args.local):
+                logger.error('Local file not found: %s', args.local)
+                return 1
+            size = os.path.getsize(args.local)
+            logger.info('Uploading %s (%d bytes) -> %s', args.local, size, args.remote)
+            file_module.put(args.local, args.remote, timeout=args.timeout)
+            logger.info('Upload complete: %s', args.remote)
+
+        return 0
+
+    except Exception as e:
+        logger.error('Error: %s', e)
+        if args.verbose:
+            logger.exception('Full traceback:')
+        return 1
+
+    finally:
+        if runner:
+            runner.stop()
+        if file_module:
+            file_module.shutdown()
+        tunnel.close()
+        logger.info('Shutdown complete')
+
+
+if __name__ == '__main__':
+    sys.exit(main())

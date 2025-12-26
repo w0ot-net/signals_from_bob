@@ -49,8 +49,13 @@ class DnsServer(Server):
 
         # Create and bind UDP socket
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._sock.bind(self._listen_addr)
+        try:
+            self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._sock.bind(self._listen_addr)
+        except Exception:
+            self._sock.close()
+            self._sock = None
+            raise
 
         # Calculate MTUs
         self._recv_mtu = codec.calc_query_mtu(self._base_domain)

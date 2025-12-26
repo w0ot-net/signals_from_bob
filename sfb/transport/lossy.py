@@ -489,9 +489,8 @@ class LossyServer(Server):
             dup_delay = self._recv_imp.get_delay_sec()
             if dup_delay == 0:
                 dup_delay = 0.001
-            dup_responder = self._wrap_responder(responder)
             self._delayed_requests.append(
-                _DelayedRequest(data, dup_responder, now + dup_delay)
+                _DelayedRequest(data, wrapped_responder, now + dup_delay)
             )
 
         return (data, wrapped_responder)

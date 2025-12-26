@@ -36,6 +36,61 @@ class FileTransferError(ModuleError):
     pass
 
 
+class TransferStats(object):
+    """Statistics for a file transfer."""
+
+    def __init__(self, size=0):
+        self.size = size
+        self.start_time = None
+        self.end_time = None
+
+    def start(self):
+        """Mark transfer start."""
+        self.start_time = time.time()
+
+    def finish(self):
+        """Mark transfer complete."""
+        self.end_time = time.time()
+
+    @property
+    def duration(self):
+        """Transfer duration in seconds."""
+        if self.start_time is None:
+            return 0
+        end = self.end_time if self.end_time else time.time()
+        return max(0.001, end - self.start_time)  # Avoid division by zero
+
+    @property
+    def bytes_per_sec(self):
+        """Transfer rate in bytes per second."""
+        return self.size / self.duration
+
+    def format_rate(self):
+        """Format transfer rate with appropriate unit (B/s, KB/s, MB/s)."""
+        rate = self.bytes_per_sec
+        if rate >= 1024 * 1024:
+            return '%.2f MB/s' % (rate / (1024 * 1024))
+        elif rate >= 1024:
+            return '%.2f KB/s' % (rate / 1024)
+        else:
+            return '%.0f B/s' % rate
+
+    def format_size(self):
+        """Format transfer size with appropriate unit."""
+        size = self.size
+        if size >= 1024 * 1024:
+            return '%.2f MB' % (size / (1024 * 1024))
+        elif size >= 1024:
+            return '%.2f KB' % (size / 1024)
+        else:
+            return '%d B' % size
+
+    def __repr__(self):
+        return 'TransferStats(%s in %.2fs, %s)' % (
+            self.format_size(), self.duration, self.format_rate()
+        )
+
+
 class FileTransferModule(RequestResponseMixin, BaseModule):
     """
     File transfer module (single active transfer).
@@ -68,9 +123,17 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         self._hash_events = {}
         self._hash_values = {}
 
+        # Transfer statistics
+        self._last_stats = None
+
     # -------------------------------------------------------------------------
     # Public API (called by user, runs in caller's thread)
     # -------------------------------------------------------------------------
+
+    @property
+    def last_stats(self):
+        """Statistics from the last completed transfer."""
+        return self._last_stats
 
     def list_dir(self, path, timeout=None):
         """Request a directory listing from the peer."""
@@ -124,6 +187,8 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             dest_path = os.path.abspath(dest_path)
             out_fp, tmp_path = self._open_temp_file(dest_path)
 
+            stats = TransferStats(size)
+            stats.start()
             hash_obj = hashlib.sha256()
             self._recv_to_file(channel, out_fp, size, timeout, hash_obj=hash_obj)
             expected = self._wait_hash_value(rid, timeout)
@@ -133,6 +198,8 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 )
                 raise FileTransferError('hash', 'hash mismatch')
             self.send_message(file_hash_ok(rid, channel.id))
+            stats.finish()
+            self._last_stats = stats
             out_fp.close()
             out_fp = None
             self._replace_file(tmp_path, dest_path)
@@ -172,6 +239,8 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 )
 
             in_fp = open(src_path, 'rb')
+            stats = TransferStats(size)
+            stats.start()
             hash_obj = hashlib.sha256()
             self._send_from_file(channel, in_fp, size, hash_obj=hash_obj)
 
@@ -183,6 +252,8 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                     response.get('code', 'io'),
                     response.get('reason', 'error'),
                 )
+            stats.finish()
+            self._last_stats = stats
         finally:
             if in_fp is not None:
                 in_fp.close()

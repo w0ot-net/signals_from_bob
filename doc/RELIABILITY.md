@@ -93,7 +93,9 @@ polling interval.
 Retransmits reuse an existing in-flight sequence number. The total number of
 unacked packets remains capped at max_in_flight, ensuring the SACK bitmap
 always covers the entire outstanding set. Retransmits are always allowed even
-when the window is full, avoiding deadlock during loss recovery.
+when the window is full, avoiding deadlock during loss recovery. Retransmits
+are still limited by the transport in-flight cap (max_pending), which bounds
+how many polls can be outstanding.
 
 ---
 

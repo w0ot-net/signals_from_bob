@@ -388,7 +388,8 @@ class BaseTunnel(object):
 
     def _handle_ping(self, msg):
         """Handle ping by queueing pong."""
-        self.control.send_message(tun_pong())
+        if not self._channel_manager.has_pending_data():
+            self.control.send_message(tun_pong())
 
     def _handle_mtu(self, msg):
         """

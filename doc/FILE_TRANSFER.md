@@ -29,24 +29,26 @@ All file transfer messages use `t="file"`. Commands are:
 | `put_ok` | File upload confirmed |
 | `err` | Error response |
 
+All messages include a request ID (`rid`) to correlate requests and responses.
+
 ### List Directory
 
 Request a directory listing.
 
 ```json
-{"t":"file","c":"list","path":"/home/user"}
+{"t":"file","c":"list","rid":1,"path":"/home/user"}
 ```
 
 Response:
 
 ```json
-{"t":"file","c":"list_ok","files":[{"name":"a.txt","size":1024,"dir":false}]}
+{"t":"file","c":"list_ok","rid":1,"files":[{"name":"a.txt","size":1024,"dir":false}]}
 ```
 
 If the request fails:
 
 ```json
-{"t":"file","c":"err","reason":"not found"}
+{"t":"file","c":"err","rid":1,"code":"not_found","reason":"not found"}
 ```
 
 ### Download (get)
@@ -54,19 +56,19 @@ If the request fails:
 Request to receive a file from the peer.
 
 ```json
-{"t":"file","c":"get","ch":4,"path":"/home/user/a.txt"}
+{"t":"file","c":"get","rid":2,"ch":4,"path":"/home/user/a.txt"}
 ```
 
 Response on success:
 
 ```json
-{"t":"file","c":"get_ok","ch":4,"size":1024}
+{"t":"file","c":"get_ok","rid":2,"ch":4,"size":1024}
 ```
 
 Response on failure:
 
 ```json
-{"t":"file","c":"err","ch":4,"reason":"not found"}
+{"t":"file","c":"err","rid":2,"ch":4,"code":"not_found","reason":"not found"}
 ```
 
 After `get_ok`, the sender transmits exactly `size` bytes on channel `ch`.
@@ -77,19 +79,19 @@ The receiver reads until `size` bytes are received, then closes the channel.
 Request to send a file to the peer.
 
 ```json
-{"t":"file","c":"put","ch":4,"path":"/tmp/b.txt","size":2048}
+{"t":"file","c":"put","rid":3,"ch":4,"path":"/tmp/b.txt","size":2048}
 ```
 
 Response on success:
 
 ```json
-{"t":"file","c":"put_ok","ch":4}
+{"t":"file","c":"put_ok","rid":3,"ch":4}
 ```
 
 Response on failure:
 
 ```json
-{"t":"file","c":"err","ch":4,"reason":"permission denied"}
+{"t":"file","c":"err","rid":3,"ch":4,"code":"perm","reason":"permission denied"}
 ```
 
 After `put_ok`, the sender transmits exactly `size` bytes on channel `ch`.
@@ -106,6 +108,11 @@ The receiver reads until `size` bytes are received, then closes the channel.
   and sends data on it.
 - The data channel carries raw file bytes, no framing.
 - The receiver relies on the announced `size` to know when the transfer ends.
+- The sender closes the channel after transmitting `size` bytes. The receiver
+  closes after reading `size` bytes or on error.
+
+Only one file transfer is active at a time. If a new request arrives while a
+transfer is in progress, respond with `err` and `code="busy"`.
 
 ---
 
@@ -162,6 +169,30 @@ Alice                               Bob
   channel and send `err` on channel 0.
 - If the receiver gets fewer than `size` bytes before disconnect, treat the
   transfer as failed.
+- Implementations should write uploads to a temporary file and rename on
+  success. On failure, remove the partial file and send `err`.
+
+### Error Codes
+
+`err` messages include a `code` field:
+
+| Code | Meaning |
+|------|---------|
+| `not_found` | File or directory does not exist |
+| `perm` | Permission denied |
+| `invalid_path` | Path rejected by validation |
+| `too_large` | File exceeds configured limit |
+| `busy` | Another transfer is in progress |
+| `io` | Generic I/O error |
+
+---
+
+## Path Rules
+
+- `path` is interpreted on the receiver's filesystem.
+- Normalize paths and reject traversal (`..`) after normalization.
+- Resolve paths relative to a configured root directory.
+- Windows: accept `C:\\path` and `C:/path`, normalize to native separators.
 
 ---
 

@@ -60,32 +60,26 @@ class ChannelManager(object):
         # Round-robin index for segment packing (see CHANNEL_MANAGER.md)
         self._rr_index = 0
 
-        # Callbacks for channel events
-        self._on_channel_request = None  # Called when peer requests channel open
-
     @property
     def control(self):
         """The control channel (channel 0)."""
         return self._control
 
-    def set_channel_request_handler(self, handler):
-        """
-        Set callback for incoming channel open requests.
+    def has_pending_data(self):
+        """Return True if any channel has queued send data."""
+        with self._lock:
+            channels = list(self._channels.values())
+        for channel in channels:
+            if channel._has_send_data():
+                return True
+        return False
 
-        Args:
-            handler: callable(channel_id, atype, addr, port) -> bool
-                     Returns True to accept, False to reject.
+    def open_channel(self):
         """
-        self._on_channel_request = handler
+        Open a new channel.
 
-    def open_channel(self, atype, addr, port):
-        """
-        Open a new channel to the given target.
-
-        Args:
-            atype: Address type ('ipv4', 'ipv6', 'domain')
-            addr: Target address
-            port: Target port
+        Channels are generic bidirectional byte streams. Application-specific
+        negotiation (like SOCKS connect) should happen after the channel opens.
 
         Returns:
             Channel: The new channel (in OPENING state)
@@ -100,8 +94,8 @@ class ChannelManager(object):
             self._channels[channel_id] = channel
 
         # Send OPEN control message
-        from ..tunnel.tunnel_control_messages import ch_open
-        self._control.send_message(ch_open(channel_id, atype, addr, port))
+        from .channel_control_messages import ch_open
+        self._control.send_message(ch_open(channel_id))
 
         return channel
 
@@ -134,7 +128,7 @@ class ChannelManager(object):
             channel._set_state(STATE_CLOSING)
 
         # Send CLOSE control message
-        from ..tunnel.tunnel_control_messages import ch_close
+        from .channel_control_messages import ch_close
         self._control.send_message(ch_close(channel_id))
 
     def deliver_segment(self, segment):
@@ -308,9 +302,6 @@ class ChannelManager(object):
     def _handle_open(self, msg):
         """Handle OPEN request from peer."""
         channel_id = msg.get('ch')
-        atype = msg.get('atype')
-        addr = msg.get('addr')
-        port = msg.get('port')
 
         if channel_id is None:
             return
@@ -328,25 +319,15 @@ class ChannelManager(object):
             if channel_id in self._channels:
                 return
 
-        # Ask handler if we should accept
-        accepted = False
-        if self._on_channel_request:
-            try:
-                accepted = self._on_channel_request(channel_id, atype, addr, port)
-            except Exception:
-                accepted = False
+        # Auto-accept: channels are generic pipes, application layer
+        # handles any additional negotiation after channel is open
+        with self._lock:
+            channel = Channel(channel_id)
+            channel._set_state(STATE_OPEN)
+            self._channels[channel_id] = channel
 
-        if accepted:
-            with self._lock:
-                channel = Channel(channel_id)
-                channel._set_state(STATE_OPEN)
-                self._channels[channel_id] = channel
-
-            from ..tunnel.tunnel_control_messages import ch_open_ok
-            self._control.send_message(ch_open_ok(channel_id))
-        else:
-            from ..tunnel.tunnel_control_messages import ch_open_fail
-            self._control.send_message(ch_open_fail(channel_id, 'rejected'))
+        from .channel_control_messages import ch_open_ok
+        self._control.send_message(ch_open_ok(channel_id))
 
     def _handle_open_ok(self, msg):
         """Handle OPEN_OK response."""
@@ -395,7 +376,7 @@ class ChannelManager(object):
             return
 
         # Send CLOSE_OK
-        from ..tunnel.tunnel_control_messages import ch_close_ok
+        from .channel_control_messages import ch_close_ok
         self._control.send_message(ch_close_ok(channel_id))
 
         channel._set_state(STATE_CLOSED)

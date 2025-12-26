@@ -15,8 +15,32 @@ from .transport_base import (
     TransportError,
 )
 
+from .lossy import (
+    NetworkImpairment,
+    LossyTransport,
+    LossyServer,
+    # Presets
+    no_impairment,
+    high_latency,
+    moderate_loss,
+    heavy_loss,
+    burst_loss,
+    extreme_conditions,
+    chaos,
+)
+
 __all__ = [
     'Transport',
     'Server',
     'TransportError',
+    'NetworkImpairment',
+    'LossyTransport',
+    'LossyServer',
+    'no_impairment',
+    'high_latency',
+    'moderate_loss',
+    'heavy_loss',
+    'burst_loss',
+    'extreme_conditions',
+    'chaos',
 ]

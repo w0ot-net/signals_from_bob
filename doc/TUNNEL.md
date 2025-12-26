@@ -185,6 +185,9 @@ keepalive—no explicit ping/pong needed.
 
 Keepalive interval is configurable (default: 5 seconds).
 
+Pong responses are suppressed when any channel data is queued; real data
+replaces the keepalive.
+
 ---
 
 ## Control Message Dispatch

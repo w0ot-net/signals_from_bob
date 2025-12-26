@@ -179,6 +179,7 @@ sfb/
 ├── channel/
 │   ├── __init__.py
 │   ├── channel.py             # Channel class
+│   ├── channel_control_messages.py # Channel control message helpers
 │   ├── channel_manager.py     # Channel multiplexing
 │   └── control_channel.py     # Control message helpers
 ├── transport/
@@ -189,6 +190,12 @@ sfb/
 │       ├── codec.py           # Base32/64 encoding
 │       ├── dns_client.py      # Alice's DNS client
 │       └── dns_server.py      # Bob's DNS server
+├── modules/
+│   ├── __init__.py
+│   └── file_transfer/
+│       ├── __init__.py
+│       ├── file_transfer_control_messages.py
+│       └── file_transfer.py
 └── tunnel/
     ├── __init__.py            # Exports AliceTunnel, BobTunnel
     ├── base_tunnel.py         # BaseTunnel with shared functionality

@@ -332,6 +332,7 @@ responses.
 | `base_domain` | Tunnel domain suffix | `tunnel.example.com` |
 | `resolver` | DNS server to query | `203.0.113.1:53` |
 | `timeout` | Query timeout | `5s` |
+| `pending_timeout` | Stale query timeout (frees in-flight slots, min 1s) | `10s` |
 
 **Direct mode:** `resolver` must be set to Bob's address. The `base_domain` can
 be any valid domain suffix (e.g., `x.local`); it just needs to match Bob's
@@ -478,22 +479,26 @@ if corr_id in in_flight:
 ### Timeout Handling
 
 The transport does not retry - that's the reliability layer's job. Stale
-pending entries are pruned when no response arrives:
+pending entries are automatically pruned when no response arrives to free
+in-flight capacity. Pruning runs on every `pending_count()`, `send()`, and
+`recv()` call:
 
 ```python
-def prune_stale(self, max_age):
-    """Remove pending queries older than max_age seconds."""
+def _prune_stale(self):
+    """Remove pending queries older than pending_timeout."""
     now = time.time()
     stale = [cid for cid, pq in self._pending.items()
-             if now - pq.send_time > max_age]
+             if now - pq.send_time > self._pending_timeout]
     for cid in stale:
         dns_id = self._pending[cid].dns_id
         del self._pending[cid]
-        self._dns_id_map.pop(dns_id, None)
+        self._dns_to_corr.pop(dns_id, None)
 ```
 
-The tunnel calls this periodically or relies on the reliability layer's
-retransmit logic to resend lost packets.
+Pruning cannot be disabled (`pending_timeout` minimum is 1 second). This
+prevents transport-level deadlock when all responses are lost - without
+pruning, Alice would be permanently stuck waiting for responses that will
+never arrive.
 
 ---
 

@@ -249,12 +249,12 @@ class AliceTunnel(BaseTunnel):
             self._rtt.rto_sec, now=now
         )
         for seq, segments in retransmits:
-            if not self._can_send():
+            if not self._can_send_retransmit():
                 break
             self._send_retransmit(seq, segments, now)
 
         # 3. Send new packets if we can
-        while self._can_send():
+        while self._can_send_new():
             segments = self._collect_segments(self._negotiated_mtu)
             if not segments:
                 # Check keepalive
@@ -269,10 +269,14 @@ class AliceTunnel(BaseTunnel):
 
         return True
 
-    def _can_send(self):
-        """Check if we can send another packet."""
+    def _can_send_new(self):
+        """Check if we can send a new packet."""
         return (self._transport.pending_count() < self._transport.max_pending and
                 self._send_window.can_send)
+
+    def _can_send_retransmit(self):
+        """Check if we can send a retransmit packet."""
+        return self._transport.pending_count() < self._transport.max_pending
 
     def _send_new_packet(self, segments, now):
         """Send a new packet with given segments."""

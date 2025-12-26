@@ -840,13 +840,11 @@ class MessageFactoryTests(unittest.TestCase):
     def test_ch_open(self):
         """Verify ch_open creates correct message."""
         from sfb.tunnel.tunnel_control_messages import ch_open
-        msg = ch_open(1, 'ipv4', '127.0.0.1', 80).to_dict()
+        msg = ch_open(1).to_dict()
         self.assertEqual(msg['t'], 'ch')
         self.assertEqual(msg['c'], 'open')
         self.assertEqual(msg['ch'], 1)
-        self.assertEqual(msg['atype'], 'ipv4')
-        self.assertEqual(msg['addr'], '127.0.0.1')
-        self.assertEqual(msg['port'], 80)
+        # Channels are generic - no atype/addr/port
 
     def test_ch_open_ok(self):
         """Verify ch_open_ok creates correct message."""
@@ -895,8 +893,8 @@ class MessageFactoryTests(unittest.TestCase):
 
     def test_encode_compact_format(self):
         """Verify encode uses compact JSON format."""
-        from sfb.tunnel.tunnel_control_messages import encode, ch_open
-        msg = ch_open(1, 'ipv4', '10.0.0.1', 443)
+        from sfb.tunnel.tunnel_control_messages import encode, tun_mtu
+        msg = tun_mtu(512)
         encoded = encode(msg)
         # Should have no spaces after separators
         self.assertNotIn(b': ', encoded)

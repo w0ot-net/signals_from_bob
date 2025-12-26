@@ -38,7 +38,7 @@ class Channel(object):
 
     __slots__ = (
         'id', 'state', '_send_buf', '_recv_buf', '_lock',
-        '_recv_event', '_closed_event', '_error', '_max_send_buf',
+        '_recv_event', '_closed_event', '_open_event', '_error', '_max_send_buf',
     )
 
     def __init__(self, channel_id, max_send_buf=65536):
@@ -56,6 +56,7 @@ class Channel(object):
         self._lock = threading.Lock()
         self._recv_event = threading.Event()
         self._closed_event = threading.Event()
+        self._open_event = threading.Event()
         self._error = None
         self._max_send_buf = max_send_buf
 
@@ -80,6 +81,11 @@ class Channel(object):
         """Current bytes available for reading."""
         with self._lock:
             return sum(len(chunk) for chunk in self._recv_buf)
+
+    @property
+    def error(self):
+        """Error message if channel failed to open or closed with error."""
+        return self._error
 
     def write(self, data):
         """
@@ -203,6 +209,20 @@ class Channel(object):
         """
         return self._closed_event.wait(timeout=timeout)
 
+    def wait_open(self, timeout=None):
+        """
+        Wait for channel to open.
+
+        Args:
+            timeout: max seconds to wait (None = forever)
+
+        Returns:
+            bool: True if channel is now OPEN, False if CLOSED/failed/timeout
+        """
+        if not self._open_event.wait(timeout=timeout):
+            return False  # Timeout
+        return self.state == STATE_OPEN
+
     # --- Methods called by muxer ---
 
     def _set_state(self, state, error=None):
@@ -213,9 +233,10 @@ class Channel(object):
                 self._error = error
             if state == STATE_CLOSED:
                 self._closed_event.set()
+                self._open_event.set()  # Also signal open waiters (failed)
                 self._recv_event.set()
             elif state == STATE_OPEN:
-                pass  # Could notify waiters
+                self._open_event.set()  # Signal open waiters (success)
 
     def _deliver(self, data):
         """Deliver received data to channel (called by muxer)."""

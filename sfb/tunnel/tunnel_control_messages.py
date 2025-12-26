@@ -73,24 +73,18 @@ def tun_window_ok(size):
 # Channel Messages (t="ch")
 # =============================================================================
 
-def ch_open(ch, atype, addr, port):
+def ch_open(ch):
     """
     Request to open a channel.
 
+    Channels are generic bidirectional byte streams. Application-specific
+    data (like connection targets) should be negotiated separately after
+    the channel is open.
+
     Args:
         ch: Channel ID (odd=Alice, even=Bob)
-        atype: Address type ('ipv4', 'ipv6', 'domain')
-        addr: Target address
-        port: Target port
     """
-    return ControlMessage(
-        T_CHANNEL,
-        'open',
-        ch=ch,
-        atype=atype,
-        addr=addr,
-        port=port,
-    )
+    return ControlMessage(T_CHANNEL, 'open', ch=ch)
 
 
 def ch_open_ok(ch):

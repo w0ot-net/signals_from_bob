@@ -41,7 +41,7 @@ class DnsClient(Transport):
     """
 
     def __init__(self, base_domain, resolver=None, max_pending=16,
-                 qtype=codec.QTYPE_TXT, edns_size=512):
+                 qtype=codec.QTYPE_TXT, edns_size=512, pending_timeout=10.0):
         """
         Initialize DNS client transport.
 
@@ -51,11 +51,16 @@ class DnsClient(Transport):
             max_pending: Maximum concurrent in-flight queries
             qtype: Query type (QTYPE_TXT or QTYPE_NULL)
             edns_size: EDNS0 UDP buffer size (512=standard, 4096=large)
+            pending_timeout: Seconds before considering a query stale (min 1.0)
         """
+        if pending_timeout < 1.0:
+            raise ValueError('pending_timeout must be at least 1.0 seconds')
+
         self._base_domain = base_domain.lower().rstrip('.')
         self._qtype = qtype
         self._edns_size = edns_size
         self._max_pending = max_pending
+        self._pending_timeout = pending_timeout
         self._nonce = random.randint(0, 0xFFFF)
         self._query_id = random.randint(0, 0xFFFF)
 
@@ -100,6 +105,7 @@ class DnsClient(Transport):
 
     def pending_count(self):
         """Return number of queries awaiting response."""
+        self._prune_stale()
         return len(self._pending)
 
     def send(self, data):
@@ -119,6 +125,9 @@ class DnsClient(Transport):
             raise TransportError(
                 'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
             )
+
+        # Prune stale pending queries before sending
+        self._prune_stale()
 
         # Generate IDs
         corr_id = self._next_corr_id
@@ -160,6 +169,7 @@ class DnsClient(Transport):
         Raises:
             TransportError: on I/O failure
         """
+        self._prune_stale()
         if timeout is None:
             # Block indefinitely until we get a valid response
             while True:
@@ -250,6 +260,17 @@ class DnsClient(Transport):
         del self._pending[corr_id]
         del self._dns_to_corr[pending.dns_id]
         return True
+
+    def _prune_stale(self, now=None):
+        """Remove stale pending queries to free capacity."""
+        if now is None:
+            now = time.time()
+        stale = [cid for cid, pq in self._pending.items()
+                 if now - pq.send_time > self._pending_timeout]
+        for cid in stale:
+            dns_id = self._pending[cid].dns_id
+            del self._pending[cid]
+            self._dns_to_corr.pop(dns_id, None)
 
     def _encode_query(self, data):
         """Encode data into DNS query name with nonce."""

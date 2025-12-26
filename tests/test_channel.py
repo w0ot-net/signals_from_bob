@@ -74,6 +74,40 @@ class ChannelTests(unittest.TestCase):
         self.assertTrue(is_bob_channel(2))
         self.assertFalse(is_bob_channel(1))
 
+    def test_wait_open_success(self):
+        """wait_open returns True when channel opens."""
+        ch = Channel(1)
+        ch._set_state(STATE_OPENING)
+        # Simulate peer accepting
+        ch._set_state(STATE_OPEN)
+        self.assertTrue(ch.wait_open(timeout=0.1))
+        self.assertTrue(ch.is_open)
+
+    def test_wait_open_failure(self):
+        """wait_open returns False when channel fails to open."""
+        ch = Channel(1)
+        ch._set_state(STATE_OPENING)
+        # Simulate peer rejecting
+        ch._set_state(STATE_CLOSED, error='rejected')
+        self.assertFalse(ch.wait_open(timeout=0.1))
+        self.assertTrue(ch.is_closed)
+        self.assertEqual(ch.error, 'rejected')
+
+    def test_wait_open_timeout(self):
+        """wait_open returns False on timeout."""
+        ch = Channel(1)
+        ch._set_state(STATE_OPENING)
+        # Don't transition state - should timeout
+        self.assertFalse(ch.wait_open(timeout=0.01))
+        self.assertEqual(ch.state, STATE_OPENING)
+
+    def test_error_property(self):
+        """error property exposes failure reason."""
+        ch = Channel(1)
+        self.assertIsNone(ch.error)
+        ch._set_state(STATE_CLOSED, error='connection refused')
+        self.assertEqual(ch.error, 'connection refused')
+
 
 class ControlChannelTests(unittest.TestCase):
     def test_send_recv_message_roundtrip(self):
@@ -112,7 +146,7 @@ class ChannelManagerTests(unittest.TestCase):
 
     def test_open_channel_sends_open(self):
         mgr = ChannelManager(is_alice=True)
-        ch = mgr.open_channel('ipv4', '127.0.0.1', 80)
+        ch = mgr.open_channel()
         self.assertEqual(ch.state, STATE_OPENING)
         msgs = self._drain_control_messages(mgr)
         self.assertEqual(len(msgs), 1)
@@ -132,23 +166,15 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertEqual(msgs[0]['c'], 'close')
         self.assertEqual(msgs[0]['ch'], 1)
 
-    def test_handle_open_accept(self):
+    def test_handle_open_auto_accepts(self):
+        """Channels are auto-accepted - they're generic pipes."""
         mgr = ChannelManager(is_alice=True)
-        accepted = []
-
-        def handler(channel_id, atype, addr, port):
-            accepted.append((channel_id, atype, addr, port))
-            return True
-
-        mgr.set_channel_request_handler(handler)
+        # Receive open request from Bob (even channel ID)
         mgr.handle_control_message({
             'c': 'open',
             'ch': 2,
-            'atype': 'ipv4',
-            'addr': '127.0.0.1',
-            'port': 80,
         })
-        self.assertEqual(accepted, [(2, 'ipv4', '127.0.0.1', 80)])
+        # Should be auto-accepted
         ch = mgr.get_channel(2)
         self.assertIsNotNone(ch)
         self.assertEqual(ch.state, STATE_OPEN)
@@ -157,21 +183,18 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertEqual(msgs[0]['c'], 'open_ok')
         self.assertEqual(msgs[0]['ch'], 2)
 
-    def test_handle_open_reject(self):
+    def test_handle_open_rejects_wrong_ownership(self):
+        """Alice should reject channels with Alice's ID (odd)."""
         mgr = ChannelManager(is_alice=True)
-        mgr.set_channel_request_handler(lambda *args: False)
+        # Bob tries to open a channel with Alice's ID - should be rejected
         mgr.handle_control_message({
             'c': 'open',
-            'ch': 2,
-            'atype': 'ipv4',
-            'addr': '127.0.0.1',
-            'port': 80,
+            'ch': 1,  # Odd = Alice's namespace
         })
-        self.assertIsNone(mgr.get_channel(2))
+        # Should be silently ignored (no channel created, no response)
+        self.assertIsNone(mgr.get_channel(1))
         msgs = self._drain_control_messages(mgr)
-        self.assertEqual(msgs[0]['t'], 'ch')
-        self.assertEqual(msgs[0]['c'], 'open_fail')
-        self.assertEqual(msgs[0]['ch'], 2)
+        self.assertEqual(msgs, [])
 
     def test_handle_open_ok_and_fail(self):
         mgr = ChannelManager(is_alice=True)

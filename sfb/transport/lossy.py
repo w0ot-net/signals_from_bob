@@ -121,20 +121,6 @@ class NetworkImpairment(object):
             return True
         return False
 
-    def corrupt_data(self, data):
-        """Corrupt random bytes in data."""
-        if not data:
-            return data
-        data = bytearray(data)
-        num_bytes = self._rng.randint(
-            self.corrupt_bytes[0],
-            min(self.corrupt_bytes[1], len(data))
-        )
-        for _ in range(num_bytes):
-            pos = self._rng.randint(0, len(data) - 1)
-            data[pos] ^= self._rng.randint(1, 255)
-        return bytes(data)
-
     def get_delay_sec(self):
         """Get delay for this packet in seconds."""
         if self.delay_ms == 0 and self.jitter_ms == 0:
@@ -255,10 +241,9 @@ class LossyTransport(Transport):
 
         # Check for duplication
         if self._send_imp.should_duplicate():
-            dup_data = data
-            if self._send_imp.should_corrupt():
-                dup_data = self._send_imp.corrupt_data(dup_data)
-            self._inner.send(dup_data)
+            # Duplicate could also be corrupted (dropped)
+            if not self._send_imp.should_corrupt():
+                self._inner.send(data)
 
         return corr_id
 
@@ -363,13 +348,6 @@ class LossyTransport(Transport):
             return None
         return min(pkt.deliver_at for pkt in self._delayed)
 
-    def cancel(self, corr_id):
-        """Cancel a pending request."""
-        if corr_id in self._dropped_ids:
-            del self._dropped_ids[corr_id]
-            return True
-        return self._inner.cancel(corr_id)
-
     def close(self):
         """Close the transport."""
         self._delayed.clear()
@@ -464,9 +442,9 @@ class LossyServer(Server):
             # Try to get another request
             return self.recv(timeout=0)
 
-        # Check for corruption
+        # Check for corruption (simulate lower-layer discard)
         if self._recv_imp.should_corrupt():
-            data = self._recv_imp.corrupt_data(data)
+            return self.recv(timeout=0)
 
         # Check for delay/reorder
         delay = self._recv_imp.get_delay_sec()
@@ -506,19 +484,16 @@ class LossyServer(Server):
             if send_imp.should_drop():
                 return  # Silently drop response
 
-            # Check for corruption
+            # Check for corruption (simulate lower-layer discard)
             if send_imp.should_corrupt():
-                data = send_imp.corrupt_data(data)
+                return  # Silently drop response
 
             # Send response
             responder(data)
 
             # Check for duplication
             if send_imp.should_duplicate():
-                dup_data = data
-                if send_imp.should_corrupt():
-                    dup_data = send_imp.corrupt_data(dup_data)
-                responder(dup_data)
+                responder(data)
 
         return impaired_responder
 

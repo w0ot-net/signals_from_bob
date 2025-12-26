@@ -241,24 +241,6 @@ class DnsClient(Transport):
         _LOG.debug('dns recv corr=%d dns_id=%d len=%d', corr_id, dns_id, len(payload))
         return (corr_id, payload)
 
-    def cancel(self, corr_id):
-        """
-        Cancel a pending query.
-
-        Args:
-            corr_id: Correlation ID from send()
-
-        Returns:
-            bool: True if cancelled, False if not found
-        """
-        if corr_id not in self._pending:
-            return False
-
-        pending = self._pending[corr_id]
-        del self._pending[corr_id]
-        del self._dns_to_corr[pending.dns_id]
-        return True
-
     def _prune_stale(self, now=None):
         """Remove stale pending queries to free capacity."""
         if now is None:

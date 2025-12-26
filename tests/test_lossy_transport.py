@@ -60,12 +60,6 @@ class MockTransport(Transport):
     def recv_mtu(self):
         return 200
 
-    def cancel(self, corr_id):
-        if corr_id in self._pending:
-            del self._pending[corr_id]
-            return True
-        return False
-
     def close(self):
         self._pending.clear()
 
@@ -154,20 +148,6 @@ class NetworkImpairmentTests(unittest.TestCase):
         # Should have some variance
         self.assertGreater(max(delays) - min(delays), 0.01)
 
-    def test_corruption(self):
-        imp = NetworkImpairment(
-            corrupt_rate=1.0,
-            corrupt_bytes=(1, 1),
-            seed=42
-        )
-        data = b'\x00' * 10
-        corrupted = imp.corrupt_data(data)
-        self.assertNotEqual(data, corrupted)
-        self.assertEqual(len(data), len(corrupted))
-        # Exactly one byte should differ
-        diffs = sum(1 for a, b in zip(data, corrupted) if a != b)
-        self.assertEqual(diffs, 1)
-
     def test_stats_tracking(self):
         imp = NetworkImpairment(loss_rate=0.5, dup_rate=0.5, seed=42)
         for _ in range(100):
@@ -214,16 +194,16 @@ class LossyTransportTests(unittest.TestCase):
         result = lossy.recv(timeout=0)
         self.assertEqual(result, (None, None))
 
-    def test_corruption_modifies_data(self):
+    def test_corruption_drops_packet(self):
+        """Corruption simulates lower-layer discard (packet dropped, not modified)."""
         inner = MockTransport()
         imp = NetworkImpairment(corrupt_rate=1.0, corrupt_bytes=(1, 1), seed=42)
         lossy = LossyTransport(inner, imp)
 
         lossy.send(b'\x00' * 10)
 
-        # Inner should have received corrupted data
-        self.assertEqual(len(inner._sent), 1)
-        self.assertNotEqual(inner._sent[0], b'\x00' * 10)
+        # Corrupted packets are dropped, not sent to inner
+        self.assertEqual(len(inner._sent), 0)
 
     def test_duplication(self):
         inner = MockTransport()
@@ -320,16 +300,17 @@ class LossyServerTests(unittest.TestCase):
         # Response should be dropped
         self.assertEqual(inner._responses, [])
 
-    def test_corruption_modifies_request(self):
+    def test_corruption_drops_request(self):
+        """Corruption simulates lower-layer discard (request dropped, not modified)."""
         inner = MockServer()
         imp = NetworkImpairment(corrupt_rate=1.0, corrupt_bytes=(1, 1), seed=42)
         lossy = LossyServer(inner, recv_impairment=imp)
 
         inner.inject_request(b'\x00' * 10)
-        data, responder = lossy.recv(timeout=0)
+        result = lossy.recv(timeout=0)
 
-        self.assertNotEqual(data, b'\x00' * 10)
-        self.assertEqual(len(data), 10)
+        # Corrupted request is dropped
+        self.assertEqual(result, (None, None))
 
     def test_stats_accessible(self):
         inner = MockServer()

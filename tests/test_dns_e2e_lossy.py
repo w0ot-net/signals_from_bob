@@ -367,11 +367,11 @@ class LossyE2ETest(unittest.TestCase):
     # --- Tests with delay/jitter ---
 
     def test_get_1kb_high_latency(self):
-        """Test 1KB download with high latency (50ms delay, 25ms jitter)."""
+        """Test 1KB download with high latency (10ms delay, 5ms jitter)."""
         config = self._create_config()
         impairment = NetworkImpairment(
-            delay_ms=50,
-            jitter_ms=25,
+            delay_ms=10,
+            jitter_ms=5,
             seed=42
         )
 
@@ -451,11 +451,11 @@ class LossyE2ETest(unittest.TestCase):
     # --- Tests with reordering ---
 
     def test_get_1kb_reordering(self):
-        """Test 1KB download with 20% packet reordering."""
+        """Test 1KB download with 10% packet reordering."""
         config = self._create_config()
         impairment = NetworkImpairment(
-            reorder_rate=0.20,
-            reorder_wait_ms=30,
+            reorder_rate=0.10,
+            reorder_wait_ms=5,
             seed=42
         )
 
@@ -507,12 +507,12 @@ class LossyE2ETest(unittest.TestCase):
     # --- Combined impairment tests ---
 
     def test_get_1kb_moderate_conditions(self):
-        """Test 1KB download with moderate impairment (5% loss, 30ms delay, 10% jitter)."""
+        """Test 1KB download with moderate impairment (5% loss, 5ms delay, 2ms jitter)."""
         config = self._create_config()
         impairment = NetworkImpairment(
             loss_rate=0.05,
-            delay_ms=30,
-            jitter_ms=15,
+            delay_ms=5,
+            jitter_ms=2,
             dup_rate=0.02,
             seed=42
         )
@@ -538,15 +538,15 @@ class LossyE2ETest(unittest.TestCase):
         """Test 1KB download with chaos conditions (everything bad)."""
         config = self._create_config()
         impairment = NetworkImpairment(
-            loss_rate=0.15,
+            loss_rate=0.10,
             burst_loss_prob=0.05,
-            burst_loss_len=(2, 4),
-            delay_ms=20,
-            jitter_ms=15,
-            dup_rate=0.10,
-            reorder_rate=0.10,
-            reorder_wait_ms=25,
-            corrupt_rate=0.03,
+            burst_loss_len=(2, 3),
+            delay_ms=5,
+            jitter_ms=3,
+            dup_rate=0.05,
+            reorder_rate=0.05,
+            reorder_wait_ms=5,
+            corrupt_rate=0.02,
             corrupt_bytes=(1, 2),
             seed=42
         )

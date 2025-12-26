@@ -17,6 +17,7 @@ import time
 
 from ..transport_base import Transport, TransportError
 from . import codec
+from ...config import Config
 from ...logging_util import get_logger
 
 
@@ -40,31 +41,28 @@ class DnsClient(Transport):
     Responses are matched via correlation IDs mapped to DNS query IDs.
     """
 
-    def __init__(self, base_domain, resolver=None, max_pending=16,
-                 qtype=codec.QTYPE_TXT, edns_size=512, pending_timeout=10.0):
+    def __init__(self, config):
         """
         Initialize DNS client transport.
 
         Args:
-            base_domain: Tunnel domain suffix (e.g., 'tunnel.example.com')
-            resolver: DNS server as 'host:port' or 'host' (default: system DNS)
-            max_pending: Maximum concurrent in-flight queries
-            qtype: Query type (QTYPE_TXT or QTYPE_NULL)
-            edns_size: EDNS0 UDP buffer size (512=standard, 4096=large)
-            pending_timeout: Seconds before considering a query stale (min 1.0)
+            config: Config instance with dns_* settings
         """
-        if pending_timeout < 1.0:
-            raise ValueError('pending_timeout must be at least 1.0 seconds')
+        if not isinstance(config, Config):
+            raise TypeError('config must be a Config instance')
 
-        self._base_domain = base_domain.lower().rstrip('.')
+        self._config = config
+        self._base_domain = config.dns_base_domain.lower().rstrip('.')
+        qtype = codec.QTYPE_TXT if config.dns_record_type == 'TXT' else codec.QTYPE_NULL
         self._qtype = qtype
-        self._edns_size = edns_size
-        self._max_pending = max_pending
-        self._pending_timeout = pending_timeout
+        self._edns_size = config.dns_edns_size
+        self._max_pending = config.dns_max_pending
+        self._pending_timeout = config.dns_pending_timeout
         self._nonce = random.randint(0, 0xFFFF)
         self._query_id = random.randint(0, 0xFFFF)
 
         # Parse resolver address or use system resolver
+        resolver = config.dns_resolver
         if resolver:
             if ':' in resolver:
                 host, port = resolver.rsplit(':', 1)
@@ -83,7 +81,7 @@ class DnsClient(Transport):
 
         # Calculate MTUs
         self._send_mtu = codec.calc_query_mtu(self._base_domain)
-        self._recv_mtu = codec.calc_response_mtu(edns_size)
+        self._recv_mtu = codec.calc_response_mtu(config.dns_edns_size)
         self._recv_bufsize = max(self._edns_size, 4096)
 
         # Pending query tracking

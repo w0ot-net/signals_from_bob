@@ -27,6 +27,7 @@ from .channel import (
     is_bob_channel,
 )
 from .control_channel import ControlChannel
+from ..config import Config
 from ..protocol import Segment, SEGMENT_HEADER_SIZE
 
 
@@ -37,14 +38,19 @@ class ChannelManager(object):
     Handles channel allocation, routing, and lifecycle.
     """
 
-    def __init__(self, is_alice):
+    def __init__(self, is_alice, config):
         """
         Create a channel manager.
 
         Args:
             is_alice: True if this is Alice (client), False for Bob (server)
+            config: Config instance with channel settings
         """
+        if not isinstance(config, Config):
+            raise TypeError('config must be a Config instance')
+
         self._is_alice = is_alice
+        self._config = config
         self._channels = {}  # channel_id -> Channel
         self._lock = threading.Lock()
 
@@ -53,7 +59,7 @@ class ChannelManager(object):
         self._next_channel_id = 1 if is_alice else 2
 
         # Control channel (always exists)
-        self._control = ControlChannel()
+        self._control = ControlChannel(max_send_buf=config.channel_max_send_buf)
         self._control._set_state(STATE_OPEN)
         self._channels[CHANNEL_CONTROL] = self._control
 
@@ -89,7 +95,7 @@ class ChannelManager(object):
         """
         with self._lock:
             channel_id = self._allocate_id()
-            channel = Channel(channel_id)
+            channel = Channel(channel_id, max_send_buf=self._config.channel_max_send_buf)
             channel._set_state(STATE_OPENING)
             self._channels[channel_id] = channel
 
@@ -322,7 +328,7 @@ class ChannelManager(object):
         # Auto-accept: channels are generic pipes, application layer
         # handles any additional negotiation after channel is open
         with self._lock:
-            channel = Channel(channel_id)
+            channel = Channel(channel_id, max_send_buf=self._config.channel_max_send_buf)
             channel._set_state(STATE_OPEN)
             self._channels[channel_id] = channel
 

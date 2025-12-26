@@ -16,6 +16,7 @@ import logging
 import time
 
 from ..channel import ChannelManager, ChannelError
+from ..config import Config
 from ..crypto import Plain
 from .tunnel_control_messages import (
     tun_pong,
@@ -66,27 +67,30 @@ class BaseTunnel(object):
     DEFAULT_WINDOW = 1  # Packets, before window negotiation
     MAX_WINDOW = 16  # SACK bitmap size limit
 
-    def __init__(self, crypto=None, is_initiator=True, max_in_flight=16,
-                 logger=None):
+    def __init__(self, config, crypto=None, is_initiator=True, logger=None):
         """
         Initialize the tunnel.
 
         Args:
+            config: Config instance with tunnel settings
             crypto: Cipher instance (default: Plain)
             is_initiator: True if this side initiates handshake (Alice)
-            max_in_flight: Max unacked packets (proposed, subject to negotiation)
             logger: Optional logger instance
         """
+        if not isinstance(config, Config):
+            raise TypeError('config must be a Config instance')
+
+        self._config = config
         self._crypto = crypto if crypto is not None else Plain()
         self._is_initiator = is_initiator
         self._state = TunnelState.DISCONNECTED
         self._logger = logger or logging.getLogger(__name__)
 
         # Channel management
-        self._channel_manager = ChannelManager(is_alice=is_initiator)
+        self._channel_manager = ChannelManager(is_alice=is_initiator, config=config)
 
         # Reliability - start with window=1 until negotiated
-        self._proposed_max_in_flight = min(max_in_flight, self.MAX_WINDOW)
+        self._proposed_max_in_flight = min(config.tunnel_max_in_flight, self.MAX_WINDOW)
         self._send_window = SendWindow(max_in_flight=self.DEFAULT_WINDOW)
         self._recv_window = RecvWindow(max_buffer=self._proposed_max_in_flight)
 

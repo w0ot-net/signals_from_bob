@@ -34,26 +34,24 @@ class AliceTunnel(BaseTunnel):
     She uses RTT-based retransmission timing and supports pipelining.
     """
 
-    def __init__(self, transport, crypto=None, keepalive_interval=5.0,
-                 max_in_flight=16, logger=None):
+    def __init__(self, transport, config, crypto=None, logger=None):
         """
         Initialize Alice's tunnel.
 
         Args:
             transport: Transport instance
+            config: Config instance with tunnel settings
             crypto: Cipher instance (default: Plain)
-            keepalive_interval: Seconds between keepalives
-            max_in_flight: Max unacked packets
             logger: Optional logger instance
         """
         super(AliceTunnel, self).__init__(
+            config=config,
             crypto=crypto,
             is_initiator=True,
-            max_in_flight=max_in_flight,
             logger=logger,
         )
         self._transport = transport
-        self._keepalive_interval = keepalive_interval
+        self._keepalive_interval = config.tunnel_keepalive_interval
 
         # Set proposed MTU from transport (for negotiation, symmetric)
         max_packet = min(transport.send_mtu, transport.recv_mtu)
@@ -68,25 +66,27 @@ class AliceTunnel(BaseTunnel):
 
         # Timeout detection: packets sent without any response
         self._packets_since_response = 0
-        self._max_packets_without_response = 30
+        self._max_packets_without_response = config.tunnel_timeout_packets
 
     @property
     def rtt_estimator(self):
         """RTT estimator instance."""
         return self._rtt
 
-    def connect(self, timeout=10.0):
+    def connect(self, timeout=None):
         """
         Connect to Bob with handshake.
 
         Uses serial send/recv during handshake for simplicity.
 
         Args:
-            timeout: Max seconds to wait for handshake
+            timeout: Max seconds to wait for handshake (default: from config)
 
         Raises:
             TunnelError: on handshake failure or timeout
         """
+        if timeout is None:
+            timeout = self._config.tunnel_connect_timeout
         if self._state != TunnelState.DISCONNECTED:
             raise TunnelError('Already connected or connecting')
 

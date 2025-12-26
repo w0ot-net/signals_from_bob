@@ -12,6 +12,7 @@ import struct
 
 from ..transport_base import Server, TransportError
 from . import codec
+from ...config import Config
 from ...logging_util import get_logger
 
 
@@ -22,22 +23,24 @@ class DnsServer(Server):
     Listens for DNS TXT queries and responds with TXT records.
     """
 
-    def __init__(self, base_domain, listen_addr='0.0.0.0:53',
-                 rtype=codec.QTYPE_TXT, edns_size=512):
+    def __init__(self, config):
         """
         Initialize DNS server transport.
 
         Args:
-            base_domain: Tunnel domain suffix to recognize
-            listen_addr: Address to listen on as 'host:port' or 'host'
-            rtype: Response record type (QTYPE_TXT or QTYPE_NULL)
-            edns_size: EDNS0 UDP buffer size for responses
+            config: Config instance with dns_* settings
         """
-        self._base_domain = base_domain.lower().rstrip('.')
+        if not isinstance(config, Config):
+            raise TypeError('config must be a Config instance')
+
+        self._config = config
+        self._base_domain = config.dns_base_domain.lower().rstrip('.')
+        rtype = codec.QTYPE_TXT if config.dns_record_type == 'TXT' else codec.QTYPE_NULL
         self._rtype = rtype
-        self._edns_size = edns_size
+        self._edns_size = config.dns_edns_size
 
         # Parse listen address
+        listen_addr = config.dns_listen_addr
         if ':' in listen_addr:
             host, port = listen_addr.rsplit(':', 1)
             self._listen_addr = (host, int(port))
@@ -51,7 +54,7 @@ class DnsServer(Server):
 
         # Calculate MTUs
         self._recv_mtu = codec.calc_query_mtu(self._base_domain)
-        self._send_mtu = codec.calc_response_mtu(edns_size)
+        self._send_mtu = codec.calc_response_mtu(config.dns_edns_size)
 
     @property
     def recv_mtu(self):

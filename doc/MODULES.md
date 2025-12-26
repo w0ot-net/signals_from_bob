@@ -102,16 +102,20 @@ initiate file operations:
 ### Commands
 
 ```json
-{"t":"file","c":"list","path":"/home/user"}
-{"t":"file","c":"list_ok","files":[{"name":"a.txt","size":1024,"dir":false}]}
+{"t":"file","c":"list","rid":1,"path":"/home/user"}
+{"t":"file","c":"list_ok","rid":1,"files":[{"name":"a.txt","size":1024,"dir":false}]}
 
-{"t":"file","c":"get","ch":4,"path":"/home/user/a.txt"}
-{"t":"file","c":"get_ok","ch":4,"size":1024}
+{"t":"file","c":"get","rid":2,"ch":4,"path":"/home/user/a.txt"}
+{"t":"file","c":"get_ok","rid":2,"ch":4,"size":1024}
+{"t":"file","c":"hash","rid":2,"ch":4,"alg":"sha256","hash":"<hex>"}
+{"t":"file","c":"hash_ok","rid":2,"ch":4}
 
-{"t":"file","c":"put","ch":4,"path":"/tmp/b.txt","size":2048}
-{"t":"file","c":"put_ok","ch":4}
+{"t":"file","c":"put","rid":3,"ch":4,"path":"/tmp/b.txt","size":2048}
+{"t":"file","c":"put_ok","rid":3,"ch":4}
+{"t":"file","c":"hash","rid":3,"ch":4,"alg":"sha256","hash":"<hex>"}
+{"t":"file","c":"hash_ok","rid":3,"ch":4}
 
-{"t":"file","c":"err","ch":4,"reason":"not found"}
+{"t":"file","c":"err","rid":3,"ch":4,"reason":"not found"}
 ```
 
 After `get_ok`, data flows on the specified channel until `size` bytes are

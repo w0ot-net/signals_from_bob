@@ -7,6 +7,7 @@ import threading
 import time
 import unittest
 
+from sfb.config import Config
 from sfb.tunnel import (
     AliceTunnel,
     BobTunnel,
@@ -19,6 +20,20 @@ from sfb.transport import (
     Transport,
     Server,
 )
+
+
+def make_test_config(**overrides):
+    """Create a Config for testing with sensible defaults."""
+    defaults = {
+        'dns_base_domain': 'test.local',
+        'tunnel_idle_timeout': 60.0,
+        'tunnel_keepalive_interval': 5.0,
+        'tunnel_max_in_flight': 16,
+        'tunnel_connect_timeout': 10.0,
+        'tunnel_timeout_packets': 30,
+    }
+    defaults.update(overrides)
+    return Config(**defaults)
 
 
 class MockTransport(Transport):
@@ -252,17 +267,17 @@ class _PairedBobServer(Server):
 
 class BaseTunnelTests(unittest.TestCase):
     def test_initial_state_disconnected(self):
-        tunnel = BaseTunnel()
+        tunnel = BaseTunnel(make_test_config())
         self.assertEqual(tunnel.state, TunnelState.DISCONNECTED)
         self.assertFalse(tunnel.connected)
 
     def test_has_channel_manager(self):
-        tunnel = BaseTunnel()
+        tunnel = BaseTunnel(make_test_config())
         self.assertIsNotNone(tunnel.channel_manager)
         self.assertIsNotNone(tunnel.control)
 
     def test_encrypt_decrypt_roundtrip(self):
-        tunnel = BaseTunnel(crypto=XOR(b'secret'))
+        tunnel = BaseTunnel(make_test_config(), crypto=XOR(b'secret'))
         data = b'hello world'
         encrypted = tunnel._encrypt(data)
         decrypted = tunnel._decrypt(encrypted)
@@ -270,7 +285,7 @@ class BaseTunnelTests(unittest.TestCase):
         self.assertNotEqual(encrypted, data)
 
     def test_plain_crypto_passthrough(self):
-        tunnel = BaseTunnel(crypto=Plain())
+        tunnel = BaseTunnel(make_test_config(), crypto=Plain())
         data = b'hello world'
         encrypted = tunnel._encrypt(data)
         self.assertEqual(encrypted, data)
@@ -279,19 +294,19 @@ class BaseTunnelTests(unittest.TestCase):
 class AliceTunnelTests(unittest.TestCase):
     def test_requires_connected_for_tick(self):
         transport = MockTransport()
-        tunnel = AliceTunnel(transport)
+        tunnel = AliceTunnel(transport, make_test_config())
         self.assertFalse(tunnel.tick())
 
     def test_handshake_timeout(self):
         transport = MockTransport(responses=[])
-        tunnel = AliceTunnel(transport)
+        tunnel = AliceTunnel(transport, make_test_config())
         with self.assertRaises(TunnelError):
             tunnel.connect(timeout=0.1)
         self.assertEqual(tunnel.state, TunnelState.DISCONNECTED)
 
     def test_close_sets_state(self):
         transport = MockTransport()
-        tunnel = AliceTunnel(transport)
+        tunnel = AliceTunnel(transport, make_test_config())
         tunnel.close()
         self.assertEqual(tunnel.state, TunnelState.CLOSED)
         self.assertTrue(transport._closed)
@@ -300,12 +315,12 @@ class AliceTunnelTests(unittest.TestCase):
 class BobTunnelTests(unittest.TestCase):
     def test_initial_state(self):
         server = MockServer()
-        tunnel = BobTunnel(server)
+        tunnel = BobTunnel(server, make_test_config())
         self.assertEqual(tunnel.state, TunnelState.DISCONNECTED)
 
     def test_close_sets_state(self):
         server = MockServer()
-        tunnel = BobTunnel(server)
+        tunnel = BobTunnel(server, make_test_config())
         tunnel.close()
         self.assertEqual(tunnel.state, TunnelState.CLOSED)
         self.assertTrue(server._closed)
@@ -317,9 +332,10 @@ class EndToEndTests(unittest.TestCase):
         pair = PairedTransport()
         alice_transport = pair.make_alice_transport()
         bob_server = pair.make_bob_server()
+        config = make_test_config()
 
-        alice = AliceTunnel(alice_transport, crypto=Plain())
-        bob = BobTunnel(bob_server, crypto=Plain())
+        alice = AliceTunnel(alice_transport, config, crypto=Plain())
+        bob = BobTunnel(bob_server, config, crypto=Plain())
 
         # Run Bob in background
         bob_thread = threading.Thread(target=bob.serve_forever)
@@ -345,9 +361,10 @@ class EndToEndTests(unittest.TestCase):
         pair = PairedTransport()
         alice_transport = pair.make_alice_transport()
         bob_server = pair.make_bob_server()
+        config = make_test_config()
 
-        alice = AliceTunnel(alice_transport, crypto=Plain())
-        bob = BobTunnel(bob_server, crypto=Plain())
+        alice = AliceTunnel(alice_transport, config, crypto=Plain())
+        bob = BobTunnel(bob_server, config, crypto=Plain())
 
         # Run Bob in background
         bob_thread = threading.Thread(target=bob.serve_forever)
@@ -384,9 +401,10 @@ class RecvWindowIntegrationTests(unittest.TestCase):
         pair = PairedTransport()
         alice_transport = pair.make_alice_transport()
         bob_server = pair.make_bob_server()
+        config = make_test_config()
 
-        alice = AliceTunnel(alice_transport, crypto=Plain())
-        bob = BobTunnel(bob_server, crypto=Plain())
+        alice = AliceTunnel(alice_transport, config, crypto=Plain())
+        bob = BobTunnel(bob_server, config, crypto=Plain())
 
         bob_thread = threading.Thread(target=bob.serve_forever)
         bob_thread.daemon = True
@@ -417,7 +435,7 @@ class RecvWindowIntegrationTests(unittest.TestCase):
         from sfb.tunnel.base_tunnel import BaseTunnel
         from sfb.protocol import Packet, Segment
 
-        tunnel = BaseTunnel()
+        tunnel = BaseTunnel(make_test_config())
         tunnel._recv_window.set_initial_seq(1)
 
         # Create a packet with seq=1
@@ -440,7 +458,7 @@ class BobRetransmitTests(unittest.TestCase):
     def test_retransmit_rebuilds_with_fresh_ack(self):
         """Verify Bob rebuilds retransmits with fresh ack/sack."""
         server = MockServer()
-        bob = BobTunnel(server, crypto=Plain())
+        bob = BobTunnel(server, make_test_config(), crypto=Plain())
 
         # Simulate connected state
         bob._set_state(TunnelState.CONNECTED)
@@ -492,7 +510,7 @@ class WindowEnforcementTests(unittest.TestCase):
         """Verify Alice doesn't exceed max_in_flight."""
         from sfb.protocol import Segment
         transport = MockTransport()
-        alice = AliceTunnel(transport, crypto=Plain(), max_in_flight=2)
+        alice = AliceTunnel(transport, make_test_config(tunnel_max_in_flight=2), crypto=Plain())
 
         # Simulate post-negotiation state (window starts at 1 until negotiated)
         alice._send_window._max_in_flight = 2
@@ -508,7 +526,7 @@ class WindowEnforcementTests(unittest.TestCase):
         """Verify Bob doesn't exceed max_in_flight."""
         from sfb.protocol import Segment
         server = MockServer()
-        bob = BobTunnel(server, crypto=Plain(), max_in_flight=2)
+        bob = BobTunnel(server, make_test_config(tunnel_max_in_flight=2), crypto=Plain())
 
         # Simulate post-negotiation state (window starts at 1 until negotiated)
         bob._send_window._max_in_flight = 2
@@ -546,7 +564,7 @@ class IdleTimeoutTests(unittest.TestCase):
     def test_connecting_state_times_out(self):
         """Verify Bob times out stalled handshakes."""
         server = MockServer()
-        bob = BobTunnel(server, crypto=Plain(), idle_timeout=0.1)
+        bob = BobTunnel(server, make_test_config(tunnel_idle_timeout=0.1), crypto=Plain())
 
         # Simulate a stalled handshake
         bob._set_state(TunnelState.CONNECTING)
@@ -560,7 +578,7 @@ class IdleTimeoutTests(unittest.TestCase):
     def test_disconnected_state_no_timeout(self):
         """Verify DISCONNECTED state doesn't trigger timeout."""
         server = MockServer()
-        bob = BobTunnel(server, crypto=Plain(), idle_timeout=0.1)
+        bob = BobTunnel(server, make_test_config(tunnel_idle_timeout=0.1), crypto=Plain())
 
         bob._last_request_time = time.time() - 1.0  # Long ago
 
@@ -576,7 +594,7 @@ class ControlMessageTests(unittest.TestCase):
         """Verify ping message causes pong to be queued for sending."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel()
+        tunnel = BaseTunnel(make_test_config())
 
         # Initially no data queued
         self.assertEqual(tunnel.control.send_buf_size, 0)
@@ -595,7 +613,7 @@ class ControlMessageTests(unittest.TestCase):
         """Verify messages without t field are dropped."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel()
+        tunnel = BaseTunnel(make_test_config())
 
         # Message without t field should be dropped
         tunnel._dispatch_control_message({'c': 'ping'})
@@ -607,7 +625,7 @@ class ControlMessageTests(unittest.TestCase):
         """Verify unknown control messages don't raise errors."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel()
+        tunnel = BaseTunnel(make_test_config())
 
         # Should not raise
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'unknown_cmd'})
@@ -622,7 +640,7 @@ class NegotiationTests(unittest.TestCase):
         """Verify Bob responds to MTU request with mtu_ok."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel(is_initiator=False)
+        tunnel = BaseTunnel(make_test_config(), is_initiator=False)
         tunnel._proposed_mtu = 200  # Bob's max
 
         # Alice requests MTU of 500
@@ -641,7 +659,7 @@ class NegotiationTests(unittest.TestCase):
         """Verify Alice accepts mtu_ok and updates negotiated_mtu."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel(is_initiator=True)
+        tunnel = BaseTunnel(make_test_config(), is_initiator=True)
 
         # Default is 100
         self.assertEqual(tunnel._negotiated_mtu, 100)
@@ -656,7 +674,7 @@ class NegotiationTests(unittest.TestCase):
         """Verify Bob responds to window request with window_ok."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel(is_initiator=False, max_in_flight=8)
+        tunnel = BaseTunnel(make_test_config(tunnel_max_in_flight=8), is_initiator=False)
 
         # Alice requests window of 16
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'window', 'size': 16})
@@ -675,7 +693,7 @@ class NegotiationTests(unittest.TestCase):
         """Verify Alice accepts window_ok and updates window limit."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel(is_initiator=True)
+        tunnel = BaseTunnel(make_test_config(), is_initiator=True)
 
         # Default is 1
         self.assertEqual(tunnel._negotiated_window, 1)
@@ -692,7 +710,7 @@ class NegotiationTests(unittest.TestCase):
         """Verify tunnel starts with conservative MTU/window."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel()
+        tunnel = BaseTunnel(make_test_config())
 
         # Pre-negotiation defaults
         self.assertEqual(tunnel._negotiated_mtu, 100)
@@ -709,7 +727,7 @@ class ModuleRegistrationTests(unittest.TestCase):
         """Verify modules can be registered."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel()
+        tunnel = BaseTunnel(make_test_config())
         received = []
 
         def handler(msg):
@@ -728,7 +746,7 @@ class ModuleRegistrationTests(unittest.TestCase):
         """Verify reserved types cannot be overridden."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel()
+        tunnel = BaseTunnel(make_test_config())
 
         with self.assertRaises(ValueError):
             tunnel.register_module('tun', lambda msg: None)
@@ -740,7 +758,7 @@ class ModuleRegistrationTests(unittest.TestCase):
         """Verify duplicate registration raises error."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel()
+        tunnel = BaseTunnel(make_test_config())
         tunnel.register_module('mymod', lambda msg: None)
 
         with self.assertRaises(ValueError):
@@ -750,7 +768,7 @@ class ModuleRegistrationTests(unittest.TestCase):
         """Verify modules can be unregistered."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel()
+        tunnel = BaseTunnel(make_test_config())
         received = []
 
         tunnel.register_module('test', lambda msg: received.append(msg))
@@ -769,7 +787,7 @@ class ModuleRegistrationTests(unittest.TestCase):
         """Verify unregistering nonexistent module returns False."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel()
+        tunnel = BaseTunnel(make_test_config())
         result = tunnel.unregister_module('nonexistent')
         self.assertFalse(result)
 
@@ -777,7 +795,7 @@ class ModuleRegistrationTests(unittest.TestCase):
         """Verify module errors are caught and logged."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel()
+        tunnel = BaseTunnel(make_test_config())
 
         def bad_handler(msg):
             raise RuntimeError('Module error')

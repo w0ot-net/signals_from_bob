@@ -27,6 +27,8 @@ All file transfer messages use `t="file"`. Commands are:
 | `get_ok` | File download confirmed |
 | `put` | Request file upload |
 | `put_ok` | File upload confirmed |
+| `hash` | File hash (sender to receiver) |
+| `hash_ok` | Hash validated |
 | `err` | Error response |
 
 All messages include a request ID (`rid`) to correlate requests and responses.
@@ -72,7 +74,7 @@ Response on failure:
 ```
 
 After `get_ok`, the sender transmits exactly `size` bytes on channel `ch`.
-The receiver reads until `size` bytes are received, then closes the channel.
+The receiver reads until `size` bytes are received, then waits for the hash.
 
 ### Upload (put)
 
@@ -95,7 +97,26 @@ Response on failure:
 ```
 
 After `put_ok`, the sender transmits exactly `size` bytes on channel `ch`.
-The receiver reads until `size` bytes are received, then closes the channel.
+The receiver reads until `size` bytes are received, then waits for the hash.
+
+### Hash Validation
+
+After all file bytes are sent, the sender computes a SHA-256 digest and sends:
+
+```json
+{"t":"file","c":"hash","rid":2,"ch":4,"alg":"sha256","hash":"<hex>"}
+```
+
+The receiver computes its own SHA-256 over the received bytes, compares, and:
+- On match: responds with `hash_ok`
+- On mismatch: responds with `err` with `code="hash"`
+
+```json
+{"t":"file","c":"hash_ok","rid":2,"ch":4}
+{"t":"file","c":"err","rid":2,"ch":4,"code":"hash","reason":"hash mismatch"}
+```
+
+The sender treats `hash_ok` as transfer success and `err` as failure.
 
 ---
 
@@ -108,11 +129,11 @@ The receiver reads until `size` bytes are received, then closes the channel.
   and sends data on it.
 - The data channel carries raw file bytes, no framing.
 - The receiver relies on the announced `size` to know when the transfer ends.
-- The sender closes the channel after transmitting `size` bytes. The receiver
-  closes after reading `size` bytes or on error.
+- The sender closes the channel after transmitting `size` bytes and sending
+  the hash. The receiver closes after hash validation or on error.
 
-Only one file transfer is active at a time. If a new request arrives while a
-transfer is in progress, respond with `err` and `code="busy"`.
+Only one file operation is active at a time (including list). If a new request
+arrives while an operation is in progress, respond with `err` and `code="busy"`.
 
 ---
 
@@ -129,6 +150,8 @@ Bob                                 Alice
  │── {t:file,c:get,ch:4,path:/x} ─────▶│  Bob opens ch:4, requests file
  │◀─ {t:file,c:get_ok,ch:4,size:N} ────│  Alice confirms
  │◀═ channel 4: N bytes ═══════════════│  Alice sends data TO Bob
+ │◀─ {t:file,c:hash,...} ──────────────│  Alice sends hash
+ │── {t:file,c:hash_ok} ──────────────▶│  Bob confirms hash
  │                                     │
 ```
 
@@ -142,6 +165,8 @@ Bob                                 Alice
  │── {t:file,c:put,ch:4,path:/y,...} ─▶│  Bob opens ch:4, announces upload
  │◀─ {t:file,c:put_ok,ch:4} ───────────│  Alice confirms
  │═▶ channel 4: N bytes ═══════════════│  Bob sends data TO Alice
+ │── {t:file,c:hash,...} ─────────────▶│  Bob sends hash
+ │◀─ {t:file,c:hash_ok} ──────────────│  Alice confirms hash
  │                                     │
 ```
 
@@ -156,6 +181,8 @@ Alice                               Bob
  │── {t:file,c:get,ch:3,path:/x} ─────▶│  Alice opens ch:3, requests file
  │◀─ {t:file,c:get_ok,ch:3,size:N} ────│  Bob confirms
  │◀═ channel 3: N bytes ═══════════════│  Bob sends data TO Alice
+ │◀─ {t:file,c:hash,...} ──────────────│  Bob sends hash
+ │── {t:file,c:hash_ok} ──────────────▶│  Alice confirms hash
  │                                     │
 ```
 
@@ -169,6 +196,7 @@ Alice                               Bob
   channel and send `err` on channel 0.
 - If the receiver gets fewer than `size` bytes before disconnect, treat the
   transfer as failed.
+- If the receiver times out waiting for a `hash`, treat the transfer as failed.
 - Implementations should write uploads to a temporary file and rename on
   success. On failure, remove the partial file and send `err`.
 

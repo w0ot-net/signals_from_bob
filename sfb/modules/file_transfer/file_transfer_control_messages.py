@@ -39,3 +39,11 @@ def file_err(rid, code, reason, ch=None):
     if ch is not None:
         fields['ch'] = ch
     return ControlMessage(T_FILE, 'err', **fields)
+
+
+def file_hash(rid, ch, digest, alg='sha256'):
+    return ControlMessage(T_FILE, 'hash', rid=rid, ch=ch, alg=alg, hash=digest)
+
+
+def file_hash_ok(rid, ch):
+    return ControlMessage(T_FILE, 'hash_ok', rid=rid, ch=ch)

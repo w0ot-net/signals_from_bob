@@ -9,6 +9,7 @@ import os
 import tempfile
 import threading
 import time
+import hashlib
 
 from ...channel import ChannelError
 from ..base_module import BaseModule, RequestResponseMixin, ModuleError, blocking
@@ -20,7 +21,14 @@ from .file_transfer_control_messages import (
     file_put,
     file_put_ok,
     file_err,
+    file_hash,
+    file_hash_ok,
 )
+
+try:
+    integer_types = (int, long)
+except NameError:
+    integer_types = (int,)
 
 
 class FileTransferError(ModuleError):
@@ -42,15 +50,23 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
 
     TYPE = 'file'
 
-    def __init__(self, tunnel, max_size=None, chunk_size=8192, logger=None):
+    def __init__(self, tunnel, logger=None):
         super(FileTransferModule, self).__init__(tunnel, logger=logger)
-        self._max_size = max_size
-        self._chunk_size = chunk_size
+        config = tunnel._config
+        self._max_size = config.file_transfer_max_size
+        self._chunk_size = config.file_transfer_chunk_size
+        self._channel_open_timeout = config.channel_open_timeout
+        self._hash_timeout = config.file_transfer_hash_timeout
 
         # Single active transfer enforcement
         self._active_lock = threading.Lock()
         self._active = False
         self._active_rid = None
+
+        # Hash tracking for transfers
+        self._hash_lock = threading.Lock()
+        self._hash_events = {}
+        self._hash_values = {}
 
     # -------------------------------------------------------------------------
     # Public API (called by user, runs in caller's thread)
@@ -97,10 +113,9 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             size = response.get('size')
             if size is None:
                 raise FileTransferError('io', 'missing size')
+            if not isinstance(size, integer_types) or size < 0:
+                raise FileTransferError('io', 'invalid size')
             if self._max_size is not None and size > self._max_size:
-                self.send_message(
-                    file_err(rid, 'too_large', 'size exceeds limit', channel.id)
-                )
                 raise FileTransferError('too_large', 'size exceeds limit')
 
             dest_path = local_path
@@ -109,7 +124,15 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             dest_path = os.path.abspath(dest_path)
             out_fp, tmp_path = self._open_temp_file(dest_path)
 
-            self._recv_to_file(channel, out_fp, size, timeout)
+            hash_obj = hashlib.sha256()
+            self._recv_to_file(channel, out_fp, size, timeout, hash_obj=hash_obj)
+            expected = self._wait_hash_value(rid, timeout)
+            if expected != hash_obj.hexdigest():
+                self.send_message(
+                    file_err(rid, 'hash', 'hash mismatch', channel.id)
+                )
+                raise FileTransferError('hash', 'hash mismatch')
+            self.send_message(file_hash_ok(rid, channel.id))
             out_fp.close()
             out_fp = None
             self._replace_file(tmp_path, dest_path)
@@ -149,7 +172,17 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 )
 
             in_fp = open(src_path, 'rb')
-            self._send_from_file(channel, in_fp, size)
+            hash_obj = hashlib.sha256()
+            self._send_from_file(channel, in_fp, size, hash_obj=hash_obj)
+
+            pending = self._register_pending(rid)
+            self.send_message(file_hash(rid, channel.id, hash_obj.hexdigest()))
+            response = self._wait_response(rid, pending, timeout)
+            if response.get('c') == 'err':
+                raise FileTransferError(
+                    response.get('code', 'io'),
+                    response.get('reason', 'error'),
+                )
         finally:
             if in_fp is not None:
                 in_fp.close()
@@ -173,9 +206,25 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         """Handle put_ok response."""
         self._complete_pending(msg)
 
+    def handle_hash_ok(self, msg):
+        """Handle hash_ok response."""
+        self._complete_pending(msg)
+
     def handle_err(self, msg):
         """Handle error response."""
         self._complete_pending(msg)
+
+    def handle_hash(self, msg):
+        """Handle incoming hash message."""
+        rid = msg.get('rid')
+        digest = msg.get('hash')
+        alg = msg.get('alg')
+        if rid is None or digest is None:
+            return
+        if alg not in (None, 'sha256'):
+            self.send_message(file_err(rid, 'hash', 'unsupported hash', msg.get('ch')))
+            return
+        self._store_hash_value(rid, digest)
 
     # -------------------------------------------------------------------------
     # Request handlers (blocking, run in separate threads)
@@ -205,12 +254,20 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             files = []
             for name in entries:
                 full = os.path.join(abs_path, name)
+                try:
+                    is_dir = os.path.isdir(full)
+                    size = os.path.getsize(full) if os.path.isfile(full) else 0
+                except OSError:
+                    is_dir = False
+                    size = 0
                 files.append({
                     'name': name,
-                    'size': os.path.getsize(full) if os.path.isfile(full) else 0,
-                    'dir': os.path.isdir(full),
+                    'size': size,
+                    'dir': is_dir,
                 })
             self.send_message(file_list_ok(rid, files))
+        except Exception as e:
+            self.send_message(file_err(rid, 'io', str(e)))
         finally:
             self._clear_active(rid)
 
@@ -243,12 +300,18 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 )
                 return
             channel = self._tunnel.channel_manager.get_channel(ch)
-            if channel is None or not channel.wait_open(timeout=5.0):
+            if channel is None or not channel.wait_open(timeout=self._channel_open_timeout):
                 self.send_message(file_err(rid, 'io', 'channel not open', ch))
                 return
             self.send_message(file_get_ok(rid, ch, size))
             in_fp = open(abs_path, 'rb')
-            self._send_from_file(channel, in_fp, size)
+            hash_obj = hashlib.sha256()
+            self._send_from_file(channel, in_fp, size, hash_obj=hash_obj)
+            self.send_message(file_hash(rid, ch, hash_obj.hexdigest()))
+        except FileTransferError as e:
+            self.send_message(file_err(rid, e.code, e.reason, ch))
+        except Exception as e:
+            self.send_message(file_err(rid, 'io', str(e), ch))
         finally:
             if in_fp is not None:
                 in_fp.close()
@@ -264,6 +327,9 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         path = msg.get('path')
         size = msg.get('size')
         if rid is None or ch is None or path is None or size is None:
+            return
+        if not isinstance(size, integer_types) or size < 0:
+            self.send_message(file_err(rid, 'io', 'invalid size', ch))
             return
 
         if not self._try_reserve_active(rid):
@@ -283,16 +349,26 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 return
             dest_path = os.path.abspath(path)
             channel = self._tunnel.channel_manager.get_channel(ch)
-            if channel is None or not channel.wait_open(timeout=5.0):
+            if channel is None or not channel.wait_open(timeout=self._channel_open_timeout):
                 self.send_message(file_err(rid, 'io', 'channel not open', ch))
                 return
             out_fp, tmp_path = self._open_temp_file(dest_path)
             self.send_message(file_put_ok(rid, ch))
-            self._recv_to_file(channel, out_fp, size, timeout=None)
+            hash_obj = hashlib.sha256()
+            self._recv_to_file(channel, out_fp, size, timeout=None, hash_obj=hash_obj)
+            expected = self._wait_hash_value(rid, timeout=self._hash_timeout)
+            if expected != hash_obj.hexdigest():
+                self.send_message(file_err(rid, 'hash', 'hash mismatch', ch))
+                return
+            self.send_message(file_hash_ok(rid, ch))
             out_fp.close()
             out_fp = None
             self._replace_file(tmp_path, dest_path)
             tmp_path = None
+        except FileTransferError as e:
+            self.send_message(file_err(rid, e.code, e.reason, ch))
+        except Exception as e:
+            self.send_message(file_err(rid, 'io', str(e), ch))
         finally:
             if out_fp is not None:
                 out_fp.close()
@@ -306,14 +382,16 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
     # File I/O helpers
     # -------------------------------------------------------------------------
 
-    def _send_from_file(self, channel, fp, total_size):
+    def _send_from_file(self, channel, fp, total_size, hash_obj=None):
         """Send file contents to channel."""
         remaining = total_size
         max_retries = 100
         while remaining > 0:
             chunk = fp.read(min(self._chunk_size, remaining))
             if not chunk:
-                break
+                raise FileTransferError('io', 'unexpected EOF')
+            if hash_obj is not None:
+                hash_obj.update(chunk)
             offset = 0
             retries = 0
             while offset < len(chunk):
@@ -329,7 +407,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 offset += sent
             remaining -= len(chunk)
 
-    def _recv_to_file(self, channel, fp, total_size, timeout):
+    def _recv_to_file(self, channel, fp, total_size, timeout, hash_obj=None):
         """Receive file contents from channel."""
         remaining = total_size
         deadline = None
@@ -350,6 +428,8 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 raise FileTransferError('io', 'timeout')
             if chunk == b'':
                 raise FileTransferError('io', 'channel closed')
+            if hash_obj is not None:
+                hash_obj.update(chunk)
             fp.write(chunk)
             remaining -= len(chunk)
 
@@ -407,3 +487,25 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             if self._active_rid == rid:
                 self._active = False
                 self._active_rid = None
+
+    def _wait_hash_value(self, rid, timeout):
+        """Wait for a hash value to arrive for this request."""
+        with self._hash_lock:
+            if rid in self._hash_values:
+                return self._hash_values.pop(rid)
+            event = threading.Event()
+            self._hash_events[rid] = event
+        if not event.wait(timeout=timeout):
+            with self._hash_lock:
+                self._hash_events.pop(rid, None)
+            raise FileTransferError('io', 'hash timeout')
+        with self._hash_lock:
+            return self._hash_values.pop(rid, None)
+
+    def _store_hash_value(self, rid, digest):
+        """Store hash value and wake any waiter."""
+        with self._hash_lock:
+            self._hash_values[rid] = digest
+            event = self._hash_events.pop(rid, None)
+        if event is not None:
+            event.set()

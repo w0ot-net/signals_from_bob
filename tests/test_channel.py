@@ -16,7 +16,17 @@ from sfb.channel.channel import (
 )
 from sfb.channel.control_channel import ControlChannel
 from sfb.channel.channel_manager import ChannelManager
+from sfb.config import Config
 from sfb.protocol import Segment, SEGMENT_HEADER_SIZE, CHANNEL_CONTROL
+
+
+def make_test_config(**overrides):
+    """Create a Config for testing with sensible defaults."""
+    defaults = {
+        'dns_base_domain': 'test.local',
+    }
+    defaults.update(overrides)
+    return Config(**defaults)
 
 
 class ChannelTests(unittest.TestCase):
@@ -145,7 +155,7 @@ class ChannelManagerTests(unittest.TestCase):
         return [json.loads(line.decode('ascii')) for line in lines if line]
 
     def test_open_channel_sends_open(self):
-        mgr = ChannelManager(is_alice=True)
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
         ch = mgr.open_channel()
         self.assertEqual(ch.state, STATE_OPENING)
         msgs = self._drain_control_messages(mgr)
@@ -155,7 +165,7 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertTrue(is_alice_channel(msgs[0]['ch']))
 
     def test_close_channel_sends_close(self):
-        mgr = ChannelManager(is_alice=True)
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
         mgr._channels[1] = ch
@@ -168,7 +178,7 @@ class ChannelManagerTests(unittest.TestCase):
 
     def test_handle_open_auto_accepts(self):
         """Channels are auto-accepted - they're generic pipes."""
-        mgr = ChannelManager(is_alice=True)
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
         # Receive open request from Bob (even channel ID)
         mgr.handle_control_message({
             'c': 'open',
@@ -185,7 +195,7 @@ class ChannelManagerTests(unittest.TestCase):
 
     def test_handle_open_rejects_wrong_ownership(self):
         """Alice should reject channels with Alice's ID (odd)."""
-        mgr = ChannelManager(is_alice=True)
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
         # Bob tries to open a channel with Alice's ID - should be rejected
         mgr.handle_control_message({
             'c': 'open',
@@ -197,7 +207,7 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertEqual(msgs, [])
 
     def test_handle_open_ok_and_fail(self):
-        mgr = ChannelManager(is_alice=True)
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
         ch = Channel(1)
         ch._set_state(STATE_OPENING)
         mgr._channels[1] = ch
@@ -211,7 +221,7 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertIsNone(mgr.get_channel(3))
 
     def test_handle_close_and_close_ok(self):
-        mgr = ChannelManager(is_alice=True)
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
         mgr._channels[1] = ch
@@ -227,7 +237,7 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertIsNone(mgr.get_channel(3))
 
     def test_deliver_segment_routes(self):
-        mgr = ChannelManager(is_alice=True)
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
         mgr._channels[1] = ch
@@ -235,7 +245,7 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertEqual(ch.read(2, timeout=0.1), b'hi')
 
     def test_collect_segments_control_priority(self):
-        mgr = ChannelManager(is_alice=True)
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
         ctrl = mgr.control
         ctrl.send_message({'t': 'ch', 'c': 'open', 'ch': 1, 'atype': 'ipv4',
                            'addr': '127.0.0.1', 'port': 80})
@@ -248,7 +258,7 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertEqual(segments[0].channel, CHANNEL_CONTROL)
 
     def test_collect_segments_keepalive_suppressed(self):
-        mgr = ChannelManager(is_alice=True)
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
         ch.write(b'abc')
@@ -258,7 +268,7 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertNotIn(CHANNEL_CONTROL, channels)
 
     def test_collect_segments_minimum_space(self):
-        mgr = ChannelManager(is_alice=True)
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
         ch.write(b'abc')

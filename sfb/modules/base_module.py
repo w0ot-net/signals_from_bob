@@ -93,6 +93,7 @@ class BaseModule(object):
         self._shutdown = False
 
         tunnel.register_module(self.TYPE, self._dispatch)
+        self._pending_lock = threading.Lock()
 
     def shutdown(self):
         """
@@ -101,6 +102,10 @@ class BaseModule(object):
         Call this before destroying the module to ensure clean shutdown.
         """
         self._shutdown = True
+        try:
+            self.unregister()
+        except Exception:
+            self._logger.exception('Failed to unregister module')
         with self._threads_lock:
             threads = list(self._threads)
         for t in threads:
@@ -125,6 +130,8 @@ class BaseModule(object):
 
         Called by tunnel when a message with matching type arrives.
         """
+        if self._shutdown:
+            return
         cmd = msg.get('c')
         if not cmd:
             return
@@ -210,7 +217,8 @@ class RequestResponseMixin(object):
             _PendingRequest object to wait on.
         """
         pending = _PendingRequest()
-        self._pending[rid] = pending
+        with self._pending_lock:
+            self._pending[rid] = pending
         return pending
 
     def _wait_response(self, rid, pending, timeout=None):
@@ -229,7 +237,8 @@ class RequestResponseMixin(object):
             ModuleError: On timeout.
         """
         if not pending.event.wait(timeout=timeout):
-            self._pending.pop(rid, None)
+            with self._pending_lock:
+                self._pending.pop(rid, None)
             raise ModuleError('timeout', 'request timed out')
         return pending.response or {}
 
@@ -248,7 +257,8 @@ class RequestResponseMixin(object):
         rid = msg.get('rid')
         if rid is None:
             return False
-        pending = self._pending.pop(rid, None)
+        with self._pending_lock:
+            pending = self._pending.pop(rid, None)
         if pending is not None:
             pending.response = msg
             pending.event.set()

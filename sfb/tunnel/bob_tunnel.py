@@ -28,26 +28,24 @@ class BobTunnel(BaseTunnel):
     via the responder callback. He uses opportunistic retransmission.
     """
 
-    def __init__(self, transport, crypto=None, idle_timeout=60.0,
-                 max_in_flight=16, logger=None):
+    def __init__(self, transport, config, crypto=None, logger=None):
         """
         Initialize Bob's tunnel.
 
         Args:
             transport: Server instance
+            config: Config instance with tunnel settings
             crypto: Cipher instance (default: Plain)
-            idle_timeout: Seconds before considering connection dead
-            max_in_flight: Max unacked packets
             logger: Optional logger instance
         """
         super(BobTunnel, self).__init__(
+            config=config,
             crypto=crypto,
             is_initiator=False,
-            max_in_flight=max_in_flight,
             logger=logger,
         )
         self._transport = transport
-        self._idle_timeout = idle_timeout
+        self._idle_timeout = config.tunnel_idle_timeout
 
         # Set proposed MTU from transport (for negotiation, symmetric)
         max_packet = min(transport.send_mtu, transport.recv_mtu)

@@ -262,16 +262,16 @@ class AliceTunnel(BaseTunnel):
             self._send_retransmit(seq, segments, now)
 
         # 3. Send new packets if we can
-        send_count = 0
         while self._can_send_new():
             segments = self._collect_segments(self._negotiated_mtu)
             if not segments:
-                # No data to send - decide whether to poll
+                # No data to send - decide whether to poll Bob
                 # Poll immediately if:
-                # - Bob sent real data (not just pong) - need more data
-                # - We received any response - need to send updated ACKs
-                # Otherwise respect keepalive interval
-                should_poll = received_any or self._got_data or (
+                # - Bob sent real data (not just pong) - more might be coming
+                # - We have unacked packets - need ACKs to complete transfer
+                # Otherwise respect keepalive interval (both sides idle).
+                has_unacked = self._send_window.unacked_count > 0
+                should_poll = self._got_data or has_unacked or (
                     now - self._last_send_time >= self._keepalive_interval
                 )
                 if should_poll:

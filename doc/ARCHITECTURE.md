@@ -123,17 +123,16 @@ The project must run on both Windows and Linux.
 
 ## Beaconing (Polling Transports)
 
-Alice continuously polls Bob. Adaptive interval:
+Alice continuously polls Bob. Her polling strategy maximizes throughput when
+Bob has data while minimizing overhead when idle.
 
-- **Idle**: slow polling (e.g., 1-5s)
-- **Active**: fast polling (e.g., 100ms)
+**Polling behavior:**
+- After receiving real data (not pong): poll immediately (no delay)
+- After receiving pong: wait for idle interval (e.g., 1-5s)
 
-Transition:
-- Idle → Active: received packet with non-pong data
-- Active → Idle: N consecutive pong-only packets
-
-Bob signals "nothing to send" via `{"t":"tun","c":"pong"}` control message.
-Alice uses this to slow down.
+This ensures maximum throughput: if Bob has 10 packets queued, Alice drains
+them as fast as the network allows. When Bob has nothing to send, he responds
+with `{"t":"tun","c":"pong"}` and Alice slows down.
 
 ---
 

@@ -12,6 +12,7 @@ from ..protocol import (
     SACK_BITS,
     MAX_IN_FLIGHT,
 )
+from .stats import NoopReliabilityStats
 
 
 class RecvWindow(object):
@@ -22,10 +23,11 @@ class RecvWindow(object):
     Computes cumulative ACK and SACK bitmap.
     """
 
-    def __init__(self, max_buffer=MAX_IN_FLIGHT):
+    def __init__(self, max_buffer=MAX_IN_FLIGHT, stats=None):
         self._next_expected = 0
         self._buffer = {}  # seq -> packet_data (out-of-order)
         self._max_buffer = max_buffer
+        self._stats = stats or NoopReliabilityStats()
 
     @property
     def ack(self):
@@ -51,15 +53,18 @@ class RecvWindow(object):
         """
         # Reject packets already received
         if seq_lt(seq, self._next_expected):
+            self._stats.on_recv_duplicate()
             return []
 
         # Reject packets beyond SACK window (can't represent in SACK bitmap)
         offset = seq_diff(seq, self._next_expected)
         if offset > SACK_BITS:
+            self._stats.on_recv_out_of_window()
             return []
 
         # Reject duplicates
         if seq in self._buffer:
+            self._stats.on_recv_duplicate()
             return []
 
         if seq == self._next_expected:
@@ -71,12 +76,15 @@ class RecvWindow(object):
                 ready.append((self._next_expected, buffered))
                 self._next_expected = (self._next_expected + 1) & SEQ_MAX
 
+            self._stats.on_recv_delivered(len(ready))
             return ready
 
         if len(self._buffer) >= self._max_buffer:
+            self._stats.on_recv_buffer_full()
             return []
 
         self._buffer[seq] = packet_data
+        self._stats.on_recv_buffered()
         return []
 
     def set_initial_seq(self, seq):

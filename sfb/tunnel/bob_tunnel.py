@@ -76,6 +76,9 @@ class BobTunnel(BaseTunnel):
                 self.handle_request(data, responder)
 
             except Exception as e:
+                # Suppress socket errors during shutdown
+                if self._state == TunnelState.CLOSED:
+                    break
                 self._logger.warning('Error in serve loop: %s', e)
 
     def handle_request(self, data, responder):

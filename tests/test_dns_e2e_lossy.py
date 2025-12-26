@@ -148,13 +148,130 @@ class LossyE2ETest(unittest.TestCase):
 
         self.alice_file_module = FileTransferModule(self.alice_tunnel)
 
-    def _print_stats(self):
-        """Print impairment statistics."""
+    def _print_stats(self, test_name=None, file_size=None, elapsed=None):
+        """Print test statistics."""
+        if test_name:
+            print('\n--- %s ---' % test_name)
+
+        if file_size and elapsed:
+            rate = file_size / elapsed / 1024 if elapsed > 0 else 0
+            print('Transfer: %d bytes in %.2fs (%.2f KB/s)' % (file_size, elapsed, rate))
+
+        if self.alice_tunnel:
+            print('Alice tunnel: sent=%d pkts (%d bytes), recv=%d pkts (%d bytes)' % (
+                self.alice_tunnel._packets_sent,
+                self.alice_tunnel._bytes_sent,
+                self.alice_tunnel._packets_received,
+                self.alice_tunnel._bytes_received,
+            ))
+            print('Alice retransmits: %d' % self.alice_tunnel._send_window._retransmit_count)
+
         if self.lossy_alice:
             stats = self.lossy_alice.stats()
-            print('\nAlice transport stats:')
-            print('  Send: dropped=%d/%d' % (stats['send']['dropped'], stats['send']['sent']))
-            print('  Recv: dropped=%d/%d' % (stats['recv']['dropped'], stats['recv']['sent']))
+            send_total = stats['send']['sent']
+            send_dropped = stats['send']['dropped']
+            recv_total = stats['recv']['sent']
+            recv_dropped = stats['recv']['dropped']
+            print('Network loss: send=%d/%d (%.1f%%), recv=%d/%d (%.1f%%)' % (
+                send_dropped, send_total,
+                100.0 * send_dropped / send_total if send_total else 0,
+                recv_dropped, recv_total,
+                100.0 * recv_dropped / recv_total if recv_total else 0,
+            ))
+
+    # --- Tests with 1% loss ---
+
+    def test_get_1kb_1pct_loss(self):
+        """Test 1KB download with 1% loss."""
+        config = self._create_config()
+        impairment = NetworkImpairment(loss_rate=0.01, seed=42)
+
+        test_content = b'A' * 1024
+        with open(os.path.join(self.bob_root, 'loss1_1kb.bin'), 'wb') as f:
+            f.write(test_content)
+
+        self._start_bob(config)
+        self._start_alice(config, impairment)
+
+        local_path = os.path.join(self.alice_root, 'loss1_1kb.bin')
+        start = time.time()
+        self.alice_file_module.get('loss1_1kb.bin', local_path, timeout=60.0)
+        elapsed = time.time() - start
+
+        with open(local_path, 'rb') as f:
+            downloaded = f.read()
+        self.assertEqual(downloaded, test_content)
+        self._print_stats(test_name='get_1kb_1pct_loss', file_size=len(test_content), elapsed=elapsed)
+
+    def test_put_1kb_1pct_loss(self):
+        """Test 1KB upload with 1% loss."""
+        config = self._create_config()
+        impairment = NetworkImpairment(loss_rate=0.01, seed=42)
+
+        test_content = b'B' * 1024
+        local_path = os.path.join(self.alice_root, 'upload_loss1_1kb.bin')
+        with open(local_path, 'wb') as f:
+            f.write(test_content)
+
+        self._start_bob(config)
+        self._start_alice(config, impairment)
+
+        start = time.time()
+        self.alice_file_module.put(local_path, 'upload_loss1_1kb.bin', timeout=60.0)
+        elapsed = time.time() - start
+
+        remote_path = os.path.join(self.bob_root, 'upload_loss1_1kb.bin')
+        with open(remote_path, 'rb') as f:
+            uploaded = f.read()
+        self.assertEqual(uploaded, test_content)
+        self._print_stats(test_name='put_1kb_1pct_loss', file_size=len(test_content), elapsed=elapsed)
+
+    # --- Tests with 5% loss ---
+
+    def test_get_1kb_5pct_loss(self):
+        """Test 1KB download with 5% loss."""
+        config = self._create_config()
+        impairment = NetworkImpairment(loss_rate=0.05, seed=42)
+
+        test_content = b'C' * 1024
+        with open(os.path.join(self.bob_root, 'loss5_1kb.bin'), 'wb') as f:
+            f.write(test_content)
+
+        self._start_bob(config)
+        self._start_alice(config, impairment)
+
+        local_path = os.path.join(self.alice_root, 'loss5_1kb.bin')
+        start = time.time()
+        self.alice_file_module.get('loss5_1kb.bin', local_path, timeout=60.0)
+        elapsed = time.time() - start
+
+        with open(local_path, 'rb') as f:
+            downloaded = f.read()
+        self.assertEqual(downloaded, test_content)
+        self._print_stats(test_name='get_1kb_5pct_loss', file_size=len(test_content), elapsed=elapsed)
+
+    def test_put_1kb_5pct_loss(self):
+        """Test 1KB upload with 5% loss."""
+        config = self._create_config()
+        impairment = NetworkImpairment(loss_rate=0.05, seed=42)
+
+        test_content = b'D' * 1024
+        local_path = os.path.join(self.alice_root, 'upload_loss5_1kb.bin')
+        with open(local_path, 'wb') as f:
+            f.write(test_content)
+
+        self._start_bob(config)
+        self._start_alice(config, impairment)
+
+        start = time.time()
+        self.alice_file_module.put(local_path, 'upload_loss5_1kb.bin', timeout=60.0)
+        elapsed = time.time() - start
+
+        remote_path = os.path.join(self.bob_root, 'upload_loss5_1kb.bin')
+        with open(remote_path, 'rb') as f:
+            uploaded = f.read()
+        self.assertEqual(uploaded, test_content)
+        self._print_stats(test_name='put_1kb_5pct_loss', file_size=len(test_content), elapsed=elapsed)
 
     # --- Tests with 10% loss ---
 
@@ -167,7 +284,7 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         self.assertEqual(self.alice_tunnel._state, TunnelState.CONNECTED)
-        self._print_stats()
+        self._print_stats(test_name='connect_10pct_loss')
 
     def test_get_1kb_10pct_loss(self):
         """Test 1KB download with 10% loss."""
@@ -182,12 +299,14 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         local_path = os.path.join(self.alice_root, 'lossy1kb.bin')
+        start = time.time()
         self.alice_file_module.get('lossy1kb.bin', local_path, timeout=60.0)
+        elapsed = time.time() - start
 
         with open(local_path, 'rb') as f:
             downloaded = f.read()
         self.assertEqual(downloaded, test_content)
-        self._print_stats()
+        self._print_stats(test_name='get_1kb_10pct_loss', file_size=len(test_content), elapsed=elapsed)
 
     def test_put_1kb_10pct_loss(self):
         """Test 1KB upload with 10% loss."""
@@ -202,13 +321,15 @@ class LossyE2ETest(unittest.TestCase):
         self._start_bob(config)
         self._start_alice(config, impairment)
 
+        start = time.time()
         self.alice_file_module.put(local_path, 'upload_lossy1kb.bin', timeout=60.0)
+        elapsed = time.time() - start
 
         remote_path = os.path.join(self.bob_root, 'upload_lossy1kb.bin')
         with open(remote_path, 'rb') as f:
             uploaded = f.read()
         self.assertEqual(uploaded, test_content)
-        self._print_stats()
+        self._print_stats(test_name='put_1kb_10pct_loss', file_size=len(test_content), elapsed=elapsed)
 
     # --- Tests with 20% loss ---
 
@@ -225,12 +346,14 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         local_path = os.path.join(self.alice_root, 'loss20_1kb.bin')
+        start = time.time()
         self.alice_file_module.get('loss20_1kb.bin', local_path, timeout=90.0)
+        elapsed = time.time() - start
 
         with open(local_path, 'rb') as f:
             downloaded = f.read()
         self.assertEqual(downloaded, test_content)
-        self._print_stats()
+        self._print_stats(test_name='get_1kb_20pct_loss', file_size=len(test_content), elapsed=elapsed)
 
 
 class _TunnelRunner(object):

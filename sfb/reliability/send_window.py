@@ -15,6 +15,7 @@ from ..protocol import (
     MAX_IN_FLIGHT,
     DEFAULT_MAX_IN_FLIGHT,
 )
+from .stats import NoopReliabilityStats
 
 
 class SendWindow(object):
@@ -28,13 +29,15 @@ class SendWindow(object):
     with fresh ACK/SACK on retransmit.
     """
 
-    def __init__(self, max_in_flight=DEFAULT_MAX_IN_FLIGHT):
+    def __init__(self, max_in_flight=DEFAULT_MAX_IN_FLIGHT, stats=None):
         if max_in_flight > MAX_IN_FLIGHT:
             raise ValueError('max_in_flight cannot exceed %d' % MAX_IN_FLIGHT)
         self._max_in_flight = max_in_flight
         self._next_seq = 0
         self._unacked = {}  # seq -> _UnackedPacket
         self._send_order = deque()
+        self._retransmit_count = 0  # Total retransmits
+        self._stats = stats or NoopReliabilityStats()
 
     @property
     def next_seq(self):
@@ -77,6 +80,7 @@ class SendWindow(object):
             retransmit_count=0,
         )
         self._send_order.append(seq)
+        self._stats.on_send()
 
         return seq
 
@@ -147,6 +151,8 @@ class SendWindow(object):
 
         pkt.retransmit_count += 1
         pkt.send_time = now
+        self._retransmit_count += 1
+        self._stats.on_retransmit()
 
     def _ack_cumulative(self, ack, now, rtt_samples):
         while self._send_order:
@@ -154,7 +160,7 @@ class SendWindow(object):
             if not seq_lt(seq, ack):
                 break
             self._send_order.popleft()
-            self._ack_seq(seq, now, rtt_samples)
+            self._ack_seq(seq, now, rtt_samples, is_sack=False)
 
     def _ack_sack(self, ack, sack, now, rtt_samples):
         if sack == 0:
@@ -162,15 +168,18 @@ class SendWindow(object):
         for offset in range(1, SACK_BITS + 1):
             if sack & (1 << (offset - 1)):
                 seq = (ack + offset) & SEQ_MAX
-                self._ack_seq(seq, now, rtt_samples)
+                self._ack_seq(seq, now, rtt_samples, is_sack=True)
 
-    def _ack_seq(self, seq, now, rtt_samples):
+    def _ack_seq(self, seq, now, rtt_samples, is_sack):
         pkt = self._unacked.pop(seq, None)
         if pkt is None:
             return
+        self._stats.on_ack(is_sack)
         if pkt.retransmit_count == 0:
             rtt_ms = (now - pkt.send_time) * 1000
             rtt_samples.append(rtt_ms)
+            self._stats.on_ack_first_tx()
+            self._stats.on_rtt_sample()
 
 
 class _UnackedPacket(object):

@@ -34,7 +34,7 @@ from ..protocol import (
     FLAG_ACK,
     PACKET_HEADER_SIZE,
 )
-from ..reliability import SendWindow, RecvWindow
+from ..reliability import SendWindow, RecvWindow, ReliabilityStats, NoopReliabilityStats
 
 
 class TunnelState(object):
@@ -91,8 +91,20 @@ class BaseTunnel(object):
 
         # Reliability - start with window=1 until negotiated
         self._proposed_max_in_flight = min(config.tunnel_max_in_flight, self.MAX_WINDOW)
-        self._send_window = SendWindow(max_in_flight=self.DEFAULT_WINDOW)
-        self._recv_window = RecvWindow(max_buffer=self._proposed_max_in_flight)
+        if config.tunnel_stats_enabled:
+            self._reliability_stats = ReliabilityStats()
+            self._stats_enabled = True
+        else:
+            self._reliability_stats = NoopReliabilityStats()
+            self._stats_enabled = False
+        self._send_window = SendWindow(
+            max_in_flight=self.DEFAULT_WINDOW,
+            stats=self._reliability_stats,
+        )
+        self._recv_window = RecvWindow(
+            max_buffer=self._proposed_max_in_flight,
+            stats=self._reliability_stats,
+        )
 
         # Sequence numbers
         self._local_isn = None  # Set during handshake
@@ -147,6 +159,13 @@ class BaseTunnel(object):
     def negotiated_window(self):
         """Current effective window size (1 until negotiated)."""
         return self._negotiated_window
+
+    @property
+    def reliability_stats(self):
+        """Reliability stats if enabled, otherwise None."""
+        if not self._stats_enabled:
+            return None
+        return self._reliability_stats
 
     def _set_state(self, new_state):
         """Transition to a new state."""

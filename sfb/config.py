@@ -54,6 +54,8 @@ class Config:
     tunnel_connect_timeout: float = 10.0
     # Alice: packets sent without response before giving up
     tunnel_timeout_packets: int = 30
+    # Enable reliability stats tracking
+    tunnel_stats_enabled: bool = False
 
     # --- Channel ---
     # Maximum bytes to buffer for sending per channel

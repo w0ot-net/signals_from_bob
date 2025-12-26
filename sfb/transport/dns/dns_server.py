@@ -109,14 +109,16 @@ class DnsServer(Server):
 
             # Check query type
             if qtype not in (codec.QTYPE_TXT, codec.QTYPE_NULL):
-                # Not a tunnel query, ignore
+                # Not a tunnel query, send empty response to avoid resolver timeouts
+                self._send_empty_response(query_id, qname, qtype, client_addr)
                 continue
 
             # Decode tunnel data
             try:
                 data = codec.decode_query_name(qname, self._base_domain)
             except ValueError:
-                # Decode failed, ignore
+                # Decode failed, send empty response to avoid resolver timeouts
+                self._send_empty_response(query_id, qname, qtype, client_addr)
                 continue
 
             # Create responder
@@ -208,6 +210,36 @@ class DnsServer(Server):
 
         try:
             _LOG.debug('dns response id=%d addr=%s', query_id, addr)
+            self._sock.sendto(response, addr)
+        except socket.error as e:
+            raise TransportError('Send failed: %s' % e)
+
+    def _send_empty_response(self, query_id, qname, qtype, addr):
+        """Send NOERROR response with no answers (NODATA)."""
+        if self._edns_size > 512:
+            arcount = 1
+            additional = codec.build_opt_record(self._edns_size)
+        else:
+            arcount = 0
+            additional = b''
+
+        flags = codec.FLAG_QR | codec.FLAG_AA
+        header = struct.pack('>HHHHHH',
+            query_id,
+            flags,
+            1,  # QDCOUNT
+            0,  # ANCOUNT
+            0,  # NSCOUNT
+            arcount
+        )
+
+        question = codec.encode_name(qname)
+        question += struct.pack('>HH', qtype, codec.QCLASS_IN)
+
+        response = header + question + additional
+
+        try:
+            _LOG.debug('dns empty response id=%d addr=%s', query_id, addr)
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)

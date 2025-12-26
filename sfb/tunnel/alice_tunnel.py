@@ -272,7 +272,7 @@ class AliceTunnel(BaseTunnel):
 
         # 3. Send new packets if we can
         while self._can_send_new():
-            segments = self._collect_segments(self._negotiated_mtu)
+            segments = self._collect_segments(self._send_mtu)
             is_real_data = bool(segments)
             if not segments:
                 # No data to send - decide whether to poll Bob
@@ -285,7 +285,7 @@ class AliceTunnel(BaseTunnel):
                 )
                 if should_poll:
                     segments = self._collect_segments(
-                        self._negotiated_mtu,
+                        self._send_mtu,
                         keepalive_data=encode_message(tun_ping())
                     )
                 if not segments:

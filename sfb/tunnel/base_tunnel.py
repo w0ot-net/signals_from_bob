@@ -22,6 +22,7 @@ from .tunnel_control_messages import (
     tun_pong,
     tun_mtu,
     tun_mtu_ok,
+    tun_mtu_ack,
     tun_window,
     tun_window_ok,
     encode as encode_message,
@@ -112,7 +113,8 @@ class BaseTunnel(object):
 
         # MTU/Window negotiation state
         self._proposed_mtu = None  # Set by subclass from transport
-        self._negotiated_mtu = self.DEFAULT_MTU
+        self._negotiated_mtu = self.DEFAULT_MTU  # For receiving (max_packet_size)
+        self._send_mtu = self.DEFAULT_MTU  # For sending (only updated after 3-way handshake)
         self._negotiated_window = self.DEFAULT_WINDOW
         self._mtu_negotiated = False
         self._window_negotiated = False
@@ -404,6 +406,8 @@ class BaseTunnel(object):
             self._handle_mtu(msg)
         elif cmd == 'mtu_ok':
             self._handle_mtu_ok(msg)
+        elif cmd == 'mtu_ack':
+            self._handle_mtu_ack(msg)
         elif cmd == 'window':
             self._handle_window(msg)
         elif cmd == 'window_ok':
@@ -429,6 +433,7 @@ class BaseTunnel(object):
         Handle MTU negotiation request (Bob receives from Alice).
 
         Responds with mtu_ok containing min(requested, our_max).
+        Does NOT update _send_mtu yet - waits for mtu_ack from Alice.
         """
         requested = msg.get('size', self.DEFAULT_MTU)
         if not isinstance(requested, int) or requested < 1:
@@ -439,17 +444,17 @@ class BaseTunnel(object):
         agreed = min(requested, self._proposed_mtu or self.DEFAULT_MTU)
         self._negotiated_mtu = agreed
         self._max_packet_size = agreed + PACKET_HEADER_SIZE
-        self._mtu_negotiated = True
+        # Note: _send_mtu stays at DEFAULT_MTU until we receive mtu_ack
 
-        # Send confirmation
+        # Send confirmation (using small packets still)
         self.control.send_message(tun_mtu_ok(agreed))
-        self._logger.debug('MTU negotiated: %d (requested %d)', agreed, requested)
+        self._logger.debug('MTU recv updated: %d (requested %d), awaiting ack', agreed, requested)
 
     def _handle_mtu_ok(self, msg):
         """
         Handle MTU negotiation response (Alice receives from Bob).
 
-        Updates negotiated_mtu to the agreed value.
+        Updates negotiated_mtu and send_mtu, then sends mtu_ack.
         """
         agreed = msg.get('size', self.DEFAULT_MTU)
         if not isinstance(agreed, int) or agreed < 1:
@@ -460,8 +465,22 @@ class BaseTunnel(object):
         agreed = min(agreed, self._proposed_mtu or self.DEFAULT_MTU)
         self._negotiated_mtu = agreed
         self._max_packet_size = agreed + PACKET_HEADER_SIZE
+        self._send_mtu = agreed  # Alice can start sending larger packets
         self._mtu_negotiated = True
-        self._logger.debug('MTU negotiated: %d', agreed)
+
+        # Send ack so Bob knows he can also start sending larger packets
+        self.control.send_message(tun_mtu_ack())
+        self._logger.debug('MTU negotiated: %d, sent ack', agreed)
+
+    def _handle_mtu_ack(self, msg):
+        """
+        Handle MTU negotiation acknowledgment (Bob receives from Alice).
+
+        Now Bob can safely use the larger MTU for sending.
+        """
+        self._send_mtu = self._negotiated_mtu
+        self._mtu_negotiated = True
+        self._logger.debug('MTU ack received, send MTU now: %d', self._send_mtu)
 
     def _handle_window(self, msg):
         """

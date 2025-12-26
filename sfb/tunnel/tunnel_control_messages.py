@@ -49,6 +49,16 @@ def tun_mtu_ok(size):
     return ControlMessage(T_TUNNEL, 'mtu_ok', size=size)
 
 
+def tun_mtu_ack():
+    """
+    MTU negotiation acknowledgment.
+
+    Sent by Alice after receiving mtu_ok to confirm both sides
+    can now use the new MTU.
+    """
+    return ControlMessage(T_TUNNEL, 'mtu_ack')
+
+
 def tun_window(size):
     """
     Window size negotiation request.

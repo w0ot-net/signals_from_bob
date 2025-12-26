@@ -243,9 +243,12 @@ class LossyTransport(Transport):
             self._dropped_ids[fake_id] = time.time()
             return fake_id
 
-        # Check for corruption
+        # Check for corruption (simulate lower-layer discard)
         if self._send_imp.should_corrupt():
-            data = self._send_imp.corrupt_data(data)
+            fake_id = self._next_fake_id
+            self._next_fake_id += 1
+            self._dropped_ids[fake_id] = time.time()
+            return fake_id
 
         # Send the packet
         corr_id = self._inner.send(data)
@@ -311,9 +314,9 @@ class LossyTransport(Transport):
             # Try to get another packet
             return self.recv(timeout=0)
 
-        # Check for corruption
+        # Check for corruption (simulate lower-layer discard)
         if self._recv_imp.should_corrupt():
-            data = self._recv_imp.corrupt_data(data)
+            return self.recv(timeout=0)
 
         # Check for delay/reorder
         delay = self._recv_imp.get_delay_sec()

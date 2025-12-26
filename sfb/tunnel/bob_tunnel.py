@@ -195,7 +195,7 @@ class BobTunnel(BaseTunnel):
             # Window full but no unacked? Shouldn't happen - log and send pong
             # to maintain request/response contract
             self._logger.error('Send window full but no unacked packets')
-            max_payload = self._negotiated_mtu
+            max_payload = self._send_mtu
             segments = self._collect_segments(
                 max_payload,
                 keepalive_data=encode_message(tun_pong())
@@ -207,8 +207,8 @@ class BobTunnel(BaseTunnel):
             responder(response_data)
             return
 
-        # Collect new segments - use negotiated MTU
-        max_payload = self._negotiated_mtu
+        # Collect new segments - use send MTU
+        max_payload = self._send_mtu
         segments = self._collect_segments(max_payload)
 
         # If no data, send pong

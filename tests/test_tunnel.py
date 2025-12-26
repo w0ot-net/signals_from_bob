@@ -646,29 +646,45 @@ class NegotiationTests(unittest.TestCase):
         # Alice requests MTU of 500
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu', 'size': 500})
 
-        # Bob should agree to min(500, 200) = 200
+        # Bob should agree to min(500, 200) = 200 for receiving
         self.assertEqual(tunnel._negotiated_mtu, 200)
-        self.assertTrue(tunnel._mtu_negotiated)
+        # But _mtu_negotiated is False until Bob receives mtu_ack
+        self.assertFalse(tunnel._mtu_negotiated)
+        # And _send_mtu stays at default until ack
+        self.assertEqual(tunnel._send_mtu, 100)
 
         # Check mtu_ok was queued
         send_data = b''.join(tunnel.control._send_buf)
         self.assertIn(b'"c":"mtu_ok"', send_data)
         self.assertIn(b'"size":200', send_data)
 
+        # After receiving mtu_ack, Bob can send larger packets
+        tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu_ack'})
+        self.assertTrue(tunnel._mtu_negotiated)
+        self.assertEqual(tunnel._send_mtu, 200)
+
     def test_mtu_negotiation_alice_accepts(self):
-        """Verify Alice accepts mtu_ok and updates negotiated_mtu."""
+        """Verify Alice accepts mtu_ok, updates MTU, and sends mtu_ack."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
         tunnel = BaseTunnel(make_test_config(), is_initiator=True)
+        tunnel._proposed_mtu = 200  # Alice's transport max
 
         # Default is 100
         self.assertEqual(tunnel._negotiated_mtu, 100)
+        self.assertEqual(tunnel._send_mtu, 100)
 
         # Bob sends mtu_ok
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu_ok', 'size': 150})
 
+        # Alice updates both receive and send MTU immediately
         self.assertEqual(tunnel._negotiated_mtu, 150)
+        self.assertEqual(tunnel._send_mtu, 150)
         self.assertTrue(tunnel._mtu_negotiated)
+
+        # Check mtu_ack was queued
+        send_data = b''.join(tunnel.control._send_buf)
+        self.assertIn(b'"c":"mtu_ack"', send_data)
 
     def test_window_negotiation_bob_responds(self):
         """Verify Bob responds to window request with window_ok."""

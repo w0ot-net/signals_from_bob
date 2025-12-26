@@ -16,7 +16,7 @@ import time
 import unittest
 
 from sfb.config import Config
-from sfb.crypto import Plain
+from sfb.crypto import XOR
 from sfb.transport.dns import DnsClient, DnsServer
 from sfb.transport.lossy import LossyTransport, NetworkImpairment
 from sfb.tunnel import AliceTunnel, BobTunnel, TunnelState
@@ -114,7 +114,7 @@ class LossyE2ETest(unittest.TestCase):
     def _start_bob(self, config):
         """Start Bob server (no impairment - loss applied at Alice's side)."""
         self.bob_transport = DnsServer(config)
-        self.bob_tunnel = BobTunnel(self.bob_transport, config, crypto=Plain())
+        self.bob_tunnel = BobTunnel(self.bob_transport, config, crypto=XOR(b'a'))
         self.bob_file_module = FileTransferModule(self.bob_tunnel)
 
         orig_dir = os.getcwd()
@@ -140,7 +140,7 @@ class LossyE2ETest(unittest.TestCase):
         else:
             transport = self.alice_transport
 
-        self.alice_tunnel = AliceTunnel(transport, config, crypto=Plain())
+        self.alice_tunnel = AliceTunnel(transport, config, crypto=XOR(b'a'))
         self.alice_tunnel.connect(timeout=30.0)
 
         self.alice_runner = _TunnelRunner(self.alice_tunnel)

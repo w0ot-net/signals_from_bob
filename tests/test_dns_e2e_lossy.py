@@ -364,6 +364,210 @@ class LossyE2ETest(unittest.TestCase):
         self.assertEqual(downloaded, test_content)
         self._print_stats(test_name='get_1kb_20pct_loss', file_size=len(test_content), elapsed=elapsed)
 
+    # --- Tests with delay/jitter ---
+
+    def test_get_1kb_high_latency(self):
+        """Test 1KB download with high latency (50ms delay, 25ms jitter)."""
+        config = self._create_config()
+        impairment = NetworkImpairment(
+            delay_ms=50,
+            jitter_ms=25,
+            seed=42
+        )
+
+        test_content = b'L' * 1024
+        with open(os.path.join(self.bob_root, 'latency_1kb.bin'), 'wb') as f:
+            f.write(test_content)
+
+        self._start_bob(config)
+        self._start_alice(config, impairment)
+
+        local_path = os.path.join(self.alice_root, 'latency_1kb.bin')
+        start = time.time()
+        self.alice_file_module.get('latency_1kb.bin', local_path, timeout=120.0)
+        elapsed = time.time() - start
+
+        with open(local_path, 'rb') as f:
+            downloaded = f.read()
+        self.assertEqual(downloaded, test_content)
+        self._print_stats(test_name='get_1kb_high_latency', file_size=len(test_content), elapsed=elapsed)
+
+    # --- Tests with burst loss ---
+
+    def test_get_1kb_burst_loss(self):
+        """Test 1KB download with burst loss (5% base + 10% burst probability)."""
+        config = self._create_config()
+        impairment = NetworkImpairment(
+            loss_rate=0.05,
+            burst_loss_prob=0.10,
+            burst_loss_len=(2, 5),
+            seed=42
+        )
+
+        test_content = b'B' * 1024
+        with open(os.path.join(self.bob_root, 'burst_1kb.bin'), 'wb') as f:
+            f.write(test_content)
+
+        self._start_bob(config)
+        self._start_alice(config, impairment)
+
+        local_path = os.path.join(self.alice_root, 'burst_1kb.bin')
+        start = time.time()
+        self.alice_file_module.get('burst_1kb.bin', local_path, timeout=90.0)
+        elapsed = time.time() - start
+
+        with open(local_path, 'rb') as f:
+            downloaded = f.read()
+        self.assertEqual(downloaded, test_content)
+        self._print_stats(test_name='get_1kb_burst_loss', file_size=len(test_content), elapsed=elapsed)
+
+    # --- Tests with duplication ---
+
+    def test_get_1kb_duplication(self):
+        """Test 1KB download with 20% packet duplication."""
+        config = self._create_config()
+        impairment = NetworkImpairment(
+            dup_rate=0.20,
+            seed=42
+        )
+
+        test_content = b'U' * 1024
+        with open(os.path.join(self.bob_root, 'dup_1kb.bin'), 'wb') as f:
+            f.write(test_content)
+
+        self._start_bob(config)
+        self._start_alice(config, impairment)
+
+        local_path = os.path.join(self.alice_root, 'dup_1kb.bin')
+        start = time.time()
+        self.alice_file_module.get('dup_1kb.bin', local_path, timeout=60.0)
+        elapsed = time.time() - start
+
+        with open(local_path, 'rb') as f:
+            downloaded = f.read()
+        self.assertEqual(downloaded, test_content)
+        self._print_stats(test_name='get_1kb_duplication', file_size=len(test_content), elapsed=elapsed)
+
+    # --- Tests with reordering ---
+
+    def test_get_1kb_reordering(self):
+        """Test 1KB download with 20% packet reordering."""
+        config = self._create_config()
+        impairment = NetworkImpairment(
+            reorder_rate=0.20,
+            reorder_wait_ms=30,
+            seed=42
+        )
+
+        test_content = b'R' * 1024
+        with open(os.path.join(self.bob_root, 'reorder_1kb.bin'), 'wb') as f:
+            f.write(test_content)
+
+        self._start_bob(config)
+        self._start_alice(config, impairment)
+
+        local_path = os.path.join(self.alice_root, 'reorder_1kb.bin')
+        start = time.time()
+        self.alice_file_module.get('reorder_1kb.bin', local_path, timeout=60.0)
+        elapsed = time.time() - start
+
+        with open(local_path, 'rb') as f:
+            downloaded = f.read()
+        self.assertEqual(downloaded, test_content)
+        self._print_stats(test_name='get_1kb_reordering', file_size=len(test_content), elapsed=elapsed)
+
+    # --- Tests with corruption ---
+
+    def test_get_1kb_corruption(self):
+        """Test 1KB download with 10% packet corruption (should be detected and retransmitted)."""
+        config = self._create_config()
+        impairment = NetworkImpairment(
+            corrupt_rate=0.10,
+            corrupt_bytes=(1, 3),
+            seed=42
+        )
+
+        test_content = b'C' * 1024
+        with open(os.path.join(self.bob_root, 'corrupt_1kb.bin'), 'wb') as f:
+            f.write(test_content)
+
+        self._start_bob(config)
+        self._start_alice(config, impairment)
+
+        local_path = os.path.join(self.alice_root, 'corrupt_1kb.bin')
+        start = time.time()
+        self.alice_file_module.get('corrupt_1kb.bin', local_path, timeout=90.0)
+        elapsed = time.time() - start
+
+        with open(local_path, 'rb') as f:
+            downloaded = f.read()
+        self.assertEqual(downloaded, test_content)
+        self._print_stats(test_name='get_1kb_corruption', file_size=len(test_content), elapsed=elapsed)
+
+    # --- Combined impairment tests ---
+
+    def test_get_1kb_moderate_conditions(self):
+        """Test 1KB download with moderate impairment (5% loss, 30ms delay, 10% jitter)."""
+        config = self._create_config()
+        impairment = NetworkImpairment(
+            loss_rate=0.05,
+            delay_ms=30,
+            jitter_ms=15,
+            dup_rate=0.02,
+            seed=42
+        )
+
+        test_content = b'O' * 1024
+        with open(os.path.join(self.bob_root, 'moderate_1kb.bin'), 'wb') as f:
+            f.write(test_content)
+
+        self._start_bob(config)
+        self._start_alice(config, impairment)
+
+        local_path = os.path.join(self.alice_root, 'moderate_1kb.bin')
+        start = time.time()
+        self.alice_file_module.get('moderate_1kb.bin', local_path, timeout=120.0)
+        elapsed = time.time() - start
+
+        with open(local_path, 'rb') as f:
+            downloaded = f.read()
+        self.assertEqual(downloaded, test_content)
+        self._print_stats(test_name='get_1kb_moderate_conditions', file_size=len(test_content), elapsed=elapsed)
+
+    def test_get_1kb_chaos(self):
+        """Test 1KB download with chaos conditions (everything bad)."""
+        config = self._create_config()
+        impairment = NetworkImpairment(
+            loss_rate=0.15,
+            burst_loss_prob=0.05,
+            burst_loss_len=(2, 4),
+            delay_ms=20,
+            jitter_ms=15,
+            dup_rate=0.10,
+            reorder_rate=0.10,
+            reorder_wait_ms=25,
+            corrupt_rate=0.03,
+            corrupt_bytes=(1, 2),
+            seed=42
+        )
+
+        test_content = b'Z' * 1024
+        with open(os.path.join(self.bob_root, 'chaos_1kb.bin'), 'wb') as f:
+            f.write(test_content)
+
+        self._start_bob(config)
+        self._start_alice(config, impairment)
+
+        local_path = os.path.join(self.alice_root, 'chaos_1kb.bin')
+        start = time.time()
+        self.alice_file_module.get('chaos_1kb.bin', local_path, timeout=180.0)
+        elapsed = time.time() - start
+
+        with open(local_path, 'rb') as f:
+            downloaded = f.read()
+        self.assertEqual(downloaded, test_content)
+        self._print_stats(test_name='get_1kb_chaos', file_size=len(test_content), elapsed=elapsed)
+
 
 class _TunnelRunner(object):
     """Runs tunnel tick loop in background thread."""

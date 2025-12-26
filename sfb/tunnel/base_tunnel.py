@@ -111,6 +111,9 @@ class BaseTunnel(object):
         self._bytes_sent = 0
         self._bytes_received = 0
 
+        # Transport MTU (payload + header)
+        self._max_packet_size = self.DEFAULT_MTU + PACKET_HEADER_SIZE
+
     @property
     def state(self):
         """Current tunnel state."""
@@ -220,6 +223,8 @@ class BaseTunnel(object):
         Returns:
             Packet instance or None on error
         """
+        if max_size is None:
+            max_size = self._max_packet_size
         try:
             decrypted = self._decrypt(data)
             return Packet.decode(decrypted, max_size=max_size)
@@ -399,6 +404,7 @@ class BaseTunnel(object):
         # Negotiate: use minimum of requested and our transport's max
         agreed = min(requested, self._proposed_mtu or self.DEFAULT_MTU)
         self._negotiated_mtu = agreed
+        self._max_packet_size = agreed + PACKET_HEADER_SIZE
         self._mtu_negotiated = True
 
         # Send confirmation
@@ -417,6 +423,7 @@ class BaseTunnel(object):
             return
 
         self._negotiated_mtu = agreed
+        self._max_packet_size = agreed + PACKET_HEADER_SIZE
         self._mtu_negotiated = True
         self._logger.debug('MTU negotiated: %d', agreed)
 

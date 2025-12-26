@@ -3,7 +3,7 @@
 Alice's tunnel implementation (client side).
 
 Alice initiates the connection and polls Bob for data using a
-request/response transport.
+pipelined request/response transport.
 """
 
 from __future__ import absolute_import
@@ -30,8 +30,8 @@ class AliceTunnel(BaseTunnel):
     """
     Client-side tunnel.
 
-    Alice initiates the handshake and polls Bob using transport.exchange().
-    She uses RTT-based retransmission timing.
+    Alice initiates the handshake and drives the tunnel using tick().
+    She uses RTT-based retransmission timing and supports pipelining.
     """
 
     def __init__(self, transport, crypto=None, keepalive_interval=5.0,
@@ -40,7 +40,7 @@ class AliceTunnel(BaseTunnel):
         Initialize Alice's tunnel.
 
         Args:
-            transport: RequestResponseTransport instance
+            transport: Transport instance
             crypto: Cipher instance (default: Plain)
             keepalive_interval: Seconds between keepalives
             max_in_flight: Max unacked packets
@@ -55,8 +55,9 @@ class AliceTunnel(BaseTunnel):
         self._transport = transport
         self._keepalive_interval = keepalive_interval
 
-        # Set proposed MTU from transport (for negotiation)
-        self._proposed_mtu = transport.send_mtu - PACKET_HEADER_SIZE
+        # Set proposed MTU from transport (for negotiation, symmetric)
+        max_packet = min(transport.send_mtu, transport.recv_mtu)
+        self._proposed_mtu = max(1, max_packet - PACKET_HEADER_SIZE)
 
         # RTT estimation (Alice only)
         self._rtt = RttEstimator()
@@ -64,8 +65,10 @@ class AliceTunnel(BaseTunnel):
         # Timing
         self._last_send_time = 0
         self._last_recv_time = 0
-        self._consecutive_failures = 0
-        self._max_failures = 10
+
+        # Timeout detection: packets sent without any response
+        self._packets_since_response = 0
+        self._max_packets_without_response = 30
 
     @property
     def rtt_estimator(self):
@@ -75,6 +78,8 @@ class AliceTunnel(BaseTunnel):
     def connect(self, timeout=10.0):
         """
         Connect to Bob with handshake.
+
+        Uses serial send/recv during handshake for simplicity.
 
         Args:
             timeout: Max seconds to wait for handshake
@@ -106,8 +111,17 @@ class AliceTunnel(BaseTunnel):
             syn_data = self._encode_packet(syn_packet)
 
             try:
-                # Send SYN, expect SYN+ACK
-                response_data = self._transport.exchange(syn_data)
+                # Send SYN
+                self._transport.send(syn_data)
+
+                # Wait for SYN+ACK
+                remaining = timeout - (time.time() - start_time)
+                if remaining <= 0:
+                    break
+                corr_id, response_data = self._transport.recv(
+                    timeout=min(self._rtt.rto_sec, remaining)
+                )
+
                 if response_data is None:
                     self._rtt.backoff()
                     continue
@@ -130,7 +144,7 @@ class AliceTunnel(BaseTunnel):
                         ) & 0xFFFF
 
                         # Send ACK to complete handshake
-                        self._complete_handshake()
+                        self._complete_handshake(timeout - (time.time() - start_time))
                         return
 
                 self._rtt.backoff()
@@ -145,7 +159,7 @@ class AliceTunnel(BaseTunnel):
         self._set_state(TunnelState.DISCONNECTED)
         raise TunnelError('Handshake timeout')
 
-    def _complete_handshake(self):
+    def _complete_handshake(self, remaining_timeout):
         """Send final ACK and transition to CONNECTED."""
         ack_packet = Packet(
             seq=(self._local_isn + 1) & 0xFFFF,
@@ -156,13 +170,17 @@ class AliceTunnel(BaseTunnel):
         ack_data = self._encode_packet(ack_packet)
 
         try:
-            # Send ACK - response may contain data
-            response_data = self._transport.exchange(ack_data)
+            # Send ACK
+            self._transport.send(ack_data)
             self._set_state(TunnelState.CONNECTED)
             self._last_recv_time = time.time()
-            self._consecutive_failures = 0
+            self._packets_since_response = 0
 
-            # Process any data in response
+            # Wait for response (may contain data or pong)
+            corr_id, response_data = self._transport.recv(
+                timeout=min(self._rtt.rto_sec, remaining_timeout)
+            )
+
             if response_data:
                 response = self._decode_packet(response_data)
                 if response:
@@ -191,109 +209,112 @@ class AliceTunnel(BaseTunnel):
         self.control.send_message(tun_window(self._proposed_max_in_flight))
         self._logger.debug('Requesting window: %d', self._proposed_max_in_flight)
 
-    def poll(self):
+    def tick(self):
         """
-        Perform one request/response cycle.
+        Perform one iteration of the event loop.
 
+        - Receives all available responses (non-blocking)
         - Checks for retransmits
-        - Collects data from channels
-        - Sends packet to Bob
-        - Processes response
+        - Sends new packets up to limit
 
         Returns:
-            bool: True if exchange succeeded, False on error
+            bool: True if still running, False if closed
         """
         if self._state != TunnelState.CONNECTED:
             return False
 
         now = time.time()
 
-        # Check for retransmits
+        # 1. Receive all available responses
+        received_any = False
+        while True:
+            corr_id, data = self._transport.recv(timeout=0)
+            if corr_id is None:
+                break
+            self._handle_response(data, now)
+            received_any = True
+
+        if received_any:
+            self._packets_since_response = 0
+
+        # Check connection timeout
+        if self._packets_since_response >= self._max_packets_without_response:
+            self._set_state(TunnelState.CLOSED)
+            self._logger.error('Connection timeout after %d packets without response',
+                               self._max_packets_without_response)
+            return False
+
+        # 2. Check for retransmits
         retransmits = self._send_window.get_retransmits(
             self._rtt.rto_sec, now=now
         )
+        for seq, segments in retransmits:
+            if not self._can_send():
+                break
+            self._send_retransmit(seq, segments, now)
 
-        packet_data = None
-        segments = None
-
-        if retransmits:
-            # Retransmit oldest - rebuild with fresh ack/sack
-            seq, segments = retransmits[0]
-            packet = self._rebuild_packet(seq, segments)
-            packet_data = self._encode_packet(packet)
-            self._send_window.mark_retransmit(seq, now=now)
-            self._rtt.backoff()
-            self._logger.debug('Retransmitting seq=%d', seq)
-        elif not self._send_window.can_send:
-            # Window full - retransmit oldest to carry fresh ACK/SACK
-            oldest = self._send_window.get_oldest_unacked()
-            if oldest is not None:
-                seq, segments = oldest
-                packet = self._rebuild_packet(seq, segments)
-                packet_data = self._encode_packet(packet)
-                self._send_window.mark_retransmit(seq, now=now)
-                self._logger.debug('Window full, retransmitting seq=%d', seq)
-            else:
-                # No unacked packets but window full? Shouldn't happen
-                return True
-        else:
-            # Build new packet - use negotiated MTU
-            max_payload = self._negotiated_mtu
-            segments = self._collect_segments(max_payload)
-
-            # If no data, check if keepalive needed
+        # 3. Send new packets if we can
+        while self._can_send():
+            segments = self._collect_segments(self._negotiated_mtu)
             if not segments:
-                if now - self._last_send_time < self._keepalive_interval:
-                    # No need to send yet
-                    return True
-                # Send keepalive ping
-                segments = self._collect_segments(
-                    max_payload,
-                    keepalive_data=encode_message(tun_ping())
-                )
+                # Check keepalive
+                if now - self._last_send_time >= self._keepalive_interval:
+                    segments = self._collect_segments(
+                        self._negotiated_mtu,
+                        keepalive_data=encode_message(tun_ping())
+                    )
+                if not segments:
+                    break
+            self._send_new_packet(segments, now)
 
-            packet, seq = self._build_packet(segments=segments)
-            packet_data = self._encode_packet(packet)
-            self._send_window.send(segments, now=now)
+        return True
 
-        # Exchange with Bob
+    def _can_send(self):
+        """Check if we can send another packet."""
+        return (self._transport.pending_count() < self._transport.max_pending and
+                self._send_window.can_send)
+
+    def _send_new_packet(self, segments, now):
+        """Send a new packet with given segments."""
+        packet, seq = self._build_packet(segments=segments)
+        packet_data = self._encode_packet(packet)
+
+        self._send_window.send(segments, now=now)
+        self._transport.send(packet_data)
+
         self._last_send_time = now
         self._packets_sent += 1
         self._bytes_sent += len(packet_data)
+        self._packets_since_response += 1
 
-        try:
-            response_data = self._transport.exchange(packet_data)
-        except Exception as e:
-            self._logger.warning('Exchange failed: %s', e)
-            self._consecutive_failures += 1
-            if self._consecutive_failures >= self._max_failures:
-                self._set_state(TunnelState.CLOSED)
-                self._logger.error('Connection lost after %d failures',
-                                   self._max_failures)
-            return False
+    def _send_retransmit(self, seq, segments, now):
+        """Retransmit a packet."""
+        packet = self._rebuild_packet(seq, segments)
+        packet_data = self._encode_packet(packet)
 
-        if response_data is None:
-            self._consecutive_failures += 1
-            if self._consecutive_failures >= self._max_failures:
-                self._set_state(TunnelState.CLOSED)
-            return False
+        self._send_window.mark_retransmit(seq, now=now)
+        self._transport.send(packet_data)
 
-        # Process response
-        response = self._decode_packet(response_data)
-        if response is None:
-            return False
+        self._rtt.backoff()
+        self._last_send_time = now
+        self._packets_sent += 1
+        self._bytes_sent += len(packet_data)
+        self._packets_since_response += 1
+        self._logger.debug('Retransmitting seq=%d', seq)
 
-        self._bytes_received += len(response_data)
+    def _handle_response(self, data, now):
+        """Handle a transport response."""
+        packet = self._decode_packet(data)
+        if packet is None:
+            return
+
+        self._bytes_received += len(data)
         self._last_recv_time = now
-        self._consecutive_failures = 0
 
-        rtt_samples = self._process_incoming_packet(response, now=now)
+        rtt_samples = self._process_incoming_packet(packet, now=now)
 
-        # Update RTT estimator
         for sample in rtt_samples:
             self._rtt.add_sample(sample)
-
-        return True
 
     def run(self, duration=None):
         """
@@ -304,7 +325,7 @@ class AliceTunnel(BaseTunnel):
         """
         start = time.time()
         while self._state == TunnelState.CONNECTED:
-            self.poll()
+            self.tick()
 
             if duration and (time.time() - start) >= duration:
                 break

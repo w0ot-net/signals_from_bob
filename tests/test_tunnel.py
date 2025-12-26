@@ -16,27 +16,45 @@ from sfb.tunnel import (
 )
 from sfb.crypto import Plain, XOR
 from sfb.transport import (
-    RequestResponseTransport,
-    RequestResponseServer,
+    Transport,
+    Server,
 )
 
 
-class MockTransport(RequestResponseTransport):
-    """Mock transport for testing Alice."""
+class MockTransport(Transport):
+    """Mock transport for testing Alice with pipelined send/recv."""
 
-    def __init__(self, responses=None):
-        self._responses = responses or []
-        self._response_index = 0
+    def __init__(self, responses=None, max_pending=16):
+        self._responses = list(responses) if responses else []
+        self._pending = []  # List of (corr_id, response)
+        self._next_corr_id = 0
         self._sent = []
         self._closed = False
+        self._max_pending = max_pending
 
-    def exchange(self, data):
+    def send(self, data):
         self._sent.append(data)
-        if self._response_index < len(self._responses):
-            response = self._responses[self._response_index]
-            self._response_index += 1
-            return response
-        return None
+        corr_id = self._next_corr_id
+        self._next_corr_id += 1
+
+        # Queue response if available
+        if self._responses:
+            response = self._responses.pop(0)
+            self._pending.append((corr_id, response))
+
+        return corr_id
+
+    def recv(self, timeout=None):
+        if self._pending:
+            return self._pending.pop(0)
+        return (None, None)
+
+    def pending_count(self):
+        return len(self._pending)
+
+    @property
+    def max_pending(self):
+        return self._max_pending
 
     @property
     def send_mtu(self):
@@ -50,7 +68,7 @@ class MockTransport(RequestResponseTransport):
         self._closed = True
 
 
-class MockServer(RequestResponseServer):
+class MockServer(Server):
     """Mock transport server for testing Bob."""
 
     def __init__(self):
@@ -111,13 +129,16 @@ class PairedTransport(object):
     """
     Paired transports for end-to-end testing.
 
-    Creates a linked Alice transport and Bob server.
+    Creates a linked Alice transport and Bob server that communicate
+    through shared queues.
     """
 
     def __init__(self):
         self._lock = threading.Lock()
         self._alice_to_bob = []
-        self._bob_to_alice = []
+        self._bob_to_alice = []  # List of (corr_id, data)
+        self._alice_pending = []  # corr_id's awaiting response
+        self._next_corr_id = 0
         self._alice_event = threading.Event()
         self._bob_event = threading.Event()
         self._closed = False
@@ -129,22 +150,50 @@ class PairedTransport(object):
         return _PairedBobServer(self)
 
 
-class _PairedAliceTransport(RequestResponseTransport):
+class _PairedAliceTransport(Transport):
     def __init__(self, pair):
         self._pair = pair
 
-    def exchange(self, data):
+    def send(self, data):
         with self._pair._lock:
-            self._pair._alice_to_bob.append(data)
+            corr_id = self._pair._next_corr_id
+            self._pair._next_corr_id += 1
+            self._pair._alice_to_bob.append((corr_id, data))
+            self._pair._alice_pending.append(corr_id)
             self._pair._bob_event.set()
+        return corr_id
 
-        # Wait for response
-        if self._pair._alice_event.wait(timeout=5.0):
+    def recv(self, timeout=None):
+        if timeout == 0:
+            # Non-blocking poll
             with self._pair._lock:
-                self._pair._alice_event.clear()
                 if self._pair._bob_to_alice:
-                    return self._pair._bob_to_alice.pop(0)
-        return None
+                    corr_id, data = self._pair._bob_to_alice.pop(0)
+                    if corr_id in self._pair._alice_pending:
+                        self._pair._alice_pending.remove(corr_id)
+                    return corr_id, data
+            return None, None
+
+        # Blocking wait
+        deadline = time.time() + (timeout if timeout else 3600)
+        while time.time() < deadline:
+            with self._pair._lock:
+                if self._pair._bob_to_alice:
+                    corr_id, data = self._pair._bob_to_alice.pop(0)
+                    if corr_id in self._pair._alice_pending:
+                        self._pair._alice_pending.remove(corr_id)
+                    return corr_id, data
+            if self._pair._alice_event.wait(timeout=0.01):
+                self._pair._alice_event.clear()
+        return None, None
+
+    def pending_count(self):
+        with self._pair._lock:
+            return len(self._pair._alice_pending)
+
+    @property
+    def max_pending(self):
+        return 16
 
     @property
     def send_mtu(self):
@@ -160,26 +209,30 @@ class _PairedAliceTransport(RequestResponseTransport):
         self._pair._bob_event.set()
 
 
-class _PairedBobServer(RequestResponseServer):
+class _PairedBobServer(Server):
     def __init__(self, pair):
         self._pair = pair
+        self._current_corr_id = None
 
     def recv(self, timeout=None):
         if self._pair._closed:
             return None, None
 
-        if self._pair._bob_event.wait(timeout):
+        deadline = time.time() + (timeout if timeout else 3600)
+        while time.time() < deadline:
             with self._pair._lock:
-                self._pair._bob_event.clear()
                 if self._pair._alice_to_bob:
-                    data = self._pair._alice_to_bob.pop(0)
-                    return data, self._make_responder()
+                    corr_id, data = self._pair._alice_to_bob.pop(0)
+                    self._current_corr_id = corr_id
+                    return data, self._make_responder(corr_id)
+            if self._pair._bob_event.wait(timeout=0.01):
+                self._pair._bob_event.clear()
         return None, None
 
-    def _make_responder(self):
+    def _make_responder(self, corr_id):
         def responder(data):
             with self._pair._lock:
-                self._pair._bob_to_alice.append(data)
+                self._pair._bob_to_alice.append((corr_id, data))
                 self._pair._alice_event.set()
         return responder
 
@@ -224,10 +277,10 @@ class BaseTunnelTests(unittest.TestCase):
 
 
 class AliceTunnelTests(unittest.TestCase):
-    def test_requires_connected_for_poll(self):
+    def test_requires_connected_for_tick(self):
         transport = MockTransport()
         tunnel = AliceTunnel(transport)
-        self.assertFalse(tunnel.poll())
+        self.assertFalse(tunnel.tick())
 
     def test_handshake_timeout(self):
         transport = MockTransport(responses=[])
@@ -288,7 +341,7 @@ class EndToEndTests(unittest.TestCase):
             bob_thread.join(timeout=1.0)
 
     def test_data_exchange(self):
-        """Test Alice and Bob can exchange data via polling."""
+        """Test Alice and Bob can exchange data via tick()."""
         pair = PairedTransport()
         alice_transport = pair.make_alice_transport()
         bob_server = pair.make_bob_server()
@@ -305,10 +358,10 @@ class EndToEndTests(unittest.TestCase):
             alice.connect(timeout=2.0)
             self.assertEqual(alice.state, TunnelState.CONNECTED)
 
-            # Poll a few times - ping/pong are handled internally
+            # Tick a few times - ping/pong are handled internally
             initial_sent = alice._packets_sent
             for _ in range(3):
-                alice.poll()
+                alice.tick()
                 time.sleep(0.05)
 
             # Verify packets were exchanged
@@ -346,9 +399,9 @@ class RecvWindowIntegrationTests(unittest.TestCase):
             initial_ack = alice._recv_window.ack
             self.assertIsNotNone(initial_ack)
 
-            # Poll to receive packets from Bob
+            # Tick to receive packets from Bob
             for _ in range(3):
-                alice.poll()
+                alice.tick()
                 time.sleep(0.05)
 
             # ack should have advanced

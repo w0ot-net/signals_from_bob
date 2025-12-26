@@ -20,8 +20,8 @@ Alice (Client)                           Bob (Server)
 Alice initiates all communication. Bob cannot reach Alice directly; he can only
 respond to Alice's requests. This fundamental asymmetry shapes the entire design.
 
-All transports use a **request/response** pattern via `exchange()` (Alice) and
-`recv()`/`responder()` (Bob). See `TRANSPORTS.md` for the transport interface.
+All transports use a **request/response** pattern via `send()`/`recv()` (Alice)
+and `recv()`/`responder()` (Bob). See `TRANSPORTS.md` for the transport interface.
 
 ---
 
@@ -74,34 +74,23 @@ will accept data packets as implicit confirmation that Alice received SYN+ACK.
 
 ## Packet Flow
 
-### Alice's Poll Cycle
+### Alice's Tick Cycle
 
-Each call to `poll()` performs one request/response exchange using the
-transport's `exchange(data) -> bytes` method:
+Each call to `tick()` drains available responses, handles retransmits,
+and sends new packets using `send()`/`recv()`:
 
 ```
-1. Check retransmit timers
-   └─▶ If RTO expired for any unacked packet, mark for retransmit
+1. Drain available responses
+   ├─▶ corr_id, data = transport.recv(timeout=0)
+   └─▶ Decrypt, decode, update send_window, deliver segments
 
-2. Collect outgoing data
-   ├─▶ Retransmit packets (if any)
-   ├─▶ New segments from channel manager
-   └─▶ Keepalive if nothing else and interval elapsed
+2. Check retransmit timers
+   └─▶ If RTO expired for any unacked packet, retransmit (rebuild with fresh ack/sack)
 
-3. Build packet
-   ├─▶ seq = next sequence number (or retransmit seq)
-   ├─▶ ack = recv_window.ack
-   ├─▶ sack = recv_window.sack
-   └─▶ segments = collected segments
-
-4. Exchange with Bob
-   └─▶ response = transport.exchange(encrypt(packet.encode()))
-
-5. Process response
-   ├─▶ Decrypt and decode
-   ├─▶ Update send_window with ack/sack (calculate RTT samples)
-   ├─▶ Deliver segments to recv_window
-   └─▶ Deliver in-order data to channel manager
+3. Send new packets (while capacity remains)
+   ├─▶ Collect outgoing segments
+   ├─▶ Build packet with seq/ack/sack
+   └─▶ transport.send(encrypt(packet.encode()))
 ```
 
 ### Bob's Request Handler
@@ -123,7 +112,7 @@ then calls `responder(response_data)` to send the reply:
 4. Collect outgoing data
    ├─▶ Oldest unacked packet (opportunistic retransmit)
    ├─▶ New segments from channel manager
-   └─▶ Respect response MTU limit (transport.send_mtu)
+   └─▶ Respect response MTU limit (negotiated MTU)
 
 5. Build response packet
    ├─▶ seq = next sequence number
@@ -133,6 +122,13 @@ then calls `responder(response_data)` to send the reply:
 6. Send response
    └─▶ responder(encrypt(packet.encode()))
 ```
+
+### Correlation IDs
+
+Alice's transport `send()` returns a correlation ID that the transport uses to
+match responses to requests. The tunnel itself does not interpret or rely on
+the correlation ID; it is only used by the transport to demultiplex responses.
+Alice drains responses with `recv()` until `(None, None)` is returned.
 
 ---
 
@@ -264,17 +260,17 @@ Constraints:
 
 ## MTU Handling
 
-The tunnel respects transport MTU limits via `transport.send_mtu` and
-`transport.recv_mtu` properties:
+The tunnel enforces a symmetric MTU by clamping to the minimum of
+`transport.send_mtu` and `transport.recv_mtu` on each side:
 
 | Direction | Property | DNS Typical Value |
 |-----------|----------|-------------------|
-| Alice → Bob | `send_mtu` | ~138 bytes |
-| Bob → Alice | `recv_mtu` | ~191 bytes (512) or ~3038 bytes (EDNS 4096) |
+| Alice → Bob | `min(send_mtu, recv_mtu)` | ~138 bytes |
+| Bob → Alice | `min(send_mtu, recv_mtu)` | ~138 bytes |
 
-The tunnel passes the appropriate MTU to `channel_manager.collect_segments(max_payload)`
-to ensure segments fit within transport limits. The packet header (8 bytes) must
-also be accounted for.
+The tunnel passes the resulting payload MTU to
+`channel_manager.collect_segments(max_payload)` to ensure segments fit within
+transport limits. The packet header (8 bytes) must also be accounted for.
 
 ---
 
@@ -349,7 +345,7 @@ tunnel.connect(timeout=10.0)
 
 # Main loop
 while tunnel.connected:
-    tunnel.poll()
+    tunnel.tick()
 
     # Use channels
     channel = tunnel.channel_manager.open_channel('ipv4', '10.0.0.1', 80)

@@ -3,30 +3,44 @@
 DNS client transport for Alice.
 
 Encodes tunnel packets into DNS TXT queries and decodes responses.
+Supports pipelining with multiple in-flight queries.
 """
 
 from __future__ import absolute_import
 
 import os
 import random
+import select
 import socket
 import struct
+import time
 
-from ..transport_base import RequestResponseTransport, TransportError
+from ..transport_base import Transport, TransportError
 from . import codec
 from ...logging_util import get_logger
 
 
-class DnsClient(RequestResponseTransport):
+class _PendingQuery(object):
+    """Tracks an in-flight DNS query."""
+
+    __slots__ = ('dns_id', 'query_pkt', 'send_time')
+
+    def __init__(self, dns_id, query_pkt):
+        self.dns_id = dns_id
+        self.query_pkt = query_pkt
+        self.send_time = time.time()
+
+
+class DnsClient(Transport):
     """
     DNS client transport for Alice.
 
     Sends tunnel packets as DNS TXT queries and receives responses.
-    Supports direct mode (query specific server) and resolver mode
-    (use system DNS).
+    Supports pipelining - multiple queries in flight simultaneously.
+    Responses are matched via correlation IDs mapped to DNS query IDs.
     """
 
-    def __init__(self, base_domain, resolver=None, timeout=5.0,
+    def __init__(self, base_domain, resolver=None, max_pending=16,
                  qtype=codec.QTYPE_TXT, edns_size=512):
         """
         Initialize DNS client transport.
@@ -34,14 +48,14 @@ class DnsClient(RequestResponseTransport):
         Args:
             base_domain: Tunnel domain suffix (e.g., 'tunnel.example.com')
             resolver: DNS server as 'host:port' or 'host' (default: system DNS)
-            timeout: Query timeout in seconds
+            max_pending: Maximum concurrent in-flight queries
             qtype: Query type (QTYPE_TXT or QTYPE_NULL)
             edns_size: EDNS0 UDP buffer size (512=standard, 4096=large)
         """
         self._base_domain = base_domain.lower().rstrip('.')
-        self._timeout = timeout
         self._qtype = qtype
         self._edns_size = edns_size
+        self._max_pending = max_pending
         self._nonce = random.randint(0, 0xFFFF)
         self._query_id = random.randint(0, 0xFFFF)
 
@@ -49,23 +63,28 @@ class DnsClient(RequestResponseTransport):
         if resolver:
             if ':' in resolver:
                 host, port = resolver.rsplit(':', 1)
-                self._resolvers = [(host, int(port))]
+                self._resolver = (host, int(port))
             else:
-                self._resolvers = [(resolver, 53)]
+                self._resolver = (resolver, 53)
         else:
-            self._resolvers = self._load_system_resolvers()
-            if not self._resolvers:
+            resolvers = self._load_system_resolvers()
+            if not resolvers:
                 raise TransportError('No system resolvers found')
-        self._resolver_index = 0
+            self._resolver = resolvers[0]
 
-        # Create UDP socket
+        # Create non-blocking UDP socket
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._sock.settimeout(timeout)
+        self._sock.setblocking(False)
 
         # Calculate MTUs
         self._send_mtu = codec.calc_query_mtu(self._base_domain)
         self._recv_mtu = codec.calc_response_mtu(edns_size)
         self._recv_bufsize = max(self._edns_size, 4096)
+
+        # Pending query tracking
+        self._next_corr_id = 0
+        self._pending = {}  # corr_id -> _PendingQuery
+        self._dns_to_corr = {}  # dns_id -> corr_id
 
     @property
     def send_mtu(self):
@@ -75,70 +94,162 @@ class DnsClient(RequestResponseTransport):
     def recv_mtu(self):
         return self._recv_mtu
 
-    def exchange(self, data):
+    @property
+    def max_pending(self):
+        return self._max_pending
+
+    def pending_count(self):
+        """Return number of queries awaiting response."""
+        return len(self._pending)
+
+    def send(self, data):
         """
-        Send data in DNS query, return response data.
+        Send data as DNS query.
 
         Args:
             data: bytes to send
 
         Returns:
-            bytes: response data
+            int: Correlation ID for matching response
 
         Raises:
-            TransportError: on I/O or protocol error
+            TransportError: on I/O failure or MTU exceeded
         """
         if len(data) > self._send_mtu:
             raise TransportError(
                 'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
             )
-        self._resolver_index = 0
+
+        # Generate IDs
+        corr_id = self._next_corr_id
+        self._next_corr_id += 1
+        dns_id = self._next_query_id()
 
         # Build query
         query_name = self._encode_query(data)
-        query_id = self._next_query_id()
-        query_pkt = self._build_query(query_id, query_name)
+        query_pkt = self._build_query(dns_id, query_name)
 
-        for _ in range(len(self._resolvers)):
-            # Send query
+        # Send query
+        try:
+            _LOG.debug('dns send corr=%d dns_id=%d resolver=%s',
+                       corr_id, dns_id, self._resolver)
+            self._sock.sendto(query_pkt, self._resolver)
+        except socket.error as e:
+            raise TransportError('Send failed: %s' % e)
+
+        # Track pending
+        pending = _PendingQuery(dns_id, query_pkt)
+        self._pending[corr_id] = pending
+        self._dns_to_corr[dns_id] = corr_id
+
+        return corr_id
+
+    def recv(self, timeout=None):
+        """
+        Receive next available response.
+
+        Args:
+            timeout: Max seconds to wait
+                     None = block until response
+                     0 = non-blocking poll
+
+        Returns:
+            tuple: (correlation_id, data) on success
+                   (None, None) on timeout
+
+        Raises:
+            TransportError: on I/O failure
+        """
+        if timeout is None:
+            # Block indefinitely until we get a valid response
+            while True:
+                try:
+                    ready, _, _ = select.select([self._sock], [], [])
+                except select.error as e:
+                    raise TransportError('Select failed: %s' % e)
+                if ready:
+                    result = self._try_recv()
+                    if result[0] is not None:
+                        return result
+        elif timeout == 0:
+            # Non-blocking poll
             try:
-                _LOG.debug('dns send id=%d resolver=%s', query_id,
-                           self._resolvers[self._resolver_index])
-                self._send_query(query_pkt)
-            except socket.error as e:
-                raise TransportError('Send failed: %s' % e)
+                ready, _, _ = select.select([self._sock], [], [], 0)
+            except select.error as e:
+                raise TransportError('Select failed: %s' % e)
+            if ready:
+                return self._try_recv()
+            return (None, None)
+        else:
+            # Wait up to timeout
+            deadline = time.time() + timeout
+            while True:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    return (None, None)
+                try:
+                    ready, _, _ = select.select([self._sock], [], [], remaining)
+                except select.error as e:
+                    raise TransportError('Select failed: %s' % e)
+                if not ready:
+                    return (None, None)
+                result = self._try_recv()
+                if result[0] is not None:
+                    return result
 
-            # Receive response
-            try:
-                while True:
-                    resp_data, addr = self._sock.recvfrom(self._recv_bufsize)
-                    result = self._parse_response(resp_data)
+    def _try_recv(self):
+        """
+        Try to receive and parse one response.
 
-                    if result is None:
-                        # Malformed packet, ignore
-                        continue
+        Returns:
+            tuple: (correlation_id, data) on success
+                   (None, None) if no valid response available
+        """
+        try:
+            resp_data, addr = self._sock.recvfrom(self._recv_bufsize)
+        except socket.error:
+            return (None, None)
 
-                    resp_id, resp_payload = result
+        result = self._parse_response(resp_data)
+        if result is None:
+            return (None, None)  # Malformed packet
 
-                    if resp_id != query_id:
-                        # Wrong query ID (stale response), ignore
-                        continue
+        dns_id, payload = result
 
-                    if resp_payload is None:
-                        # RCODE error or no answer - keep waiting, let timeout
-                        # trigger reliability layer retransmit
-                        continue
+        if dns_id not in self._dns_to_corr:
+            _LOG.debug('dns stale response dns_id=%d', dns_id)
+            return (None, None)  # Stale or unknown query
 
-                    return resp_payload
-            except socket.timeout:
-                _LOG.debug('dns timeout id=%d resolver=%s', query_id,
-                           self._resolvers[self._resolver_index])
-                if not self._advance_resolver():
-                    break
-            except socket.error as e:
-                raise TransportError('Receive failed: %s' % e)
+        corr_id = self._dns_to_corr[dns_id]
 
-        raise TransportError('Query timeout')
+        if payload is None:
+            _LOG.debug('dns error response corr=%d dns_id=%d', corr_id, dns_id)
+            return (None, None)  # RCODE error, drop
+
+        # Clean up tracking
+        del self._pending[corr_id]
+        del self._dns_to_corr[dns_id]
+
+        _LOG.debug('dns recv corr=%d dns_id=%d len=%d', corr_id, dns_id, len(payload))
+        return (corr_id, payload)
+
+    def cancel(self, corr_id):
+        """
+        Cancel a pending query.
+
+        Args:
+            corr_id: Correlation ID from send()
+
+        Returns:
+            bool: True if cancelled, False if not found
+        """
+        if corr_id not in self._pending:
+            return False
+
+        pending = self._pending[corr_id]
+        del self._pending[corr_id]
+        del self._dns_to_corr[pending.dns_id]
+        return True
 
     def _encode_query(self, data):
         """Encode data into DNS query name with nonce."""
@@ -180,27 +291,24 @@ class DnsClient(RequestResponseTransport):
 
         Returns:
             tuple: (query_id, payload_bytes) on success
-            tuple: (query_id, None) if RCODE indicates error (drop, let reliability retry)
-            None: if packet is too short to read header
-
-        Raises:
-            TransportError: on parse error
+            tuple: (query_id, None) if RCODE indicates error
+            None: if packet is malformed
         """
         if len(data) < 12:
-            return None  # Malformed, ignore
+            return None
 
         query_id, flags, qdcount, ancount, nscount, arcount = struct.unpack(
             '>HHHHHH', data[:12]
         )
 
         if not (flags & codec.FLAG_QR):
-            return query_id, None  # Not a response, drop
+            return query_id, None  # Not a response
 
-        # Check RCODE - if not NOERROR, drop and let reliability retry
+        # Check RCODE
         rcode = flags & codec.RCODE_MASK
         if rcode != codec.RCODE_NOERROR:
             _LOG.debug('dns rcode=%d id=%d', rcode, query_id)
-            return query_id, None  # Error response, drop
+            return query_id, None
 
         # Skip questions
         offset = 12
@@ -212,7 +320,7 @@ class DnsClient(RequestResponseTransport):
             return query_id, None
 
         if ancount < 1:
-            return query_id, None  # No answer, drop
+            return query_id, None
 
         try:
             offset = codec.skip_name(data, offset)  # NAME
@@ -252,19 +360,12 @@ class DnsClient(RequestResponseTransport):
         return query_id, payload
 
     def close(self):
-        """Close the UDP socket."""
+        """Close the UDP socket and cancel all pending queries."""
+        self._pending.clear()
+        self._dns_to_corr.clear()
         if self._sock:
             self._sock.close()
             self._sock = None
-
-    def _send_query(self, query_pkt):
-        self._sock.sendto(query_pkt, self._resolvers[self._resolver_index])
-
-    def _advance_resolver(self):
-        if self._resolver_index + 1 >= len(self._resolvers):
-            return False
-        self._resolver_index += 1
-        return True
 
     def _load_system_resolvers(self):
         if os.name == 'nt':

@@ -3,14 +3,15 @@
 Abstract base classes for transports.
 
 Transports handle the underlying I/O for the tunnel protocol. Due to the
-asymmetric nature of covert channels (Alice polls, Bob responds), all
-transports use a request/response pattern:
+asymmetric nature of covert channels (Alice polls, Bob responds), transports
+use a request/response pattern at the wire level.
 
-    RequestResponseTransport: Client side (Alice) - sends request, gets response
-    RequestResponseServer: Server side (Bob) - receives request, sends response
+The Transport interface separates send() and recv() to support pipelining -
+multiple requests in flight simultaneously. For serial operation, set
+max_pending=1 or call recv() after each send().
 
-Each exchange carries data in both directions - Alice's data goes in the
-request, Bob's data comes back in the response.
+    Transport: Client side (Alice) - send requests, receive responses
+    Server: Server side (Bob) - receive requests, send responses
 """
 
 from __future__ import absolute_import
@@ -18,29 +19,69 @@ from __future__ import absolute_import
 import abc
 
 
-class RequestResponseTransport(object):
+class Transport(object):
     """
-    Abstract base for request-response transports.
+    Abstract base for client transports with pipelining support.
 
-    Alice initiates exchanges. Each exchange sends her data and returns
-    Bob's response data.
+    Alice uses send() to dispatch requests and recv() to collect responses.
+    Correlation IDs returned by send() are used to match responses.
     """
 
     __metaclass__ = abc.ABCMeta
 
     @abc.abstractmethod
-    def exchange(self, data):
+    def send(self, data):
         """
-        Send data and wait for response.
+        Send data to Bob.
 
         Args:
             data: bytes to send
 
         Returns:
-            bytes: response data
+            int: Correlation ID for matching response
 
         Raises:
             TransportError: on I/O failure
+        """
+        pass
+
+    @abc.abstractmethod
+    def recv(self, timeout=None):
+        """
+        Receive next available response.
+
+        Args:
+            timeout: Max seconds to wait
+                     None = block until response
+                     0 = non-blocking poll
+
+        Returns:
+            tuple: (correlation_id, data) on success
+                   (None, None) on timeout
+
+        Raises:
+            TransportError: on I/O failure
+        """
+        pass
+
+    @abc.abstractmethod
+    def pending_count(self):
+        """
+        Number of requests awaiting response.
+
+        Returns:
+            int: count of pending requests
+        """
+        pass
+
+    @property
+    @abc.abstractmethod
+    def max_pending(self):
+        """
+        Maximum concurrent in-flight requests.
+
+        Returns:
+            int: max pending requests (transport limit)
         """
         pass
 
@@ -48,7 +89,7 @@ class RequestResponseTransport(object):
     @abc.abstractmethod
     def send_mtu(self):
         """
-        Maximum bytes that can be sent in one exchange.
+        Maximum bytes that can be sent in one request.
 
         Returns:
             int: max send size
@@ -59,7 +100,7 @@ class RequestResponseTransport(object):
     @abc.abstractmethod
     def recv_mtu(self):
         """
-        Maximum bytes that can be received in one exchange.
+        Maximum bytes that can be received in one response.
 
         Returns:
             int: max receive size
@@ -83,12 +124,12 @@ class RequestResponseTransport(object):
         return False
 
 
-class RequestResponseServer(object):
+class Server(object):
     """
-    Abstract base for server-side request-response transports.
+    Abstract base for server-side transports.
 
-    Bob waits for Alice's polls. Each poll delivers Alice's data and
-    provides a way to send Bob's response.
+    Bob waits for Alice's requests. Each request delivers Alice's data and
+    provides a responder callable to send Bob's response.
     """
 
     __metaclass__ = abc.ABCMeta
@@ -96,7 +137,7 @@ class RequestResponseServer(object):
     @abc.abstractmethod
     def recv(self, timeout=None):
         """
-        Wait for a poll from Alice.
+        Wait for a request from Alice.
 
         Args:
             timeout: max seconds to wait (None = block forever)
@@ -117,7 +158,7 @@ class RequestResponseServer(object):
     @abc.abstractmethod
     def recv_mtu(self):
         """
-        Maximum bytes that can be received in one poll.
+        Maximum bytes that can be received in one request.
 
         Returns:
             int: max receive size

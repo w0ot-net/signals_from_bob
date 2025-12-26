@@ -10,12 +10,12 @@ from __future__ import absolute_import
 import socket
 import struct
 
-from ..transport_base import RequestResponseServer, TransportError
+from ..transport_base import Server, TransportError
 from . import codec
 from ...logging_util import get_logger
 
 
-class DnsServer(RequestResponseServer):
+class DnsServer(Server):
     """
     DNS server transport for Bob.
 

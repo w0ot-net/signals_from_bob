@@ -34,7 +34,7 @@ class BobTunnel(BaseTunnel):
         Initialize Bob's tunnel.
 
         Args:
-            transport: RequestResponseServer instance
+            transport: Server instance
             crypto: Cipher instance (default: Plain)
             idle_timeout: Seconds before considering connection dead
             max_in_flight: Max unacked packets
@@ -49,8 +49,9 @@ class BobTunnel(BaseTunnel):
         self._transport = transport
         self._idle_timeout = idle_timeout
 
-        # Set proposed MTU from transport (for negotiation)
-        self._proposed_mtu = transport.send_mtu - PACKET_HEADER_SIZE
+        # Set proposed MTU from transport (for negotiation, symmetric)
+        max_packet = min(transport.send_mtu, transport.recv_mtu)
+        self._proposed_mtu = max(1, max_packet - PACKET_HEADER_SIZE)
 
         # Timing
         self._last_request_time = 0

@@ -198,7 +198,7 @@ TXT response: `TXT "SGVsbG8gV29ybGQ"`
 
 Note: While EDNS0 allows larger UDP responses, the query-side MTU (limited by
 DNS name length) is always the bottleneck. Response capacity beyond the query
-MTU provides no benefit since Alice and Bob exchange packets symmetrically.
+MTU provides no benefit because the tunnel enforces a symmetric MTU.
 
 ### Base64 Encoding
 

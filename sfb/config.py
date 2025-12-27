@@ -37,7 +37,7 @@ class Config:
     # Query/response type: 'TXT' or 'NULL'
     dns_record_type: str = "TXT"
     # Maximum DNS queries per second (0 = unlimited)
-    dns_queries_per_second: float = 950.0
+    dns_queries_per_second: float = 100.0
 
     # --- Crypto ---
     # Encryption mode: 'none', 'xor', 'rc4'

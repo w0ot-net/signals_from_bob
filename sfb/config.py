@@ -48,7 +48,7 @@ class Config:
     tunnel_keepalive_interval: float = 1.0
     # Bob: seconds of inactivity before considering connection dead
     tunnel_idle_timeout: float = 60.0
-    # Maximum unacknowledged packets in flight (max 16, SACK bitmap limit)
+    # Maximum unacknowledged packets in flight (max 64, SACK bitmap limit)
     tunnel_max_in_flight: int = 16
     # Handshake/connection timeout (seconds)
     tunnel_connect_timeout: float = 10.0
@@ -108,8 +108,8 @@ class Config:
             raise ValueError(f"crypto_psk required for {self.crypto_mode} mode")
 
         # Tunnel validation
-        if self.tunnel_max_in_flight < 1 or self.tunnel_max_in_flight > 16:
-            raise ValueError("tunnel_max_in_flight must be 1-16")
+        if self.tunnel_max_in_flight < 1 or self.tunnel_max_in_flight > 64:
+            raise ValueError("tunnel_max_in_flight must be 1-64")
         if self.tunnel_keepalive_interval <= 0:
             raise ValueError("tunnel_keepalive_interval must be > 0")
         if self.tunnel_idle_timeout <= 0:

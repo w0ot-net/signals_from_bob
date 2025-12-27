@@ -51,7 +51,7 @@ required `t` and `c` fields.
 
 ```json
 {"t":"tun","c":"ping"}
-{"t":"tun","c":"mtu","size":500}
+{"t":"tun","c":"mtu","tx":500,"rx":150}
 {"t":"ch","c":"open","ch":2}
 {"t":"ch","c":"close","ch":2}
 {"t":"file","c":"get","rid":1,"ch":4,"path":"/etc/passwd"}
@@ -147,12 +147,12 @@ Ping/pong are only sent when no other data is pending.
 MTU negotiation. Sent immediately after handshake.
 
 ```json
-{"t":"tun","c":"mtu","size":500}
-{"t":"tun","c":"mtu_ok","size":150}
+{"t":"tun","c":"mtu","tx":500,"rx":150}
+{"t":"tun","c":"mtu_ok","tx":150,"rx":500}
 ```
 
-Alice proposes her transport's max packet size. Bob responds with
-`min(alice_size, bob_max)`. Both sides use the agreed size.
+Alice proposes her transport's max payload MTUs for each direction.
+Bob responds with independent `tx`/`rx` values based on his limits.
 
 Until `mtu_ok` is received, both sides limit packets to 100 bytes.
 
@@ -161,12 +161,12 @@ Until `mtu_ok` is received, both sides limit packets to 100 bytes.
 Send window negotiation. Sent after MTU negotiation.
 
 ```json
-{"t":"tun","c":"window","size":16}
+{"t":"tun","c":"window","size":64}
 {"t":"tun","c":"window_ok","size":8}
 ```
 
 Alice proposes max in-flight packets. Bob responds with
-`min(alice_size, bob_max, 16)`. Maximum is 16 (SACK bitmap size).
+`min(alice_size, bob_max, 64)`. Maximum is 64 (SACK bitmap size).
 
 Until `window_ok` is received, both sides use max_in_flight = 1.
 

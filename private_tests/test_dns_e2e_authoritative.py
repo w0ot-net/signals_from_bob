@@ -31,7 +31,7 @@ TEST_DOMAIN = 'ebaysso.com'
 TEST_BOB_IP = '149.28.195.216'
 TEST_PORT = 53
 REMOTE_TEST_FILE = 'sfb_e2e_roundtrip.bin'
-DEBUG_DNS = True
+DEBUG_DNS = False
 PROGRESS_INTERVAL = 5.0
 
 
@@ -108,6 +108,9 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
             tunnel_idle_timeout=120.0,
             tunnel_connect_timeout=60.0,
             tunnel_keepalive_interval=1.0,
+            tunnel_timeout_packets=200,
+            tunnel_max_in_flight=64,
+            dns_max_pending=64,
         )
 
     def _start_bob(self, config):

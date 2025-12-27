@@ -122,7 +122,7 @@ All messages use the format `{"t":"<type>","c":"<command>",...}`:
 
 ```json
 {"t":"tun","c":"ping"}
-{"t":"tun","c":"mtu","size":500}
+{"t":"tun","c":"mtu","tx":500,"rx":150}
 {"t":"ch","c":"open","ch":2,"atype":"ipv4","addr":"192.168.1.1","port":8080}
 {"t":"ch","c":"close","ch":2}
 ```
@@ -141,8 +141,10 @@ All messages use the format `{"t":"<type>","c":"<command>",...}`:
 
 Immediately after handshake, Alice and Bob negotiate packet size:
 
-1. Alice sends: `{"t":"tun","c":"mtu","size":X}`
-2. Bob responds: `{"t":"tun","c":"mtu_ok","size":Y}` where Y = min(X, bob_max)
+1. Alice sends: `{"t":"tun","c":"mtu","tx":X,"rx":Y}`
+2. Bob responds: `{"t":"tun","c":"mtu_ok","tx":Yb,"rx":Xb}` where:
+   - Xb = min(X, bob_recv_max)
+   - Yb = min(Y, bob_send_max)
 
 Until `mtu_ok` is received, both sides limit packets to 100 bytes.
 
@@ -179,19 +181,21 @@ For polling transports, the handshake completes in 2 round-trips:
 Both sides start with a default MTU of 100 bytes. Immediately after handshake,
 Alice and Bob negotiate a larger MTU:
 
-1. Alice sends: `{"t":"tun","c":"mtu","size":X}` where X is her transport's max
-2. Bob responds: `{"t":"tun","c":"mtu_ok","size":Y}` where Y = min(X, bob_max)
-3. Both sides now use Y as the packet size limit
+1. Alice sends: `{"t":"tun","c":"mtu","tx":X,"rx":Y}` where X is her send max and Y is her recv max
+2. Bob responds: `{"t":"tun","c":"mtu_ok","tx":Yb,"rx":Xb}` where:
+   - Xb = min(X, bob_recv_max)
+   - Yb = min(Y, bob_send_max)
+3. Both sides now use the negotiated per-direction MTUs
 
 ```
 Alice                              Bob
   │                                  │
   │←───────── (handshake) ──────────→│
   │                                  │
-  │── {t:tun,c:mtu,size:500} ────────▶│  Alice proposes 500
-  │◀── {t:tun,c:mtu_ok,size:150} ────│  Bob's max is 150, use 150
+  │── {t:tun,c:mtu,tx:500,rx:150} ──▶│  Alice proposes tx=500, rx=150
+  │◀── {t:tun,c:mtu_ok,tx:150,rx:500}│  Bob clamps each direction
   │                                  │
-  │         MTU is now 150           │
+  │     MTUs are now tx=150, rx=500  │
 ```
 
 Until MTU_OK is received, both sides must limit packets to 100 bytes. The MTU

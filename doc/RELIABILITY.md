@@ -42,8 +42,8 @@ ACK behavior:
 
 ### Buffer Limits
 
-The out-of-order buffer is bounded by the negotiated max_in_flight (maximum 16).
-Because max_in_flight is negotiated and capped at 16, the receiver's buffer
+The out-of-order buffer is bounded by the negotiated max_in_flight (maximum 64).
+Because max_in_flight is negotiated and capped at 64, the receiver's buffer
 capacity always matches or exceeds the sender's window. Buffer overflow should
 not occur under normal operation.
 
@@ -58,7 +58,7 @@ retransmit dropped packets based on SACK feedback.
 
 - Maintain a transmit queue of unacked packets.
 - The sender may have up to `max_in_flight` unacked packets outstanding (see
-  Window Negotiation in PROTOCOL.md). Maximum value is 16.
+  Window Negotiation in PROTOCOL.md). Maximum value is 64.
 - On ACK or SACK, remove acknowledged packets from the queue.
 - If a packet remains unacked past the retransmission timeout (RTO),
   retransmit it. Retransmits reuse an existing sequence number and do not

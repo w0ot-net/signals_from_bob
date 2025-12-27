@@ -6,6 +6,7 @@ End-to-end tests against authoritative DNS with injected loss.
 from __future__ import absolute_import
 
 import os
+import random
 import shutil
 import tempfile
 import threading
@@ -125,9 +126,23 @@ class DnsAuthoritativeLossyE2ETest(unittest.TestCase):
         time.sleep(0.1)
 
     def _start_alice(self, config, impairment):
-        """Start Alice client with injected loss."""
+        """Start Alice client with injected loss on one direction."""
         transport = DnsClient(config)
-        lossy = LossyTransport(transport, impairment)
+        loss_on_send = random.choice([True, False])
+        if loss_on_send:
+            send_imp = impairment
+            recv_imp = NetworkImpairment()
+            direction = 'send'
+        else:
+            send_imp = NetworkImpairment()
+            recv_imp = impairment
+            direction = 'recv'
+        print('loss direction: %s' % direction)
+        lossy = LossyTransport(
+            transport,
+            send_impairment=send_imp,
+            recv_impairment=recv_imp,
+        )
         self.alice_tunnel = AliceTunnel(lossy, config, crypto=Plain())
         self.alice_tunnel.connect(timeout=60.0)
 
@@ -161,6 +176,8 @@ class DnsAuthoritativeLossyE2ETest(unittest.TestCase):
 
         download_path = os.path.join(self.local_root, 'download.bin')
         self.alice_file_module.get(REMOTE_TEST_FILE, download_path, timeout=600.0)
+        if self.alice_runner:
+            self.alice_runner.stop()
 
         with open(download_path, 'rb') as handle:
             downloaded = handle.read()

@@ -66,7 +66,7 @@ class BaseTunnel(object):
     # Pre-negotiation limits (conservative defaults)
     DEFAULT_MTU = 100  # Bytes, before MTU negotiation
     DEFAULT_WINDOW = 1  # Packets, before window negotiation
-    MAX_WINDOW = 16  # SACK bitmap size limit
+    MAX_WINDOW = 64  # SACK bitmap size limit
 
     def __init__(self, config, crypto=None, is_initiator=True, logger=None):
         """
@@ -516,7 +516,7 @@ class BaseTunnel(object):
         """
         Handle window negotiation request (Bob receives from Alice).
 
-        Responds with window_ok containing min(requested, our_max, 16).
+        Responds with window_ok containing min(requested, our_max, 64).
         """
         self._logger.debug('RECV window request: %s', msg)
         requested = msg.get('size', self.DEFAULT_WINDOW)
@@ -524,7 +524,7 @@ class BaseTunnel(object):
             self._logger.warning('Invalid window request: %s', requested)
             return
 
-        # Negotiate: use minimum of requested, our proposed, and max (16)
+        # Negotiate: use minimum of requested, our proposed, and max (64)
         agreed = min(requested, self._proposed_max_in_flight, self.MAX_WINDOW)
         self._negotiated_window = agreed
         self._window_negotiated = True

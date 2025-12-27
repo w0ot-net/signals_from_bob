@@ -47,9 +47,11 @@ class BobTunnel(BaseTunnel):
         self._transport = transport
         self._idle_timeout = config.tunnel_idle_timeout
 
-        # Set proposed MTU from transport (for negotiation, symmetric)
-        max_packet = min(transport.send_mtu, transport.recv_mtu)
-        self._proposed_mtu = max(1, max_packet - PACKET_HEADER_SIZE)
+        # Set proposed MTU from transport (for negotiation, asymmetric)
+        send_payload = max(1, transport.send_mtu - PACKET_HEADER_SIZE)
+        recv_payload = max(1, transport.recv_mtu - PACKET_HEADER_SIZE)
+        self._proposed_send_mtu = send_payload
+        self._proposed_recv_mtu = recv_payload
 
         # Timing
         self._last_request_time = 0

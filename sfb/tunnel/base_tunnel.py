@@ -111,10 +111,14 @@ class BaseTunnel(object):
         self._local_isn = None  # Set during handshake
         self._remote_isn = None  # Set during handshake
 
-        # MTU/Window negotiation state
-        self._proposed_mtu = None  # Set by subclass from transport
-        self._negotiated_mtu = self.DEFAULT_MTU  # For receiving (max_packet_size)
-        self._send_mtu = self.DEFAULT_MTU  # For sending (only updated after 3-way handshake)
+        # MTU/Window negotiation state (asymmetric)
+        self._proposed_send_mtu = None  # Set by subclass from transport
+        self._proposed_recv_mtu = None  # Set by subclass from transport
+        self._negotiated_send_mtu = self.DEFAULT_MTU
+        self._negotiated_recv_mtu = self.DEFAULT_MTU
+        self._send_mtu = self.DEFAULT_MTU  # Sender payload MTU
+        self._recv_mtu = self.DEFAULT_MTU  # Receiver payload MTU
+        self._pending_send_mtu = None
         self._negotiated_window = self.DEFAULT_WINDOW
         self._mtu_negotiated = False
         self._window_negotiated = False
@@ -129,7 +133,7 @@ class BaseTunnel(object):
         self._bytes_sent = 0
         self._bytes_received = 0
 
-        # Transport MTU (payload + header)
+        # Transport MTU for receive (payload + header)
         self._max_packet_size = self.DEFAULT_MTU + PACKET_HEADER_SIZE
 
     @property
@@ -154,8 +158,18 @@ class BaseTunnel(object):
 
     @property
     def negotiated_mtu(self):
-        """Current effective MTU (100 until negotiated)."""
-        return self._negotiated_mtu
+        """Current effective MTUs as (send_mtu, recv_mtu)."""
+        return (self._negotiated_send_mtu, self._negotiated_recv_mtu)
+
+    @property
+    def negotiated_send_mtu(self):
+        """Current negotiated send MTU (payload bytes)."""
+        return self._negotiated_send_mtu
+
+    @property
+    def negotiated_recv_mtu(self):
+        """Current negotiated receive MTU (payload bytes)."""
+        return self._negotiated_recv_mtu
 
     @property
     def negotiated_window(self):
@@ -432,45 +446,58 @@ class BaseTunnel(object):
         """
         Handle MTU negotiation request (Bob receives from Alice).
 
-        Responds with mtu_ok containing min(requested, our_max).
+        Responds with mtu_ok containing per-direction MTUs.
         Does NOT update _send_mtu yet - waits for mtu_ack from Alice.
         """
-        requested = msg.get('size', self.DEFAULT_MTU)
-        if not isinstance(requested, int) or requested < 1:
-            self._logger.warning('Invalid MTU request: %s', requested)
+        requested_tx = msg.get('tx', self.DEFAULT_MTU)
+        requested_rx = msg.get('rx', self.DEFAULT_MTU)
+        if (not isinstance(requested_tx, int) or requested_tx < 1 or
+                not isinstance(requested_rx, int) or requested_rx < 1):
+            self._logger.warning('Invalid MTU request: %s', msg)
             return
 
-        # Negotiate: use minimum of requested and our transport's max
-        agreed = min(requested, self._proposed_mtu or self.DEFAULT_MTU)
-        self._negotiated_mtu = agreed
-        self._max_packet_size = agreed + PACKET_HEADER_SIZE
-        # Note: _send_mtu stays at DEFAULT_MTU until we receive mtu_ack
+        # Negotiate each direction independently.
+        agreed_recv = min(requested_tx, self._proposed_recv_mtu or self.DEFAULT_MTU)
+        agreed_send = min(requested_rx, self._proposed_send_mtu or self.DEFAULT_MTU)
+
+        self._negotiated_recv_mtu = agreed_recv
+        self._recv_mtu = agreed_recv
+        self._max_packet_size = agreed_recv + PACKET_HEADER_SIZE
+        self._pending_send_mtu = agreed_send
 
         # Send confirmation (using small packets still)
-        self.control.send_message(tun_mtu_ok(agreed))
-        self._logger.debug('MTU recv updated: %d (requested %d), awaiting ack', agreed, requested)
+        self.control.send_message(tun_mtu_ok(agreed_send, agreed_recv))
+        self._logger.debug('MTU recv updated: %d (tx=%d rx=%d), awaiting ack',
+                           agreed_recv, agreed_send, agreed_recv)
 
     def _handle_mtu_ok(self, msg):
         """
         Handle MTU negotiation response (Alice receives from Bob).
 
-        Updates negotiated_mtu and send_mtu, then sends mtu_ack.
+        Updates negotiated send/recv MTU, then sends mtu_ack.
         """
-        agreed = msg.get('size', self.DEFAULT_MTU)
-        if not isinstance(agreed, int) or agreed < 1:
-            self._logger.warning('Invalid MTU response: %s', agreed)
+        agreed_tx = msg.get('tx', self.DEFAULT_MTU)
+        agreed_rx = msg.get('rx', self.DEFAULT_MTU)
+        if (not isinstance(agreed_tx, int) or agreed_tx < 1 or
+                not isinstance(agreed_rx, int) or agreed_rx < 1):
+            self._logger.warning('Invalid MTU response: %s', msg)
             return
 
-        # Clamp to our transport limit to enforce symmetric MTU.
-        agreed = min(agreed, self._proposed_mtu or self.DEFAULT_MTU)
-        self._negotiated_mtu = agreed
-        self._max_packet_size = agreed + PACKET_HEADER_SIZE
-        self._send_mtu = agreed  # Alice can start sending larger packets
+        # Clamp to our transport limits.
+        agreed_send = min(agreed_rx, self._proposed_send_mtu or self.DEFAULT_MTU)
+        agreed_recv = min(agreed_tx, self._proposed_recv_mtu or self.DEFAULT_MTU)
+
+        self._negotiated_send_mtu = agreed_send
+        self._negotiated_recv_mtu = agreed_recv
+        self._send_mtu = agreed_send
+        self._recv_mtu = agreed_recv
+        self._max_packet_size = agreed_recv + PACKET_HEADER_SIZE
         self._mtu_negotiated = True
 
         # Send ack so Bob knows he can also start sending larger packets
         self.control.send_message(tun_mtu_ack())
-        self._logger.debug('MTU negotiated: %d, sent ack', agreed)
+        self._logger.debug('MTU negotiated: tx=%d rx=%d, sent ack',
+                           agreed_send, agreed_recv)
 
     def _handle_mtu_ack(self, msg):
         """
@@ -478,7 +505,10 @@ class BaseTunnel(object):
 
         Now Bob can safely use the larger MTU for sending.
         """
-        self._send_mtu = self._negotiated_mtu
+        if self._pending_send_mtu is not None:
+            self._send_mtu = self._pending_send_mtu
+            self._negotiated_send_mtu = self._pending_send_mtu
+            self._pending_send_mtu = None
         self._mtu_negotiated = True
         self._logger.debug('MTU ack received, send MTU now: %d', self._send_mtu)
 

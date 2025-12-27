@@ -676,13 +676,14 @@ class NegotiationTests(unittest.TestCase):
         from sfb.tunnel.base_tunnel import BaseTunnel
 
         tunnel = BaseTunnel(make_test_config(), is_initiator=False)
-        tunnel._proposed_mtu = 200  # Bob's max
+        tunnel._proposed_recv_mtu = 200  # Bob receive max
+        tunnel._proposed_send_mtu = 180  # Bob send max
 
-        # Alice requests MTU of 500
-        tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu', 'size': 500})
+        # Alice requests tx=500, rx=150
+        tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu', 'tx': 500, 'rx': 150})
 
-        # Bob should agree to min(500, 200) = 200 for receiving
-        self.assertEqual(tunnel._negotiated_mtu, 200)
+        # Bob should agree to rx=min(500, 200) = 200 for receiving
+        self.assertEqual(tunnel._negotiated_recv_mtu, 200)
         # But _mtu_negotiated is False until Bob receives mtu_ack
         self.assertFalse(tunnel._mtu_negotiated)
         # And _send_mtu stays at default until ack
@@ -691,30 +692,34 @@ class NegotiationTests(unittest.TestCase):
         # Check mtu_ok was queued
         send_data = b''.join(tunnel.control._send_buf)
         self.assertIn(b'"c":"mtu_ok"', send_data)
-        self.assertIn(b'"size":200', send_data)
+        self.assertIn(b'"tx":150', send_data)
+        self.assertIn(b'"rx":200', send_data)
 
         # After receiving mtu_ack, Bob can send larger packets
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu_ack'})
         self.assertTrue(tunnel._mtu_negotiated)
-        self.assertEqual(tunnel._send_mtu, 200)
+        self.assertEqual(tunnel._send_mtu, 150)
 
     def test_mtu_negotiation_alice_accepts(self):
         """Verify Alice accepts mtu_ok, updates MTU, and sends mtu_ack."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
         tunnel = BaseTunnel(make_test_config(), is_initiator=True)
-        tunnel._proposed_mtu = 200  # Alice's transport max
+        tunnel._proposed_send_mtu = 200  # Alice send max
+        tunnel._proposed_recv_mtu = 160  # Alice recv max
 
         # Default is 100
-        self.assertEqual(tunnel._negotiated_mtu, 100)
+        self.assertEqual(tunnel._negotiated_recv_mtu, 100)
+        self.assertEqual(tunnel._negotiated_send_mtu, 100)
         self.assertEqual(tunnel._send_mtu, 100)
 
         # Bob sends mtu_ok
-        tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu_ok', 'size': 150})
+        tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu_ok', 'tx': 150, 'rx': 140})
 
         # Alice updates both receive and send MTU immediately
-        self.assertEqual(tunnel._negotiated_mtu, 150)
-        self.assertEqual(tunnel._send_mtu, 150)
+        self.assertEqual(tunnel._negotiated_recv_mtu, 150)
+        self.assertEqual(tunnel._negotiated_send_mtu, 140)
+        self.assertEqual(tunnel._send_mtu, 140)
         self.assertTrue(tunnel._mtu_negotiated)
 
         # Check mtu_ack was queued
@@ -764,7 +769,8 @@ class NegotiationTests(unittest.TestCase):
         tunnel = BaseTunnel(make_test_config())
 
         # Pre-negotiation defaults
-        self.assertEqual(tunnel._negotiated_mtu, 100)
+        self.assertEqual(tunnel._negotiated_send_mtu, 100)
+        self.assertEqual(tunnel._negotiated_recv_mtu, 100)
         self.assertEqual(tunnel._negotiated_window, 1)
         self.assertEqual(tunnel._send_window._max_in_flight, 1)
         self.assertFalse(tunnel._mtu_negotiated)
@@ -877,18 +883,20 @@ class MessageFactoryTests(unittest.TestCase):
     def test_tun_mtu(self):
         """Verify tun_mtu creates correct message."""
         from sfb.tunnel.tunnel_control_messages import tun_mtu
-        msg = tun_mtu(500).to_dict()
+        msg = tun_mtu(500, 300).to_dict()
         self.assertEqual(msg['t'], 'tun')
         self.assertEqual(msg['c'], 'mtu')
-        self.assertEqual(msg['size'], 500)
+        self.assertEqual(msg['tx'], 500)
+        self.assertEqual(msg['rx'], 300)
 
     def test_tun_mtu_ok(self):
         """Verify tun_mtu_ok creates correct message."""
         from sfb.tunnel.tunnel_control_messages import tun_mtu_ok
-        msg = tun_mtu_ok(512).to_dict()
+        msg = tun_mtu_ok(512, 256).to_dict()
         self.assertEqual(msg['t'], 'tun')
         self.assertEqual(msg['c'], 'mtu_ok')
-        self.assertEqual(msg['size'], 512)
+        self.assertEqual(msg['tx'], 512)
+        self.assertEqual(msg['rx'], 256)
 
     def test_tun_window(self):
         """Verify tun_window creates correct message."""
@@ -963,7 +971,7 @@ class MessageFactoryTests(unittest.TestCase):
     def test_encode_compact_format(self):
         """Verify encode uses compact JSON format."""
         from sfb.tunnel.tunnel_control_messages import encode, tun_mtu
-        msg = tun_mtu(512)
+        msg = tun_mtu(512, 256)
         encoded = encode(msg)
         # Should have no spaces after separators
         self.assertNotIn(b': ', encoded)

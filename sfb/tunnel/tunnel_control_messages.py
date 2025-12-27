@@ -29,24 +29,26 @@ def tun_pong():
     return ControlMessage(T_TUNNEL, 'pong')
 
 
-def tun_mtu(size):
+def tun_mtu(tx, rx):
     """
-    MTU negotiation request.
+    MTU negotiation request (asymmetric).
 
     Args:
-        size: Proposed maximum packet size in bytes
+        tx: Sender->receiver payload MTU in bytes
+        rx: Receiver->sender payload MTU in bytes
     """
-    return ControlMessage(T_TUNNEL, 'mtu', size=size)
+    return ControlMessage(T_TUNNEL, 'mtu', tx=tx, rx=rx)
 
 
-def tun_mtu_ok(size):
+def tun_mtu_ok(tx, rx):
     """
-    MTU negotiation response.
+    MTU negotiation response (asymmetric).
 
     Args:
-        size: Agreed maximum packet size in bytes
+        tx: Agreed sender->receiver payload MTU
+        rx: Agreed receiver->sender payload MTU
     """
-    return ControlMessage(T_TUNNEL, 'mtu_ok', size=size)
+    return ControlMessage(T_TUNNEL, 'mtu_ok', tx=tx, rx=rx)
 
 
 def tun_mtu_ack():

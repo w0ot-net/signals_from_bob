@@ -53,9 +53,11 @@ class AliceTunnel(BaseTunnel):
         self._transport = transport
         self._keepalive_interval = config.tunnel_keepalive_interval
 
-        # Set proposed MTU from transport (for negotiation, symmetric)
-        max_packet = min(transport.send_mtu, transport.recv_mtu)
-        self._proposed_mtu = max(1, max_packet - PACKET_HEADER_SIZE)
+        # Set proposed MTU from transport (for negotiation, asymmetric)
+        send_payload = max(1, transport.send_mtu - PACKET_HEADER_SIZE)
+        recv_payload = max(1, transport.recv_mtu - PACKET_HEADER_SIZE)
+        self._proposed_send_mtu = send_payload
+        self._proposed_recv_mtu = recv_payload
 
         # RTT estimation (Alice only)
         self._rtt = RttEstimator(
@@ -231,9 +233,12 @@ class AliceTunnel(BaseTunnel):
 
     def _send_negotiation(self):
         """Queue MTU and window negotiation messages."""
-        # Queue MTU request
-        self.control.send_message(tun_mtu(self._proposed_mtu))
-        self._logger.debug('Requesting MTU: %d', self._proposed_mtu)
+        # Queue MTU request (asymmetric)
+        self.control.send_message(
+            tun_mtu(self._proposed_send_mtu, self._proposed_recv_mtu)
+        )
+        self._logger.debug('Requesting MTU: tx=%d rx=%d',
+                           self._proposed_send_mtu, self._proposed_recv_mtu)
 
         # Queue window request
         self.control.send_message(tun_window(self._proposed_max_in_flight))

@@ -32,6 +32,7 @@ TEST_BOB_IP = '149.28.195.216'
 TEST_PORT = 53
 REMOTE_TEST_FILE = 'sfb_e2e_roundtrip.bin'
 DEBUG_DNS = True
+PROGRESS_INTERVAL = 5.0
 
 
 class DnsAuthoritativeE2ETest(unittest.TestCase):
@@ -140,7 +141,7 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
         self.alice_tunnel = AliceTunnel(transport, config, crypto=Plain())
         self.alice_tunnel.connect(timeout=60.0)
 
-        self.alice_runner = _TunnelRunner(self.alice_tunnel)
+        self.alice_runner = _TunnelRunner(self.alice_tunnel, progress_interval=PROGRESS_INTERVAL)
         self.alice_runner.start()
 
         self.alice_file_module = FileTransferModule(self.alice_tunnel)
@@ -219,7 +220,7 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
 
         self.assertEqual(self.alice_tunnel._state, TunnelState.CONNECTED)
 
-        payload = b'A' * 1024
+        payload = b'A' * (30 * 1024)
         remote_path = os.path.join(self.local_root, REMOTE_TEST_FILE)
         with open(remote_path, 'wb') as handle:
             handle.write(payload)
@@ -230,15 +231,22 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
         with open(download_path, 'rb') as handle:
             downloaded = handle.read()
         self.assertEqual(downloaded, payload)
+        if self.alice_file_module.last_stats:
+            print('transfer stats: %s' % (self.alice_file_module.last_stats,))
 
 
 class _TunnelRunner(object):
     """Runs tunnel tick loop in background thread."""
 
-    def __init__(self, tunnel):
+    def __init__(self, tunnel, progress_interval=5.0):
         self._tunnel = tunnel
+        self._progress_interval = progress_interval
         self._stop = False
         self._thread = None
+        self._last_report = 0
+        self._last_bytes_sent = 0
+        self._last_bytes_received = 0
+        self._last_window = None
 
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -255,7 +263,42 @@ class _TunnelRunner(object):
                 self._tunnel.tick()
             except Exception:
                 pass
+            self._maybe_report()
             time.sleep(0.001)
+
+    def _maybe_report(self):
+        now = time.time()
+        if now - self._last_report < self._progress_interval:
+            return
+        self._last_report = now
+
+        bytes_sent = self._tunnel._bytes_sent
+        bytes_received = self._tunnel._bytes_received
+        delta_sent = bytes_sent - self._last_bytes_sent
+        delta_received = bytes_received - self._last_bytes_received
+        self._last_bytes_sent = bytes_sent
+        self._last_bytes_received = bytes_received
+
+        interval = max(self._progress_interval, 0.001)
+        send_rate = delta_sent / interval / 1024.0
+        recv_rate = delta_received / interval / 1024.0
+
+        window = self._tunnel._negotiated_window
+        if self._last_window != window:
+            print('window updated: %d' % window)
+            self._last_window = window
+
+        pending = None
+        try:
+            pending = self._tunnel._transport.pending_count()
+        except Exception:
+            pending = None
+        unacked = self._tunnel._send_window.unacked_count
+
+        print('progress: sent=%d recv=%d rate=%.2f/%.2fKBs window=%d unacked=%d pending=%s' % (
+            bytes_sent, bytes_received, send_rate, recv_rate,
+            window, unacked, pending
+        ))
 
 
 class _DebugDnsClient(DnsClient):

@@ -76,6 +76,14 @@ class AliceTunnel(BaseTunnel):
         self._got_data = False
         # Track if we have real data packets awaiting ACKs (not just keepalives)
         self._has_pending_data_acks = False
+        # Window growth state (Alice only)
+        self._window_growth_enabled = config.tunnel_window_growth_enabled
+        self._window_growth_mode = config.tunnel_window_growth_mode
+        self._window_growth_step = config.tunnel_window_growth_step
+        self._window_growth_interval = config.tunnel_window_growth_interval
+        self._last_window_request_time = 0
+        self._last_ack_progress_time = 0
+        self._ack_progressed = False
 
     @property
     def rtt_estimator(self):
@@ -303,6 +311,10 @@ class AliceTunnel(BaseTunnel):
                 self._has_pending_data_acks = True
             self._send_new_packet(segments, now)
 
+        # 4. Opportunistically grow window after ACK progress or retry negotiation
+        if self._window_growth_enabled:
+            self._maybe_request_window(now)
+
         return True
 
     def _can_send_new(self):
@@ -364,10 +376,45 @@ class AliceTunnel(BaseTunnel):
                 if b'"c":"pong"' not in seg.data and b'"c": "pong"' not in seg.data:
                     self._got_data = True
 
+        prev_unacked = self._send_window.unacked_count
         rtt_samples = self._process_incoming_packet(packet, now=now)
+        new_unacked = self._send_window.unacked_count
+        if rtt_samples or new_unacked < prev_unacked:
+            self._last_ack_progress_time = now
+            self._ack_progressed = True
 
         for sample in rtt_samples:
             self._rtt.add_sample(sample)
+
+    def _maybe_request_window(self, now):
+        """Request a larger window if conditions allow."""
+        # Retry initial negotiation even without ACK progress.
+        if not self._window_negotiated:
+            if now - self._last_window_request_time >= self._window_growth_interval:
+                self.control.send_message(tun_window(self._proposed_max_in_flight))
+                self._last_window_request_time = now
+            return
+
+        if not self._ack_progressed:
+            return
+        if now - self._last_window_request_time < self._window_growth_interval:
+            return
+        if self._negotiated_window >= self._proposed_max_in_flight:
+            return
+
+        current = self._negotiated_window
+        if self._window_growth_mode == 'doubling':
+            requested = current * 2
+        else:
+            requested = current + self._window_growth_step
+
+        requested = min(requested, self._proposed_max_in_flight, self.MAX_WINDOW)
+        if requested <= current:
+            return
+
+        self.control.send_message(tun_window(requested))
+        self._last_window_request_time = now
+        self._ack_progressed = False
 
     def run(self, duration=None):
         """

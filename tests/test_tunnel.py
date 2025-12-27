@@ -6,6 +6,7 @@ from __future__ import absolute_import
 import threading
 import time
 import unittest
+import json
 
 from sfb.config import Config
 from sfb.tunnel import (
@@ -140,6 +141,15 @@ class MockServer(Server):
         self._event.set()
 
 
+def _control_messages(control):
+    data = b''.join(list(control._send_buf))
+    lines = [line for line in data.split(b'\n') if line]
+    msgs = []
+    for line in lines:
+        msgs.append(json.loads(line.decode('ascii')))
+    return msgs
+
+
 class PairedTransport(object):
     """
     Paired transports for end-to-end testing.
@@ -163,6 +173,31 @@ class PairedTransport(object):
 
     def make_bob_server(self):
         return _PairedBobServer(self)
+
+
+class WindowGrowthTest(unittest.TestCase):
+    def test_window_growth_request(self):
+        config = make_test_config(
+            tunnel_window_growth_enabled=True,
+            tunnel_window_growth_interval=0.01,
+            tunnel_window_growth_mode='linear',
+            tunnel_window_growth_step=1,
+            tunnel_max_in_flight=4,
+        )
+        transport = MockTransport()
+        alice = AliceTunnel(transport, config, crypto=Plain())
+        alice._window_negotiated = True
+        alice._negotiated_window = 1
+        alice._send_window._max_in_flight = 1
+        alice._proposed_max_in_flight = 4
+        alice._ack_progressed = True
+
+        alice._maybe_request_window(time.time())
+
+        msgs = _control_messages(alice.control)
+        window_msgs = [m for m in msgs if m.get('t') == 'tun' and m.get('c') == 'window']
+        self.assertEqual(len(window_msgs), 1)
+        self.assertEqual(window_msgs[0].get('size'), 2)
 
 
 class _PairedAliceTransport(Transport):

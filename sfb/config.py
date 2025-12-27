@@ -56,6 +56,14 @@ class Config:
     tunnel_timeout_packets: int = 30
     # Enable reliability stats tracking
     tunnel_stats_enabled: bool = False
+    # Enable dynamic window growth on Alice
+    tunnel_window_growth_enabled: bool = True
+    # Window growth mode: 'linear' or 'doubling'
+    tunnel_window_growth_mode: str = "linear"
+    # Window growth step (linear mode)
+    tunnel_window_growth_step: int = 1
+    # Minimum seconds between window growth requests
+    tunnel_window_growth_interval: float = 2.0
 
     # --- Channel ---
     # Maximum bytes to buffer for sending per channel
@@ -106,6 +114,12 @@ class Config:
             raise ValueError("tunnel_keepalive_interval must be > 0")
         if self.tunnel_idle_timeout <= 0:
             raise ValueError("tunnel_idle_timeout must be > 0")
+        if self.tunnel_window_growth_mode not in ("linear", "doubling"):
+            raise ValueError("tunnel_window_growth_mode must be 'linear' or 'doubling'")
+        if self.tunnel_window_growth_step < 1:
+            raise ValueError("tunnel_window_growth_step must be >= 1")
+        if self.tunnel_window_growth_interval <= 0:
+            raise ValueError("tunnel_window_growth_interval must be > 0")
 
         # Channel validation
         if self.channel_max_send_buf < 1024:

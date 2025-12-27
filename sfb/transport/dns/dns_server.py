@@ -102,8 +102,11 @@ class DnsServer(Server):
                 # Malformed query, ignore
                 continue
 
-            # Check if it's for our domain
-            if not qname.lower().endswith('.' + self._base_domain):
+            # Check if it's for our domain (subdomain or exact match)
+            qname_lower = qname.lower()
+            is_our_domain = (qname_lower == self._base_domain or
+                             qname_lower.endswith('.' + self._base_domain))
+            if not is_our_domain:
                 # Not our query, ignore
                 continue
 

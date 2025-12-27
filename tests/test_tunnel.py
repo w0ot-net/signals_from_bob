@@ -68,6 +68,9 @@ class MockTransport(Transport):
     def pending_count(self):
         return len(self._pending)
 
+    def can_send(self):
+        return self.pending_count() < self._max_pending
+
     @property
     def max_pending(self):
         return self._max_pending
@@ -240,6 +243,9 @@ class _PairedAliceTransport(Transport):
     def pending_count(self):
         with self._pair._lock:
             return len(self._pair._alice_pending)
+
+    def can_send(self):
+        return self.pending_count() < self.max_pending
 
     @property
     def max_pending(self):

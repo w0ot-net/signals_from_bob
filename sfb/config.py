@@ -36,6 +36,8 @@ class Config:
     dns_pending_timeout: float = 10.0
     # Query/response type: 'TXT' or 'NULL'
     dns_record_type: str = "TXT"
+    # Maximum DNS queries per second (0 = unlimited)
+    dns_queries_per_second: float = 950.0
 
     # --- Crypto ---
     # Encryption mode: 'none', 'xor', 'rc4'
@@ -100,6 +102,8 @@ class Config:
             raise ValueError("dns_record_type must be 'TXT' or 'NULL'")
         if self.dns_edns_size < 512:
             raise ValueError("dns_edns_size must be >= 512")
+        if self.dns_queries_per_second < 0:
+            raise ValueError("dns_queries_per_second must be >= 0")
 
         # Crypto validation
         if self.crypto_mode not in ("none", "xor", "rc4"):

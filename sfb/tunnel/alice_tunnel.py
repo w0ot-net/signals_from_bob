@@ -324,12 +324,13 @@ class AliceTunnel(BaseTunnel):
 
     def _can_send_new(self):
         """Check if we can send a new packet."""
-        return (self._transport.pending_count() < self._transport.max_pending and
-                self._send_window.can_send)
+        if not self._send_window.can_send:
+            return False
+        return self._transport.can_send()
 
     def _can_send_retransmit(self):
         """Check if we can send a retransmit packet."""
-        return self._transport.pending_count() < self._transport.max_pending
+        return self._transport.can_send()
 
     def _send_new_packet(self, segments, now):
         """Send a new packet with given segments."""

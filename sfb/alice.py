@@ -42,6 +42,10 @@ def parse_args():
         help='Operation timeout in seconds (default: 30)'
     )
     parser.add_argument(
+        '--qps', type=float, default=950.0,
+        help='Max DNS queries per second (default: 950, 0=unlimited)'
+    )
+    parser.add_argument(
         '-v', '--verbose', action='store_true',
         help='Enable debug logging'
     )
@@ -117,6 +121,7 @@ def main():
     config = Config(
         dns_base_domain=args.domain,
         dns_resolver=args.resolver,
+        dns_queries_per_second=args.qps,
     )
 
     # Crypto

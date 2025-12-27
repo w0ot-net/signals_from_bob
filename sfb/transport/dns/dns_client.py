@@ -89,6 +89,11 @@ class DnsClient(Transport):
         self._pending = {}  # corr_id -> _PendingQuery
         self._dns_to_corr = {}  # dns_id -> corr_id
 
+        # Rate limiting (token bucket)
+        self._qps_limit = config.dns_queries_per_second
+        self._tokens = self._qps_limit if self._qps_limit > 0 else 0
+        self._last_refill = time.time()
+
     @property
     def send_mtu(self):
         return self._send_mtu
@@ -105,6 +110,26 @@ class DnsClient(Transport):
         """Return number of queries awaiting response."""
         self._prune_stale()
         return len(self._pending)
+
+    def can_send(self):
+        """
+        Check if rate limit allows sending.
+
+        Returns:
+            bool: True if a query can be sent without exceeding rate limit
+        """
+        if self.pending_count() >= self._max_pending:
+            return False
+        if self._qps_limit <= 0:
+            return True  # Unlimited
+        self._refill_tokens(time.time())
+        return self._tokens >= 1.0
+
+    def _refill_tokens(self, now):
+        """Refill tokens based on elapsed time."""
+        elapsed = now - self._last_refill
+        self._tokens = min(self._qps_limit, self._tokens + elapsed * self._qps_limit)
+        self._last_refill = now
 
     def send(self, data):
         """
@@ -148,6 +173,10 @@ class DnsClient(Transport):
         pending = _PendingQuery(dns_id, query_pkt)
         self._pending[corr_id] = pending
         self._dns_to_corr[dns_id] = corr_id
+
+        # Consume a token for rate limiting
+        if self._qps_limit > 0:
+            self._tokens -= 1.0
 
         return corr_id
 

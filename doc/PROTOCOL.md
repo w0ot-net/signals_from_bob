@@ -4,7 +4,7 @@
 
 ```
 ┌──────────────────────────────────────┐
-│ Header (8 bytes)                     │
+│ Header (14 bytes)                    │
 ├──────────────────────────────────────┤
 │ Segment 0                            │
 │ Segment 1                            │
@@ -21,20 +21,24 @@ protocol max packet size.
 
 ---
 
-## Header (8 bytes)
+## Header (14 bytes)
 
 ```
  0       1       2       3       4       5       6       7
 ┌───────┬───────┬───────┬───────┬───────┬───────┬───────┬───────┐
-│      seq      │      ack      │     sack      │ flags │  rsvd │
-└───────┴───────┴───────┴───────┴───────┴───────┴───────┴───────┘
+│      seq      │      ack      │              sack             │
+├───────┴───────┴───────┴───────┴───────┴───────┴───────┴───────┤
+ 8       9      10      11      12      13
+┌───────┬───────┬───────┬───────┬───────┬───────┐
+│          sack (cont)          │ flags │  rsvd │
+└───────┴───────┴───────┴───────┴───────┴───────┘
 ```
 
 | Field    | Size | Description                                 |
 |----------|------|---------------------------------------------|
 | seq      | 2    | Sequence number of this packet              |
 | ack      | 2    | Next expected sequence number from peer     |
-| sack     | 2    | Bitmap of 16 packets received beyond ack    |
+| sack     | 8    | Bitmap of 64 packets received beyond ack    |
 | flags    | 1    | Packet flags                                |
 | rsvd     | 1    | Reserved (must be 0)                        |
 
@@ -60,14 +64,14 @@ flags is 0 for all data packets.
 
 ## SACK Bitmap
 
-The 16-bit SACK field represents packets received beyond the cumulative `ack`.
+The 64-bit SACK field represents packets received beyond the cumulative `ack`.
 
 - Bit 0 = ack + 1 received
 - Bit 1 = ack + 2 received
 - ...
-- Bit 15 = ack + 16 received
+- Bit 63 = ack + 64 received
 
-Example: ack=100, sack=0b0000000000010100
+Example: ack=100, sack=0x0000000000000014
 - Received: 100 and below (cumulative), 102, 104
 - Missing: 101, 103
 
@@ -147,9 +151,9 @@ Until `mtu_ok` is received, both sides limit packets to 100 bytes.
 After MTU negotiation, Alice and Bob negotiate the send window:
 
 1. Alice sends: `{"t":"tun","c":"window","size":X}`
-2. Bob responds: `{"t":"tun","c":"window_ok","size":Y}` where Y = min(X, bob_max, 16)
+2. Bob responds: `{"t":"tun","c":"window_ok","size":Y}` where Y = min(X, bob_max, 64)
 
-Maximum is 16 (SACK bitmap size). Until `window_ok` is received, use max_in_flight = 1.
+Maximum is 64 (SACK bitmap size). Until `window_ok` is received, use max_in_flight = 1.
 
 ---
 
@@ -205,7 +209,7 @@ DNS queries, base64 for DNS responses).
 Immediately after MTU negotiation, Alice and Bob negotiate the send window:
 
 1. Alice sends: `{"t":"tun","c":"window","size":X}` where X is her preferred max_in_flight
-2. Bob responds: `{"t":"tun","c":"window_ok","size":Y}` where Y = min(X, bob_max, 16)
+2. Bob responds: `{"t":"tun","c":"window_ok","size":Y}` where Y = min(X, bob_max, 64)
 3. Both sides now use Y as max_in_flight
 
 ```
@@ -214,16 +218,16 @@ Alice                              Bob
   │←───────── (handshake) ──────────→│
   │←──────── (MTU negotiation) ─────→│
   │                                  │
-  │── {t:tun,c:window,size:16} ──────▶│  Alice proposes 16
-  │◀── {t:tun,c:window_ok,size:8} ───│  Bob's max is 8, use 8
+  │── {t:tun,c:window,size:64} ──────▶│  Alice proposes 64
+  │◀── {t:tun,c:window_ok,size:32} ──│  Bob's max is 32, use 32
   │                                  │
-  │      max_in_flight is now 8      │
+  │      max_in_flight is now 32     │
 ```
 
-The maximum value is capped at 16 to match the SACK bitmap size. This guarantees:
+The maximum value is capped at 64 to match the SACK bitmap size. This guarantees:
 
 - The sender cannot have more packets in-flight than the SACK can represent
-- The receiver's out-of-order buffer never exceeds 16 packets
+- The receiver's out-of-order buffer never exceeds 64 packets
 - All gaps within the window are visible to the sender via SACK
 
 Until WINDOW_OK is received, both sides use max_in_flight = 1 (stop-and-wait).
@@ -302,11 +306,11 @@ interval rather than network latency.
 
 ### SACK Coverage Guarantee
 
-The 16-bit SACK bitmap represents packets ack+1 through ack+16. Because
-max_in_flight is capped at 16, the SACK bitmap always covers the entire
+The 64-bit SACK bitmap represents packets ack+1 through ack+64. Because
+max_in_flight is capped at 64, the SACK bitmap always covers the entire
 send window:
 
-- The sender cannot have more than 16 packets in-flight
+- The sender cannot have more than 64 packets in-flight
 - All in-flight packets fall within SACK's representable range
 - The sender always has complete visibility into which packets were received
 
@@ -320,7 +324,7 @@ guess which packets to retransmit. Every gap is visible via SACK.
 ### Send Window
 
 - Both sides use the negotiated max_in_flight (see Window Negotiation)
-- Maximum value is 16 (SACK bitmap size); minimum is 1
+- Maximum value is 64 (SACK bitmap size); minimum is 1
 - Sender can have up to max_in_flight unacked packets outstanding
 - Window slides forward as cumulative acks are received
 - Retransmits reuse an existing sequence number and do not add to the
@@ -331,7 +335,7 @@ Transport pipelining is a separate but related limit:
 
 ```
 effective_in_flight = min(
-    tunnel.negotiated_window,   # Reliability limit (max 16)
+    tunnel.negotiated_window,   # Reliability limit (max 64)
     transport.max_pending,      # Transport limit
 )
 ```

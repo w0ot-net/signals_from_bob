@@ -125,7 +125,7 @@ class RecvWindowTests(unittest.TestCase):
 
     def test_sack_ignores_beyond_window(self):
         win = RecvWindow(max_buffer=4)
-        win.receive(20, b't')
+        win.receive(65, b't')  # Beyond ack+64, can't represent in SACK
         self.assertEqual(win.sack, 0)
 
     def test_sack_bitmap(self):
@@ -155,15 +155,15 @@ class RecvWindowTests(unittest.TestCase):
         self.assertRaises(ValueError, win.set_max_buffer, MAX_IN_FLIGHT + 1)
 
     def test_rejects_beyond_sack_window(self):
-        # Packets beyond ack+16 can't be represented in SACK, must be rejected
-        win = RecvWindow(max_buffer=16)
-        # next_expected = 0, so SACK window is 1-16
-        # seq 17 is beyond the window
-        ready = win.receive(17, b'too far')
+        # Packets beyond ack+64 can't be represented in SACK, must be rejected
+        win = RecvWindow(max_buffer=64)
+        # next_expected = 0, so SACK window is 1-64
+        # seq 65 is beyond the window
+        ready = win.receive(65, b'too far')
         self.assertEqual(ready, [])
         self.assertEqual(len(win._buffer), 0)
-        # seq 16 is within window (offset = 16, which is <= SACK_BITS)
-        ready = win.receive(16, b'edge')
+        # seq 64 is within window (offset = 64, which is <= SACK_BITS)
+        ready = win.receive(64, b'edge')
         self.assertEqual(ready, [])
         self.assertEqual(len(win._buffer), 1)
 

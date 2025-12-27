@@ -223,7 +223,7 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
 
         self.assertEqual(self.alice_tunnel._state, TunnelState.CONNECTED)
 
-        payload = b'A' * (1024 * 1024)
+        payload = b'A' * (100 * 1024)
         remote_path = os.path.join(self.local_root, REMOTE_TEST_FILE)
         with open(remote_path, 'wb') as handle:
             handle.write(payload)

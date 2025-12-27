@@ -14,9 +14,12 @@ import struct
 from ...compat import byte_at
 
 # DNS constants
-QTYPE_TXT = 16
-QTYPE_NULL = 10
+QTYPE_A = 1
+QTYPE_CNAME = 5
 QTYPE_SOA = 6
+QTYPE_NULL = 10
+QTYPE_TXT = 16
+QTYPE_AAAA = 28
 QCLASS_IN = 1
 
 # DNS header flags
@@ -37,8 +40,17 @@ EDNS_VERSION = 0
 
 # Limits
 MAX_LABEL_LEN = 63
+DEFAULT_LABEL_MAX_LEN = 50
 MAX_NAME_LEN = 253
 NONCE_LEN = 4
+
+RECORD_TYPES = {
+    'A': QTYPE_A,
+    'AAAA': QTYPE_AAAA,
+    'CNAME': QTYPE_CNAME,
+    'NULL': QTYPE_NULL,
+    'TXT': QTYPE_TXT,
+}
 
 
 def base32_encode(data):
@@ -150,7 +162,17 @@ def skip_name(data, offset):
     raise ValueError('Invalid DNS name')
 
 
-def encode_query_name(data, base_domain, nonce):
+def _normalize_label_max_len(label_max_len):
+    if label_max_len is None:
+        return DEFAULT_LABEL_MAX_LEN
+    if label_max_len < NONCE_LEN:
+        raise ValueError('label_max_len must be >= %d' % NONCE_LEN)
+    if label_max_len > MAX_LABEL_LEN:
+        raise ValueError('label_max_len must be <= %d' % MAX_LABEL_LEN)
+    return label_max_len
+
+
+def encode_query_name(data, base_domain, nonce, label_max_len=None):
     """
     Encode tunnel data into DNS query name.
 
@@ -158,10 +180,13 @@ def encode_query_name(data, base_domain, nonce):
         data: bytes to encode
         base_domain: tunnel domain suffix
         nonce: 16-bit nonce value for cache busting
+        label_max_len: max label length for tunnel data labels
 
     Returns:
         str: complete query name
     """
+    label_max_len = _normalize_label_max_len(label_max_len)
+
     # Generate nonce label
     nonce_label = base32_encode(struct.pack('>H', nonce & 0xFFFF))[:NONCE_LEN]
 
@@ -171,21 +196,22 @@ def encode_query_name(data, base_domain, nonce):
     # Split into labels respecting max length
     labels = [nonce_label]
     while b32:
-        labels.append(b32[:MAX_LABEL_LEN])
-        b32 = b32[MAX_LABEL_LEN:]
+        labels.append(b32[:label_max_len])
+        b32 = b32[label_max_len:]
 
     # Append base domain
     labels.extend(base_domain.split('.'))
     return '.'.join(labels)
 
 
-def decode_query_name(query_name, base_domain):
+def decode_query_name(query_name, base_domain, label_max_len=None):
     """
     Decode tunnel data from DNS query name.
 
     Args:
         query_name: full query name
         base_domain: tunnel domain suffix to strip
+        label_max_len: max label length for tunnel data labels
 
     Returns:
         bytes: decoded tunnel data
@@ -198,13 +224,18 @@ def decode_query_name(query_name, base_domain):
     if name_parts[-len(base_parts):] != base_parts:
         raise ValueError('Query name does not match base domain')
 
+    label_max_len = _normalize_label_max_len(label_max_len)
+
     # Get data labels (skip nonce at index 0, skip base domain at end)
     data_labels = name_parts[1:-len(base_parts)]
+    for label in data_labels:
+        if len(label) > label_max_len:
+            raise ValueError('Label exceeds max length')
 
     # Concatenate and decode
     b32 = ''.join(data_labels)
     if not b32:
-        return b''
+        raise ValueError('No data labels in query name')
     return base32_decode(b32)
 
 
@@ -256,43 +287,138 @@ def decode_txt_rdata(rdata):
     return base64_decode(b64)
 
 
-def calc_query_mtu(base_domain):
+def encode_a_rdata(addr_bytes):
+    """Encode IPv4 address bytes as A RDATA."""
+    if len(addr_bytes) != 4:
+        raise ValueError('A RDATA requires 4 bytes')
+    return addr_bytes
+
+
+def calc_query_mtu(base_domain, label_max_len=None):
     """
     Calculate max tunnel bytes for a query.
 
     Args:
         base_domain: tunnel domain suffix
+        label_max_len: max label length for tunnel data labels
 
     Returns:
         int: max bytes that can be encoded in a query
     """
+    label_max_len = _normalize_label_max_len(label_max_len)
+
     # Available chars after base domain, trailing dot, nonce, and nonce dot
     available = MAX_NAME_LEN - len(base_domain) - 1 - NONCE_LEN - 1
+    if available <= 0:
+        return 0
     # Dots between labels
-    label_overhead = available // (MAX_LABEL_LEN + 1)
+    label_overhead = available // (label_max_len + 1)
     usable = available - label_overhead
     # Base32: 5 bytes -> 8 chars
     return (usable * 5) // 8
 
 
-def calc_response_mtu(edns_size=512):
+def encode_cname_target(data, cname_suffix, label_max_len=None):
+    """
+    Encode tunnel data into a CNAME target name.
+
+    Args:
+        data: bytes to encode
+        cname_suffix: suffix appended to data labels
+        label_max_len: max label length for tunnel data labels
+
+    Returns:
+        str: CNAME target name
+    """
+    label_max_len = _normalize_label_max_len(label_max_len)
+
+    b32 = base32_encode(data)
+    labels = []
+    while b32:
+        labels.append(b32[:label_max_len])
+        b32 = b32[label_max_len:]
+
+    suffix = cname_suffix.strip('.')
+    if suffix:
+        labels.extend(suffix.split('.'))
+    return '.'.join(labels)
+
+
+def decode_cname_target(target_name, cname_suffix, label_max_len=None):
+    """
+    Decode tunnel data from a CNAME target name.
+
+    Args:
+        target_name: full CNAME target name
+        cname_suffix: suffix appended to data labels
+        label_max_len: max label length for tunnel data labels
+
+    Returns:
+        bytes: decoded tunnel data
+    """
+    label_max_len = _normalize_label_max_len(label_max_len)
+
+    suffix_parts = cname_suffix.lower().strip('.').split('.')
+    name_parts = target_name.lower().strip('.').split('.')
+
+    if suffix_parts != [''] and suffix_parts:
+        if name_parts[-len(suffix_parts):] != suffix_parts:
+            raise ValueError('CNAME target does not match suffix')
+        data_parts = name_parts[:-len(suffix_parts)]
+    else:
+        data_parts = name_parts
+
+    for label in data_parts:
+        if len(label) > label_max_len:
+            raise ValueError('Label exceeds max length')
+
+    b32 = ''.join(data_parts)
+    if not b32:
+        raise ValueError('No data labels in CNAME target')
+    return base32_decode(b32)
+
+
+def calc_response_mtu(rtype, edns_size=512, cname_suffix=None,
+                      label_max_len=None):
     """
     Calculate max tunnel bytes for a response.
 
     Args:
+        rtype: response record type
         edns_size: UDP buffer size (512 standard, 4096 with EDNS0)
 
     Returns:
         int: max bytes that can be encoded in a response
     """
-    if edns_size <= 512:
-        # Standard: single TXT string
-        return (255 * 3) // 4
-    else:
+    if rtype in (QTYPE_A, QTYPE_AAAA):
+        return 0
+    if rtype == QTYPE_NULL:
+        # NULL: raw base64 without padding
+        overhead = 45  # DNS header + answer overhead
+        available = edns_size - overhead
+        if available <= 0:
+            return 0
+        return (available * 3) // 4
+    if rtype == QTYPE_TXT:
+        if edns_size <= 512:
+            # Standard: single TXT string
+            return (255 * 3) // 4
         # EDNS0: larger response
         overhead = 45  # DNS header + answer overhead
         available = edns_size - overhead
         return (available * 3) // 4
+    if rtype == QTYPE_CNAME:
+        if cname_suffix is None:
+            raise ValueError('cname_suffix required for CNAME MTU')
+        label_max_len = _normalize_label_max_len(label_max_len)
+        suffix = cname_suffix.strip('.')
+        available = MAX_NAME_LEN - len(suffix) - 1
+        if available <= 0:
+            return 0
+        label_overhead = available // (label_max_len + 1)
+        usable = available - label_overhead
+        return (usable * 5) // 8
+    raise ValueError('Unsupported record type')
 
 
 def build_opt_record(udp_size=4096):

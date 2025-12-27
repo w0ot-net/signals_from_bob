@@ -209,9 +209,9 @@ See `DNS_TRANSPORT.md` for complete specification.
 
 ### Overview
 
-- Alice sends TXT queries to Bob (direct or via resolvers)
+- Alice sends A queries to Bob (direct or via resolvers)
 - Data encoded in subdomain labels with nonce prefix
-- Bob responds with TXT records containing data
+- Bob responds with CNAME records containing data
 - `max_pending` controls concurrent queries (default: 16)
 
 ### Query Format (Alice → Bob)
@@ -227,10 +227,10 @@ A7B3.JBSWY3DP.KNQWG5A.tunnel.example.com
 
 ### Response Format (Bob → Alice)
 
-TXT record with base64-encoded packet:
+CNAME record with base32 data encoded into the target name:
 
 ```
-TXT "SGVsbG8gV29ybGQ..."
+CNAME <data_labels>.<cname_label>.<base_domain>
 ```
 
 ### Example Flow (Pipelined)
@@ -238,13 +238,13 @@ TXT "SGVsbG8gV29ybGQ..."
 ```
 Alice                                          Bob
   │                                              │
-  │─── TXT? A1.<pkt1>.tunnel.example.com ──────▶│
-  │─── TXT? A2.<pkt2>.tunnel.example.com ──────▶│  (queries in flight)
-  │─── TXT? A3.<pkt3>.tunnel.example.com ──────▶│
+  │─── A? A1.<pkt1>.tunnel.example.com ────────▶│
+  │─── A? A2.<pkt2>.tunnel.example.com ────────▶│  (queries in flight)
+  │─── A? A3.<pkt3>.tunnel.example.com ────────▶│
   │                                              │
-  │◀── TXT "<bob_pkt1, ack=1>" ──────────────────│  (responses arrive,
-  │◀── TXT "<bob_pkt3, ack=3>" ──────────────────│   possibly reordered)
-  │◀── TXT "<bob_pkt2, ack=2>" ──────────────────│
+  │◀── CNAME "<bob_pkt1, ack=1>" ───────────────│  (responses arrive,
+  │◀── CNAME "<bob_pkt3, ack=3>" ───────────────│   possibly reordered)
+  │◀── CNAME "<bob_pkt2, ack=2>" ───────────────│
   │                                              │
 ```
 

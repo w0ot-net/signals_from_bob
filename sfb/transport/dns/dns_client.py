@@ -2,7 +2,7 @@
 """
 DNS client transport for Alice.
 
-Encodes tunnel packets into DNS TXT queries and decodes responses.
+Encodes tunnel packets into DNS A queries and decodes CNAME responses.
 Supports pipelining with multiple in-flight queries.
 """
 
@@ -36,7 +36,7 @@ class DnsClient(Transport):
     """
     DNS client transport for Alice.
 
-    Sends tunnel packets as DNS TXT queries and receives responses.
+    Sends tunnel packets as DNS A queries and receives responses.
     Supports pipelining - multiple queries in flight simultaneously.
     Responses are matched via correlation IDs mapped to DNS query IDs.
     """
@@ -53,11 +53,16 @@ class DnsClient(Transport):
 
         self._config = config
         self._base_domain = config.dns_base_domain.lower().rstrip('.')
-        qtype = codec.QTYPE_TXT if config.dns_record_type == 'TXT' else codec.QTYPE_NULL
-        self._qtype = qtype
+        self._qtype = codec.RECORD_TYPES[config.dns_query_type]
+        self._rtype = codec.RECORD_TYPES[config.dns_response_type]
         self._edns_size = config.dns_edns_size
         self._max_pending = config.dns_max_pending
         self._pending_timeout = config.dns_pending_timeout
+        self._label_max_len = config.dns_label_max_len
+        self._cname_suffix = '%s.%s' % (
+            config.dns_cname_label.strip('.'),
+            self._base_domain
+        )
         self._nonce = random.randint(0, 0xFFFF)
         self._query_id = random.randint(0, 0xFFFF)
 
@@ -80,8 +85,12 @@ class DnsClient(Transport):
         self._sock.setblocking(False)
 
         # Calculate MTUs
-        self._send_mtu = codec.calc_query_mtu(self._base_domain)
-        self._recv_mtu = codec.calc_response_mtu(config.dns_edns_size)
+        self._send_mtu = codec.calc_query_mtu(self._base_domain,
+                                              self._label_max_len)
+        self._recv_mtu = codec.calc_response_mtu(self._rtype,
+                                                 config.dns_edns_size,
+                                                 self._cname_suffix,
+                                                 self._label_max_len)
         self._recv_bufsize = max(self._edns_size, 4096)
 
         # Pending query tracking
@@ -285,7 +294,8 @@ class DnsClient(Transport):
         """Encode data into DNS query name with nonce."""
         nonce = self._nonce
         self._nonce = (self._nonce + 1) & 0xFFFF
-        return codec.encode_query_name(data, self._base_domain, nonce)
+        return codec.encode_query_name(data, self._base_domain, nonce,
+                                       self._label_max_len)
 
     def _next_query_id(self):
         """Generate next query ID."""
@@ -352,42 +362,54 @@ class DnsClient(Transport):
         if ancount < 1:
             return query_id, None
 
-        try:
-            offset = codec.skip_name(data, offset)  # NAME
-        except ValueError:
-            return query_id, None
-
-        if offset + 10 > len(data):
-            return query_id, None
-
-        rtype, rclass, ttl, rdlength = struct.unpack(
-            '>HHIH', data[offset:offset + 10]
-        )
-        offset += 10
-
-        if rclass != codec.QCLASS_IN:
-            return query_id, None
-
-        if offset + rdlength > len(data):
-            return query_id, None
-
-        rdata = data[offset:offset + rdlength]
-
-        if rtype == codec.QTYPE_TXT:
+        for _ in range(ancount):
             try:
-                payload = codec.decode_txt_rdata(rdata)
+                offset = codec.skip_name(data, offset)  # NAME
             except ValueError:
                 return query_id, None
-        elif rtype == codec.QTYPE_NULL:
-            try:
-                payload = codec.base64_decode(rdata.decode('ascii'))
-            except (UnicodeDecodeError, ValueError):
-                _LOG.debug('dns invalid null payload id=%d', query_id)
-                return query_id, None
-        else:
-            return query_id, None
 
-        return query_id, payload
+            if offset + 10 > len(data):
+                return query_id, None
+
+            rtype, rclass, ttl, rdlength = struct.unpack(
+                '>HHIH', data[offset:offset + 10]
+            )
+            offset += 10
+
+            if offset + rdlength > len(data):
+                return query_id, None
+
+            if rclass != codec.QCLASS_IN or rtype != self._rtype:
+                offset += rdlength
+                continue
+
+            if rtype != codec.QTYPE_CNAME:
+                offset += rdlength
+                continue
+
+            try:
+                cname, end_offset = codec.decode_name(
+                    data, offset, allow_compression=True
+                )
+            except ValueError:
+                _LOG.debug('dns invalid cname id=%d', query_id)
+                return query_id, None
+
+            if end_offset > offset + rdlength:
+                _LOG.debug('dns cname exceeds rdlength id=%d', query_id)
+                return query_id, None
+
+            try:
+                payload = codec.decode_cname_target(
+                    cname, self._cname_suffix, self._label_max_len
+                )
+            except ValueError:
+                _LOG.debug('dns invalid cname payload id=%d', query_id)
+                return query_id, None
+
+            return query_id, payload
+
+        return query_id, None
 
     def close(self):
         """Close the UDP socket and cancel all pending queries."""

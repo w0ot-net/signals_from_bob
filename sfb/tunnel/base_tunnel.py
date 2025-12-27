@@ -469,6 +469,8 @@ class BaseTunnel(object):
         self.control.send_message(tun_mtu_ok(agreed_send, agreed_recv))
         self._logger.debug('MTU recv updated: %d (tx=%d rx=%d), awaiting ack',
                            agreed_recv, agreed_send, agreed_recv)
+        self._logger.info('MTU negotiate: recv=%d send(pending)=%d',
+                          agreed_recv, agreed_send)
 
     def _handle_mtu_ok(self, msg):
         """
@@ -498,6 +500,8 @@ class BaseTunnel(object):
         self.control.send_message(tun_mtu_ack())
         self._logger.debug('MTU negotiated: tx=%d rx=%d, sent ack',
                            agreed_send, agreed_recv)
+        self._logger.info('MTU negotiated: send=%d recv=%d',
+                          agreed_send, agreed_recv)
 
     def _handle_mtu_ack(self, msg):
         """
@@ -511,6 +515,8 @@ class BaseTunnel(object):
             self._pending_send_mtu = None
         self._mtu_negotiated = True
         self._logger.debug('MTU ack received, send MTU now: %d', self._send_mtu)
+        self._logger.info('MTU ack applied: send=%d recv=%d',
+                          self._send_mtu, self._recv_mtu)
 
     def _handle_window(self, msg):
         """

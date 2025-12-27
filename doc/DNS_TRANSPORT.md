@@ -10,9 +10,9 @@ MTU calculations, and implementation details for both Alice (client) and Bob
 
 The DNS transport tunnels data over DNS queries and responses:
 
-- Alice encodes tunnel packets into DNS TXT (or NULL) query names
-- Bob runs a DNS server and responds with TXT (or NULL) records containing tunnel data
-- Alice decodes the TXT response to recover Bob's packet
+- Alice encodes tunnel packets into DNS query names
+- Bob runs a DNS server and responds with CNAME records containing tunnel data
+- Alice decodes the CNAME target name to recover Bob's packet
 
 This leverages the fact that DNS queries and responses can traverse most
 firewalls and networks, making it useful when direct connectivity is blocked.
@@ -20,10 +20,10 @@ firewalls and networks, making it useful when direct connectivity is blocked.
 ```
 Alice                                           Bob
   │                                               │
-  │  TXT? JBSWY3DP.KNQWG.tunnel.example.com      │
+  │  A? JBSWY3DP.KNQWG.tunnel.example.com        │
   │──────────────────────────────────────────────▶│
   │                                               │
-  │           TXT "SGVsbG8gV29ybGQ..."           │
+  │           CNAME <data>.<c>.<base_domain>     │
   │◀──────────────────────────────────────────────│
   │                                               │
 ```
@@ -149,7 +149,7 @@ This is a small cost for guaranteed cache bypass.
 
 | Constraint | Limit |
 |------------|-------|
-| Label length | 63 characters max |
+| Label length | 63 characters max (50 default for tunnel labels) |
 | Total name length | 253 characters max |
 | Label count | 127 labels max |
 
@@ -164,47 +164,44 @@ This is a small cost for guaranteed cache bypass.
 
 ## Response Format (Bob → Alice)
 
-Bob encodes tunnel packets into DNS response records using base64.
+Bob encodes tunnel packets into DNS CNAME response targets. To avoid TXT
+throttling, the tunnel uses CNAME targets as the response container.
 
-### Standard Format (TXT)
-
-```
-TXT "<base64_encoded_packet>"
-```
-
-For packets exceeding 255 characters base64-encoded, use multiple TXT strings:
+### Standard Format (CNAME)
 
 ```
-TXT "<first 255 chars>" "<next 255 chars>" "<remainder>"
+CNAME <data_labels>.<cname_label>.<base_domain>
 ```
 
-The receiver concatenates all strings in order.
+The response target uses the same base32 encoding as queries, without a nonce.
+The `cname_label` keeps the suffix short while ensuring the target remains
+under the authoritative zone. Use a label that cannot appear in base32 data
+(for example, `0`) to avoid collisions with tunnel queries.
 
 ### Example
 
-Tunnel packet (hex): `48 65 6c 6c 6f 20 57 6f 72 6c 64` ("Hello World")
+Tunnel packet (hex): `48 65 6c 6c 6f` ("Hello")
 
-Base64 encoded: `SGVsbG8gV29ybGQ`
+Base32 encoded: `JBSWY3DP`
 
-TXT response: `TXT "SGVsbG8gV29ybGQ"`
+CNAME target: `JBSWY3DP.0.tunnel.example.com`
 
 ### DNS Constraints
 
 | Constraint | Limit |
 |------------|-------|
 | UDP packet size | 512 bytes |
-| TXT string length | 255 characters |
-| Usable per response | ~190 bytes |
+| CNAME target name length | 253 characters max |
 
-Note: While EDNS0 allows larger UDP responses, the query-side MTU (limited by
-DNS name length) is always the bottleneck. Response capacity beyond the query
-MTU provides no benefit because the tunnel enforces a symmetric MTU.
+Note: With asymmetric MTU negotiation, Alice and Bob advertise independent
+send/receive MTUs. Response capacity beyond the query MTU can still help if
+the peer accepts a larger receive MTU.
 
-### Base64 Encoding
+### Base32 Encoding (Responses)
 
-- Alphabet: A-Z, a-z, 0-9, +, / (RFC 4648)
+- Alphabet: A-Z, 2-7 (RFC 4648)
 - No padding (length derived from decoded data)
-- Overhead: 3 bytes → 4 characters (1.333x expansion)
+- Overhead: 8 bytes → 13 characters (1.625x expansion)
 
 ---
 
@@ -217,7 +214,7 @@ DNS query and response. The MTU depends on the base domain length.
 
 ```
 available_chars = 253 - len(base_domain) - 1 - 5  # -1 trailing dot, -5 nonce+dot
-label_overhead = floor(available_chars / 64)      # dots between labels
+label_overhead = floor(available_chars / (50 + 1))
 usable_chars = available_chars - label_overhead
 query_mtu = floor(usable_chars * 5 / 8)           # base32 decode ratio
 ```
@@ -226,17 +223,18 @@ query_mtu = floor(usable_chars * 5 / 8)           # base32 decode ratio
 
 ```
 available_chars = 253 - 18 - 1 - 5 = 229
-label_overhead = floor(229 / 64) = 3
-usable_chars = 229 - 3 = 226
-query_mtu = floor(226 * 5 / 8) = 141 bytes
+label_overhead = floor(229 / 51) = 4
+usable_chars = 229 - 4 = 225
+query_mtu = floor(225 * 5 / 8) = 140 bytes
 ```
 
 ### Response-Side MTU
 
 ```
-available_chars = 255                         # single TXT string max
-response_mtu = floor(available_chars * 3 / 4) # base64 decode ratio
-            = floor(255 * 3 / 4) = 191 bytes
+available_chars = 253 - len(cname_suffix) - 1
+label_overhead = floor(available_chars / (50 + 1))
+usable_chars = available_chars - label_overhead
+response_mtu = floor(usable_chars * 5 / 8)
 ```
 
 ### Effective MTU
@@ -331,6 +329,10 @@ responses.
 |-----------|-------------|---------|
 | `base_domain` | Tunnel domain suffix | `tunnel.example.com` |
 | `resolver` | DNS server to query | `203.0.113.1:53` |
+| `query_type` | Query record type | `A` |
+| `response_type` | Response record type | `CNAME` |
+| `label_max_len` | Max tunnel label length | `50` |
+| `cname_label` | Label for CNAME suffix | `0` |
 | `timeout` | Query timeout | `5s` |
 | `pending_timeout` | Stale query timeout (frees in-flight slots, min 1s) | `10s` |
 
@@ -376,7 +378,7 @@ class DnsTransport(Transport):
         )
         self._dns_id_map[dns_id] = corr_id
 
-        self.send_dns_query(query_name, dns_id, qtype=TXT)
+        self.send_dns_query(query_name, dns_id, qtype=A)
         return corr_id
 
     def recv(self, timeout: float = None) -> tuple:
@@ -393,7 +395,7 @@ class DnsTransport(Transport):
 
         # Read response
         raw, addr = self._socket.recvfrom(4096)
-        dns_id, txt_data = self.decode_dns_response(raw)
+        dns_id, response_data = self.decode_dns_response(raw)
 
         # Match to correlation ID
         corr_id = self._dns_id_map.pop(dns_id, None)
@@ -401,7 +403,7 @@ class DnsTransport(Transport):
             return (None, None)  # Unknown/duplicate
 
         self._pending.pop(corr_id, None)
-        return (corr_id, self.decode_response(txt_data))
+        return (corr_id, self.decode_response(response_data))
 
     def pending_count(self) -> int:
         return len(self._pending)
@@ -512,6 +514,11 @@ Bob is the tunnel server. He runs a DNS server and responds to Alice's queries.
 |-----------|-------------|---------|
 | `base_domain` | Tunnel domain suffix to recognize | `tunnel.example.com` |
 | `listen_addr` | UDP address to listen on | `0.0.0.0:53` |
+| `query_type` | Query record type | `A` |
+| `response_type` | Response record type | `CNAME` |
+| `label_max_len` | Max tunnel label length | `50` |
+| `cname_label` | Label for CNAME suffix | `0` |
+| `cname_a_addr` | A record for CNAME follow-ups | `0.0.0.0` |
 | `ttl` | TTL for responses | `0` (no caching) |
 
 ### DNS Server Setup
@@ -555,8 +562,8 @@ class DnsTransport:
                 continue  # Ignore non-tunnel queries
             decoded = self.decode_query(query.name)
             def responder(packet):
-                txt_data = self.encode_response(packet)
-                self.send_dns_response(query.id, client_addr, txt_data)
+                response_data = self.encode_response(packet)
+                self.send_dns_response(query.id, client_addr, response_data)
             return decoded, responder
 
     def close(self) -> None:
@@ -595,17 +602,17 @@ Between `recv()` and the responder callback, Bob holds the query context
 
 ### Response TTL
 
-Bob should set TTL=0 on TXT responses to prevent caching:
+Bob should set TTL=0 on tunnel responses to prevent caching:
 
 ```python
-def send_dns_response(self, query_id, client_addr, txt_data):
+def send_dns_response(self, query_id, client_addr, response_data):
     response = DnsResponse()
     response.id = query_id
     response.add_answer(
         name=self.base_domain,
-        qtype=TXT,
+        qtype=CNAME,
         ttl=0,              # No caching
-        data=txt_data
+        data=response_data
     )
     self.socket.sendto(response.encode(), client_addr)
 ```
@@ -618,13 +625,18 @@ In authoritative mode, Bob may receive legitimate DNS queries for the domain
 (e.g., SOA, NS from resolvers). He should respond appropriately:
 
 ```python
+# cname_suffix = cname_label + '.' + base_domain
 def recv_dns_query(self):
     while True:
         data, addr = self.socket.recvfrom(512)
         query = DnsQuery.decode(data)
 
-        if query.qtype == TXT and query.name.endswith(self.base_domain):
+        if query.qtype == A and query.name.endswith(self.base_domain):
             return query, addr
+
+        if query.qtype == A and query.name.endswith(cname_suffix):
+            self.send_a_response(query, addr)
+            continue
 
         # Handle other query types minimally (authoritative mode)
         if query.qtype == SOA:
@@ -635,8 +647,8 @@ def recv_dns_query(self):
             self.send_nxdomain(query, addr)
 ```
 
-In direct mode, Bob can simply ignore non-TXT queries since Alice will only
-send TXT queries for tunnel data.
+In direct mode, Bob can simply ignore non-A queries since Alice only sends A
+queries for tunnel data.
 
 ### Outbound Buffer
 
@@ -678,7 +690,7 @@ For tunnel queries:
 - QR: 0 (query)
 - RD: 1 (recursion desired, for traversing resolvers)
 - QDCOUNT: 1
-- QTYPE: TXT (16)
+- QTYPE: A (1)
 - QCLASS: IN (1)
 
 ### Response Structure
@@ -688,7 +700,7 @@ For tunnel responses:
 - QR: 1 (response)
 - AA: 1 (authoritative)
 - ANCOUNT: 1
-- Answer: TXT record with base64 data
+- Answer: CNAME record carrying tunnel data in the target name
 
 ### Resolver Traversal (Authoritative Mode)
 
@@ -700,14 +712,14 @@ Alice → Recursive Resolver → ... → Bob
 ```
 
 The tunnel works through resolvers because:
-- TXT queries are passed through unchanged
-- Responses are returned to Alice
+- A queries are passed through unchanged
+- CNAME responses are returned to Alice (often with an A follow-up)
 - TTL=0 prevents caching
 
 However, some resolvers may:
 - Rate-limit queries to the same domain
 - Cache despite TTL=0 (misbehaving)
-- Modify or truncate TXT records
+- Modify or truncate CNAME responses
 
 For lower latency and reliability, use direct mode or authoritative mode with
 direct query when Alice can reach Bob on UDP/53.
@@ -828,8 +840,8 @@ This section describes techniques to maximize throughput over the DNS transport.
 | Query overhead | ~30 bytes | DNS header + question overhead |
 | Response overhead | ~45 bytes | DNS header + answer overhead |
 | Encoding overhead (query) | 1.625x | Base32 |
-| Encoding overhead (response) | 1.333x | Base64 |
-| Base MTU | 130-150 bytes | Standard TXT, depends on domain |
+| Encoding overhead (response) | 1.625x | Base32 in CNAME target |
+| Base MTU | 130-150 bytes (query), ~125-145 bytes (response) | Depends on suffix length |
 
 ### Optimal Domain Selection
 
@@ -918,12 +930,14 @@ def prepare_response(mtu):
 
 | Configuration | Query MTU | Response MTU | Effective |
 |---------------|-----------|--------------|-----------|
-| Standard TXT | 140 | 191 | 140 |
-| Short domain (direct) | 150 | 191 | 150 |
+| Standard CNAME | 140 | 140 | 140 |
+| Short domain (direct) | 150 | 150 | 150 |
 
-The query-side MTU is always the bottleneck due to DNS name length limits.
+The bottleneck is the smaller of the query-side and response-side MTUs.
 
 ### Throughput Estimates
+
+The estimates below assume CNAME responses and a short CNAME suffix.
 
 | Scenario | Packets/s | Payload/pkt | Throughput |
 |----------|-----------|-------------|------------|

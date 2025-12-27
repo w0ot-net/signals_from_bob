@@ -150,14 +150,23 @@ class TestQueryName(unittest.TestCase):
         data = b'x' * 100  # Will be 160 base32 chars
         encoded = codec.encode_query_name(data, 'example.com', 0)
         labels = encoded.split('.')
-        # Check no label exceeds 63 chars
+        # Check no label exceeds default limit
         for label in labels:
-            self.assertLessEqual(len(label), 63)
+            self.assertLessEqual(len(label), codec.DEFAULT_LABEL_MAX_LEN)
+
+    def test_label_splitting_custom_limit(self):
+        data = b'x' * 100
+        encoded = codec.encode_query_name(
+            data, 'example.com', 0, label_max_len=40
+        )
+        labels = encoded.split('.')
+        for label in labels:
+            self.assertLessEqual(len(label), 40)
 
     def test_empty_data(self):
         encoded = codec.encode_query_name(b'', 'example.com', 0)
-        decoded = codec.decode_query_name(encoded, 'example.com')
-        self.assertEqual(decoded, b'')
+        with self.assertRaises(ValueError):
+            codec.decode_query_name(encoded, 'example.com')
 
     def test_wrong_base_domain(self):
         encoded = codec.encode_query_name(b'test', 'example.com', 0)
@@ -208,6 +217,25 @@ class TestTxtRdata(unittest.TestCase):
             codec.decode_txt_rdata(rdata)
 
 
+class TestCnameTarget(unittest.TestCase):
+    def test_encode_decode_roundtrip(self):
+        data = b'Hello World'
+        suffix = 'c.example.com'
+        encoded = codec.encode_cname_target(data, suffix)
+        decoded = codec.decode_cname_target(encoded, suffix)
+        self.assertEqual(decoded, data)
+
+    def test_empty_data(self):
+        encoded = codec.encode_cname_target(b'', 'c.example.com')
+        with self.assertRaises(ValueError):
+            codec.decode_cname_target(encoded, 'c.example.com')
+
+    def test_wrong_suffix(self):
+        encoded = codec.encode_cname_target(b'test', 'c.example.com')
+        with self.assertRaises(ValueError):
+            codec.decode_cname_target(encoded, 'x.example.com')
+
+
 class TestMtuCalculation(unittest.TestCase):
     """Tests for MTU calculation."""
 
@@ -226,17 +254,23 @@ class TestMtuCalculation(unittest.TestCase):
         self.assertGreater(mtu_short, mtu_long)
 
     def test_response_mtu_standard(self):
-        mtu = codec.calc_response_mtu(512)
+        mtu = codec.calc_response_mtu(codec.QTYPE_TXT, 512)
         self.assertEqual(mtu, 191)  # floor(255 * 3 / 4)
 
     def test_response_mtu_edns(self):
-        mtu = codec.calc_response_mtu(4096)
+        mtu = codec.calc_response_mtu(codec.QTYPE_TXT, 4096)
         self.assertGreater(mtu, 2000)
 
     def test_response_mtu_increases_with_edns(self):
-        mtu_std = codec.calc_response_mtu(512)
-        mtu_edns = codec.calc_response_mtu(4096)
+        mtu_std = codec.calc_response_mtu(codec.QTYPE_TXT, 512)
+        mtu_edns = codec.calc_response_mtu(codec.QTYPE_TXT, 4096)
         self.assertGreater(mtu_edns, mtu_std)
+
+    def test_response_mtu_cname(self):
+        mtu = codec.calc_response_mtu(
+            codec.QTYPE_CNAME, 512, 'c.example.com'
+        )
+        self.assertGreater(mtu, 100)
 
 
 if __name__ == '__main__':

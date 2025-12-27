@@ -34,8 +34,16 @@ class Config:
     dns_max_pending: int = 16
     # Timeout before considering a DNS query stale (seconds)
     dns_pending_timeout: float = 10.0
-    # Query/response type: 'TXT' or 'NULL'
-    dns_record_type: str = "TXT"
+    # Query type for DNS tunneling (currently fixed to 'A')
+    dns_query_type: str = "A"
+    # Response type for DNS tunneling
+    dns_response_type: str = "CNAME"
+    # Max label length for tunnel subdomains (1-63, default 50)
+    dns_label_max_len: int = 50
+    # CNAME label appended before base domain (short suffix)
+    dns_cname_label: str = "0"
+    # IPv4 address returned for CNAME follow-up A queries
+    dns_cname_a_addr: str = "0.0.0.0"
     # Maximum DNS queries per second (0 = unlimited)
     dns_queries_per_second: float = 600.0
 
@@ -98,12 +106,34 @@ class Config:
         # DNS validation
         if self.dns_pending_timeout < 1.0:
             raise ValueError("dns_pending_timeout must be >= 1.0")
-        if self.dns_record_type not in ("TXT", "NULL"):
-            raise ValueError("dns_record_type must be 'TXT' or 'NULL'")
+        if self.dns_query_type != "A":
+            raise ValueError("dns_query_type must be 'A'")
+        if self.dns_response_type not in ("CNAME",):
+            raise ValueError("dns_response_type must be 'CNAME'")
         if self.dns_edns_size < 512:
             raise ValueError("dns_edns_size must be >= 512")
         if self.dns_queries_per_second < 0:
             raise ValueError("dns_queries_per_second must be >= 0")
+        if self.dns_label_max_len < 4 or self.dns_label_max_len > 63:
+            raise ValueError("dns_label_max_len must be 4-63")
+        if not self.dns_cname_label or '.' in self.dns_cname_label:
+            raise ValueError("dns_cname_label must be a single label")
+        if len(self.dns_cname_label) > 63:
+            raise ValueError("dns_cname_label must be <= 63 characters")
+        if self._is_base32_label(self.dns_cname_label):
+            raise ValueError("dns_cname_label must include non-base32 characters")
+
+    @staticmethod
+    def _is_base32_label(label):
+        allowed = set('ABCDEFGHIJKLMNOPQRSTUVWXYZ234567')
+        try:
+            text = label.upper()
+        except AttributeError:
+            return False
+        for ch in text:
+            if ch not in allowed:
+                return False
+        return True
 
         # Crypto validation
         if self.crypto_mode not in ("none", "xor", "rc4"):

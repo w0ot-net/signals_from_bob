@@ -10,10 +10,14 @@ from sfb.transport.dns.dns_server import DnsServer
 
 
 class DnsClientTests(unittest.TestCase):
-    def _make_client(self, qtype=codec.QTYPE_TXT, edns_size=512):
+    def _make_client(self, qtype=codec.QTYPE_A, rtype=codec.QTYPE_CNAME,
+                     edns_size=512):
         client = DnsClient.__new__(DnsClient)
         client._qtype = qtype
+        client._rtype = rtype
         client._edns_size = edns_size
+        client._cname_suffix = 'c.example.com'
+        client._label_max_len = 50
         return client
 
     def _build_response(self, query_id, qname, rtype, payload,
@@ -31,10 +35,11 @@ class DnsClientTests(unittest.TestCase):
         question += struct.pack('>HH', rtype, codec.QCLASS_IN)
 
         answer = codec.encode_name(qname)
-        if rtype == codec.QTYPE_TXT:
-            rdata = codec.encode_txt_rdata(payload)
+        if rtype == codec.QTYPE_CNAME:
+            target = codec.encode_cname_target(payload, 'c.example.com')
+            rdata = codec.encode_name(target)
         else:
-            rdata = codec.base64_encode(payload).encode('ascii')
+            rdata = b''
         answer += struct.pack('>HHIH',
             rtype,
             codec.QCLASS_IN,
@@ -59,10 +64,11 @@ class DnsClientTests(unittest.TestCase):
         question = codec.encode_name(qname)
         question += struct.pack('>HH', rtype, codec.QCLASS_IN)
         answer = codec.encode_name(qname)
-        if rtype == codec.QTYPE_TXT:
-            rdata = codec.encode_txt_rdata(payload)
+        if rtype == codec.QTYPE_CNAME:
+            target = codec.encode_cname_target(payload, 'c.example.com')
+            rdata = codec.encode_name(target)
         else:
-            rdata = codec.base64_encode(payload).encode('ascii')
+            rdata = b''
         answer += struct.pack('>HHIH',
             rtype,
             rclass,
@@ -113,13 +119,13 @@ class DnsClientTests(unittest.TestCase):
         decoded_name, offset = codec.decode_name(query, 12)
         self.assertEqual(decoded_name, name)
         qtype, qclass = struct.unpack('>HH', query[offset:offset + 4])
-        self.assertEqual(qtype, codec.QTYPE_TXT)
+        self.assertEqual(qtype, codec.QTYPE_A)
         self.assertEqual(qclass, codec.QCLASS_IN)
 
-    def test_parse_response_txt(self):
+    def test_parse_response_cname(self):
         client = self._make_client()
         payload = b'hello'
-        data = self._build_response(0x1, 'example.com', codec.QTYPE_TXT,
+        data = self._build_response(0x1, 'example.com', codec.QTYPE_CNAME,
                                     payload)
         query_id, response_payload = client._parse_response(data)
         self.assertEqual(query_id, 0x1)
@@ -128,7 +134,7 @@ class DnsClientTests(unittest.TestCase):
     def test_parse_response_rcode_error(self):
         client = self._make_client()
         payload = b'ignored'
-        data = self._build_response(0x2, 'example.com', codec.QTYPE_TXT,
+        data = self._build_response(0x2, 'example.com', codec.QTYPE_CNAME,
                                     payload, flags_extra=codec.RCODE_NXDOMAIN)
         query_id, response_payload = client._parse_response(data)
         self.assertEqual(query_id, 0x2)
@@ -148,7 +154,7 @@ class DnsClientTests(unittest.TestCase):
     def test_parse_response_rejects_wrong_class(self):
         client = self._make_client()
         data = self._build_response_with_rclass(
-            0x3, 'example.com', codec.QTYPE_TXT, b'hello', 2
+            0x3, 'example.com', codec.QTYPE_CNAME, b'hello', 2
         )
         query_id, payload = client._parse_response(data)
         self.assertEqual(query_id, 0x3)
@@ -157,30 +163,20 @@ class DnsClientTests(unittest.TestCase):
     def test_parse_response_rejects_truncated_rdata(self):
         client = self._make_client()
         data = self._build_response_truncated_rdata(
-            0x4, 'example.com', codec.QTYPE_TXT
+            0x4, 'example.com', codec.QTYPE_CNAME
         )
         query_id, payload = client._parse_response(data)
         self.assertEqual(query_id, 0x4)
         self.assertIsNone(payload)
 
-    def test_parse_response_rejects_invalid_null(self):
-        client = self._make_client(qtype=codec.QTYPE_NULL)
-        flags = codec.FLAG_QR | codec.FLAG_AA
-        header = struct.pack('>HHHHHH', 0x5, flags, 1, 1, 0, 0)
-        question = codec.encode_name('example.com')
-        question += struct.pack('>HH', codec.QTYPE_NULL, codec.QCLASS_IN)
-        answer = codec.encode_name('example.com')
-        rdata = b'\xff\xff'
-        answer += struct.pack('>HHIH',
-            codec.QTYPE_NULL,
-            codec.QCLASS_IN,
-            0,
-            len(rdata),
-        )
-        data = header + question + answer + rdata
-        query_id, payload = client._parse_response(data)
+    def test_parse_response_rejects_wrong_type(self):
+        client = self._make_client()
+        payload = b'hello'
+        data = self._build_response(0x5, 'example.com', codec.QTYPE_A,
+                                    payload)
+        query_id, response_payload = client._parse_response(data)
         self.assertEqual(query_id, 0x5)
-        self.assertIsNone(payload)
+        self.assertIsNone(response_payload)
 
     def test_parse_response_no_answer(self):
         client = self._make_client()
@@ -193,7 +189,7 @@ class DnsClientTests(unittest.TestCase):
             0,  # ARCOUNT
         )
         question = codec.encode_name('example.com')
-        question += struct.pack('>HH', codec.QTYPE_TXT, codec.QCLASS_IN)
+        question += struct.pack('>HH', codec.QTYPE_A, codec.QCLASS_IN)
         query_id, payload = client._parse_response(header + question)
         self.assertEqual(query_id, 0x6)
         self.assertIsNone(payload)
@@ -249,17 +245,17 @@ class DnsServerTests(unittest.TestCase):
     def test_parse_query_roundtrip(self):
         server = self._make_server()
         data = self._build_query(0x33, 'tunnel.example.com',
-                                 codec.QTYPE_TXT)
+                                 codec.QTYPE_A)
         query_id, qname, qtype = server._parse_query(data)
         self.assertEqual(query_id, 0x33)
         self.assertEqual(qname, 'tunnel.example.com')
-        self.assertEqual(qtype, codec.QTYPE_TXT)
+        self.assertEqual(qtype, codec.QTYPE_A)
 
     def test_parse_query_rejects_compression_loop(self):
         server = self._make_server()
         header = struct.pack('>HHHHHH', 1, 0, 1, 0, 0, 0)
         # QNAME starts with a compression pointer to itself (loop)
-        question = b'\xc0\x0c' + struct.pack('>HH', codec.QTYPE_TXT,
+        question = b'\xc0\x0c' + struct.pack('>HH', codec.QTYPE_A,
                                              codec.QCLASS_IN)
         data = header + question
         with self.assertRaises(ValueError):

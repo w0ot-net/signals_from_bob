@@ -2,7 +2,7 @@
 """
 DNS server transport for Bob.
 
-Receives tunnel packets from DNS TXT queries and sends responses.
+Receives tunnel packets from DNS A queries and sends CNAME responses.
 """
 
 from __future__ import absolute_import
@@ -20,7 +20,7 @@ class DnsServer(Server):
     """
     DNS server transport for Bob.
 
-    Listens for DNS TXT queries and responds with TXT records.
+    Listens for DNS A queries and responds with CNAME records.
     """
 
     def __init__(self, config):
@@ -35,9 +35,15 @@ class DnsServer(Server):
 
         self._config = config
         self._base_domain = config.dns_base_domain.lower().rstrip('.')
-        rtype = codec.QTYPE_TXT if config.dns_record_type == 'TXT' else codec.QTYPE_NULL
-        self._rtype = rtype
+        self._qtype = codec.RECORD_TYPES[config.dns_query_type]
+        self._rtype = codec.RECORD_TYPES[config.dns_response_type]
         self._edns_size = config.dns_edns_size
+        self._label_max_len = config.dns_label_max_len
+        self._cname_suffix = '%s.%s' % (
+            config.dns_cname_label.strip('.'),
+            self._base_domain
+        )
+        self._cname_a_addr = config.dns_cname_a_addr
 
         # Parse listen address
         listen_addr = config.dns_listen_addr
@@ -58,8 +64,12 @@ class DnsServer(Server):
             raise
 
         # Calculate MTUs
-        self._recv_mtu = codec.calc_query_mtu(self._base_domain)
-        self._send_mtu = codec.calc_response_mtu(config.dns_edns_size)
+        self._recv_mtu = codec.calc_query_mtu(self._base_domain,
+                                              self._label_max_len)
+        self._send_mtu = codec.calc_response_mtu(self._rtype,
+                                                 config.dns_edns_size,
+                                                 self._cname_suffix,
+                                                 self._label_max_len)
 
     @property
     def recv_mtu(self):
@@ -111,14 +121,21 @@ class DnsServer(Server):
                 continue
 
             # Check query type
-            if qtype not in (codec.QTYPE_TXT, codec.QTYPE_NULL):
+            if qtype != self._qtype:
                 # Not a tunnel query, send empty response to avoid resolver timeouts
                 self._send_empty_response(query_id, qname, qtype, client_addr)
                 continue
 
+            cname_suffix = self._cname_suffix.lower()
+            if (qname_lower == cname_suffix or
+                    qname_lower.endswith('.' + cname_suffix)):
+                self._send_cname_followup(query_id, qname, qtype, client_addr)
+                continue
+
             # Decode tunnel data
             try:
-                data = codec.decode_query_name(qname, self._base_domain)
+                data = codec.decode_query_name(qname, self._base_domain,
+                                               self._label_max_len)
             except ValueError:
                 # Decode failed, send empty response to avoid resolver timeouts
                 self._send_empty_response(query_id, qname, qtype, client_addr)
@@ -195,11 +212,17 @@ class DnsServer(Server):
 
         # Answer
         answer = codec.encode_name(qname)
-        if self._rtype == codec.QTYPE_TXT:
-            rdata = codec.encode_txt_rdata(data)
-        else:
-            # NULL record: raw base64
-            rdata = codec.base64_encode(data).encode('ascii')
+        if self._rtype != codec.QTYPE_CNAME:
+            raise TransportError('Unsupported response type')
+
+        try:
+            cname_target = codec.encode_cname_target(
+                data, self._cname_suffix, self._label_max_len
+            )
+        except ValueError as exc:
+            raise TransportError('Invalid response data: %s' % exc)
+
+        rdata = codec.encode_name(cname_target)
 
         answer += struct.pack('>HHIH',
             self._rtype,
@@ -246,6 +269,51 @@ class DnsServer(Server):
 
         try:
             _LOG.debug('dns empty response id=%d addr=%s', query_id, addr)
+            self._sock.sendto(response, addr)
+        except socket.error as e:
+            raise TransportError('Send failed: %s' % e)
+
+    def _send_cname_followup(self, query_id, qname, qtype, addr):
+        """Respond to resolver follow-up queries for CNAME targets."""
+        if self._edns_size > 512:
+            arcount = 1
+            additional = codec.build_opt_record(self._edns_size)
+        else:
+            arcount = 0
+            additional = b''
+
+        flags = codec.FLAG_QR | codec.FLAG_AA
+        header = struct.pack('>HHHHHH',
+            query_id,
+            flags,
+            1,  # QDCOUNT
+            1,  # ANCOUNT
+            0,  # NSCOUNT
+            arcount
+        )
+
+        question = codec.encode_name(qname)
+        question += struct.pack('>HH', qtype, codec.QCLASS_IN)
+
+        try:
+            addr_bytes = socket.inet_aton(self._cname_a_addr)
+        except (socket.error, OSError):
+            addr_bytes = b'\x00\x00\x00\x00'
+
+        answer = codec.encode_name(qname)
+        rdata = codec.encode_a_rdata(addr_bytes)
+        answer += struct.pack('>HHIH',
+            codec.QTYPE_A,
+            codec.QCLASS_IN,
+            0,  # TTL
+            len(rdata)
+        )
+        answer += rdata
+
+        response = header + question + answer + additional
+
+        try:
+            _LOG.debug('dns cname followup id=%d addr=%s', query_id, addr)
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)

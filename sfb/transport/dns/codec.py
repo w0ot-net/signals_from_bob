@@ -16,6 +16,7 @@ from ...compat import byte_at
 # DNS constants
 QTYPE_TXT = 16
 QTYPE_NULL = 10
+QTYPE_SOA = 6
 QCLASS_IN = 1
 
 # DNS header flags

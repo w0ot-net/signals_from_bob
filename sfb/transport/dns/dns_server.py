@@ -218,7 +218,7 @@ class DnsServer(Server):
             raise TransportError('Send failed: %s' % e)
 
     def _send_empty_response(self, query_id, qname, qtype, addr):
-        """Send NOERROR response with no answers (NODATA)."""
+        """Send NOERROR response with no answers (NODATA) and SOA in authority."""
         if self._edns_size > 512:
             arcount = 1
             additional = codec.build_opt_record(self._edns_size)
@@ -232,20 +232,45 @@ class DnsServer(Server):
             flags,
             1,  # QDCOUNT
             0,  # ANCOUNT
-            0,  # NSCOUNT
+            1,  # NSCOUNT - SOA record for negative caching
             arcount
         )
 
         question = codec.encode_name(qname)
         question += struct.pack('>HH', qtype, codec.QCLASS_IN)
 
-        response = header + question + additional
+        # SOA record in authority section with TTL=0 to prevent negative caching
+        authority = self._build_soa_record()
+
+        response = header + question + authority + additional
 
         try:
             _LOG.debug('dns empty response id=%d addr=%s', query_id, addr)
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
+
+    def _build_soa_record(self):
+        """Build a minimal SOA record for authority section with TTL=0."""
+        # SOA record for the base domain
+        name = codec.encode_name(self._base_domain)
+        # MNAME (primary NS) and RNAME (admin email) - use base domain
+        mname = codec.encode_name('ns.' + self._base_domain)
+        rname = codec.encode_name('hostmaster.' + self._base_domain)
+        # SOA fields: SERIAL, REFRESH, RETRY, EXPIRE, MINIMUM (negative TTL)
+        soa_data = mname + rname + struct.pack('>IIIII',
+            1,  # SERIAL
+            0,  # REFRESH
+            0,  # RETRY
+            0,  # EXPIRE
+            0,  # MINIMUM (negative cache TTL = 0)
+        )
+        return name + struct.pack('>HHIH',
+            codec.QTYPE_SOA,
+            codec.QCLASS_IN,
+            0,  # TTL
+            len(soa_data)
+        ) + soa_data
 
     def close(self):
         """Close the UDP socket."""

@@ -39,12 +39,20 @@ REMOTE_TEST_FILE = 'sfb_e2e_roundtrip.bin'
 DEBUG_DNS = False
 PROGRESS_INTERVAL = 5.0
 DEFAULT_FILE_KB = 1024
+DEFAULT_QPS = 300
+DEFAULT_MAX_PENDING = 256
+DEFAULT_FORCE_MTU = None
+TRACE_QPS = False
 
 
 def _extract_file_kb():
-    """Extract optional --file-kb from argv without breaking unittest."""
+    """Extract optional args without breaking unittest."""
     args = []
     file_kb = DEFAULT_FILE_KB
+    qps = DEFAULT_QPS
+    max_pending = DEFAULT_MAX_PENDING
+    force_mtu = DEFAULT_FORCE_MTU
+    trace_qps = False
     i = 0
     while i < len(sys.argv):
         arg = sys.argv[i]
@@ -55,13 +63,38 @@ def _extract_file_kb():
                 pass
             i += 2
             continue
+        if arg == '--qps' and i + 1 < len(sys.argv):
+            try:
+                qps = int(sys.argv[i + 1])
+            except ValueError:
+                pass
+            i += 2
+            continue
+        if arg == '--max-pending' and i + 1 < len(sys.argv):
+            try:
+                max_pending = int(sys.argv[i + 1])
+            except ValueError:
+                pass
+            i += 2
+            continue
+        if arg == '--mtu' and i + 1 < len(sys.argv):
+            try:
+                force_mtu = int(sys.argv[i + 1])
+            except ValueError:
+                pass
+            i += 2
+            continue
+        if arg == '--trace-qps':
+            trace_qps = True
+            i += 1
+            continue
         args.append(arg)
         i += 1
     sys.argv[:] = args
-    return file_kb
+    return file_kb, qps, max_pending, force_mtu, trace_qps
 
 
-FILE_KB = _extract_file_kb()
+FILE_KB, DNS_QPS, DNS_MAX_PENDING, FORCE_MTU, TRACE_QPS = _extract_file_kb()
 
 
 class DnsAuthoritativeE2ETest(unittest.TestCase):
@@ -134,12 +167,13 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
             dns_resolver=resolver,
             dns_listen_addr=listen_addr or '0.0.0.0:%d' % TEST_PORT,
             dns_pending_timeout=30.0,
+            dns_queries_per_second=DNS_QPS,
             tunnel_idle_timeout=120.0,
             tunnel_connect_timeout=60.0,
             tunnel_keepalive_interval=1.0,
             tunnel_timeout_packets=200,
             tunnel_max_in_flight=64,
-            dns_max_pending=64,
+            dns_max_pending=DNS_MAX_PENDING,
         )
 
     def _start_bob(self, config):
@@ -151,6 +185,8 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
             self.skipTest('Bob DNS server failed to bind: %s' % (e,))
 
         self.bob_tunnel = BobTunnel(self.bob_transport, config, crypto=Plain())
+        if FORCE_MTU is not None:
+            self._force_mtu(self.bob_tunnel, FORCE_MTU)
         self.bob_file_module = FileTransferModule(self.bob_tunnel)
 
         orig_dir = os.getcwd()
@@ -174,7 +210,9 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
         transport_cls = _DebugDnsClient if DEBUG_DNS else _TraceDnsClient
         transport = transport_cls(config)
         self.alice_tunnel = AliceTunnel(transport, config, crypto=Plain())
-        self.alice_tunnel.connect(timeout=60.0)
+        if FORCE_MTU is not None:
+            self._force_mtu(self.alice_tunnel, FORCE_MTU)
+        self._connect_with_trace(timeout=60.0)
 
         self.alice_file_module = FileTransferModule(self.alice_tunnel)
         self.alice_runner = _TunnelRunner(
@@ -247,6 +285,11 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
         print('alice base_domain=%s resolver=%s' % (
             config.dns_base_domain, resolver
         ))
+        print('alice dns_qps_limit=%s max_pending=%s' % (
+            config.dns_queries_per_second, config.dns_max_pending
+        ))
+        if FORCE_MTU is not None:
+            print('alice forced_mtu=%s' % (FORCE_MTU,))
         self._warn_if_loopback(resolver)
 
         direct_rcode = self._probe_target(
@@ -285,6 +328,50 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
         if host.startswith('127.') or host in ('localhost', '::1'):
             print('warning: resolver on loopback; watch lo interface for DNS traffic')
 
+    def _force_mtu(self, tunnel, mtu):
+        """Force proposed MTU values to a fixed payload size."""
+        mtu = int(mtu)
+        if mtu < 1:
+            mtu = 1
+        tunnel._proposed_send_mtu = mtu
+        tunnel._proposed_recv_mtu = mtu
+
+    def _connect_with_trace(self, timeout=60.0):
+        """Connect Alice with periodic DNS stats output."""
+        result = {'err': None}
+
+        def _do_connect():
+            try:
+                self.alice_tunnel.connect(timeout=timeout)
+            except Exception as exc:
+                result['err'] = exc
+
+        thread = threading.Thread(target=_do_connect)
+        thread.daemon = True
+        thread.start()
+
+        start = time.time()
+        while thread.is_alive():
+            if time.time() - start > timeout:
+                raise Exception('Alice connect timeout after %.1fs' % (timeout,))
+            self._report_connect_stats()
+            time.sleep(1.0)
+
+        if result['err'] is not None:
+            raise result['err']
+
+    def _report_connect_stats(self):
+        transport = self.alice_tunnel._transport
+        if hasattr(transport, 'stats_snapshot'):
+            sent, received, timeouts, last_send_age, last_recv_age, rtt_stats, send_stats = (
+                transport.stats_snapshot()
+            )
+            print('connect: sent=%d recv=%d timeouts=%d last_send=%.2fs last_recv=%.2fs' % (
+                sent, received, timeouts, last_send_age, last_recv_age
+            ))
+        else:
+            print('connect: waiting for tunnel handshake')
+
 
 class _TunnelRunner(object):
     """Runs tunnel tick loop in background thread."""
@@ -298,6 +385,12 @@ class _TunnelRunner(object):
         self._last_report = 0
         self._last_transferred = 0
         self._last_window = None
+        self._last_tick_report = 0
+        self._tick_count = 0
+        self._last_dns_report = None
+        self._last_dns_sent = 0
+        self._last_dns_recv = 0
+        self._last_dns_timeouts = 0
 
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -314,8 +407,27 @@ class _TunnelRunner(object):
                 self._tunnel.tick()
             except Exception:
                 pass
+            self._tick_count += 1
             self._maybe_report()
-            time.sleep(0.001)
+            if self._should_spin():
+                time.sleep(0)
+            else:
+                time.sleep(0.001)
+
+    def _should_spin(self):
+        if self._tunnel._send_window.unacked_count > 0:
+            return True
+        try:
+            if self._tunnel._transport.pending_count() > 0:
+                return True
+        except Exception:
+            pass
+        try:
+            if self._tunnel._channel_manager.has_pending_data():
+                return True
+        except Exception:
+            pass
+        return False
 
     def _maybe_report(self):
         now = time.time()
@@ -347,18 +459,69 @@ class _TunnelRunner(object):
         print('progress: transferred=%d rate=%.2fKBs window=%d unacked=%d pending=%s' % (
             stats.transferred, file_rate, window, unacked, pending
         ))
+        self._maybe_report_ticks()
         self._maybe_report_dns()
 
+    def _maybe_report_ticks(self):
+        now = time.time()
+        if self._last_tick_report == 0:
+            self._last_tick_report = now
+            self._tick_count = 0
+            return
+        interval = now - self._last_tick_report
+        if interval <= 0:
+            return
+        tps = self._tick_count / interval
+        self._tick_count = 0
+        self._last_tick_report = now
+        print('tick stats: ticks_per_sec=%.1f' % (tps,))
     def _maybe_report_dns(self):
         transport = self._tunnel._transport
         if not hasattr(transport, 'stats_snapshot'):
             return
-        sent, received, timeouts, last_send_age, last_recv_age = (
+        sent, received, timeouts, last_send_age, last_recv_age, rtt_stats, send_stats = (
             transport.stats_snapshot()
         )
-        print('dns stats: sent=%d recv=%d timeouts=%d last_send=%.2fs last_recv=%.2fs' % (
+        msg = 'dns stats: sent=%d recv=%d timeouts=%d last_send=%.2fs last_recv=%.2fs' % (
             sent, received, timeouts, last_send_age, last_recv_age
-        ))
+        )
+        if rtt_stats is not None:
+            msg += ' rtt_ms(avg=%.1f p50=%.1f p95=%.1f max=%.1f n=%d)' % (
+                rtt_stats['avg_ms'],
+                rtt_stats['p50_ms'],
+                rtt_stats['p95_ms'],
+                rtt_stats['max_ms'],
+                rtt_stats['count'],
+            )
+        if send_stats is not None:
+            msg += ' send(limit=%s tokens=%.1f block_pend=%d block_tok=%d)' % (
+                send_stats['qps_limit'],
+                send_stats['tokens'],
+                send_stats['blocked_pending'],
+                send_stats['blocked_tokens'],
+            )
+        if TRACE_QPS:
+            now = time.time()
+            if self._last_dns_report is None:
+                self._last_dns_report = now
+                self._last_dns_sent = sent
+                self._last_dns_recv = received
+                self._last_dns_timeouts = timeouts
+            else:
+                interval = now - self._last_dns_report
+                if interval <= 0:
+                    interval = 0.001
+                qps_out = (sent - self._last_dns_sent) / interval
+                qps_in = (received - self._last_dns_recv) / interval
+                tps = (timeouts - self._last_dns_timeouts) / interval
+                msg += ' qps_out=%.1f qps_in=%.1f timeouts_ps=%.1f' % (
+                    qps_out, qps_in, tps
+                )
+                self._last_dns_report = now
+                self._last_dns_sent = sent
+                self._last_dns_recv = received
+                self._last_dns_timeouts = timeouts
+        print(msg)
 
 
 class _DebugDnsClient(DnsClient):
@@ -400,28 +563,88 @@ class _TraceDnsClient(DnsClient):
         now = time.time()
         self._last_send = now
         self._last_recv = now
+        self._send_times = {}
+        self._rtt_samples = []
+        self._rtt_sum = 0.0
+        self._rtt_count = 0
+        self._rtt_max = 0.0
+        self._rtt_min = None
+        self._rtt_sample_max = 500
+        self._can_send_checks = 0
+        self._blocked_pending = 0
+        self._blocked_tokens = 0
+        self._last_tokens = float(self._tokens)
 
     def send(self, data):
         self._sent += 1
-        self._last_send = time.time()
-        return DnsClient.send(self, data)
+        now = time.time()
+        self._last_send = now
+        corr_id = DnsClient.send(self, data)
+        self._send_times[corr_id] = now
+        return corr_id
+
+    def can_send(self):
+        self._can_send_checks += 1
+        if self.pending_count() >= self._max_pending:
+            self._blocked_pending += 1
+            return False
+        if self._qps_limit <= 0:
+            return True
+        self._refill_tokens(time.time())
+        self._last_tokens = float(self._tokens)
+        if self._tokens < 1.0:
+            self._blocked_tokens += 1
+            return False
+        return True
 
     def recv(self, timeout=None):
         corr_id, data = DnsClient.recv(self, timeout)
         if corr_id is None:
-            if timeout is not None:
+            if timeout is not None and timeout > 0:
                 self._timeouts += 1
             return (corr_id, data)
         self._received += 1
-        self._last_recv = time.time()
+        now = time.time()
+        self._last_recv = now
+        sent_at = self._send_times.pop(corr_id, None)
+        if sent_at is not None:
+            rtt = now - sent_at
+            self._rtt_sum += rtt
+            self._rtt_count += 1
+            if self._rtt_min is None or rtt < self._rtt_min:
+                self._rtt_min = rtt
+            if rtt > self._rtt_max:
+                self._rtt_max = rtt
+            self._rtt_samples.append(rtt)
+            if len(self._rtt_samples) > self._rtt_sample_max:
+                self._rtt_samples.pop(0)
         return (corr_id, data)
 
     def stats_snapshot(self):
         now = time.time()
         last_send_age = now - self._last_send
         last_recv_age = now - self._last_recv
+        rtt_stats = None
+        if self._rtt_count > 0 and self._rtt_samples:
+            samples = sorted(self._rtt_samples)
+            count = len(samples)
+            idx50 = int(0.50 * (count - 1))
+            idx95 = int(0.95 * (count - 1))
+            rtt_stats = {
+                'avg_ms': (self._rtt_sum / self._rtt_count) * 1000.0,
+                'p50_ms': samples[idx50] * 1000.0,
+                'p95_ms': samples[idx95] * 1000.0,
+                'max_ms': self._rtt_max * 1000.0,
+                'count': self._rtt_count,
+            }
+        send_stats = {
+            'qps_limit': self._qps_limit,
+            'tokens': self._last_tokens,
+            'blocked_pending': self._blocked_pending,
+            'blocked_tokens': self._blocked_tokens,
+        }
         return (self._sent, self._received, self._timeouts,
-                last_send_age, last_recv_age)
+                last_send_age, last_recv_age, rtt_stats, send_stats)
 
 class _DebugDnsServer(DnsServer):
     """DnsServer with minimal debug output for queries and responses."""

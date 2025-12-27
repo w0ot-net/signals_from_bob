@@ -9,6 +9,7 @@ queries flow through a recursive resolver rather than directly to Bob.
 from __future__ import absolute_import
 
 import os
+import sys
 import shutil
 import socket
 import struct
@@ -16,6 +17,10 @@ import tempfile
 import threading
 import time
 import unittest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 from sfb.config import Config
 from sfb.crypto import Plain
@@ -33,6 +38,30 @@ TEST_PORT = 53
 REMOTE_TEST_FILE = 'sfb_e2e_roundtrip.bin'
 DEBUG_DNS = False
 PROGRESS_INTERVAL = 5.0
+DEFAULT_FILE_KB = 1024
+
+
+def _extract_file_kb():
+    """Extract optional --file-kb from argv without breaking unittest."""
+    args = []
+    file_kb = DEFAULT_FILE_KB
+    i = 0
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg == '--file-kb' and i + 1 < len(sys.argv):
+            try:
+                file_kb = int(sys.argv[i + 1])
+            except ValueError:
+                pass
+            i += 2
+            continue
+        args.append(arg)
+        i += 1
+    sys.argv[:] = args
+    return file_kb
+
+
+FILE_KB = _extract_file_kb()
 
 
 class DnsAuthoritativeE2ETest(unittest.TestCase):
@@ -136,21 +165,27 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
         self.bob_thread = threading.Thread(target=serve, daemon=True)
         self.bob_thread.start()
         time.sleep(0.1)
+        print('bob listen addr=%s base_domain=%s' % (
+            config.dns_listen_addr, config.dns_base_domain
+        ))
 
     def _start_alice(self, config):
         """Start Alice client and connect."""
-        transport_cls = _DebugDnsClient if DEBUG_DNS else DnsClient
+        transport_cls = _DebugDnsClient if DEBUG_DNS else _TraceDnsClient
         transport = transport_cls(config)
         self.alice_tunnel = AliceTunnel(transport, config, crypto=Plain())
         self.alice_tunnel.connect(timeout=60.0)
 
-        self.alice_runner = _TunnelRunner(self.alice_tunnel, progress_interval=PROGRESS_INTERVAL)
+        self.alice_file_module = FileTransferModule(self.alice_tunnel)
+        self.alice_runner = _TunnelRunner(
+            self.alice_tunnel,
+            self.alice_file_module,
+            progress_interval=PROGRESS_INTERVAL,
+        )
         self.alice_runner.start()
 
-        self.alice_file_module = FileTransferModule(self.alice_tunnel)
-
-    def _probe_resolver(self, resolver):
-        """Probe resolver for basic reachability and NOERROR response."""
+    def _probe_target(self, target, label):
+        """Probe a DNS target for basic reachability and NOERROR response."""
         query_id = int(time.time() * 1000) & 0xFFFF
         syn_packet = Packet(seq=1, ack=0, sack=0, flags=FLAG_SYN)
         query_name = codec.encode_query_name(syn_packet.encode(), TEST_DOMAIN, query_id)
@@ -169,13 +204,11 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             sock.settimeout(5.0)
-            if DEBUG_DNS:
-                print('dns probe qname=%s resolver=%s' % (query_name, resolver))
-            sock.sendto(packet, resolver)
+            print('dns probe target=%s qname=%s' % (label, query_name))
+            sock.sendto(packet, target)
             data, _ = sock.recvfrom(512)
         except socket.timeout:
-            if DEBUG_DNS:
-                print('dns probe timeout resolver=%s' % (resolver,))
+            print('dns probe timeout target=%s' % (label,))
             return None
         finally:
             sock.close()
@@ -186,19 +219,17 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
             return None
         resp_id, flags = struct.unpack('>HH', data[:4])
         if resp_id != query_id:
-            if DEBUG_DNS:
-                print('dns probe id mismatch got=%d expected=%d' % (
-                    resp_id, query_id
-                ))
+            print('dns probe id mismatch target=%s got=%d expected=%d' % (
+                label, resp_id, query_id
+            ))
             return None
         rcode = flags & codec.RCODE_MASK
-        if DEBUG_DNS:
-            aa = bool(flags & codec.FLAG_AA)
-            ra = bool(flags & codec.FLAG_RA)
-            rd = bool(flags & codec.FLAG_RD)
-            print('dns probe flags=0x%04x rcode=%d aa=%s ra=%s rd=%s' % (
-                flags, rcode, aa, ra, rd
-            ))
+        aa = bool(flags & codec.FLAG_AA)
+        ra = bool(flags & codec.FLAG_RA)
+        rd = bool(flags & codec.FLAG_RD)
+        print('dns probe flags target=%s flags=0x%04x rcode=%d aa=%s ra=%s rd=%s' % (
+            label, flags, rcode, aa, ra, rd
+        ))
         return rcode
 
     def test_get_1kb_file(self):
@@ -213,7 +244,18 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
         resolver = resolver_probe._resolver
         resolver_probe.close()
 
-        rcode = self._probe_resolver(resolver)
+        print('alice base_domain=%s resolver=%s' % (
+            config.dns_base_domain, resolver
+        ))
+        self._warn_if_loopback(resolver)
+
+        direct_rcode = self._probe_target(
+            (TEST_BOB_IP, TEST_PORT), 'bob-direct'
+        )
+        if direct_rcode is None:
+            print('warning: no direct response from bob on port 53')
+
+        rcode = self._probe_target(resolver, 'recursive')
         if rcode is None:
             self.skipTest('DNS resolver %s did not answer probe' % (resolver,))
         if rcode != codec.RCODE_NOERROR:
@@ -223,7 +265,7 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
 
         self.assertEqual(self.alice_tunnel._state, TunnelState.CONNECTED)
 
-        payload = b'A' * (100 * 1024)
+        payload = b'A' * (FILE_KB * 1024)
         remote_path = os.path.join(self.local_root, REMOTE_TEST_FILE)
         with open(remote_path, 'wb') as handle:
             handle.write(payload)
@@ -237,18 +279,24 @@ class DnsAuthoritativeE2ETest(unittest.TestCase):
         if self.alice_file_module.last_stats:
             print('transfer stats: %s' % (self.alice_file_module.last_stats,))
 
+    def _warn_if_loopback(self, resolver):
+        """Warn if resolver is on loopback; traffic may not appear on NIC."""
+        host = resolver[0]
+        if host.startswith('127.') or host in ('localhost', '::1'):
+            print('warning: resolver on loopback; watch lo interface for DNS traffic')
+
 
 class _TunnelRunner(object):
     """Runs tunnel tick loop in background thread."""
 
-    def __init__(self, tunnel, progress_interval=5.0):
+    def __init__(self, tunnel, file_module, progress_interval=5.0):
         self._tunnel = tunnel
+        self._file_module = file_module
         self._progress_interval = progress_interval
         self._stop = False
         self._thread = None
         self._last_report = 0
-        self._last_bytes_sent = 0
-        self._last_bytes_received = 0
+        self._last_transferred = 0
         self._last_window = None
 
     def start(self):
@@ -275,16 +323,14 @@ class _TunnelRunner(object):
             return
         self._last_report = now
 
-        bytes_sent = self._tunnel._bytes_sent
-        bytes_received = self._tunnel._bytes_received
-        delta_sent = bytes_sent - self._last_bytes_sent
-        delta_received = bytes_received - self._last_bytes_received
-        self._last_bytes_sent = bytes_sent
-        self._last_bytes_received = bytes_received
+        stats = self._file_module.current_stats
+        if stats is None:
+            return
+        delta_transferred = stats.transferred - self._last_transferred
+        self._last_transferred = stats.transferred
 
         interval = max(self._progress_interval, 0.001)
-        send_rate = delta_sent / interval / 1024.0
-        recv_rate = delta_received / interval / 1024.0
+        file_rate = delta_transferred / interval / 1024.0
 
         window = self._tunnel._negotiated_window
         if self._last_window != window:
@@ -298,9 +344,20 @@ class _TunnelRunner(object):
             pending = None
         unacked = self._tunnel._send_window.unacked_count
 
-        print('progress: sent=%d recv=%d rate=%.2f/%.2fKBs window=%d unacked=%d pending=%s' % (
-            bytes_sent, bytes_received, send_rate, recv_rate,
-            window, unacked, pending
+        print('progress: transferred=%d rate=%.2fKBs window=%d unacked=%d pending=%s' % (
+            stats.transferred, file_rate, window, unacked, pending
+        ))
+        self._maybe_report_dns()
+
+    def _maybe_report_dns(self):
+        transport = self._tunnel._transport
+        if not hasattr(transport, 'stats_snapshot'):
+            return
+        sent, received, timeouts, last_send_age, last_recv_age = (
+            transport.stats_snapshot()
+        )
+        print('dns stats: sent=%d recv=%d timeouts=%d last_send=%.2fs last_recv=%.2fs' % (
+            sent, received, timeouts, last_send_age, last_recv_age
         ))
 
 
@@ -331,6 +388,40 @@ class _DebugDnsClient(DnsClient):
             print('dns client recv corr=%s len=%d' % (corr_id, data_len))
         return result
 
+
+class _TraceDnsClient(DnsClient):
+    """DnsClient with lightweight stats for sends/receives/timeouts."""
+
+    def __init__(self, config):
+        super(_TraceDnsClient, self).__init__(config)
+        self._sent = 0
+        self._received = 0
+        self._timeouts = 0
+        now = time.time()
+        self._last_send = now
+        self._last_recv = now
+
+    def send(self, data):
+        self._sent += 1
+        self._last_send = time.time()
+        return DnsClient.send(self, data)
+
+    def recv(self, timeout=None):
+        corr_id, data = DnsClient.recv(self, timeout)
+        if corr_id is None:
+            if timeout is not None:
+                self._timeouts += 1
+            return (corr_id, data)
+        self._received += 1
+        self._last_recv = time.time()
+        return (corr_id, data)
+
+    def stats_snapshot(self):
+        now = time.time()
+        last_send_age = now - self._last_send
+        last_recv_age = now - self._last_recv
+        return (self._sent, self._received, self._timeouts,
+                last_send_age, last_recv_age)
 
 class _DebugDnsServer(DnsServer):
     """DnsServer with minimal debug output for queries and responses."""

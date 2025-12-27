@@ -41,6 +41,7 @@ class TransferStats(object):
 
     def __init__(self, size=0):
         self.size = size
+        self.transferred = 0
         self.start_time = None
         self.end_time = None
 
@@ -63,7 +64,7 @@ class TransferStats(object):
     @property
     def bytes_per_sec(self):
         """Transfer rate in bytes per second."""
-        return self.size / self.duration
+        return self.transferred / self.duration
 
     def format_rate(self):
         """Format transfer rate with appropriate unit (B/s, KB/s, MB/s)."""
@@ -84,6 +85,10 @@ class TransferStats(object):
             return '%.2f KB' % (size / 1024)
         else:
             return '%d B' % size
+
+    def update(self, delta):
+        """Update transferred bytes."""
+        self.transferred += delta
 
     def __repr__(self):
         return 'TransferStats(%s in %.2fs, %s)' % (
@@ -125,6 +130,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
 
         # Transfer statistics
         self._last_stats = None
+        self._current_stats = None
 
     # -------------------------------------------------------------------------
     # Public API (called by user, runs in caller's thread)
@@ -134,6 +140,11 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
     def last_stats(self):
         """Statistics from the last completed transfer."""
         return self._last_stats
+
+    @property
+    def current_stats(self):
+        """Statistics for the current in-progress transfer."""
+        return self._current_stats
 
     def list_dir(self, path, timeout=None):
         """Request a directory listing from the peer."""
@@ -189,8 +200,9 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
 
             stats = TransferStats(size)
             stats.start()
+            self._current_stats = stats
             hash_obj = hashlib.sha256()
-            self._recv_to_file(channel, out_fp, size, timeout, hash_obj=hash_obj)
+            self._recv_to_file(channel, out_fp, size, timeout, hash_obj=hash_obj, stats=stats)
             expected = self._wait_hash_value(rid, timeout)
             if expected != hash_obj.hexdigest():
                 self.send_message(
@@ -212,6 +224,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             if channel is not None:
                 channel.close()
             self._clear_active(rid)
+            self._current_stats = None
 
     def put(self, local_path, remote_path, timeout=None):
         """Upload a file to the peer."""
@@ -241,8 +254,9 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             in_fp = open(src_path, 'rb')
             stats = TransferStats(size)
             stats.start()
+            self._current_stats = stats
             hash_obj = hashlib.sha256()
-            self._send_from_file(channel, in_fp, size, hash_obj=hash_obj)
+            self._send_from_file(channel, in_fp, size, hash_obj=hash_obj, stats=stats)
 
             pending = self._register_pending(rid)
             self.send_message(file_hash(rid, channel.id, hash_obj.hexdigest()))
@@ -260,6 +274,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             if channel is not None:
                 channel.close()
             self._clear_active(rid)
+            self._current_stats = None
 
     # -------------------------------------------------------------------------
     # Response handlers (non-blocking, signal waiters)
@@ -453,7 +468,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
     # File I/O helpers
     # -------------------------------------------------------------------------
 
-    def _send_from_file(self, channel, fp, total_size, hash_obj=None):
+    def _send_from_file(self, channel, fp, total_size, hash_obj=None, stats=None):
         """Send file contents to channel."""
         remaining = total_size
         max_retries = 100
@@ -477,8 +492,10 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                     continue
                 offset += sent
             remaining -= len(chunk)
+            if stats is not None:
+                stats.update(len(chunk))
 
-    def _recv_to_file(self, channel, fp, total_size, timeout, hash_obj=None):
+    def _recv_to_file(self, channel, fp, total_size, timeout, hash_obj=None, stats=None):
         """Receive file contents from channel."""
         remaining = total_size
         deadline = None
@@ -503,6 +520,8 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 hash_obj.update(chunk)
             fp.write(chunk)
             remaining -= len(chunk)
+            if stats is not None:
+                stats.update(len(chunk))
 
     def _open_temp_file(self, dest_path):
         """Create temp file in same directory as destination."""

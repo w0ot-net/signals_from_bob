@@ -11,3 +11,4 @@ Project Rules
 - all end to ends tests for dns transport in direct mode should use port 5353
 - for authoritative DNS mode we should use port 53
 - E2E tests are in tests/e2e/ - do NOT run them yourself; only the user will run them
+- always push and commit and after making code changes

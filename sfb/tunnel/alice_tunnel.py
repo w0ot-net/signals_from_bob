@@ -83,6 +83,8 @@ class AliceTunnel(BaseTunnel):
         # Adaptive polling: poll immediately when Bob sends real data
         self._got_data = False
         self._last_was_pong_only = False
+        self._pong_grace_polls = config.tunnel_pong_grace_polls
+        self._pong_grace_remaining = self._pong_grace_polls
         # Track if we have real data packets awaiting ACKs (not just keepalives)
         self._has_pending_data_acks = False
         # Window growth state (Alice only)
@@ -303,6 +305,8 @@ class AliceTunnel(BaseTunnel):
                 self._has_pending_data_acks = False
             if last_resp_has_data is not None:
                 self._last_was_pong_only = not last_resp_has_data
+                if last_resp_has_data:
+                    self._pong_grace_remaining = self._pong_grace_polls
 
         # Check connection timeout
         if self._packets_since_response >= self._max_packets_without_response:
@@ -330,7 +334,11 @@ class AliceTunnel(BaseTunnel):
                 # so respect keepalive interval even if we have pending ACKs.
                 # Poll immediately only if Bob sent real data (more might be coming).
                 if self._last_was_pong_only:
-                    should_poll = now - self._last_send_time >= self._keepalive_interval
+                    if self._pong_grace_remaining > 0:
+                        should_poll = True
+                        self._pong_grace_remaining -= 1
+                    else:
+                        should_poll = now - self._last_send_time >= self._keepalive_interval
                 else:
                     should_poll = self._got_data or self._has_pending_data_acks or (
                         now - self._last_send_time >= self._keepalive_interval

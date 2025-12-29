@@ -60,6 +60,8 @@ class Config:
     # --- Tunnel ---
     # Alice: seconds between keepalive packets
     tunnel_keepalive_interval: float = 1.0
+    # Alice: immediate poll attempts after pong-only responses
+    tunnel_pong_grace_polls: int = 5
     # Bob: seconds of inactivity before considering connection dead
     tunnel_idle_timeout: float = 60.0
     # Initial window size before negotiation (packets)
@@ -192,6 +194,8 @@ class Config:
             raise ValueError("tunnel_max_in_flight must be 1-64")
         if self.tunnel_keepalive_interval <= 0:
             raise ValueError("tunnel_keepalive_interval must be > 0")
+        if self.tunnel_pong_grace_polls < 0:
+            raise ValueError("tunnel_pong_grace_polls must be >= 0")
         if self.tunnel_idle_timeout <= 0:
             raise ValueError("tunnel_idle_timeout must be > 0")
         if self.tunnel_initial_window < 1 or self.tunnel_initial_window > 64:

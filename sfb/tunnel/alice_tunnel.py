@@ -82,6 +82,7 @@ class AliceTunnel(BaseTunnel):
 
         # Adaptive polling: poll immediately when Bob sends real data
         self._got_data = False
+        self._last_was_pong_only = False
         # Track if we have real data packets awaiting ACKs (not just keepalives)
         self._has_pending_data_acks = False
         # Window growth state (Alice only)
@@ -283,14 +284,16 @@ class AliceTunnel(BaseTunnel):
         # 1. Receive all available responses
         received_any = False
         received_valid = False
-        self._got_data = False  # Reset - will be set if we get non-pong data
-        self._last_was_pong_only = False  # Track if last response was pong-only
+        self._got_data = False  # Tracks data status of the most recent response
+        last_resp_has_data = None
         while True:
             corr_id, data = self._transport.recv(timeout=0)
             if corr_id is None:
                 break
-            if self._handle_response(data, now):
+            valid, has_data = self._handle_response(data, now)
+            if valid:
                 received_valid = True
+                last_resp_has_data = has_data
             received_any = True
 
         if received_valid:
@@ -298,9 +301,8 @@ class AliceTunnel(BaseTunnel):
             # Clear pending data flag if all data has been acked
             if self._send_window.unacked_count == 0:
                 self._has_pending_data_acks = False
-            # If we got valid responses but no real data, Bob sent pong-only
-            if not self._got_data:
-                self._last_was_pong_only = True
+            if last_resp_has_data is not None:
+                self._last_was_pong_only = not last_resp_has_data
 
         # Check connection timeout
         if self._packets_since_response >= self._max_packets_without_response:
@@ -392,7 +394,7 @@ class AliceTunnel(BaseTunnel):
         """Handle a transport response."""
         packet = self._decode_packet(data)
         if packet is None:
-            return False
+            return (False, False)
 
         self._bytes_received += len(data)
         self._last_recv_time = now
@@ -400,10 +402,11 @@ class AliceTunnel(BaseTunnel):
         # Check if packet contains real data (not just pong)
         # Real data = any data segment, or control messages other than pong.
         # Control segments carry one JSON message per line, not multiple.
+        has_real_data = False
         for seg in packet.segments:
             if not seg.is_control:
                 # Data segment - definitely real data
-                self._got_data = True
+                has_real_data = True
             else:
                 # Control segment - check if it's not just pong
                 # Control data is newline-delimited JSON
@@ -414,11 +417,12 @@ class AliceTunnel(BaseTunnel):
                     try:
                         msg = json.loads(line.decode('ascii'))
                     except (ValueError, TypeError):
-                        self._got_data = True
+                        has_real_data = True
                         break
                     if msg.get('t') != 'tun' or msg.get('c') != 'pong':
-                        self._got_data = True
+                        has_real_data = True
                         break
+        self._got_data = has_real_data
 
         prev_unacked = self._send_window.unacked_count
         rtt_samples = self._process_incoming_packet(packet, now=now)
@@ -429,7 +433,7 @@ class AliceTunnel(BaseTunnel):
 
         for sample in rtt_samples:
             self._rtt.add_sample(sample)
-        return True
+        return (True, has_real_data)
 
     def _maybe_request_window(self, now):
         """Request a larger window if conditions allow."""

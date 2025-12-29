@@ -14,7 +14,7 @@ from __future__ import absolute_import
 import collections
 import threading
 
-from ..compat import require_bytes
+from ..compat import require_bytes, to_native_str
 
 
 # Channel states
@@ -39,6 +39,7 @@ class Channel(object):
     __slots__ = (
         'id', 'state', '_send_buf', '_recv_buf', '_lock',
         '_recv_event', '_closed_event', '_open_event', '_error', '_max_send_buf',
+        '_send_buf_size', '_recv_buf_size',
     )
 
     def __init__(self, channel_id, max_send_buf=65536):
@@ -59,6 +60,8 @@ class Channel(object):
         self._open_event = threading.Event()
         self._error = None
         self._max_send_buf = max_send_buf
+        self._send_buf_size = 0
+        self._recv_buf_size = 0
 
     @property
     def is_open(self):
@@ -74,13 +77,13 @@ class Channel(object):
     def send_buf_size(self):
         """Current bytes queued for sending."""
         with self._lock:
-            return sum(len(chunk) for chunk in self._send_buf)
+            return self._send_buf_size
 
     @property
     def recv_buf_size(self):
         """Current bytes available for reading."""
         with self._lock:
-            return sum(len(chunk) for chunk in self._recv_buf)
+            return self._recv_buf_size
 
     @property
     def error(self):
@@ -108,7 +111,7 @@ class Channel(object):
             if self.state != STATE_OPEN:
                 raise ChannelError('not_open', 'Channel not open')
 
-            current_size = sum(len(chunk) for chunk in self._send_buf)
+            current_size = self._send_buf_size
             if current_size >= self._max_send_buf:
                 raise ChannelError('buffer_full', 'Send buffer full')
 
@@ -116,6 +119,7 @@ class Channel(object):
             available = self._max_send_buf - current_size
             to_queue = data[:available]
             self._send_buf.append(bytes(to_queue))
+            self._send_buf_size += len(to_queue)
             return len(to_queue)
 
     def write_wait(self, data, timeout=None):
@@ -291,10 +295,12 @@ class Channel(object):
             chunk = self._recv_buf[0]
             if len(chunk) <= remaining:
                 result.append(self._recv_buf.popleft())
+                self._recv_buf_size -= len(chunk)
                 remaining -= len(chunk)
             else:
                 result.append(chunk[:remaining])
                 self._recv_buf[0] = chunk[remaining:]
+                self._recv_buf_size -= remaining
                 remaining = 0
 
         return b''.join(result)
@@ -367,6 +373,7 @@ class Channel(object):
             if self.state not in (STATE_OPEN, STATE_CLOSING):
                 return  # Discard data for non-open channels
             self._recv_buf.append(bytes(data))
+            self._recv_buf_size += len(data)
 
         self._recv_event.set()
 
@@ -391,10 +398,12 @@ class Channel(object):
                 chunk = self._send_buf[0]
                 if len(chunk) <= remaining:
                     result.append(self._send_buf.popleft())
+                    self._send_buf_size -= len(chunk)
                     remaining -= len(chunk)
                 else:
                     result.append(chunk[:remaining])
                     self._send_buf[0] = chunk[remaining:]
+                    self._send_buf_size -= remaining
                     remaining = 0
 
             return b''.join(result)
@@ -416,13 +425,7 @@ class ChannelError(Exception):
         self.message = message
 
     def __str__(self):
-        try:
-            return str(self.message)
-        except Exception:
-            try:
-                return self.message.encode('utf-8')
-            except Exception:
-                return repr(self.message)
+        return to_native_str(self.message)
 
 
 

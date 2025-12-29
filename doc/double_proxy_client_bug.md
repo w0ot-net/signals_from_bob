@@ -16,6 +16,8 @@ clients target different hosts.
 - Bob (server) enters a retransmit storm on a single sequence number (e.g. seq=26).
 - ACK progress stalls on Bob; forward progress stops even though packets are
   still flowing.
+- Alice repeatedly reports `tunnel.send_blocked` with `unacked=max_in_flight`
+  (send window saturated).
 
 ## Evidence From Logs
 
@@ -28,6 +30,7 @@ Alice (`logs/client_log.db`):
 Bob (`logs/server_log.db`):
 - `tunnel.retransmit` repeats for the same `seq` (e.g. 26) for an extended span.
 - Packet send appears to continue, but ACKs do not advance.
+ - Bob continues to send packets (often keepalive) with ACK stuck.
 
 Cross-side correlation (generic):
 - During the retransmit storm window on Bob, ACK does not advance.
@@ -51,6 +54,13 @@ user does not believe this is a public resolver issue. The stall only appears
 after a second concurrent client starts, suggesting a concurrency or pipeline
 handling bug on the client receive path rather than resolver availability.
 
+Latest interpretation:
+- Alice is saturating her send window (`unacked=max_in_flight`), and Bob keeps
+  retransmitting a single seq while ACK does not advance.
+- Alice stops receiving packets entirely during the stall window.
+- This points to a receive-path stall on Alice (DNS responses being dropped
+  or not processed), rather than a channel lifecycle mismatch.
+
 ## Instrumentation Added
 
 Structured logging to SQLite with these events:
@@ -63,7 +73,10 @@ Structured logging to SQLite with these events:
   `channel.send_buf_high`
 - SOCKS: `sock.connect`, `sock.connect_ok`, `sock.connect_err`
 - DNS: `dns.send`, `dns.recv`, `dns.error_response`, `dns.send_blocked`,
-  `dns.prune_stale`, `dns.send_empty`, `dns.cname_followup`
+  `dns.prune_stale`, `dns.send_empty`, `dns.cname_followup`,
+  `dns.malformed_response`, `dns.stale_response`
+- Segment packing: `channel.pack`
+- Send window saturation: `tunnel.send_blocked`
 
 See `doc/LOGGING.md` for SQL queries.
 
@@ -85,6 +98,16 @@ Example (Bob):
 SELECT id, datetime(created, 'unixepoch'), event, fields
 FROM logs
 WHERE event = 'tunnel.retransmit'
+ORDER BY id DESC
+LIMIT 50;
+```
+
+Alice send window saturation:
+
+```
+SELECT id, datetime(created, 'unixepoch'), event, fields
+FROM logs
+WHERE event = 'tunnel.send_blocked'
 ORDER BY id DESC
 LIMIT 50;
 ```
@@ -117,3 +140,6 @@ ORDER BY id ASC;
   not advancing.
 - If ACKs are stuck, check whether channel segmentation or send window
   bookkeeping has a corner case under high concurrency.
+- Rerun with latest instrumentation and check new DNS drop events
+  (`dns.malformed_response`, `dns.stale_response`) to confirm whether Alice is
+  discarding responses.

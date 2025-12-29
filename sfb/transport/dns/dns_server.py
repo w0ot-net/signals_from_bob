@@ -18,6 +18,21 @@ from ...config import Config
 from ...logging_util import get_logger, log_event
 
 
+class _ResponseSender(object):
+    def __init__(self, server, query_id, qname, qtype, addr, payload_cap):
+        self._server = server
+        self._query_id = query_id
+        self._qname = qname
+        self._qtype = qtype
+        self._addr = addr
+        self.payload_cap = payload_cap
+
+    def __call__(self, data):
+        self._server._send_response(
+            self._query_id, self._qname, self._qtype, data, self._addr
+        )
+
+
 class DnsServer(Server):
     """
     DNS server transport for Bob.
@@ -171,10 +186,10 @@ class DnsServer(Server):
                                           reason='decode_failed')
                 continue
 
-            # Create responder
-            def responder(response_data, _qid=query_id, _qname=qname,
-                          _qtype=qtype, _addr=client_addr):
-                self._send_response(_qid, _qname, _qtype, response_data, _addr)
+            payload_cap = self._response_payload_cap(qname)
+            responder = _ResponseSender(
+                self, query_id, qname, qtype, client_addr, payload_cap
+            )
 
             log_event(
                 self._logger,
@@ -292,6 +307,51 @@ class DnsServer(Server):
                 'payload_bytes': len(data),
             },
         )
+
+    def _response_payload_cap(self, qname):
+        if self._rtype != codec.QTYPE_CNAME:
+            return None
+        max_packet_size = 512
+        if self._edns_size > 512:
+            max_packet_size = self._edns_size
+
+        qname_wire_len = len(codec.encode_name(qname))
+        question_len = qname_wire_len + 4
+        answer_name_len = qname_wire_len
+        answer_fixed_len = 10
+        additional_len = 0
+        if self._edns_size > 512:
+            additional_len = len(codec.build_opt_record(self._edns_size))
+        fixed_len = (12 + question_len + answer_name_len +
+                     answer_fixed_len + additional_len)
+        if fixed_len >= max_packet_size:
+            return 0
+
+        low = 0
+        high = codec.calc_response_mtu(
+            self._rtype,
+            max_packet_size,
+            self._cname_suffix,
+            self._label_max_len,
+        )
+        best = 0
+        while low <= high:
+            mid = (low + high) // 2
+            try:
+                cname_target = codec.encode_cname_target(
+                    b'\x00' * mid, self._cname_suffix, self._label_max_len
+                )
+            except ValueError:
+                high = mid - 1
+                continue
+            rdata_len = len(codec.encode_name(cname_target))
+            total_len = fixed_len + rdata_len
+            if total_len <= max_packet_size:
+                best = mid
+                low = mid + 1
+            else:
+                high = mid - 1
+        return best
 
     def _send_empty_response(self, query_id, qname, qtype, addr, reason=None):
         """Send NOERROR response with no answers (NODATA) and SOA in authority."""

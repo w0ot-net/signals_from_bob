@@ -243,6 +243,10 @@ class BobTunnel(BaseTunnel):
             )
             return
 
+        response_payload_cap = None
+        if hasattr(responder, 'payload_cap'):
+            response_payload_cap = responder.payload_cap
+
         # No retransmits needed - check window before sending new data
         if not self._send_window.can_send:
             # Window full but no unacked? Shouldn't happen - log and send pong
@@ -260,6 +264,8 @@ class BobTunnel(BaseTunnel):
                 },
             )
             max_payload = self._send_mtu
+            if response_payload_cap is not None and response_payload_cap < max_payload:
+                max_payload = response_payload_cap
             segments = self._collect_segments(
                 max_payload,
                 keepalive_data=encode_message(tun_pong())
@@ -273,6 +279,8 @@ class BobTunnel(BaseTunnel):
 
         # Collect new segments - use send MTU
         max_payload = self._send_mtu
+        if response_payload_cap is not None and response_payload_cap < max_payload:
+            max_payload = response_payload_cap
         segments = self._collect_segments(max_payload)
 
         # If no data, send pong

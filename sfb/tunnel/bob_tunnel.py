@@ -8,10 +8,12 @@ transport server.
 
 from __future__ import absolute_import
 
+import logging
 import time
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
 from .tunnel_control_messages import tun_pong, encode as encode_message
+from ..logging_util import log_event
 from ..protocol import (
     Packet,
     FLAG_SYN,
@@ -212,10 +214,32 @@ class BobTunnel(BaseTunnel):
             response_data = self._encode_packet(packet)
             self._send_window.mark_retransmit(seq, now=now)
             self._logger.debug('Retransmitting seq=%d', seq)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.retransmit',
+                'Retransmitting packet',
+                {'seq': seq, 'seg_count': len(segments), 'side': 'bob'},
+            )
 
             self._packets_sent += 1
             self._bytes_sent += len(response_data)
             responder(response_data)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.packet_send',
+                'Packet sent',
+                {
+                    'seq': packet.seq,
+                    'ack': packet.ack,
+                    'sack': packet.sack,
+                    'flags': packet.flags,
+                    'seg_count': len(packet.segments),
+                    'bytes': len(response_data),
+                    'side': 'bob',
+                },
+            )
             return
 
         # No retransmits needed - check window before sending new data
@@ -257,6 +281,21 @@ class BobTunnel(BaseTunnel):
 
         # Send response
         responder(response_data)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.packet_send',
+            'Packet sent',
+            {
+                'seq': packet.seq,
+                'ack': packet.ack,
+                'sack': packet.sack,
+                'flags': packet.flags,
+                'seg_count': len(packet.segments),
+                'bytes': len(response_data),
+                'side': 'bob',
+            },
+        )
 
     def _check_idle_timeout(self):
         """Check if connection has timed out (including stalled handshake)."""

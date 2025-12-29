@@ -9,6 +9,7 @@ pipelined request/response transport.
 from __future__ import absolute_import
 
 import json
+import logging
 import time
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
@@ -25,6 +26,7 @@ from ..protocol import (
     PACKET_HEADER_SIZE,
 )
 from ..reliability import RttEstimator
+from ..logging_util import log_event
 
 
 class AliceTunnel(BaseTunnel):
@@ -262,10 +264,24 @@ class AliceTunnel(BaseTunnel):
         )
         self._logger.debug('Requesting MTU: tx=%d rx=%d',
                            self._proposed_send_mtu, self._proposed_recv_mtu)
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.mtu_propose',
+            'MTU request',
+            {'tx': self._proposed_send_mtu, 'rx': self._proposed_recv_mtu},
+        )
 
         # Queue window request
         self.control.send_message(tun_window(self._proposed_max_in_flight))
         self._logger.debug('Requesting window: %d', self._proposed_max_in_flight)
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.window_propose',
+            'Window request',
+            {'size': self._proposed_max_in_flight},
+        )
 
     def tick(self):
         """
@@ -382,6 +398,21 @@ class AliceTunnel(BaseTunnel):
         self._packets_sent += 1
         self._bytes_sent += len(packet_data)
         self._packets_since_response += 1
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.packet_send',
+            'Packet sent',
+            {
+                'seq': packet.seq,
+                'ack': packet.ack,
+                'sack': packet.sack,
+                'flags': packet.flags,
+                'seg_count': len(packet.segments),
+                'bytes': len(packet_data),
+                'side': 'alice',
+            },
+        )
 
     def _send_retransmit(self, seq, segments, now):
         """Retransmit a packet."""
@@ -397,6 +428,28 @@ class AliceTunnel(BaseTunnel):
         self._bytes_sent += len(packet_data)
         self._packets_since_response += 1
         self._logger.debug('Retransmitting seq=%d', seq)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.retransmit',
+            'Retransmitting packet',
+            {'seq': seq, 'seg_count': len(segments), 'side': 'alice'},
+        )
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.packet_send',
+            'Packet sent',
+            {
+                'seq': packet.seq,
+                'ack': packet.ack,
+                'sack': packet.sack,
+                'flags': packet.flags,
+                'seg_count': len(packet.segments),
+                'bytes': len(packet_data),
+                'side': 'alice',
+            },
+        )
 
     def _handle_response(self, data, now):
         """Handle a transport response."""

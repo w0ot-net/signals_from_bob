@@ -323,6 +323,21 @@ class BaseTunnel(object):
             now = time.time()
 
         # Process ACK/SACK from peer (updates our send window)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.packet_recv',
+            'Packet received',
+            {
+                'seq': packet.seq,
+                'ack': packet.ack,
+                'sack': packet.sack,
+                'flags': packet.flags,
+                'seg_count': len(packet.segments),
+                'bytes': packet.encoded_size(),
+            },
+        )
+
         unacked_before = len(self._send_window._unacked)
         rtt_samples = self._send_window.process_ack(
             packet.ack, packet.sack, now=now
@@ -504,6 +519,13 @@ class BaseTunnel(object):
                 not isinstance(requested_rx, integer_types) or requested_rx < 1):
             self._logger.warning('Invalid MTU request: %s', msg)
             return
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.mtu_propose',
+            'MTU request received',
+            {'tx': requested_tx, 'rx': requested_rx},
+        )
 
         # Negotiate each direction independently.
         agreed_recv = min(requested_tx, self._proposed_recv_mtu or self._default_mtu)
@@ -520,6 +542,13 @@ class BaseTunnel(object):
                            agreed_recv, agreed_send, agreed_recv)
         self._logger.info('MTU negotiate: recv=%d send(pending)=%d',
                           agreed_recv, agreed_send)
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.mtu_ok',
+            'MTU negotiate response',
+            {'recv': agreed_recv, 'send_pending': agreed_send},
+        )
 
     def _handle_mtu_ok(self, msg):
         """
@@ -551,6 +580,13 @@ class BaseTunnel(object):
                            agreed_send, agreed_recv)
         self._logger.info('MTU negotiated: send=%d recv=%d',
                           agreed_send, agreed_recv)
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.mtu_ok',
+            'MTU negotiated',
+            {'send': agreed_send, 'recv': agreed_recv},
+        )
 
     def _handle_mtu_ack(self, msg):
         """
@@ -566,6 +602,13 @@ class BaseTunnel(object):
         self._logger.debug('MTU ack received, send MTU now: %d', self._send_mtu)
         self._logger.info('MTU ack applied: send=%d recv=%d',
                           self._send_mtu, self._recv_mtu)
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.mtu_ack',
+            'MTU ack applied',
+            {'send': self._send_mtu, 'recv': self._recv_mtu},
+        )
 
     def _handle_window(self, msg):
         """
@@ -578,6 +621,13 @@ class BaseTunnel(object):
         if not isinstance(requested, integer_types) or requested < 1:
             self._logger.warning('Invalid window request: %s', requested)
             return
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.window_propose',
+            'Window request received',
+            {'size': requested},
+        )
 
         # Negotiate: use minimum of requested, our proposed, and max (64)
         agreed = min(requested, self._proposed_max_in_flight, self.MAX_WINDOW)
@@ -590,6 +640,13 @@ class BaseTunnel(object):
         # Send confirmation
         self.control.send_message(tun_window_ok(agreed))
         self._logger.debug('SEND window_ok: %d (requested %d)', agreed, requested)
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.window_ok',
+            'Window negotiated',
+            {'requested': requested, 'agreed': agreed},
+        )
 
     def _handle_window_ok(self, msg):
         """
@@ -609,6 +666,13 @@ class BaseTunnel(object):
         # Update send window limit
         self._send_window._max_in_flight = agreed
         self._logger.debug('Window updated to: %d', agreed)
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.window_ok',
+            'Window updated',
+            {'agreed': agreed},
+        )
 
     def _collect_segments(self, max_payload, keepalive_data=None):
         """

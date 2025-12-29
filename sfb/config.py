@@ -178,6 +178,8 @@ class Config:
             raise ValueError("dns_response_type must be 'CNAME'")
         if self.dns_edns_size < 512:
             raise ValueError("dns_edns_size must be >= 512")
+        if self.dns_edns_size > 512:
+            raise ValueError("dns_edns_size must be <= 512")
         if self.dns_recv_bufsize_min < 512:
             raise ValueError("dns_recv_bufsize_min must be >= 512")
         if self.dns_queries_per_second < 0:

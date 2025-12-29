@@ -74,13 +74,22 @@ class _PendingConnect(object):
 
 class SocksServerModule(BaseModule):
     """
-    SOCKS5 proxy server module (runs on Bob).
+    SOCKS5 proxy server module.
 
     Accepts SOCKS5 clients on a local TCP port and proxies their
-    connections through the tunnel to Alice.
+    connections through the tunnel to the relay module on the peer.
     """
 
     TYPE = T_SOCK
+
+    @classmethod
+    def register_commands(cls, subparsers, role):
+        """Register CLI subcommands for SOCKS server."""
+        start_p = subparsers.add_parser('start', help='Start SOCKS5 proxy server')
+        start_p.add_argument(
+            '--listen', default='127.0.0.1:1080',
+            help='Listen address as host:port (default: 127.0.0.1:1080)'
+        )
 
     def __init__(self, tunnel, logger=None):
         super(SocksServerModule, self).__init__(tunnel, logger=logger)

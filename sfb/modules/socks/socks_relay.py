@@ -1,9 +1,9 @@
 # -*- coding: ascii -*-
 """
-SOCKS relay module (runs on Alice).
+SOCKS relay module.
 
-Receives connection requests from Bob and makes outbound
-TCP connections to target hosts.
+Receives connection requests from the SOCKS server module and makes
+outbound TCP connections to target hosts.
 """
 
 from __future__ import absolute_import
@@ -19,9 +19,9 @@ from .socks_control_messages import T_SOCK, sock_connect_ok, sock_err
 
 class SocksRelayModule(BaseModule):
     """
-    SOCKS5 relay module (runs on Alice).
+    SOCKS5 relay module.
 
-    Receives connection requests from Bob's SOCKS server and makes
+    Receives connection requests from the SOCKS server module and makes
     outbound TCP connections to target hosts, relaying data through
     the tunnel channel.
     """

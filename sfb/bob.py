@@ -107,12 +107,12 @@ def run_command_mode(args, tunnel, logger, shutdown_requested):
 
         # Wait for Alice to connect
         logger.info('Waiting for Alice to connect on %s...', args.listen)
-        timeout = getattr(args, 'timeout', 30.0)
+        timeout = getattr(args, 'timeout', None)
         start_time = time.time()
         while tunnel._state != TunnelState.CONNECTED:
             if shutdown_requested[0]:
                 return 1
-            if time.time() - start_time > timeout:
+            if timeout is not None and time.time() - start_time > timeout:
                 logger.error('Timeout waiting for connection')
                 return 1
             time.sleep(0.1)

@@ -75,6 +75,8 @@ def add_common_args(parser, config):
     )
     parser.add_argument(
         '--db-log',
+        nargs='?',
+        const=config.db_log_path,
         default=config.db_log_path,
         help='Enable SQLite logging to PATH'
     )

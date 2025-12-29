@@ -376,6 +376,79 @@ def calc_query_mtu(base_domain, label_max_len=None):
     return (usable * 5) // 8
 
 
+def _qname_wire_len_for_payload(payload_len, base_domain, label_max_len):
+    if payload_len <= 0:
+        payload = b''
+    else:
+        payload = b'\x00' * payload_len
+    qname = encode_query_name(payload, base_domain, 0, label_max_len)
+    return len(encode_name(qname))
+
+
+def _max_cname_payload_for_response(fixed_len, cname_suffix, label_max_len,
+                                    max_packet_size):
+    if fixed_len >= max_packet_size:
+        return 0
+    upper = calc_response_mtu(QTYPE_CNAME, max_packet_size,
+                              cname_suffix, label_max_len)
+    low = 0
+    high = upper
+    best = 0
+    while low <= high:
+        mid = (low + high) // 2
+        try:
+            cname_target = encode_cname_target(
+                b'\x00' * mid, cname_suffix, label_max_len
+            )
+        except ValueError:
+            high = mid - 1
+            continue
+        rdata_len = len(encode_name(cname_target))
+        total_len = fixed_len + rdata_len
+        if total_len <= max_packet_size:
+            best = mid
+            low = mid + 1
+        else:
+            high = mid - 1
+    return best
+
+
+def calc_cname_payload_cap(base_domain, cname_suffix, label_max_len=None,
+                           max_packet_size=512):
+    if max_packet_size is None or max_packet_size <= 0:
+        return 0
+    label_max_len = _normalize_label_max_len(label_max_len)
+    base_domain = _normalize_domain(base_domain)
+    cname_suffix = _normalize_domain(cname_suffix)
+
+    max_query_payload = calc_query_mtu(base_domain, label_max_len)
+    low = 0
+    high = max_query_payload
+    best = 0
+    while low <= high:
+        mid = (low + high) // 2
+        try:
+            qname_wire_len = _qname_wire_len_for_payload(
+                mid, base_domain, label_max_len
+            )
+        except ValueError:
+            high = mid - 1
+            continue
+        fixed_len = 12 + (qname_wire_len + 4) + qname_wire_len + 10
+        if fixed_len >= max_packet_size:
+            high = mid - 1
+            continue
+        response_payload = _max_cname_payload_for_response(
+            fixed_len, cname_suffix, label_max_len, max_packet_size
+        )
+        if response_payload >= mid:
+            best = mid
+            low = mid + 1
+        else:
+            high = mid - 1
+    return best
+
+
 def encode_cname_target(data, cname_suffix, label_max_len=None):
     """
     Encode tunnel data into a CNAME target name.

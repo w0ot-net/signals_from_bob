@@ -46,6 +46,7 @@ class DnsServer(Server):
             self._base_domain
         )
         self._cname_a_addr = config.dns_cname_a_addr
+        self._payload_cap = None
 
         # Parse listen address
         listen_addr = config.dns_listen_addr
@@ -72,7 +73,16 @@ class DnsServer(Server):
                                                  config.dns_edns_size,
                                                  self._cname_suffix,
                                                  self._label_max_len)
+        if self._rtype == codec.QTYPE_CNAME and self._edns_size <= 512:
+            self._payload_cap = codec.calc_cname_payload_cap(
+                self._base_domain,
+                self._cname_suffix,
+                self._label_max_len,
+                self._edns_size,
+            )
         self._logger = get_logger(__name__)
+        if self._payload_cap is not None:
+            self._logger.debug('DnsServer payload cap=%d', self._payload_cap)
         self._logger.debug(
             'DnsServer MTU calc: base_domain=%r label_max=%d recv_mtu=%d send_mtu=%d',
             self._base_domain, self._label_max_len, self._recv_mtu, self._send_mtu
@@ -85,6 +95,10 @@ class DnsServer(Server):
     @property
     def send_mtu(self):
         return self._send_mtu
+
+    @property
+    def payload_cap(self):
+        return self._payload_cap
 
     def recv(self, timeout=None):
         """

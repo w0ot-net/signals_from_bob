@@ -92,6 +92,7 @@ class BaseTunnel(object):
         self._is_initiator = is_initiator
         self._state = TunnelState.DISCONNECTED
         self._logger = logger or logging.getLogger(__name__)
+        self._payload_cap = None
 
         # Channel management
         self._channel_manager = ChannelManager(is_alice=is_initiator, config=config)
@@ -685,6 +686,9 @@ class BaseTunnel(object):
         Returns:
             list: List of Segment instances
         """
+        if self._payload_cap:
+            if max_payload > self._payload_cap:
+                max_payload = self._payload_cap
         return self._channel_manager.collect_segments(
             max_payload, keepalive_data=keepalive_data
         )

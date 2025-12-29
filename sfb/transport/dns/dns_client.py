@@ -67,6 +67,7 @@ class DnsClient(Transport):
         )
         self._nonce = random.randint(0, 0xFFFF)
         self._query_id = random.randint(0, 0xFFFF)
+        self._payload_cap = None
 
         # Parse resolver address or use system resolver
         resolver = config.dns_resolver
@@ -93,6 +94,14 @@ class DnsClient(Transport):
                                                  config.dns_edns_size,
                                                  self._cname_suffix,
                                                  self._label_max_len)
+        if self._rtype == codec.QTYPE_CNAME and self._edns_size <= 512:
+            self._payload_cap = codec.calc_cname_payload_cap(
+                self._base_domain,
+                self._cname_suffix,
+                self._label_max_len,
+                self._edns_size,
+            )
+            _LOG.debug('dns payload cap=%d', self._payload_cap)
         self._recv_bufsize = max(self._edns_size, config.dns_recv_bufsize_min)
 
         # Pending query tracking
@@ -114,6 +123,10 @@ class DnsClient(Transport):
     @property
     def recv_mtu(self):
         return self._recv_mtu
+
+    @property
+    def payload_cap(self):
+        return self._payload_cap
 
     @property
     def max_pending(self):

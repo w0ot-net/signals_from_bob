@@ -51,6 +51,7 @@ class BobTunnel(BaseTunnel):
         )
         self._transport = transport
         self._idle_timeout = config.tunnel_idle_timeout
+        self._payload_cap = getattr(transport, 'payload_cap', None)
 
         # Security: only accept these message types from Alice by default
         self._allowed_message_types = {'tun', 'ch'}

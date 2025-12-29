@@ -55,6 +55,7 @@ class AliceTunnel(BaseTunnel):
         )
         self._transport = transport
         self._keepalive_interval = config.tunnel_keepalive_interval
+        self._payload_cap = getattr(transport, 'payload_cap', None)
 
         # Set proposed MTU from transport (for negotiation, asymmetric)
         send_payload = max(1, transport.send_mtu - PACKET_HEADER_SIZE)

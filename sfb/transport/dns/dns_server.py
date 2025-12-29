@@ -214,8 +214,6 @@ class DnsServer(Server):
 
     def _send_response(self, query_id, qname, qtype, data, addr):
         """Build and send DNS response."""
-        if self._rtype == codec.QTYPE_CNAME:
-            data = self._cap_response_data(qname, data)
         # Include OPT record for EDNS0 if enabled
         if self._edns_size > 512:
             arcount = 1
@@ -278,72 +276,6 @@ class DnsServer(Server):
                 'addr': '%s:%d' % (addr[0], addr[1]),
                 'bytes': len(response),
                 'payload_bytes': len(data),
-            },
-        )
-
-    def _cap_response_data(self, qname, data):
-        max_packet_size = self._max_response_size()
-        if max_packet_size <= 0:
-            return b''
-
-        header_len = 12
-        question_len = len(codec.encode_name(qname)) + 4
-        answer_name_len = len(codec.encode_name(qname))
-        answer_fixed_len = 10
-        additional_len = 0
-        if self._edns_size > 512:
-            additional_len = len(codec.build_opt_record(self._edns_size))
-        fixed_len = header_len + question_len + answer_name_len + answer_fixed_len + additional_len
-
-        if fixed_len >= max_packet_size:
-            if data:
-                self._log_payload_truncation(qname, data, 0, max_packet_size)
-            return b''
-
-        max_len = self._max_payload_for_response(qname, data, fixed_len, max_packet_size)
-        if max_len < len(data):
-            self._log_payload_truncation(qname, data, max_len, max_packet_size)
-            return data[:max_len]
-        return data
-
-    def _max_payload_for_response(self, qname, data, fixed_len, max_packet_size):
-        low = 0
-        high = len(data)
-        best = 0
-        while low <= high:
-            mid = (low + high) // 2
-            try:
-                cname_target = codec.encode_cname_target(
-                    data[:mid], self._cname_suffix, self._label_max_len
-                )
-            except ValueError:
-                high = mid - 1
-                continue
-            rdata = codec.encode_name(cname_target)
-            total_len = fixed_len + len(rdata)
-            if total_len <= max_packet_size:
-                best = mid
-                low = mid + 1
-            else:
-                high = mid - 1
-        return best
-
-    def _max_response_size(self):
-        if self._edns_size > 512:
-            return self._edns_size
-        return min(self._edns_size, 512)
-
-    def _log_payload_truncation(self, qname, data, max_len, max_packet_size):
-        log_event(
-            self._logger,
-            logging.WARNING,
-            'dns.payload_truncated',
-            'DNS payload truncated to fit response size',
-            {
-                'max_packet_bytes': max_packet_size,
-                'max_payload_bytes': max_len,
-                'payload_bytes': len(data),
-                'qname': qname,
             },
         )
 

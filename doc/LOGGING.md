@@ -67,7 +67,6 @@ Current structured events (non-exhaustive):
 - `dns.malformed_response`
 - `dns.stale_response`
 - `dns.mismatched_response`
-- `dns.payload_truncated`
 - `dns.send_blocked`
 - `dns.prune_stale`
 - `tunnel.send_blocked`
@@ -136,16 +135,6 @@ DNS send/recv:
 SELECT id, datetime(created, 'unixepoch'), event, fields
 FROM logs
 WHERE event IN ('dns.send', 'dns.recv', 'dns.error_response', 'dns.malformed_response', 'dns.stale_response')
-ORDER BY id DESC
-LIMIT 100;
-```
-
-DNS payload truncations:
-
-```
-SELECT id, datetime(created, 'unixepoch'), event, fields
-FROM logs
-WHERE event = 'dns.payload_truncated'
 ORDER BY id DESC
 LIMIT 100;
 ```

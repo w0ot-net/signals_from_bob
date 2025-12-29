@@ -7,6 +7,7 @@ Receives tunnel packets from DNS A queries and sends CNAME responses.
 
 from __future__ import absolute_import
 
+import select
 import socket
 import struct
 
@@ -70,9 +71,11 @@ class DnsServer(Server):
                                                  config.dns_edns_size,
                                                  self._cname_suffix,
                                                  self._label_max_len)
-        _LOG = get_logger(__name__)
-        _LOG.debug('DnsServer MTU calc: base_domain=%r label_max=%d recv_mtu=%d send_mtu=%d',
-                   self._base_domain, self._label_max_len, self._recv_mtu, self._send_mtu)
+        self._logger = get_logger(__name__)
+        self._logger.debug(
+            'DnsServer MTU calc: base_domain=%r label_max=%d recv_mtu=%d send_mtu=%d',
+            self._base_domain, self._label_max_len, self._recv_mtu, self._send_mtu
+        )
 
     @property
     def recv_mtu(self):
@@ -99,20 +102,25 @@ class DnsServer(Server):
         Raises:
             TransportError: on I/O failure
         """
-        self._sock.settimeout(timeout)
-
         while True:
             try:
+                if timeout is None:
+                    ready, _, _ = select.select([self._sock], [], [])
+                else:
+                    ready, _, _ = select.select([self._sock], [], [], timeout)
+                if not ready:
+                    return None, None
                 pkt_data, client_addr = self._sock.recvfrom(max(self._edns_size, 4096))
-            except socket.timeout:
-                return None, None
+            except select.error as e:
+                raise TransportError('Select failed: %s' % e)
             except socket.error as e:
                 raise TransportError('Receive failed: %s' % e)
 
             try:
                 query_id, qname, qtype = self._parse_query(pkt_data)
-            except (ValueError, TransportError):
+            except (ValueError, TransportError) as e:
                 # Malformed query, ignore
+                self._logger.debug('dns invalid query: %s', e)
                 continue
 
             # Check if it's for our domain (subdomain or exact match)
@@ -238,7 +246,7 @@ class DnsServer(Server):
         response = header + question + answer + additional
 
         try:
-            _LOG.debug('dns response id=%d addr=%s', query_id, addr)
+            self._logger.debug('dns response id=%d addr=%s', query_id, addr)
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
@@ -271,7 +279,7 @@ class DnsServer(Server):
         response = header + question + authority + additional
 
         try:
-            _LOG.debug('dns empty response id=%d addr=%s', query_id, addr)
+            self._logger.debug('dns empty response id=%d addr=%s', query_id, addr)
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
@@ -316,7 +324,7 @@ class DnsServer(Server):
         response = header + question + answer + additional
 
         try:
-            _LOG.debug('dns cname followup id=%d addr=%s', query_id, addr)
+            self._logger.debug('dns cname followup id=%d addr=%s', query_id, addr)
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
@@ -348,6 +356,3 @@ class DnsServer(Server):
         if self._sock:
             self._sock.close()
             self._sock = None
-
-
-_LOG = get_logger(__name__)

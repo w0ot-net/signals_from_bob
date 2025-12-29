@@ -79,6 +79,26 @@ LIMIT 50;
 
 ## Next Steps
 
+- Add a focused query for ACK progression around a retransmit storm:
+
+```
+SELECT id, datetime(created, 'unixepoch'), event, fields
+FROM logs
+WHERE event IN ('tunnel.packet_send', 'tunnel.packet_recv', 'tunnel.ack')
+  AND id BETWEEN <start_id> AND <end_id>
+ORDER BY id ASC;
+```
+
+- To track ACK changes only:
+
+```
+SELECT id, datetime(created, 'unixepoch'), fields
+FROM logs
+WHERE event = 'tunnel.ack'
+  AND id BETWEEN <start_id> AND <end_id>
+ORDER BY id ASC;
+```
+
 - Add a focused query for ACK progression around the retransmit storm
   (seq and ack fields).
 - Inspect whether send window is stuck with one unacked packet and why ACKs are

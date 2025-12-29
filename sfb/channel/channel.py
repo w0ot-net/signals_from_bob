@@ -95,10 +95,10 @@ class Channel(object):
             data: bytes to send
 
         Returns:
-            int: number of bytes queued
+            int: number of bytes queued (may be less than len(data) if buffer partially full)
 
         Raises:
-            ChannelError: if channel is not open or buffer full
+            ChannelError: if channel is not open or buffer completely full
         """
         data = require_bytes(data)
         if not data:
@@ -117,6 +117,64 @@ class Channel(object):
             to_queue = data[:available]
             self._send_buf.append(bytes(to_queue))
             return len(to_queue)
+
+    def write_wait(self, data, timeout=None):
+        """
+        Write data, waiting for buffer space if needed.
+
+        Uses exponential backoff while waiting for buffer to drain.
+        More efficient than caller doing retries.
+
+        Args:
+            data: bytes to send
+            timeout: max seconds to wait (None=wait forever)
+
+        Returns:
+            int: number of bytes written (always len(data) on success)
+
+        Raises:
+            ChannelError: if channel closes or timeout expires
+        """
+        import time
+        data = require_bytes(data)
+        if not data:
+            return 0
+
+        deadline = None
+        if timeout is not None:
+            deadline = time.time() + timeout
+
+        offset = 0
+        backoff = 0.01  # Start with 10ms
+        max_backoff = 1.0  # Cap at 1 second
+
+        while offset < len(data):
+            # Check deadline
+            if deadline is not None and time.time() >= deadline:
+                raise ChannelError('Write timeout')
+
+            # Check channel state
+            if self.state != STATE_OPEN:
+                raise ChannelError('Channel not open')
+
+            try:
+                sent = self.write(data[offset:])
+                if sent > 0:
+                    offset += sent
+                    backoff = 0.01  # Reset backoff on success
+                else:
+                    # No space, wait
+                    time.sleep(backoff)
+                    backoff = min(backoff * 1.5, max_backoff)
+            except ChannelError as e:
+                if 'buffer full' in str(e).lower():
+                    # Wait for buffer to drain
+                    time.sleep(backoff)
+                    backoff = min(backoff * 1.5, max_backoff)
+                else:
+                    raise
+
+        return len(data)
 
     def read(self, size, timeout=None):
         """

@@ -280,7 +280,8 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             stats.start()
             self._current_stats = stats
             hash_obj = hashlib.sha256()
-            self._send_from_file(channel, in_fp, size, hash_obj=hash_obj, stats=stats)
+            self._send_from_file(channel, in_fp, size, hash_obj=hash_obj, stats=stats,
+                                 timeout=timeout)
 
             pending = self._register_pending(rid)
             self.send_message(file_hash(rid, channel.id, hash_obj.hexdigest()))
@@ -492,29 +493,36 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
     # File I/O helpers
     # -------------------------------------------------------------------------
 
-    def _send_from_file(self, channel, fp, total_size, hash_obj=None, stats=None):
+    def _send_from_file(self, channel, fp, total_size, hash_obj=None, stats=None,
+                        timeout=None):
         """Send file contents to channel."""
         remaining = total_size
-        max_retries = 100
+        deadline = None
+        if timeout is not None:
+            deadline = time.time() + timeout
+
         while remaining > 0:
             chunk = fp.read(min(self._chunk_size, remaining))
             if not chunk:
                 raise FileTransferError('io', 'unexpected EOF')
             if hash_obj is not None:
                 hash_obj.update(chunk)
-            offset = 0
-            retries = 0
-            while offset < len(chunk):
-                try:
-                    sent = channel.write(chunk[offset:])
-                    retries = 0  # Reset on success
-                except ChannelError:
-                    retries += 1
-                    if retries >= max_retries:
-                        raise FileTransferError('io', 'channel write failed')
-                    time.sleep(0.01)
-                    continue
-                offset += sent
+
+            # Calculate remaining time for this chunk
+            chunk_timeout = None
+            if deadline is not None:
+                chunk_timeout = deadline - time.time()
+                if chunk_timeout <= 0:
+                    raise FileTransferError('io', 'send timeout')
+
+            try:
+                channel.write_wait(chunk, timeout=chunk_timeout)
+            except ChannelError as e:
+                if 'timeout' in str(e).lower():
+                    raise FileTransferError('io', 'send timeout')
+                else:
+                    raise FileTransferError('io', str(e))
+
             remaining -= len(chunk)
             if stats is not None:
                 stats.update(len(chunk))

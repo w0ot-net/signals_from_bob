@@ -53,6 +53,11 @@ class BobTunnel(BaseTunnel):
         self._proposed_send_mtu = send_payload
         self._proposed_recv_mtu = recv_payload
 
+        # Use transport's actual limits before negotiation completes
+        self._send_mtu = send_payload
+        self._recv_mtu = recv_payload
+        self._max_packet_size = recv_payload + PACKET_HEADER_SIZE
+
         # Timing
         self._last_request_time = 0
 

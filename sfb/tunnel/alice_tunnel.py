@@ -59,6 +59,11 @@ class AliceTunnel(BaseTunnel):
         self._proposed_send_mtu = send_payload
         self._proposed_recv_mtu = recv_payload
 
+        # Use transport's actual limits before negotiation completes
+        self._send_mtu = send_payload
+        self._recv_mtu = recv_payload
+        self._max_packet_size = recv_payload + PACKET_HEADER_SIZE
+
         # RTT estimation (Alice only)
         self._rtt = RttEstimator(
             initial_rto_ms=config.protocol_initial_rto_ms,

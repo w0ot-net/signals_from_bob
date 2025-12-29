@@ -13,6 +13,7 @@ import logging
 import threading
 
 from .tunnel_control_messages import T_MOD, mod_load, mod_load_ok, mod_load_err
+from ..compat import to_native_str
 
 
 class ModuleLoadError(Exception):
@@ -89,7 +90,7 @@ class ModuleLoader(object):
             self._send(mod_load_ok(name))
         except Exception as e:
             self._logger.exception('Failed to load module %s: %s', name, e)
-            self._send(mod_load_err(name, str(e)))
+            self._send(mod_load_err(name, to_native_str(e)))
 
     def _handle_load_ok(self, msg):
         """Handle successful load response (for controller side)."""

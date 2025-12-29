@@ -11,7 +11,7 @@ from __future__ import absolute_import
 import base64
 import struct
 
-from ...compat import byte_at
+from ...compat import byte_at, require_bytes, text_type
 
 # DNS constants
 QTYPE_A = 1
@@ -55,11 +55,14 @@ RECORD_TYPES = {
 
 def base32_encode(data):
     """Encode bytes to base32 without padding, uppercase."""
+    data = require_bytes(data)
     return base64.b32encode(data).rstrip(b'=').decode('ascii')
 
 
 def base32_decode(s):
     """Decode base32 string to bytes (handles missing padding)."""
+    if not isinstance(s, text_type):
+        raise TypeError('Expected text for base32 decode')
     pad = (8 - len(s) % 8) % 8
     s = s.upper() + '=' * pad
     return base64.b32decode(s)
@@ -67,11 +70,14 @@ def base32_decode(s):
 
 def base64_encode(data):
     """Encode bytes to base64 without padding."""
+    data = require_bytes(data)
     return base64.b64encode(data).rstrip(b'=').decode('ascii')
 
 
 def base64_decode(s):
     """Decode base64 string to bytes (handles missing padding)."""
+    if not isinstance(s, text_type):
+        raise TypeError('Expected text for base64 decode')
     pad = (4 - len(s) % 4) % 4
     s = s + '=' * pad
     return base64.b64decode(s)
@@ -79,6 +85,8 @@ def base64_decode(s):
 
 def encode_name(name):
     """Encode domain name to DNS wire format."""
+    if not isinstance(name, text_type):
+        raise TypeError('Expected text domain name')
     parts = []
     for label in name.split('.'):
         if label:
@@ -100,6 +108,7 @@ def decode_name(data, offset, allow_compression=True):
     Returns:
         tuple: (name_string, new_offset)
     """
+    data = require_bytes(data)
     labels = []
     jumped = False
     end_offset = None

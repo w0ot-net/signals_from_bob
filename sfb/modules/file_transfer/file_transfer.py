@@ -11,6 +11,7 @@ import time
 import hashlib
 
 from ...channel import ChannelError
+from ...compat import to_native_str
 from ..base_module import BaseModule, RequestResponseMixin, ModuleError, blocking
 from .file_transfer_control_messages import (
     file_list,
@@ -355,7 +356,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             try:
                 entries = os.listdir(abs_path)
             except OSError as e:
-                self.send_message(file_err(rid, 'not_found', str(e)))
+                self.send_message(file_err(rid, 'not_found', to_native_str(e)))
                 return
             files = []
             for name in entries:
@@ -373,7 +374,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 })
             self.send_message(file_list_ok(rid, files))
         except Exception as e:
-            self.send_message(file_err(rid, 'io', str(e)))
+            self.send_message(file_err(rid, 'io', to_native_str(e)))
         finally:
             self._clear_active(rid)
 
@@ -417,7 +418,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         except FileTransferError as e:
             self.send_message(file_err(rid, e.code, e.reason, ch))
         except Exception as e:
-            self.send_message(file_err(rid, 'io', str(e), ch))
+            self.send_message(file_err(rid, 'io', to_native_str(e), ch))
         finally:
             if in_fp is not None:
                 in_fp.close()
@@ -471,7 +472,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         except FileTransferError as e:
             self.send_message(file_err(rid, e.code, e.reason, ch))
         except Exception as e:
-            self.send_message(file_err(rid, 'io', str(e), ch))
+            self.send_message(file_err(rid, 'io', to_native_str(e), ch))
         finally:
             if out_fp is not None:
                 out_fp.close()

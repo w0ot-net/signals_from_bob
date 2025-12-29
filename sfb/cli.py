@@ -74,14 +74,15 @@ def add_common_args(parser, config):
     )
     parser.add_argument(
         '--db-log',
+        default=config.db_log_path,
         help='Enable SQLite logging to PATH'
     )
     parser.add_argument(
-        '--db-log-flush', type=float, default=0.5,
+        '--db-log-flush', type=float, default=config.db_log_flush,
         help='SQLite log flush interval in seconds (default: 0.5)'
     )
     parser.add_argument(
-        '--db-log-queue', type=int, default=0,
+        '--db-log-queue', type=int, default=config.db_log_queue,
         help='SQLite log queue max size (default: 0=unbounded)'
     )
 
@@ -211,6 +212,11 @@ def create_config(args):
     if args.role == 'server':
         config_kwargs['file_transfer_root'] = getattr(args, 'root', None)
         config_kwargs['file_transfer_max_size'] = getattr(args, 'max_size', None)
+
+    # Logging
+    config_kwargs['db_log_path'] = getattr(args, 'db_log', None)
+    config_kwargs['db_log_flush'] = getattr(args, 'db_log_flush', None)
+    config_kwargs['db_log_queue'] = getattr(args, 'db_log_queue', None)
 
     config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
     return Config(**config_kwargs)

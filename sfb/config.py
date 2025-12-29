@@ -71,7 +71,7 @@ class Config:
     # Handshake/connection timeout (seconds)
     tunnel_connect_timeout: float = 10.0
     # Alice: packets sent without response before giving up
-    tunnel_timeout_packets: int = 30
+    tunnel_timeout_packets: int = 100
     # Enable reliability stats tracking
     tunnel_stats_enabled: bool = False
     # Enable dynamic window growth on Alice

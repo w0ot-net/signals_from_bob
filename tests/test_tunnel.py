@@ -31,7 +31,7 @@ def make_test_config(**overrides):
         'tunnel_keepalive_interval': 5.0,
         'tunnel_max_in_flight': 16,
         'tunnel_connect_timeout': 10.0,
-        'tunnel_timeout_packets': 30,
+        'tunnel_timeout_packets': 100,
     }
     defaults.update(overrides)
     return Config(**defaults)

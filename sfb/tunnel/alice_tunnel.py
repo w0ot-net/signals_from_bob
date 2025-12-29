@@ -284,6 +284,7 @@ class AliceTunnel(BaseTunnel):
         received_any = False
         received_valid = False
         self._got_data = False  # Reset - will be set if we get non-pong data
+        self._last_was_pong_only = False  # Track if last response was pong-only
         while True:
             corr_id, data = self._transport.recv(timeout=0)
             if corr_id is None:
@@ -297,6 +298,9 @@ class AliceTunnel(BaseTunnel):
             # Clear pending data flag if all data has been acked
             if self._send_window.unacked_count == 0:
                 self._has_pending_data_acks = False
+            # If we got valid responses but no real data, Bob sent pong-only
+            if not self._got_data:
+                self._last_was_pong_only = True
 
         # Check connection timeout
         if self._packets_since_response >= self._max_packets_without_response:
@@ -320,13 +324,15 @@ class AliceTunnel(BaseTunnel):
             is_real_data = bool(segments)
             if not segments:
                 # No data to send - decide whether to poll Bob
-                # Poll immediately if:
-                # - Bob sent real data (not just pong) - more might be coming
-                # - We have real data packets awaiting ACKs (not just keepalives)
-                # Otherwise respect keepalive interval (both sides idle).
-                should_poll = self._got_data or self._has_pending_data_acks or (
-                    now - self._last_send_time >= self._keepalive_interval
-                )
+                # If Bob's last response was pong-only, he has nothing to send,
+                # so respect keepalive interval even if we have pending ACKs.
+                # Poll immediately only if Bob sent real data (more might be coming).
+                if self._last_was_pong_only:
+                    should_poll = now - self._last_send_time >= self._keepalive_interval
+                else:
+                    should_poll = self._got_data or self._has_pending_data_acks or (
+                        now - self._last_send_time >= self._keepalive_interval
+                    )
                 if should_poll:
                     segments = self._collect_segments(
                         self._send_mtu,

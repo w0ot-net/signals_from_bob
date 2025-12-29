@@ -6,7 +6,6 @@ File transfer module implementation.
 from __future__ import absolute_import
 
 import os
-import tempfile
 import threading
 import time
 import hashlib
@@ -192,7 +191,6 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         rid = self._alloc_rid()
         self._reserve_active(rid)
         channel = None
-        tmp_path = None
         out_fp = None
         try:
             channel = self._tunnel.channel_manager.open_channel()
@@ -220,7 +218,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             if dest_path is None:
                 dest_path = os.path.basename(remote_path)
             dest_path = os.path.abspath(dest_path)
-            out_fp, tmp_path = self._open_temp_file(dest_path)
+            out_fp = open(dest_path, 'wb')
 
             stats = TransferStats(size)
             stats.start()
@@ -238,13 +236,9 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             self._last_stats = stats
             out_fp.close()
             out_fp = None
-            self._replace_file(tmp_path, dest_path)
-            tmp_path = None
         finally:
             if out_fp is not None:
                 out_fp.close()
-            if tmp_path is not None:
-                self._safe_remove(tmp_path)
             if channel is not None:
                 channel.close()
             self._clear_active(rid)
@@ -451,7 +445,6 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
 
         channel = None
         out_fp = None
-        tmp_path = None
         try:
             if self._max_size is not None and size > self._max_size:
                 self.send_message(
@@ -463,7 +456,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             if channel is None or not channel.wait_open(timeout=self._channel_open_timeout):
                 self.send_message(file_err(rid, 'io', 'channel not open', ch))
                 return
-            out_fp, tmp_path = self._open_temp_file(dest_path)
+            out_fp = open(dest_path, 'wb')
             self.send_message(file_put_ok(rid, ch))
             hash_obj = hashlib.sha256()
             self._recv_to_file(channel, out_fp, size, timeout=None, hash_obj=hash_obj)
@@ -474,8 +467,6 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             self.send_message(file_hash_ok(rid, ch))
             out_fp.close()
             out_fp = None
-            self._replace_file(tmp_path, dest_path)
-            tmp_path = None
         except FileTransferError as e:
             self.send_message(file_err(rid, e.code, e.reason, ch))
         except Exception as e:
@@ -483,8 +474,6 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         finally:
             if out_fp is not None:
                 out_fp.close()
-            if tmp_path is not None:
-                self._safe_remove(tmp_path)
             if channel is not None:
                 channel.close()
             self._clear_active(rid)
@@ -554,33 +543,6 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             remaining -= len(chunk)
             if stats is not None:
                 stats.update(len(chunk))
-
-    def _open_temp_file(self, dest_path):
-        """Create temp file in same directory as destination."""
-        dest_dir = os.path.dirname(dest_path)
-        if dest_dir:
-            fd, tmp_path = tempfile.mkstemp(prefix='.sfb-', dir=dest_dir)
-        else:
-            fd, tmp_path = tempfile.mkstemp(prefix='.sfb-')
-        return os.fdopen(fd, 'wb'), tmp_path
-
-    def _replace_file(self, src, dst):
-        """Atomically replace destination with source."""
-        try:
-            os.replace(src, dst)
-        except AttributeError:
-            # Python 2 fallback
-            if os.path.exists(dst):
-                os.remove(dst)
-            os.rename(src, dst)
-
-    def _safe_remove(self, path):
-        """Remove file, ignoring errors."""
-        try:
-            if path and os.path.exists(path):
-                os.remove(path)
-        except OSError:
-            pass
 
     # -------------------------------------------------------------------------
     # Active transfer management

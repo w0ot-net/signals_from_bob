@@ -242,6 +242,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             if channel is not None:
                 channel.close()
             self._clear_active(rid)
+            self._clear_hash_state(rid)
             self._current_stats = None
 
     def put(self, local_path, remote_path, timeout=None):
@@ -593,3 +594,9 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             event = self._hash_events.pop(rid, None)
         if event is not None:
             event.set()
+
+    def _clear_hash_state(self, rid):
+        """Remove any stored hash value or waiter for this request."""
+        with self._hash_lock:
+            self._hash_values.pop(rid, None)
+            self._hash_events.pop(rid, None)

@@ -53,9 +53,18 @@ Current structured events (non-exhaustive):
 - `channel.close`
 - `channel.close_in`
 - `channel.close_ok`
+- `channel.send_buf_full`
+- `channel.send_buf_high`
 - `sock.connect`
 - `sock.connect_ok`
 - `sock.connect_err`
+- `dns.send`
+- `dns.recv`
+- `dns.send_empty`
+- `dns.cname_followup`
+- `dns.error_response`
+- `dns.send_blocked`
+- `dns.prune_stale`
 
 ## Useful Queries
 
@@ -113,6 +122,36 @@ FROM logs
 WHERE event = 'tunnel.retransmit'
 ORDER BY id DESC
 LIMIT 50;
+```
+
+DNS send/recv:
+
+```
+SELECT id, datetime(created, 'unixepoch'), event, fields
+FROM logs
+WHERE event IN ('dns.send', 'dns.recv', 'dns.error_response')
+ORDER BY id DESC
+LIMIT 100;
+```
+
+DNS blocked or stale:
+
+```
+SELECT id, datetime(created, 'unixepoch'), event, fields
+FROM logs
+WHERE event IN ('dns.send_blocked', 'dns.prune_stale')
+ORDER BY id DESC
+LIMIT 100;
+```
+
+Channel buffer pressure:
+
+```
+SELECT id, datetime(created, 'unixepoch'), event, fields
+FROM logs
+WHERE event IN ('channel.send_buf_full', 'channel.send_buf_high')
+ORDER BY id DESC
+LIMIT 100;
 ```
 
 MTU negotiation:

@@ -8,6 +8,7 @@ Supports pipelining with multiple in-flight queries.
 
 from __future__ import absolute_import
 
+import logging
 import os
 import random
 import select
@@ -19,7 +20,7 @@ from ..transport_base import Transport, TransportError, PendingTracker, TokenBuc
 from . import codec
 from ...compat import require_bytes
 from ...config import Config
-from ...logging_util import get_logger
+from ...logging_util import get_logger, log_event
 
 
 class _PendingQuery(object):
@@ -149,6 +150,16 @@ class DnsClient(Transport):
             TransportError: on I/O failure or MTU exceeded
         """
         if not self.can_send():
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'dns.send_blocked',
+                'DNS send blocked',
+                {
+                    'pending': self.pending_count(),
+                    'max_pending': self._max_pending,
+                },
+            )
             raise TransportError('Rate limit exceeded or too many pending queries')
         data = require_bytes(data)
         if len(data) > self._send_mtu:
@@ -185,6 +196,20 @@ class DnsClient(Transport):
         if self._rate_limiter is not None:
             self._rate_limiter.take(1.0, now=time.time())
 
+        log_event(
+            _LOG,
+            logging.DEBUG,
+            'dns.send',
+            'DNS query sent',
+            {
+                'corr_id': corr_id,
+                'dns_id': dns_id,
+                'resolver': '%s:%d' % (self._resolver[0], self._resolver[1]),
+                'bytes': len(query_pkt),
+                'payload_bytes': len(data),
+                'pending': self.pending_count(),
+            },
+        )
         return corr_id
 
     def recv(self, timeout=None):
@@ -268,6 +293,13 @@ class DnsClient(Transport):
 
         if payload is None:
             _LOG.debug('dns error response corr=%d dns_id=%d', corr_id, dns_id)
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'dns.error_response',
+                'DNS error response',
+                {'corr_id': corr_id, 'dns_id': dns_id},
+            )
             return (None, None)  # RCODE error, drop
 
         # Clean up tracking
@@ -275,6 +307,13 @@ class DnsClient(Transport):
         del self._dns_to_corr[dns_id]
 
         _LOG.debug('dns recv corr=%d dns_id=%d len=%d', corr_id, dns_id, len(payload))
+        log_event(
+            _LOG,
+            logging.DEBUG,
+            'dns.recv',
+            'DNS response received',
+            {'corr_id': corr_id, 'dns_id': dns_id, 'bytes': len(payload)},
+        )
         return (corr_id, payload)
 
     def _prune_stale(self, now=None):
@@ -282,6 +321,14 @@ class DnsClient(Transport):
         if now is None:
             now = time.time()
         stale = self._pending.prune(now=now)
+        if stale:
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'dns.prune_stale',
+                'Pruned stale DNS queries',
+                {'count': len(stale)},
+            )
         for cid, pending in stale:
             dns_id = pending.dns_id
             self._dns_to_corr.pop(dns_id, None)

@@ -12,9 +12,13 @@ Each channel has:
 from __future__ import absolute_import
 
 import collections
+import logging
 import threading
 
 from ..compat import require_bytes, to_native_str
+from ..logging_util import log_event
+
+logger = logging.getLogger(__name__)
 
 
 # Channel states
@@ -120,6 +124,13 @@ class Channel(object):
 
             current_size = self._send_buf_size
             if current_size >= self._max_send_buf:
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    'channel.send_buf_full',
+                    'Send buffer full',
+                    {'ch': self.id, 'size': current_size, 'max': self._max_send_buf},
+                )
                 raise ChannelError('buffer_full', 'Send buffer full')
 
             # Limit to available space
@@ -127,6 +138,20 @@ class Channel(object):
             to_queue = data[:available]
             self._send_buf.append(bytes(to_queue))
             self._send_buf_size += len(to_queue)
+            if len(to_queue) < len(data):
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    'channel.send_buf_high',
+                    'Send buffer near capacity',
+                    {
+                        'ch': self.id,
+                        'queued': len(to_queue),
+                        'attempted': len(data),
+                        'size': self._send_buf_size,
+                        'max': self._max_send_buf,
+                    },
+                )
             return len(to_queue)
 
     def write_wait(self, data, timeout=None):

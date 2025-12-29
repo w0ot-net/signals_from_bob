@@ -7,6 +7,7 @@ Receives tunnel packets from DNS A queries and sends CNAME responses.
 
 from __future__ import absolute_import
 
+import logging
 import select
 import socket
 import struct
@@ -14,7 +15,7 @@ import struct
 from ..transport_base import Server, TransportError
 from . import codec
 from ...config import Config
-from ...logging_util import get_logger
+from ...logging_util import get_logger, log_event
 
 
 class DnsServer(Server):
@@ -159,6 +160,17 @@ class DnsServer(Server):
                           _qtype=qtype, _addr=client_addr):
                 self._send_response(_qid, _qname, _qtype, response_data, _addr)
 
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'dns.recv',
+                'DNS query received',
+                {
+                    'dns_id': query_id,
+                    'addr': '%s:%d' % (client_addr[0], client_addr[1]),
+                    'bytes': len(data),
+                },
+            )
             return data, responder
 
     def _parse_query(self, data):
@@ -252,6 +264,18 @@ class DnsServer(Server):
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'dns.send',
+            'DNS response sent',
+            {
+                'dns_id': query_id,
+                'addr': '%s:%d' % (addr[0], addr[1]),
+                'bytes': len(response),
+                'payload_bytes': len(data),
+            },
+        )
 
     def _send_empty_response(self, query_id, qname, qtype, addr):
         """Send NOERROR response with no answers (NODATA) and SOA in authority."""
@@ -285,6 +309,17 @@ class DnsServer(Server):
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'dns.send_empty',
+            'DNS empty response sent',
+            {
+                'dns_id': query_id,
+                'addr': '%s:%d' % (addr[0], addr[1]),
+                'bytes': len(response),
+            },
+        )
 
     def _send_cname_followup(self, query_id, qname, qtype, addr):
         """Respond to resolver follow-up queries for CNAME targets."""
@@ -330,6 +365,17 @@ class DnsServer(Server):
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'dns.cname_followup',
+            'DNS CNAME followup sent',
+            {
+                'dns_id': query_id,
+                'addr': '%s:%d' % (addr[0], addr[1]),
+                'bytes': len(response),
+            },
+        )
 
     def _build_soa_record(self):
         """Build a minimal SOA record for authority section with TTL=0."""

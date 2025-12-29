@@ -37,6 +37,7 @@ from ..protocol import (
     PACKET_HEADER_SIZE,
 )
 from ..reliability import SendWindow, RecvWindow, ReliabilityStats, NoopReliabilityStats
+from ..logging_util import log_event
 
 
 try:
@@ -212,6 +213,13 @@ class BaseTunnel(object):
         old_state = self._state
         self._state = new_state
         self._logger.debug('State: %s -> %s', old_state, new_state)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.state',
+            'Tunnel state change',
+            {'from': old_state, 'to': new_state},
+        )
 
     def _generate_isn(self):
         """Generate initial sequence number."""

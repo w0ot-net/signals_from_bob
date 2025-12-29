@@ -650,6 +650,6 @@ class BaseTunnel(object):
         """Enable and return the module loader service."""
         if self._module_loader is not None:
             return self._module_loader
-        from ..modules import ModuleLoader
+        from .module_loader import ModuleLoader
         self._module_loader = ModuleLoader(self, logger=logger or self._logger)
         return self._module_loader

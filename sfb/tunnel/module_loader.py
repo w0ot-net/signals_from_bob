@@ -12,7 +12,12 @@ from __future__ import absolute_import
 import logging
 import threading
 
-from .module_control_messages import T_MOD, mod_load, mod_load_ok, mod_load_err
+from ..modules.module_control_messages import (
+    T_MOD,
+    mod_load,
+    mod_load_ok,
+    mod_load_err,
+)
 
 
 class ModuleLoadError(Exception):
@@ -64,7 +69,7 @@ class ModuleLoader(object):
     def _handle_load(self, msg):
         """Handle module load request."""
         # Late import to avoid circular dependency
-        from . import AVAILABLE_MODULES
+        from ..modules import AVAILABLE_MODULES
 
         name = msg.get('name')
         if not name:

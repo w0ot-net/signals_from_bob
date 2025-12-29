@@ -15,6 +15,7 @@ from .base_tunnel import (
 )
 from .alice_tunnel import AliceTunnel
 from .bob_tunnel import BobTunnel
+from .module_loader import ModuleLoader, ModuleLoadError
 
 __all__ = [
     'BaseTunnel',
@@ -22,4 +23,6 @@ __all__ = [
     'BobTunnel',
     'TunnelError',
     'TunnelState',
+    'ModuleLoader',
+    'ModuleLoadError',
 ]

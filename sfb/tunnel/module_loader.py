@@ -12,12 +12,7 @@ from __future__ import absolute_import
 import logging
 import threading
 
-from ..modules.module_control_messages import (
-    T_MOD,
-    mod_load,
-    mod_load_ok,
-    mod_load_err,
-)
+from .tunnel_control_messages import T_MOD, mod_load, mod_load_ok, mod_load_err
 
 
 class ModuleLoadError(Exception):

@@ -66,12 +66,22 @@ class DnsServer(Server):
             raise
 
         # Calculate MTUs
-        self._recv_mtu = codec.calc_query_mtu(self._base_domain,
-                                              self._label_max_len)
-        self._send_mtu = codec.calc_response_mtu(self._rtype,
-                                                 config.dns_edns_size,
-                                                 self._cname_suffix,
-                                                 self._label_max_len)
+        if self._rtype == codec.QTYPE_CNAME and config.dns_edns_size <= 512:
+            query_mtu, resp_mtu = codec.calc_cname_mtu_pair(
+                self._base_domain,
+                self._cname_suffix,
+                self._label_max_len,
+                config.dns_edns_size,
+            )
+            self._recv_mtu = query_mtu
+            self._send_mtu = resp_mtu
+        else:
+            self._recv_mtu = codec.calc_query_mtu(self._base_domain,
+                                                  self._label_max_len)
+            self._send_mtu = codec.calc_response_mtu(self._rtype,
+                                                     config.dns_edns_size,
+                                                     self._cname_suffix,
+                                                     self._label_max_len)
         self._logger = get_logger(__name__)
         self._logger.debug(
             'DnsServer MTU calc: base_domain=%r label_max=%d recv_mtu=%d send_mtu=%d',

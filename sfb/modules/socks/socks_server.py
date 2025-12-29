@@ -83,6 +83,7 @@ class SocksServerModule(BaseModule):
     TYPE = T_SOCK
     DEFAULT_COMMAND = 'start'
     REQUIRES_COMMAND = True
+    REMOTE_MODULE = 'socks_relay'
 
     @classmethod
     def register_commands(cls, subparsers, role, config=None):

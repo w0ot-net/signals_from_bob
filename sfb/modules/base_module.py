@@ -76,6 +76,7 @@ class BaseModule(object):
     TYPE = None  # Subclass must override
     DEFAULT_COMMAND = None
     REQUIRES_COMMAND = False
+    REMOTE_MODULE = None
 
     @classmethod
     def register_commands(cls, subparsers, role, config=None):

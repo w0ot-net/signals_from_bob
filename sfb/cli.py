@@ -282,14 +282,14 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
 
         logger.info('Client connected')
 
-        # Load module on peer
         module_name = args.module
-        logger.info('Loading module %s on peer...', module_name)
-        module_loader.load_remote(module_name)
-        logger.info('Module %s loaded', module_name)
+        module_cls = AVAILABLE_MODULES[module_name]
+        remote_module = module_cls.REMOTE_MODULE or module_name
+        logger.info('Loading module %s on peer...', remote_module)
+        module_loader.load_remote(remote_module)
+        logger.info('Module %s loaded', remote_module)
 
         # Allow module message type
-        module_cls = AVAILABLE_MODULES[module_name]
         tunnel.allow_message_type(module_cls.TYPE)
 
         if getattr(args, 'command', None) is None:

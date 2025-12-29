@@ -91,6 +91,7 @@ class SocksRelayModule(BaseModule):
         if not channel.wait_open(timeout=self._config.socks_channel_open_timeout):
             self._logger.warning('Channel %d failed to open', ch)
             self.send_message(sock_err(rid, ch, 'general', 'channel open failed'))
+            channel.close()
             return
 
         # Make TCP connection to target

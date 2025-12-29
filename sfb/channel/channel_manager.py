@@ -139,6 +139,8 @@ class ChannelManager(object):
             channel = self._channels.get(channel_id)
 
         if channel is not None:
+            if channel._close_callback is None:
+                channel._close_callback = self._on_channel_close
             channel.close()
 
     def _on_channel_close(self, channel_id):

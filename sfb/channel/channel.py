@@ -323,7 +323,7 @@ class Channel(object):
         with self._lock:
             if self.state in (STATE_CLOSED, STATE_CLOSING):
                 return
-            if self.state == STATE_OPEN:
+            if self.state in (STATE_OPEN, STATE_OPENING):
                 self.state = STATE_CLOSING
                 callback = self._close_callback
             else:

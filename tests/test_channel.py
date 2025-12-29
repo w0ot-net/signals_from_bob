@@ -65,6 +65,15 @@ class ChannelTests(unittest.TestCase):
         self.assertTrue(ch.wait_closed(timeout=0.1))
         self.assertTrue(ch.is_closed)
 
+    def test_close_opening_triggers_callback(self):
+        ch = Channel(1)
+        called = []
+        ch._close_callback = lambda cid: called.append(cid)
+        ch._set_state(STATE_OPENING)
+        ch.close()
+        self.assertEqual(ch.state, STATE_CLOSING)
+        self.assertEqual(called, [1])
+
     def test_read_closed_with_error(self):
         ch = Channel(1)
         ch._set_state(STATE_CLOSED, error='boom')

@@ -69,8 +69,12 @@ def add_common_args(parser):
 def add_dns_server_args(parser):
     """Add DNS server-specific arguments."""
     parser.add_argument(
-        '--listen', default='0.0.0.0:53',
-        help='Listen address as host:port (default: 0.0.0.0:53)'
+        '--dns_host', default='0.0.0.0',
+        help='DNS server listen address (default: 0.0.0.0)'
+    )
+    parser.add_argument(
+        '--dns_port', type=int, default=53,
+        help='DNS server listen port (default: 53)'
     )
     parser.add_argument(
         '--idle-timeout', type=int, default=300,
@@ -169,7 +173,9 @@ def create_config(args):
     # DNS transport args
     if args.transport == 'dns':
         if args.role == 'server':
-            config_kwargs['dns_listen_addr'] = args.listen
+            host = getattr(args, 'dns_host', '0.0.0.0')
+            port = getattr(args, 'dns_port', 53)
+            config_kwargs['dns_listen_addr'] = '%s:%d' % (host, port)
             config_kwargs['tunnel_idle_timeout'] = float(args.idle_timeout)
         else:
             config_kwargs['dns_resolver'] = getattr(args, 'resolver', None)
@@ -230,8 +236,9 @@ def run_server(args, config, crypto, logger):
 
 def run_server_passive(args, tunnel, logger):
     """Run server in passive mode (no command, just wait for connections)."""
-    listen = getattr(args, 'listen', '0.0.0.0:53')
-    logger.info('Listening on %s for domain %s (passive mode)', listen, args.domain)
+    host = getattr(args, 'dns_host', '0.0.0.0')
+    port = getattr(args, 'dns_port', 53)
+    logger.info('Listening on %s:%d for domain %s (passive mode)', host, port, args.domain)
     try:
         tunnel.serve_forever()
     except Exception as e:
@@ -252,8 +259,9 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
         tunnel.start_background()
 
         # Wait for client to connect
-        listen = getattr(args, 'listen', '0.0.0.0:53')
-        logger.info('Waiting for client on %s...', listen)
+        host = getattr(args, 'dns_host', '0.0.0.0')
+        port = getattr(args, 'dns_port', 53)
+        logger.info('Waiting for client on %s:%d...', host, port)
         while tunnel._state != TunnelState.CONNECTED:
             if shutdown_requested[0]:
                 return 1

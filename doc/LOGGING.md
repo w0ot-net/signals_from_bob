@@ -64,6 +64,8 @@ Current structured events (non-exhaustive):
 - `dns.send_empty`
 - `dns.cname_followup`
 - `dns.error_response`
+- `dns.malformed_response`
+- `dns.stale_response`
 - `dns.send_blocked`
 - `dns.prune_stale`
 - `tunnel.send_blocked`
@@ -131,7 +133,7 @@ DNS send/recv:
 ```
 SELECT id, datetime(created, 'unixepoch'), event, fields
 FROM logs
-WHERE event IN ('dns.send', 'dns.recv', 'dns.error_response')
+WHERE event IN ('dns.send', 'dns.recv', 'dns.error_response', 'dns.malformed_response', 'dns.stale_response')
 ORDER BY id DESC
 LIMIT 100;
 ```

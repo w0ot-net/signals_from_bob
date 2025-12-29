@@ -70,6 +70,9 @@ class DnsServer(Server):
                                                  config.dns_edns_size,
                                                  self._cname_suffix,
                                                  self._label_max_len)
+        _LOG = get_logger(__name__)
+        _LOG.debug('DnsServer MTU calc: base_domain=%r label_max=%d recv_mtu=%d send_mtu=%d',
+                   self._base_domain, self._label_max_len, self._recv_mtu, self._send_mtu)
 
     @property
     def recv_mtu(self):

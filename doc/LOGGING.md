@@ -55,6 +55,7 @@ Current structured events (non-exhaustive):
 - `channel.close_ok`
 - `channel.send_buf_full`
 - `channel.send_buf_high`
+- `channel.pack`
 - `sock.connect`
 - `sock.connect_ok`
 - `sock.connect_err`
@@ -65,6 +66,7 @@ Current structured events (non-exhaustive):
 - `dns.error_response`
 - `dns.send_blocked`
 - `dns.prune_stale`
+- `tunnel.send_blocked`
 
 ## Useful Queries
 
@@ -150,6 +152,26 @@ Channel buffer pressure:
 SELECT id, datetime(created, 'unixepoch'), event, fields
 FROM logs
 WHERE event IN ('channel.send_buf_full', 'channel.send_buf_high')
+ORDER BY id DESC
+LIMIT 100;
+```
+
+Segment packing:
+
+```
+SELECT id, datetime(created, 'unixepoch'), event, fields
+FROM logs
+WHERE event = 'channel.pack'
+ORDER BY id DESC
+LIMIT 100;
+```
+
+Send blocked:
+
+```
+SELECT id, datetime(created, 'unixepoch'), event, fields
+FROM logs
+WHERE event = 'tunnel.send_blocked'
 ORDER BY id DESC
 LIMIT 100;
 ```

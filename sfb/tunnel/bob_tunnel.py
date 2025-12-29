@@ -247,6 +247,17 @@ class BobTunnel(BaseTunnel):
             # Window full but no unacked? Shouldn't happen - log and send pong
             # to maintain request/response contract
             self._logger.error('Send window full but no unacked packets')
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Send window full',
+                {
+                    'unacked': self._send_window.unacked_count,
+                    'max_in_flight': self._send_window._max_in_flight,
+                    'side': 'bob',
+                },
+            )
             max_payload = self._send_mtu
             segments = self._collect_segments(
                 max_payload,

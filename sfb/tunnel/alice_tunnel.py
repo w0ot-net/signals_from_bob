@@ -379,12 +379,41 @@ class AliceTunnel(BaseTunnel):
     def _can_send_new(self):
         """Check if we can send a new packet."""
         if not self._send_window.can_send:
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Send window full',
+                {
+                    'unacked': self._send_window.unacked_count,
+                    'max_in_flight': self._send_window._max_in_flight,
+                    'side': 'alice',
+                },
+            )
             return False
-        return self._transport.can_send()
+        can_send = self._transport.can_send()
+        if not can_send:
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Transport cannot send',
+                {'side': 'alice'},
+            )
+        return can_send
 
     def _can_send_retransmit(self):
         """Check if we can send a retransmit packet."""
-        return self._transport.can_send()
+        can_send = self._transport.can_send()
+        if not can_send:
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Transport cannot send',
+                {'side': 'alice'},
+            )
+        return can_send
 
     def _send_new_packet(self, segments, now):
         """Send a new packet with given segments."""

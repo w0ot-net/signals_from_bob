@@ -293,6 +293,24 @@ class ChannelManager(object):
             if len(keepalive_data) <= remaining - SEGMENT_HEADER_SIZE:
                 segments.append(Segment(CHANNEL_CONTROL, keepalive_data))
 
+        if segments or keepalive_data:
+            payload_bytes = 0
+            for seg in segments:
+                payload_bytes += len(seg.data)
+            log_event(
+                logger,
+                logging.DEBUG,
+                'channel.pack',
+                'Packed segments',
+                {
+                    'seg_count': len(segments),
+                    'payload_bytes': payload_bytes,
+                    'max_payload': max_payload,
+                    'keepalive': bool(keepalive_data),
+                    'side': 'alice' if self._is_alice else 'bob',
+                },
+            )
+
         return segments
 
     def _allocate_id(self):

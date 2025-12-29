@@ -49,6 +49,7 @@ class SocksRelayModule(BaseModule):
         # Active connections: ch -> _RelayConnection
         self._connections = {}
         self._connections_lock = threading.Lock()
+        self._pending_connects = set()
 
     def shutdown(self):
         """Stop module and clean up connections."""
@@ -87,11 +88,37 @@ class SocksRelayModule(BaseModule):
             self.send_message(sock_err(rid, ch, 'general', 'channel not found'))
             return
 
+        # Deduplicate connect requests per channel
+        reuse_sock = None
+        pending = False
+        with self._connections_lock:
+            existing = self._connections.get(ch)
+            if existing is not None:
+                reuse_sock = existing.sock
+            elif ch in self._pending_connects:
+                pending = True
+            else:
+                self._pending_connects.add(ch)
+
+        if reuse_sock is not None:
+            try:
+                bind_host, bind_port = reuse_sock.getsockname()
+            except Exception:
+                bind_host, bind_port = '0.0.0.0', 0
+            self._logger.debug('Duplicate connect for ch=%d, reusing session', ch)
+            self.send_message(sock_connect_ok(rid, ch, bind_host, bind_port))
+            return
+        if pending:
+            self._logger.debug('Duplicate connect for ch=%d while pending', ch)
+            return
+
         # Wait for channel to open
         if not channel.wait_open(timeout=self._config.socks_channel_open_timeout):
             self._logger.warning('Channel %d failed to open', ch)
             self.send_message(sock_err(rid, ch, 'general', 'channel open failed'))
             channel.close()
+            with self._connections_lock:
+                self._pending_connects.discard(ch)
             return
 
         # Make TCP connection to target
@@ -102,11 +129,15 @@ class SocksRelayModule(BaseModule):
             self._logger.info('DNS resolution failed for %s: %s', host, e)
             self.send_message(sock_err(rid, ch, 'unreachable_host', str(e)))
             channel.close()
+            with self._connections_lock:
+                self._pending_connects.discard(ch)
             return
         except socket.timeout:
             self._logger.info('Connection to %s:%d timed out', host, port)
             self.send_message(sock_err(rid, ch, 'timeout', 'connection timeout'))
             channel.close()
+            with self._connections_lock:
+                self._pending_connects.discard(ch)
             return
         except socket.error as e:
             if e.errno == errno.ECONNREFUSED:
@@ -122,11 +153,15 @@ class SocksRelayModule(BaseModule):
                 self._logger.info('Connection to %s:%d failed: %s', host, port, e)
                 self.send_message(sock_err(rid, ch, 'general', str(e)))
             channel.close()
+            with self._connections_lock:
+                self._pending_connects.discard(ch)
             return
         except Exception as e:
             self._logger.exception('Unexpected error connecting to %s:%d', host, port)
             self.send_message(sock_err(rid, ch, 'general', str(e)))
             channel.close()
+            with self._connections_lock:
+                self._pending_connects.discard(ch)
             return
 
         # Get bound address for SOCKS reply
@@ -144,6 +179,7 @@ class SocksRelayModule(BaseModule):
                                 self._logger, self._config)
         with self._connections_lock:
             self._connections[ch] = conn
+            self._pending_connects.discard(ch)
 
         # Send success response
         self.send_message(sock_connect_ok(rid, ch, bind_host, bind_port))

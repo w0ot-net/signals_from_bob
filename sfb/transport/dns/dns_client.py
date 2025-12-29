@@ -17,6 +17,7 @@ import time
 
 from ..transport_base import Transport, TransportError
 from . import codec
+from ...compat import require_bytes
 from ...config import Config
 from ...logging_util import get_logger
 
@@ -153,6 +154,9 @@ class DnsClient(Transport):
         Raises:
             TransportError: on I/O failure or MTU exceeded
         """
+        if not self.can_send():
+            raise TransportError('Rate limit exceeded or too many pending queries')
+        data = require_bytes(data)
         if len(data) > self._send_mtu:
             raise TransportError(
                 'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
@@ -253,8 +257,8 @@ class DnsClient(Transport):
         """
         try:
             resp_data, addr = self._sock.recvfrom(self._recv_bufsize)
-        except socket.error:
-            return (None, None)
+        except socket.error as e:
+            raise TransportError('Receive failed: %s' % e)
 
         result = self._parse_response(resp_data)
         if result is None:

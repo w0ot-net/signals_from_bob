@@ -29,6 +29,13 @@ Bob (`logs/server_log.db`):
 - `tunnel.retransmit` repeats for the same `seq` (e.g. 26) for an extended span.
 - Packet send appears to continue, but ACKs do not advance.
 
+Cross-side correlation (generic):
+- During the retransmit storm window on Bob, ACK does not advance.
+- Bob continues to receive packets (client -> server traffic still flows).
+- Alice stops receiving any packets during the same time window.
+  This indicates a one-way stall: server -> client delivery breaks while
+  client -> server continues.
+
 ## What We Think This Means
 
 The failure is not a channel state mismatch. It looks like a backpressure

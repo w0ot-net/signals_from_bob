@@ -290,6 +290,12 @@ class BobTunnel(BaseTunnel):
         self._allowed_message_types.add(msg_type)
         self._logger.debug('Allowed message type: %s', msg_type)
 
+    def enable_module_loader(self, logger=None):
+        """Enable module loader and allow 'mod' messages."""
+        loader = super(BobTunnel, self).enable_module_loader(logger=logger)
+        self.allow_message_type('mod')
+        return loader
+
     def _dispatch_control_message(self, msg):
         """
         Dispatch a control message with security filtering.

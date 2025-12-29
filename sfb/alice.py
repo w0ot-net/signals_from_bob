@@ -13,7 +13,6 @@ from .config import Config
 from .crypto import Plain, XOR
 from .transport.dns import DnsClient
 from .tunnel import AliceTunnel, TunnelState
-from .modules import ModuleLoader
 
 
 def main():
@@ -46,7 +45,6 @@ def main():
     # Components
     transport = DnsClient(config)
     tunnel = AliceTunnel(transport, config, crypto=crypto)
-    module_loader = None
 
     # Signal handling
     shutdown_requested = [False]  # Use list for mutable closure
@@ -72,8 +70,6 @@ def main():
         # Start background tick loop
         tunnel.start_background()
 
-        # Create module loader to handle Bob's module load requests
-        module_loader = ModuleLoader(tunnel, logger=logger)
         logger.info('Waiting for commands from Bob...')
 
         # Run until connection closes or signal received
@@ -89,8 +85,6 @@ def main():
         return 1
 
     finally:
-        if module_loader:
-            module_loader.shutdown()
         tunnel.close()  # This also stops the background thread
         logger.info('Shutdown complete')
 

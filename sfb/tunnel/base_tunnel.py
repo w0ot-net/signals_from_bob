@@ -127,6 +127,7 @@ class BaseTunnel(object):
         # Module handlers for control message dispatch
         # Maps message type (t field) to handler callable
         self._module_handlers = {}
+        self._module_loader = None
 
         # Statistics
         self._packets_sent = 0
@@ -160,6 +161,11 @@ class BaseTunnel(object):
     def control(self):
         """Control channel (channel 0)."""
         return self._channel_manager.control
+
+    @property
+    def module_loader(self):
+        """Module loader instance if enabled."""
+        return self._module_loader
 
     @property
     def negotiated_mtu(self):
@@ -635,5 +641,15 @@ class BaseTunnel(object):
             return
 
         self.stop_background()
+        if self._module_loader is not None:
+            self._module_loader.shutdown()
         self._set_state(TunnelState.CLOSED)
         self._logger.info('Tunnel closed')
+
+    def enable_module_loader(self, logger=None):
+        """Enable and return the module loader service."""
+        if self._module_loader is not None:
+            return self._module_loader
+        from ..modules import ModuleLoader
+        self._module_loader = ModuleLoader(self, logger=logger or self._logger)
+        return self._module_loader

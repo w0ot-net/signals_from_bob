@@ -92,6 +92,9 @@ class AliceTunnel(BaseTunnel):
         self._last_ack_progress_time = 0
         self._ack_progressed = False
 
+        # Enable module loader for handling Bob's module requests.
+        self.enable_module_loader()
+
     @property
     def rtt_estimator(self):
         """RTT estimator instance."""

@@ -984,5 +984,23 @@ class MessageFactoryTests(unittest.TestCase):
         self.assertNotIn(b', ', encoded)
 
 
+class ModuleLoaderTest(unittest.TestCase):
+    def test_alice_enables_module_loader(self):
+        config = make_test_config()
+        transport = MockTransport()
+        alice = AliceTunnel(transport, config, crypto=Plain())
+        self.assertIsNotNone(alice.module_loader)
+
+    def test_bob_enable_module_loader_allows_mod(self):
+        config = make_test_config()
+        server = MockServer()
+        bob = BobTunnel(server, config, crypto=Plain())
+        self.assertIsNone(bob.module_loader)
+        self.assertNotIn('mod', bob._allowed_message_types)
+        bob.enable_module_loader()
+        self.assertIsNotNone(bob.module_loader)
+        self.assertIn('mod', bob._allowed_message_types)
+
+
 if __name__ == '__main__':
     unittest.main()

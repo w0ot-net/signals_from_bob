@@ -14,7 +14,7 @@ from .config import Config
 from .crypto import Plain, XOR
 from .transport.dns import DnsServer
 from .tunnel import BobTunnel, TunnelState
-from .modules import ModuleLoader, FileTransferModule
+from .modules import FileTransferModule
 
 
 def main():
@@ -95,12 +95,10 @@ def run_serve_mode(args, tunnel, logger):
 
 def run_command_mode(args, tunnel, logger, shutdown_requested):
     """Run in command mode - wait for Alice, load module, execute command."""
-    module_loader = None
     file_module = None
 
     try:
-        # Allow 'mod' messages for module loading responses
-        tunnel.allow_message_type('mod')
+        module_loader = tunnel.enable_module_loader(logger=logger)
 
         # Start background serve loop
         tunnel.start_background()
@@ -120,7 +118,6 @@ def run_command_mode(args, tunnel, logger, shutdown_requested):
         logger.info('Alice connected')
 
         # Create module loader and request module load on Alice
-        module_loader = ModuleLoader(tunnel, logger=logger)
         module_name = args.module
         logger.info('Loading module %s on Alice...', module_name)
         module_loader.load_remote(module_name, timeout=timeout)
@@ -167,8 +164,6 @@ def run_command_mode(args, tunnel, logger, shutdown_requested):
     finally:
         if file_module:
             file_module.shutdown()
-        if module_loader:
-            module_loader.shutdown()
         tunnel.close()  # This also stops the background thread
         logger.info('Shutdown complete')
 

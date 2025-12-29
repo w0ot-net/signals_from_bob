@@ -8,6 +8,7 @@ pipelined request/response transport.
 
 from __future__ import absolute_import
 
+import json
 import time
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
@@ -281,15 +282,17 @@ class AliceTunnel(BaseTunnel):
 
         # 1. Receive all available responses
         received_any = False
+        received_valid = False
         self._got_data = False  # Reset - will be set if we get non-pong data
         while True:
             corr_id, data = self._transport.recv(timeout=0)
             if corr_id is None:
                 break
-            self._handle_response(data, now)
+            if self._handle_response(data, now):
+                received_valid = True
             received_any = True
 
-        if received_any:
+        if received_valid:
             self._packets_since_response = 0
             # Clear pending data flag if all data has been acked
             if self._send_window.unacked_count == 0:
@@ -383,7 +386,7 @@ class AliceTunnel(BaseTunnel):
         """Handle a transport response."""
         packet = self._decode_packet(data)
         if packet is None:
-            return
+            return False
 
         self._bytes_received += len(data)
         self._last_recv_time = now
@@ -398,8 +401,18 @@ class AliceTunnel(BaseTunnel):
             else:
                 # Control segment - check if it's not just pong
                 # Control data is newline-delimited JSON
-                if b'"c":"pong"' not in seg.data and b'"c": "pong"' not in seg.data:
-                    self._got_data = True
+                lines = seg.data.split(b'\n')
+                for line in lines:
+                    if not line:
+                        continue
+                    try:
+                        msg = json.loads(line.decode('ascii'))
+                    except (ValueError, TypeError):
+                        self._got_data = True
+                        break
+                    if msg.get('t') != 'tun' or msg.get('c') != 'pong':
+                        self._got_data = True
+                        break
 
         prev_unacked = self._send_window.unacked_count
         rtt_samples = self._process_incoming_packet(packet, now=now)
@@ -410,6 +423,7 @@ class AliceTunnel(BaseTunnel):
 
         for sample in rtt_samples:
             self._rtt.add_sample(sample)
+        return True
 
     def _maybe_request_window(self, now):
         """Request a larger window if conditions allow."""

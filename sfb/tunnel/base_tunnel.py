@@ -39,6 +39,12 @@ from ..protocol import (
 from ..reliability import SendWindow, RecvWindow, ReliabilityStats, NoopReliabilityStats
 
 
+try:
+    integer_types = (int, long)
+except NameError:
+    integer_types = (int,)
+
+
 class TunnelState(object):
     """Tunnel connection states."""
     DISCONNECTED = 'disconnected'
@@ -467,8 +473,8 @@ class BaseTunnel(object):
         """
         requested_tx = msg.get('tx', self.DEFAULT_MTU)
         requested_rx = msg.get('rx', self.DEFAULT_MTU)
-        if (not isinstance(requested_tx, int) or requested_tx < 1 or
-                not isinstance(requested_rx, int) or requested_rx < 1):
+        if (not isinstance(requested_tx, integer_types) or requested_tx < 1 or
+                not isinstance(requested_rx, integer_types) or requested_rx < 1):
             self._logger.warning('Invalid MTU request: %s', msg)
             return
 
@@ -496,8 +502,8 @@ class BaseTunnel(object):
         """
         agreed_tx = msg.get('tx', self.DEFAULT_MTU)
         agreed_rx = msg.get('rx', self.DEFAULT_MTU)
-        if (not isinstance(agreed_tx, int) or agreed_tx < 1 or
-                not isinstance(agreed_rx, int) or agreed_rx < 1):
+        if (not isinstance(agreed_tx, integer_types) or agreed_tx < 1 or
+                not isinstance(agreed_rx, integer_types) or agreed_rx < 1):
             self._logger.warning('Invalid MTU response: %s', msg)
             return
 
@@ -542,7 +548,7 @@ class BaseTunnel(object):
         """
         self._logger.debug('RECV window request: %s', msg)
         requested = msg.get('size', self.DEFAULT_WINDOW)
-        if not isinstance(requested, int) or requested < 1:
+        if not isinstance(requested, integer_types) or requested < 1:
             self._logger.warning('Invalid window request: %s', requested)
             return
 
@@ -566,7 +572,7 @@ class BaseTunnel(object):
         """
         self._logger.debug('RECV window_ok: %s', msg)
         agreed = msg.get('size', self.DEFAULT_WINDOW)
-        if not isinstance(agreed, int) or agreed < 1:
+        if not isinstance(agreed, integer_types) or agreed < 1:
             self._logger.warning('Invalid window response: %s', agreed)
             return
 
@@ -603,7 +609,8 @@ class BaseTunnel(object):
             return  # Already running
 
         self._bg_stop = False
-        self._bg_thread = threading.Thread(target=self._bg_run, daemon=True)
+        self._bg_thread = threading.Thread(target=self._bg_run)
+        self._bg_thread.daemon = True
         self._bg_thread.start()
 
     def stop_background(self, timeout=2.0):

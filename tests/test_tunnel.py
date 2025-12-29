@@ -485,12 +485,11 @@ class RecvWindowIntegrationTests(unittest.TestCase):
 
         # First delivery should work
         tunnel._process_incoming_packet(pkt)
+        first_recv_size = tunnel.control._recv_buf_size
 
         # Second delivery of same seq should be filtered
-        initial_received = tunnel._packets_received
         tunnel._process_incoming_packet(pkt)
-        # packets_received still increments (it counts calls)
-        # but channel_manager shouldn't get duplicate data
+        self.assertEqual(tunnel.control._recv_buf_size, first_recv_size)
 
 
 class BobRetransmitTests(unittest.TestCase):

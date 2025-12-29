@@ -112,27 +112,63 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
 
     @classmethod
     def register_commands(cls, subparsers, role):
-        """Register CLI subcommands for file transfer.
+        """Register CLI subcommands for file transfer."""
+        list_p = subparsers.add_parser('list', help='List remote directory')
+        list_p.add_argument('path', help='Remote directory path')
+        list_p.add_argument('--timeout', type=float, default=None,
+                           help='Operation timeout in seconds (default: no timeout)')
 
-        Commands are registered for the server (Bob) since he's the controller.
-        """
-        if role == 'server':
-            list_p = subparsers.add_parser('list', help='List remote directory')
-            list_p.add_argument('path', help='Remote directory path')
-            list_p.add_argument('--timeout', type=float, default=None,
-                               help='Operation timeout in seconds (default: no timeout)')
+        get_p = subparsers.add_parser('get', help='Download file')
+        get_p.add_argument('remote', help='Remote file path')
+        get_p.add_argument('local', nargs='?', help='Local file path (default: same name)')
+        get_p.add_argument('--timeout', type=float, default=None,
+                           help='Operation timeout in seconds (default: no timeout)')
 
-            get_p = subparsers.add_parser('get', help='Download file')
-            get_p.add_argument('remote', help='Remote file path')
-            get_p.add_argument('local', nargs='?', help='Local file path (default: same name)')
-            get_p.add_argument('--timeout', type=float, default=None,
-                               help='Operation timeout in seconds (default: no timeout)')
+        put_p = subparsers.add_parser('put', help='Upload file')
+        put_p.add_argument('local', help='Local file path')
+        put_p.add_argument('remote', help='Remote file path')
+        put_p.add_argument('--timeout', type=float, default=None,
+                           help='Operation timeout in seconds (default: no timeout)')
 
-            put_p = subparsers.add_parser('put', help='Upload file')
-            put_p.add_argument('local', help='Local file path')
-            put_p.add_argument('remote', help='Remote file path')
-            put_p.add_argument('--timeout', type=float, default=None,
-                               help='Operation timeout in seconds (default: no timeout)')
+    @classmethod
+    def run_command(cls, args, tunnel, logger):
+        """Execute a file transfer command."""
+        module = cls(tunnel, logger=logger)
+        timeout = getattr(args, 'timeout', None)
+        try:
+            if args.command == 'list':
+                result = module.list_dir(args.path, timeout=timeout)
+                for entry in result:
+                    if entry.get('dir'):
+                        print('d %10s %s/' % ('-', entry['name']))
+                    else:
+                        print('- %10d %s' % (entry.get('size', 0), entry['name']))
+
+            elif args.command == 'get':
+                local_path = args.local or os.path.basename(args.remote)
+                logger.info('Downloading %s -> %s', args.remote, local_path)
+                module.get(args.remote, local_path, timeout=timeout)
+                stats = module.last_stats
+                logger.info('Download complete: %s (%s)', local_path, stats)
+
+            elif args.command == 'put':
+                if not os.path.isfile(args.local):
+                    logger.error('Local file not found: %s', args.local)
+                    return 1
+                size = os.path.getsize(args.local)
+                logger.info('Uploading %s (%d bytes) -> %s',
+                            args.local, size, args.remote)
+                module.put(args.local, args.remote, timeout=timeout)
+                stats = module.last_stats
+                logger.info('Upload complete: %s (%s)', args.remote, stats)
+
+            else:
+                logger.error('Unknown command: %s', args.command)
+                return 1
+
+            return 0
+        finally:
+            module.shutdown()
 
     def __init__(self, tunnel, logger=None):
         super(FileTransferModule, self).__init__(tunnel, logger=logger)

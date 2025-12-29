@@ -29,6 +29,41 @@ from .lossy import (
     chaos,
 )
 
+from .dns import DnsClient, DnsServer
+
+
+def get_transport_class(name, role):
+    """
+    Get transport class for the given name and role.
+
+    Args:
+        name: Transport name ('dns', etc.)
+        role: 'client' or 'server'
+
+    Returns:
+        Transport class
+
+    Raises:
+        ValueError: If transport or role not found
+    """
+    if name not in TRANSPORTS:
+        raise ValueError('Unknown transport: %s (available: %s)' %
+                         (name, ', '.join(TRANSPORTS.keys())))
+    transport = TRANSPORTS[name]
+    if role not in transport:
+        raise ValueError('Transport %s does not support role: %s' % (name, role))
+    return transport[role]
+
+
+# Transport registry: name -> {role -> class}
+TRANSPORTS = {
+    'dns': {
+        'client': DnsClient,
+        'server': DnsServer,
+    },
+}
+
+
 __all__ = [
     'Transport',
     'Server',
@@ -43,4 +78,6 @@ __all__ = [
     'burst_loss',
     'extreme_conditions',
     'chaos',
+    'TRANSPORTS',
+    'get_transport_class',
 ]

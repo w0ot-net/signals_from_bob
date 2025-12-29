@@ -95,6 +95,23 @@ class SocksServerModule(BaseModule):
             help='SOCKS server listen port (default: 1080)'
         )
 
+    @classmethod
+    def run_command(cls, args, tunnel, logger):
+        """Start the SOCKS server and run until tunnel closes."""
+        import time
+        module = cls(tunnel, logger=logger)
+        try:
+            host = getattr(args, 'socks_host', '0.0.0.0')
+            port = getattr(args, 'socks_port', 1080)
+            module.start(listen_addr=host, listen_port=port)
+
+            # Wait for tunnel to close
+            while tunnel.is_connected:
+                time.sleep(0.1)
+            return 0
+        finally:
+            module.shutdown()
+
     def __init__(self, tunnel, logger=None):
         super(SocksServerModule, self).__init__(tunnel, logger=logger)
 

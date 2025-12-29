@@ -28,6 +28,20 @@ class SocksRelayModule(BaseModule):
 
     TYPE = T_SOCK
 
+    @classmethod
+    def run_command(cls, args, tunnel, logger):
+        """Run the relay (passive - just responds to requests)."""
+        import time
+        module = cls(tunnel, logger=logger)
+        logger.info('SOCKS relay ready')
+        try:
+            # Wait for tunnel to close
+            while tunnel.is_connected:
+                time.sleep(0.1)
+            return 0
+        finally:
+            module.shutdown()
+
     def __init__(self, tunnel, logger=None):
         super(SocksRelayModule, self).__init__(tunnel, logger=logger)
 

@@ -88,6 +88,25 @@ class BaseModule(object):
         """
         pass
 
+    @classmethod
+    def run_command(cls, args, tunnel, logger):
+        """
+        Execute a CLI command for this module.
+
+        Override in subclass to implement command execution. This is called
+        after the tunnel is connected and the module is loaded on the peer.
+
+        Args:
+            args: Parsed argparse namespace with command arguments.
+            tunnel: Connected tunnel instance.
+            logger: Logger for output.
+
+        Returns:
+            Exit code (0 for success).
+        """
+        logger.warning('Module %s does not implement run_command', cls.__name__)
+        return 1
+
     def __init__(self, tunnel, logger=None):
         """
         Initialize module and register with tunnel.

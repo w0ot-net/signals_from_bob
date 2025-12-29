@@ -100,10 +100,12 @@ class SocksRelayModule(BaseModule):
         except socket.gaierror as e:
             self._logger.info('DNS resolution failed for %s: %s', host, e)
             self.send_message(sock_err(rid, ch, 'unreachable_host', str(e)))
+            self._tunnel.channel_manager.close_channel(ch)
             return
         except socket.timeout:
             self._logger.info('Connection to %s:%d timed out', host, port)
             self.send_message(sock_err(rid, ch, 'timeout', 'connection timeout'))
+            self._tunnel.channel_manager.close_channel(ch)
             return
         except socket.error as e:
             if e.errno == errno.ECONNREFUSED:
@@ -118,10 +120,12 @@ class SocksRelayModule(BaseModule):
             else:
                 self._logger.info('Connection to %s:%d failed: %s', host, port, e)
                 self.send_message(sock_err(rid, ch, 'general', str(e)))
+            self._tunnel.channel_manager.close_channel(ch)
             return
         except Exception as e:
             self._logger.exception('Unexpected error connecting to %s:%d', host, port)
             self.send_message(sock_err(rid, ch, 'general', str(e)))
+            self._tunnel.channel_manager.close_channel(ch)
             return
 
         # Get bound address for SOCKS reply
@@ -136,7 +140,8 @@ class SocksRelayModule(BaseModule):
 
         # Create and register connection
         conn = _RelayConnection(rid, ch, channel, target_sock,
-                                self._logger, self._config)
+                                self._logger, self._config,
+                                self._tunnel.channel_manager)
         with self._connections_lock:
             self._connections[ch] = conn
 
@@ -190,16 +195,17 @@ class _RelayConnection(object):
 
     __slots__ = (
         'rid', 'ch', 'channel', 'sock', '_logger', '_config',
-        '_stop_event', '_threads', '_error',
+        '_stop_event', '_threads', '_error', '_channel_manager',
     )
 
-    def __init__(self, rid, ch, channel, sock, logger, config):
+    def __init__(self, rid, ch, channel, sock, logger, config, channel_manager):
         self.rid = rid
         self.ch = ch
         self.channel = channel
         self.sock = sock
         self._logger = logger
         self._config = config
+        self._channel_manager = channel_manager
         self._stop_event = threading.Event()
         self._threads = []
         self._error = None
@@ -302,10 +308,10 @@ class _RelayConnection(object):
             except Exception:
                 pass
 
-        # Close channel
-        if self.channel:
+        # Close channel via manager to notify peer
+        if self.channel and self._channel_manager:
             try:
-                self.channel.close()
+                self._channel_manager.close_channel(self.channel.id)
             except Exception:
                 pass
 

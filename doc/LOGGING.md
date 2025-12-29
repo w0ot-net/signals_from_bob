@@ -61,7 +61,7 @@ Current structured events (non-exhaustive):
 - `sock.connect_err`
 - `dns.send`
 - `dns.recv`
-- `dns.send_empty`
+- `dns.send_empty` (reason: `qtype_mismatch`, `decode_failed`)
 - `dns.cname_followup`
 - `dns.error_response`
 - `dns.malformed_response`

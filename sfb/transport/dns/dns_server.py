@@ -137,7 +137,8 @@ class DnsServer(Server):
             # Check query type
             if qtype != self._qtype:
                 # Not a tunnel query, send empty response to avoid resolver timeouts
-                self._send_empty_response(query_id, qname, qtype, client_addr)
+                self._send_empty_response(query_id, qname, qtype, client_addr,
+                                          reason='qtype_mismatch')
                 continue
 
             cname_suffix = self._cname_suffix.lower()
@@ -152,7 +153,8 @@ class DnsServer(Server):
                                                self._label_max_len)
             except ValueError:
                 # Decode failed, send empty response to avoid resolver timeouts
-                self._send_empty_response(query_id, qname, qtype, client_addr)
+                self._send_empty_response(query_id, qname, qtype, client_addr,
+                                          reason='decode_failed')
                 continue
 
             # Create responder
@@ -277,7 +279,7 @@ class DnsServer(Server):
             },
         )
 
-    def _send_empty_response(self, query_id, qname, qtype, addr):
+    def _send_empty_response(self, query_id, qname, qtype, addr, reason=None):
         """Send NOERROR response with no answers (NODATA) and SOA in authority."""
         if self._edns_size > 512:
             arcount = 1
@@ -318,6 +320,7 @@ class DnsServer(Server):
                 'dns_id': query_id,
                 'addr': '%s:%d' % (addr[0], addr[1]),
                 'bytes': len(response),
+                'reason': reason,
             },
         )
 

@@ -173,8 +173,15 @@ class AliceTunnel(BaseTunnel):
                 self._rtt.backoff()
 
             except Exception as e:
+                # Check if tunnel was closed during handshake
+                if self._state == TunnelState.CLOSED:
+                    raise TunnelError('Tunnel closed during handshake')
                 self._logger.warning('Handshake error: %s', e)
                 self._rtt.backoff()
+
+            # Check state before sleeping
+            if self._state == TunnelState.CLOSED:
+                raise TunnelError('Tunnel closed during handshake')
 
             # Wait before retry
             time.sleep(min(self._rtt.rto_sec, timeout / 10))

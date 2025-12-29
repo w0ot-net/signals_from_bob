@@ -11,6 +11,7 @@ Provides a unified entry point supporting:
 from __future__ import absolute_import
 
 import argparse
+import errno
 import logging
 import os
 import signal
@@ -393,6 +394,13 @@ def main(args=None):
         format='%(name)s %(levelname)s %(message)s'
     )
     if parsed.db_log:
+        db_dir = os.path.dirname(parsed.db_log)
+        if db_dir:
+            try:
+                os.makedirs(db_dir)
+            except OSError as e:
+                if e.errno != errno.EEXIST or not os.path.isdir(db_dir):
+                    raise
         formatter = logging.Formatter('%(name)s %(levelname)s %(message)s')
         add_sqlite_handler(
             logging.getLogger(),

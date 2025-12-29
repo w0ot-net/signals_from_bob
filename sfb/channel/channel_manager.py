@@ -30,6 +30,7 @@ from .channel import (
     is_bob_channel,
 )
 from .control_channel import ControlChannel
+from .channel_control_messages import ch_open, ch_open_ok, ch_close, ch_close_ok
 from ..config import Config
 from ..protocol import Segment, SEGMENT_HEADER_SIZE
 
@@ -77,11 +78,7 @@ class ChannelManager(object):
     def has_pending_data(self):
         """Return True if any channel has queued send data."""
         with self._lock:
-            channels = list(self._channels.values())
-        for channel in channels:
-            if channel._has_send_data():
-                return True
-        return False
+            return any(ch._has_send_data() for ch in self._channels.values())
 
     def open_channel(self):
         """
@@ -103,7 +100,6 @@ class ChannelManager(object):
             self._channels[channel_id] = channel
 
         # Send OPEN control message
-        from .channel_control_messages import ch_open
         self._control.send_message(ch_open(channel_id))
 
         return channel
@@ -137,7 +133,6 @@ class ChannelManager(object):
             channel._set_state(STATE_CLOSING)
 
         # Send CLOSE control message
-        from .channel_control_messages import ch_close
         self._control.send_message(ch_close(channel_id))
 
     def deliver_segment(self, segment):
@@ -153,7 +148,7 @@ class ChannelManager(object):
             channel = self._channels.get(channel_id)
 
         if channel is None:
-            logger.debug('Segment for unknown channel %d, ignoring', channel_id)
+            logger.warning('Segment for unknown channel %d, ignoring', channel_id)
             return
 
         channel._deliver(segment.data)
@@ -211,29 +206,28 @@ class ChannelManager(object):
                 segments.append(Segment(CHANNEL_CONTROL, ctrl_data))
                 remaining -= SEGMENT_HEADER_SIZE + len(ctrl_data)
 
-        # Step 2: Get list of data channels with pending data
+        # Step 2: Get snapshot of data channels and filter to those with data
         with self._lock:
-            channel_ids = [
-                cid for cid in self._channels
+            channel_snapshot = {
+                cid: ch for cid, ch in self._channels.items()
                 if cid != CHANNEL_CONTROL
-            ]
+            }
+            rr_index = self._rr_index
 
-        # Filter to channels with data
-        active_channels = []
-        for cid in channel_ids:
-            channel = self.get_channel(cid)
-            if channel is not None and channel._has_send_data():
-                active_channels.append(cid)
+        active_channels = [
+            cid for cid, ch in channel_snapshot.items()
+            if ch._has_send_data()
+        ]
 
         # Step 3: Primary channel fill (round-robin selection)
         if active_channels and remaining > SEGMENT_HEADER_SIZE:
             # Select primary channel via round-robin
-            if self._rr_index >= len(active_channels):
-                self._rr_index = 0
-            primary_idx = self._rr_index
+            if rr_index >= len(active_channels):
+                rr_index = 0
+            primary_idx = rr_index
             primary_id = active_channels[primary_idx]
 
-            channel = self.get_channel(primary_id)
+            channel = channel_snapshot.get(primary_id)
             if channel is not None:
                 data = channel._take_send_data(remaining - SEGMENT_HEADER_SIZE)
                 if data:
@@ -241,7 +235,8 @@ class ChannelManager(object):
                     remaining -= SEGMENT_HEADER_SIZE + len(data)
 
             # Advance round-robin pointer
-            self._rr_index = (primary_idx + 1) % max(len(active_channels), 1)
+            with self._lock:
+                self._rr_index = (primary_idx + 1) % len(active_channels)
 
             # Step 4: Fill remaining space from other channels (round-robin)
             if remaining > SEGMENT_HEADER_SIZE:
@@ -255,7 +250,7 @@ class ChannelManager(object):
                     if cid == primary_id:
                         continue
 
-                    channel = self.get_channel(cid)
+                    channel = channel_snapshot.get(cid)
                     if channel is None or not channel._has_send_data():
                         continue
 
@@ -267,8 +262,7 @@ class ChannelManager(object):
                         remaining -= SEGMENT_HEADER_SIZE + len(data)
 
         # Step 5: Keepalive suppression - only add keepalive if no other data
-        has_data = len(segments) > 0
-        if not has_data and keepalive_data and remaining > SEGMENT_HEADER_SIZE:
+        if not segments and keepalive_data and remaining > SEGMENT_HEADER_SIZE:
             if len(keepalive_data) <= remaining - SEGMENT_HEADER_SIZE:
                 segments.append(Segment(CHANNEL_CONTROL, keepalive_data))
 
@@ -323,19 +317,15 @@ class ChannelManager(object):
             # Bob received open for Bob's channel - invalid
             return
 
-        # Check if channel already exists
-        with self._lock:
-            if channel_id in self._channels:
-                return
-
         # Auto-accept: channels are generic pipes, application layer
         # handles any additional negotiation after channel is open
         with self._lock:
+            if channel_id in self._channels:
+                return
             channel = Channel(channel_id, max_send_buf=self._config.channel_max_send_buf)
             channel._set_state(STATE_OPEN)
             self._channels[channel_id] = channel
 
-        from .channel_control_messages import ch_open_ok
         self._control.send_message(ch_open_ok(channel_id))
 
     def _handle_open_ok(self, msg):
@@ -363,13 +353,10 @@ class ChannelManager(object):
 
         with self._lock:
             channel = self._channels.get(channel_id)
-
-        if channel is None:
-            return
-
-        if channel.state == STATE_OPENING:
-            channel._set_state(STATE_CLOSED, error=reason)
-            with self._lock:
+            if channel is None:
+                return
+            if channel.state == STATE_OPENING:
+                channel._set_state(STATE_CLOSED, error=reason)
                 self._channels.pop(channel_id, None)
 
     def _handle_close(self, msg):
@@ -380,18 +367,13 @@ class ChannelManager(object):
 
         with self._lock:
             channel = self._channels.get(channel_id)
-
-        if channel is None:
-            return
-
-        # Send CLOSE_OK
-        from .channel_control_messages import ch_close_ok
-        self._control.send_message(ch_close_ok(channel_id))
-
-        channel._set_state(STATE_CLOSED)
-
-        with self._lock:
+            if channel is None:
+                return
+            channel._set_state(STATE_CLOSED)
             self._channels.pop(channel_id, None)
+
+        # Send CLOSE_OK (outside lock to avoid blocking)
+        self._control.send_message(ch_close_ok(channel_id))
 
     def _handle_close_ok(self, msg):
         """Handle CLOSE_OK response."""
@@ -401,11 +383,8 @@ class ChannelManager(object):
 
         with self._lock:
             channel = self._channels.get(channel_id)
-
-        if channel is None:
-            return
-
-        if channel.state == STATE_CLOSING:
-            channel._set_state(STATE_CLOSED)
-            with self._lock:
+            if channel is None:
+                return
+            if channel.state == STATE_CLOSING:
+                channel._set_state(STATE_CLOSED)
                 self._channels.pop(channel_id, None)

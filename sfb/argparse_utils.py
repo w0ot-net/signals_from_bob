@@ -46,8 +46,8 @@ def add_client_args(parser):
 def add_server_args(parser):
     """Add server-specific arguments."""
     parser.add_argument(
-        '--listen', default='0.0.0.0:5353',
-        help='Listen address as host:port (default: 0.0.0.0:5353)'
+        '--listen', default='0.0.0.0:53',
+        help='Listen address as host:port (default: 0.0.0.0:53)'
     )
     parser.add_argument(
         '--root', default='.',

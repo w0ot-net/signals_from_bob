@@ -14,6 +14,7 @@ import struct
 import threading
 
 from ..base_module import BaseModule, ModuleError
+from ...logging_util import log_event
 from .socks_control_messages import T_SOCK, sock_connect
 
 
@@ -270,6 +271,13 @@ class SocksServerModule(BaseModule):
             with self._pending_lock:
                 self._pending[rid] = pending
 
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect',
+                'SOCKS connect requested',
+                {'rid': rid, 'ch': channel.id, 'host': host, 'port': port, 'side': 'bob'},
+            )
             self.send_message(sock_connect(rid, channel.id, host, port))
 
             # Wait for response
@@ -429,6 +437,13 @@ class SocksServerModule(BaseModule):
             pending.bind_host = msg.get('bhost')
             pending.bind_port = msg.get('bport')
             pending.event.set()
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect_ok',
+                'SOCKS connect ok',
+                {'rid': rid, 'ch': msg.get('ch'), 'side': 'bob'},
+            )
 
     def handle_err(self, msg):
         """Handle error from Alice."""
@@ -442,6 +457,19 @@ class SocksServerModule(BaseModule):
         if pending:
             pending.error = msg.get('code', 'general')
             pending.event.set()
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect_err',
+                'SOCKS connect error',
+                {
+                    'rid': rid,
+                    'ch': msg.get('ch'),
+                    'code': msg.get('code'),
+                    'reason': msg.get('reason'),
+                    'side': 'bob',
+                },
+            )
 
 
 class _ServerConnection(object):

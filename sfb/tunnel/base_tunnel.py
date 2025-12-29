@@ -331,6 +331,18 @@ class BaseTunnel(object):
         if unacked_before != unacked_after or unacked_after > 0:
             self._logger.debug('ACK=%d SACK=0x%x: unacked %d->%d',
                               packet.ack, packet.sack, unacked_before, unacked_after)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.ack',
+                'ACK processed',
+                {
+                    'ack': packet.ack,
+                    'sack': packet.sack,
+                    'unacked_before': unacked_before,
+                    'unacked_after': unacked_after,
+                },
+            )
 
         # Pass through recv_window for ordering and deduplication
         # recv_window.receive() returns list of (seq, packet) ready for delivery

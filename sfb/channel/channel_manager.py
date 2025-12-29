@@ -31,6 +31,7 @@ from .channel import (
 )
 from .control_channel import ControlChannel
 from .channel_control_messages import ch_open, ch_open_ok, ch_close, ch_close_ok
+from ..logging_util import log_event
 from ..config import Config
 from ..protocol import Segment, SEGMENT_HEADER_SIZE
 
@@ -112,6 +113,13 @@ class ChannelManager(object):
 
         # Send OPEN control message
         self._control.send_message(ch_open(channel_id))
+        log_event(
+            logger,
+            logging.DEBUG,
+            'channel.open',
+            'Channel open requested',
+            {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+        )
 
         return channel
 
@@ -146,6 +154,13 @@ class ChannelManager(object):
     def _on_channel_close(self, channel_id):
         """Callback invoked when channel.close() is called."""
         self._control.send_message(ch_close(channel_id))
+        log_event(
+            logger,
+            logging.DEBUG,
+            'channel.close',
+            'Channel close requested',
+            {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+        )
 
     def deliver_segment(self, segment):
         """
@@ -345,6 +360,13 @@ class ChannelManager(object):
             self._channels[channel_id] = channel
 
         self._control.send_message(ch_open_ok(channel_id))
+        log_event(
+            logger,
+            logging.DEBUG,
+            'channel.open_in',
+            'Channel open received',
+            {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+        )
 
     def _handle_open_ok(self, msg):
         """Handle OPEN_OK response."""
@@ -360,6 +382,13 @@ class ChannelManager(object):
 
         if channel.state == STATE_OPENING:
             channel._set_state(STATE_OPEN)
+            log_event(
+                logger,
+                logging.DEBUG,
+                'channel.open_ok',
+                'Channel open ok',
+                {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+            )
 
     def _handle_open_fail(self, msg):
         """Handle OPEN_FAIL response."""
@@ -376,6 +405,13 @@ class ChannelManager(object):
             if channel.state == STATE_OPENING:
                 channel._set_state(STATE_CLOSED, error=reason)
                 self._channels.pop(channel_id, None)
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    'channel.open_fail',
+                    'Channel open failed',
+                    {'ch': channel_id, 'reason': reason, 'side': 'alice' if self._is_alice else 'bob'},
+                )
 
     def _handle_close(self, msg):
         """Handle CLOSE request from peer."""
@@ -392,6 +428,13 @@ class ChannelManager(object):
 
         # Send CLOSE_OK (outside lock to avoid blocking)
         self._control.send_message(ch_close_ok(channel_id))
+        log_event(
+            logger,
+            logging.DEBUG,
+            'channel.close_in',
+            'Channel close received',
+            {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+        )
 
     def _handle_close_ok(self, msg):
         """Handle CLOSE_OK response."""
@@ -406,3 +449,10 @@ class ChannelManager(object):
             if channel.state == STATE_CLOSING:
                 channel._set_state(STATE_CLOSED)
                 self._channels.pop(channel_id, None)
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    'channel.close_ok',
+                    'Channel close ok',
+                    {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+                )

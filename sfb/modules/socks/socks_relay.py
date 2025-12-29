@@ -14,6 +14,7 @@ import socket
 import threading
 
 from ..base_module import BaseModule, ModuleError, blocking
+from ...logging_util import log_event
 from .socks_control_messages import T_SOCK, sock_connect_ok, sock_err
 
 
@@ -80,6 +81,13 @@ class SocksRelayModule(BaseModule):
 
         self._logger.info('Connect request: %s:%d (rid=%d ch=%d)',
                           host, port, rid, ch)
+        log_event(
+            self._logger,
+            logging.INFO,
+            'sock.connect',
+            'SOCKS connect request received',
+            {'rid': rid, 'ch': ch, 'host': host, 'port': port, 'side': 'alice'},
+        )
 
         # Get channel
         channel = self._tunnel.channel_manager.get_channel(ch)
@@ -127,6 +135,13 @@ class SocksRelayModule(BaseModule):
             target_sock = self._connect_target(host, port)
         except socket.gaierror as e:
             self._logger.info('DNS resolution failed for %s: %s', host, e)
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect_err',
+                'SOCKS connect error',
+                {'rid': rid, 'ch': ch, 'code': 'unreachable_host', 'reason': str(e), 'side': 'alice'},
+            )
             self.send_message(sock_err(rid, ch, 'unreachable_host', str(e)))
             channel.close()
             with self._connections_lock:
@@ -134,6 +149,13 @@ class SocksRelayModule(BaseModule):
             return
         except socket.timeout:
             self._logger.info('Connection to %s:%d timed out', host, port)
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect_err',
+                'SOCKS connect error',
+                {'rid': rid, 'ch': ch, 'code': 'timeout', 'reason': 'connection timeout', 'side': 'alice'},
+            )
             self.send_message(sock_err(rid, ch, 'timeout', 'connection timeout'))
             channel.close()
             with self._connections_lock:
@@ -142,15 +164,43 @@ class SocksRelayModule(BaseModule):
         except socket.error as e:
             if e.errno == errno.ECONNREFUSED:
                 self._logger.info('Connection to %s:%d refused', host, port)
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.connect_err',
+                    'SOCKS connect error',
+                    {'rid': rid, 'ch': ch, 'code': 'refused', 'reason': 'connection refused', 'side': 'alice'},
+                )
                 self.send_message(sock_err(rid, ch, 'refused', 'connection refused'))
             elif e.errno == errno.ENETUNREACH:
                 self._logger.info('Network unreachable for %s:%d', host, port)
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.connect_err',
+                    'SOCKS connect error',
+                    {'rid': rid, 'ch': ch, 'code': 'unreachable_net', 'reason': str(e), 'side': 'alice'},
+                )
                 self.send_message(sock_err(rid, ch, 'unreachable_net', str(e)))
             elif e.errno == errno.EHOSTUNREACH:
                 self._logger.info('Host unreachable: %s:%d', host, port)
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.connect_err',
+                    'SOCKS connect error',
+                    {'rid': rid, 'ch': ch, 'code': 'unreachable_host', 'reason': str(e), 'side': 'alice'},
+                )
                 self.send_message(sock_err(rid, ch, 'unreachable_host', str(e)))
             else:
                 self._logger.info('Connection to %s:%d failed: %s', host, port, e)
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.connect_err',
+                    'SOCKS connect error',
+                    {'rid': rid, 'ch': ch, 'code': 'general', 'reason': str(e), 'side': 'alice'},
+                )
                 self.send_message(sock_err(rid, ch, 'general', str(e)))
             channel.close()
             with self._connections_lock:
@@ -158,6 +208,13 @@ class SocksRelayModule(BaseModule):
             return
         except Exception as e:
             self._logger.exception('Unexpected error connecting to %s:%d', host, port)
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect_err',
+                'SOCKS connect error',
+                {'rid': rid, 'ch': ch, 'code': 'general', 'reason': str(e), 'side': 'alice'},
+            )
             self.send_message(sock_err(rid, ch, 'general', str(e)))
             channel.close()
             with self._connections_lock:
@@ -173,6 +230,13 @@ class SocksRelayModule(BaseModule):
 
         self._logger.info('Connected to %s:%d (bound %s:%d)',
                           host, port, bind_host, bind_port)
+        log_event(
+            self._logger,
+            logging.INFO,
+            'sock.connect_ok',
+            'SOCKS connect ok',
+            {'rid': rid, 'ch': ch, 'bhost': bind_host, 'bport': bind_port, 'side': 'alice'},
+        )
 
         # Create and register connection
         conn = _RelayConnection(rid, ch, channel, target_sock,

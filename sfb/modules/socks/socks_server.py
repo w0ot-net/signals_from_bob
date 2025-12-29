@@ -87,8 +87,12 @@ class SocksServerModule(BaseModule):
         """Register CLI subcommands for SOCKS server."""
         start_p = subparsers.add_parser('start', help='Start SOCKS5 proxy server')
         start_p.add_argument(
-            '--listen', default='127.0.0.1:1080',
-            help='Listen address as host:port (default: 127.0.0.1:1080)'
+            '--socks_host', default='0.0.0.0',
+            help='SOCKS server listen address (default: 0.0.0.0)'
+        )
+        start_p.add_argument(
+            '--socks_port', type=int, default=1080,
+            help='SOCKS server listen port (default: 1080)'
         )
 
     def __init__(self, tunnel, logger=None):

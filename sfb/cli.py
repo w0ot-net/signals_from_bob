@@ -109,7 +109,7 @@ def add_module_args(parser):
     parser.add_argument(
         '--module',
         choices=list(AVAILABLE_MODULES.keys()),
-        help='Module to load (required for command mode)'
+        help='Module to load'
     )
 
 
@@ -242,8 +242,8 @@ def run_server(args, config, crypto, logger):
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    # Check if we have a module command to execute
-    if args.module and getattr(args, 'command', None):
+    # Run module if provided, otherwise passive serve
+    if args.module:
         return run_server_command(args, tunnel, logger, shutdown_requested)
     else:
         return run_server_passive(args, tunnel, logger)
@@ -291,6 +291,14 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
         # Allow module message type
         module_cls = AVAILABLE_MODULES[module_name]
         tunnel.allow_message_type(module_cls.TYPE)
+
+        if getattr(args, 'command', None) is None:
+            default_cmd = getattr(module_cls, 'DEFAULT_COMMAND', None)
+            if default_cmd:
+                args.command = default_cmd
+            elif getattr(module_cls, 'REQUIRES_COMMAND', False):
+                logger.error('Module %s requires a command', module_name)
+                return 1
 
         # Run module command
         return module_cls.run_command(args, tunnel, logger)

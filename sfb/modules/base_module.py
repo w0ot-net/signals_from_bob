@@ -74,6 +74,8 @@ class BaseModule(object):
     """
 
     TYPE = None  # Subclass must override
+    DEFAULT_COMMAND = None
+    REQUIRES_COMMAND = False
 
     @classmethod
     def register_commands(cls, subparsers, role, config=None):

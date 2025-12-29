@@ -109,6 +109,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
     """
 
     TYPE = 'file'
+    REQUIRES_COMMAND = True
 
     @classmethod
     def register_commands(cls, subparsers, role, config=None):

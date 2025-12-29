@@ -15,7 +15,7 @@ from .config import Config
 from .crypto import Plain, XOR
 from .transport.dns import DnsClient
 from .tunnel import AliceTunnel, TunnelState
-from .modules.file_transfer import FileTransferModule
+from .modules import ModuleLoader
 
 
 class TunnelRunner(object):
@@ -52,11 +52,6 @@ def main():
     """Main entry point."""
     args = parse_args(role='client')
 
-    if not args.command:
-        print('Error: No command specified. Use list, get, or put.')
-        print('Run with --help for usage.')
-        return 1
-
     # Setup logging
     level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
@@ -83,7 +78,7 @@ def main():
     # Components
     transport = DnsClient(config)
     tunnel = AliceTunnel(transport, config, crypto=crypto)
-    file_module = None
+    module_loader = None
     runner = None
 
     # Signal handling
@@ -111,32 +106,13 @@ def main():
         runner = TunnelRunner(tunnel, logger)
         runner.start()
 
-        # Create file module
-        file_module = FileTransferModule(tunnel, logger=logger)
+        # Create module loader to handle Bob's module load requests
+        module_loader = ModuleLoader(tunnel, logger=logger)
+        logger.info('Waiting for commands from Bob...')
 
-        # Execute command
-        if args.command == 'list':
-            result = file_module.list_dir(args.path, timeout=args.timeout)
-            for entry in result:
-                if entry.get('dir'):
-                    print('d %10s %s/' % ('-', entry['name']))
-                else:
-                    print('- %10d %s' % (entry.get('size', 0), entry['name']))
-
-        elif args.command == 'get':
-            local_path = args.local or os.path.basename(args.remote)
-            logger.info('Downloading %s -> %s', args.remote, local_path)
-            file_module.get(args.remote, local_path, timeout=args.timeout)
-            logger.info('Download complete: %s', local_path)
-
-        elif args.command == 'put':
-            if not os.path.isfile(args.local):
-                logger.error('Local file not found: %s', args.local)
-                return 1
-            size = os.path.getsize(args.local)
-            logger.info('Uploading %s (%d bytes) -> %s', args.local, size, args.remote)
-            file_module.put(args.local, args.remote, timeout=args.timeout)
-            logger.info('Upload complete: %s', args.remote)
+        # Run until connection closes or signal received
+        while tunnel._state == TunnelState.CONNECTED and not shutdown_requested[0]:
+            time.sleep(0.1)
 
         return 0
 
@@ -149,8 +125,8 @@ def main():
     finally:
         if runner:
             runner.stop()
-        if file_module:
-            file_module.shutdown()
+        if module_loader:
+            module_loader.shutdown()
         tunnel.close()
         logger.info('Shutdown complete')
 

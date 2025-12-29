@@ -26,6 +26,9 @@ class BobTunnel(BaseTunnel):
 
     Bob waits for Alice's polls using transport.recv() and responds
     via the responder callback. He uses opportunistic retransmission.
+
+    Security: By default, Bob only accepts 'tun' and 'ch' messages from Alice.
+    Other message types must be explicitly allowed via allow_message_type().
     """
 
     def __init__(self, transport, config, crypto=None, logger=None):
@@ -46,6 +49,9 @@ class BobTunnel(BaseTunnel):
         )
         self._transport = transport
         self._idle_timeout = config.tunnel_idle_timeout
+
+        # Security: only accept these message types from Alice by default
+        self._allowed_message_types = {'tun', 'ch'}
 
         # Set proposed MTU from transport (for negotiation, asymmetric)
         send_payload = max(1, transport.send_mtu - PACKET_HEADER_SIZE)
@@ -258,6 +264,33 @@ class BobTunnel(BaseTunnel):
             return True
 
         return False
+
+    def allow_message_type(self, msg_type):
+        """
+        Allow a message type from Alice.
+
+        Called after module is loaded to enable module messages.
+
+        Args:
+            msg_type: Message type to allow (e.g., 'file', 'mod')
+        """
+        self._allowed_message_types.add(msg_type)
+        self._logger.debug('Allowed message type: %s', msg_type)
+
+    def _dispatch_control_message(self, msg):
+        """
+        Dispatch a control message with security filtering.
+
+        Bob only accepts message types in _allowed_message_types.
+        By default this is just 'tun' and 'ch'.
+        """
+        msg_type = msg.get('t')
+        if msg_type not in self._allowed_message_types:
+            self._logger.warning('Rejected message type from Alice: %s', msg_type)
+            return
+
+        # Delegate to parent for actual dispatch
+        super(BobTunnel, self)._dispatch_control_message(msg)
 
     def close(self):
         """Close the tunnel and transport."""

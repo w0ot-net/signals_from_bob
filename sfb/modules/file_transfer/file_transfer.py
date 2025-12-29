@@ -112,18 +112,27 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
 
     @classmethod
     def register_commands(cls, subparsers, role):
-        """Register CLI subcommands for file transfer."""
-        if role == 'client':
+        """Register CLI subcommands for file transfer.
+
+        Commands are registered for the server (Bob) since he's the controller.
+        """
+        if role == 'server':
             list_p = subparsers.add_parser('list', help='List remote directory')
             list_p.add_argument('path', help='Remote directory path')
+            list_p.add_argument('--timeout', type=float, default=30.0,
+                               help='Operation timeout in seconds (default: 30)')
 
             get_p = subparsers.add_parser('get', help='Download file')
             get_p.add_argument('remote', help='Remote file path')
             get_p.add_argument('local', nargs='?', help='Local file path (default: same name)')
+            get_p.add_argument('--timeout', type=float, default=300.0,
+                               help='Operation timeout in seconds (default: 300)')
 
             put_p = subparsers.add_parser('put', help='Upload file')
             put_p.add_argument('local', help='Local file path')
             put_p.add_argument('remote', help='Remote file path')
+            put_p.add_argument('--timeout', type=float, default=300.0,
+                               help='Operation timeout in seconds (default: 300)')
 
     def __init__(self, tunnel, logger=None):
         super(FileTransferModule, self).__init__(tunnel, logger=logger)

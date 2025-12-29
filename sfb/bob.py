@@ -7,13 +7,50 @@ import logging
 import os
 import signal
 import sys
+import threading
+import time
 
 from .argparse_utils import parse_args
 from .config import Config
 from .crypto import Plain, XOR
 from .transport.dns import DnsServer
-from .tunnel import BobTunnel
-from .modules.file_transfer import FileTransferModule
+from .tunnel import BobTunnel, TunnelState
+from .modules import ModuleLoader, FileTransferModule
+
+
+class TunnelRunner(object):
+    """Runs the tunnel serve loop in a background thread for command mode."""
+
+    def __init__(self, tunnel, logger):
+        self._tunnel = tunnel
+        self._logger = logger
+        self._stop = False
+        self._thread = None
+
+    def start(self):
+        """Start the background serve loop."""
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        """Stop the background serve loop."""
+        self._stop = True
+        self._tunnel.close()
+        if self._thread:
+            self._thread.join(timeout=2.0)
+
+    def _run(self):
+        """Background serve loop."""
+        while not self._stop and self._tunnel._state != TunnelState.CLOSED:
+            try:
+                result = self._tunnel._transport.recv(timeout=0.1)
+                if result is None or result[0] is None:
+                    continue
+                data, responder = result
+                self._tunnel.handle_request(data, responder)
+            except Exception as e:
+                if not self._stop:
+                    self._logger.warning('Serve loop error: %s', e)
 
 
 def main():
@@ -55,7 +92,6 @@ def main():
     # Components
     transport = DnsServer(config)
     tunnel = BobTunnel(transport, config, crypto=crypto)
-    file_module = FileTransferModule(tunnel, logger=logger)
 
     # Signal handling for graceful shutdown
     shutdown_requested = [False]  # Use list for mutable closure
@@ -71,19 +107,110 @@ def main():
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    # Run
-    logger.info('Listening on %s for domain %s', args.listen, args.domain)
+    # Check if we have a command to execute
+    if hasattr(args, 'command') and args.command:
+        return run_command_mode(args, tunnel, logger, shutdown_requested)
+    else:
+        return run_serve_mode(args, tunnel, logger)
+
+
+def run_serve_mode(args, tunnel, logger):
+    """Run in passive serve mode (no command, just wait for connections)."""
+    # In serve mode, we don't create modules - Alice will handle requests
+    logger.info('Listening on %s for domain %s (serve mode)', args.listen, args.domain)
     try:
         tunnel.serve_forever()
     except Exception as e:
         logger.exception('Error in serve loop: %s', e)
         return 1
     finally:
-        file_module.shutdown()
         tunnel.close()
         logger.info('Shutdown complete')
-
     return 0
+
+
+def run_command_mode(args, tunnel, logger, shutdown_requested):
+    """Run in command mode - wait for Alice, load module, execute command."""
+    module_loader = None
+    file_module = None
+    runner = None
+
+    try:
+        # Allow 'mod' messages for module loading responses
+        tunnel.allow_message_type('mod')
+
+        # Start background serve loop
+        runner = TunnelRunner(tunnel, logger)
+        runner.start()
+
+        # Wait for Alice to connect
+        logger.info('Waiting for Alice to connect on %s...', args.listen)
+        timeout = getattr(args, 'timeout', 30.0)
+        start_time = time.time()
+        while tunnel._state != TunnelState.CONNECTED:
+            if shutdown_requested[0]:
+                return 1
+            if time.time() - start_time > timeout:
+                logger.error('Timeout waiting for connection')
+                return 1
+            time.sleep(0.1)
+
+        logger.info('Alice connected')
+
+        # Create module loader and request module load on Alice
+        module_loader = ModuleLoader(tunnel, logger=logger)
+        module_name = args.module
+        logger.info('Loading module %s on Alice...', module_name)
+        module_loader.load_remote(module_name, timeout=timeout)
+        logger.info('Module %s loaded on Alice', module_name)
+
+        # Now allow 'file' messages for file transfer responses
+        tunnel.allow_message_type('file')
+
+        # Create local file module to send requests
+        file_module = FileTransferModule(tunnel, logger=logger)
+
+        # Execute command
+        if args.command == 'list':
+            result = file_module.list_dir(args.path, timeout=timeout)
+            for entry in result:
+                if entry.get('dir'):
+                    print('d %10s %s/' % ('-', entry['name']))
+                else:
+                    print('- %10d %s' % (entry.get('size', 0), entry['name']))
+
+        elif args.command == 'get':
+            local_path = args.local or os.path.basename(args.remote)
+            logger.info('Downloading %s -> %s', args.remote, local_path)
+            file_module.get(args.remote, local_path, timeout=timeout)
+            logger.info('Download complete: %s', local_path)
+
+        elif args.command == 'put':
+            if not os.path.isfile(args.local):
+                logger.error('Local file not found: %s', args.local)
+                return 1
+            size = os.path.getsize(args.local)
+            logger.info('Uploading %s (%d bytes) -> %s', args.local, size, args.remote)
+            file_module.put(args.local, args.remote, timeout=timeout)
+            logger.info('Upload complete: %s', args.remote)
+
+        return 0
+
+    except Exception as e:
+        logger.error('Error: %s', e)
+        if args.verbose:
+            logger.exception('Full traceback:')
+        return 1
+
+    finally:
+        if runner:
+            runner.stop()
+        if file_module:
+            file_module.shutdown()
+        if module_loader:
+            module_loader.shutdown()
+        tunnel.close()
+        logger.info('Shutdown complete')
 
 
 if __name__ == '__main__':

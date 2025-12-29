@@ -3,11 +3,11 @@
 
 from __future__ import absolute_import
 
-import argparse
 import logging
 import os
 import signal
 
+from .argparse_utils import parse_args
 from .config import Config
 from .crypto import Plain, XOR
 from .transport.dns import DnsServer
@@ -15,45 +15,9 @@ from .tunnel import BobTunnel
 from .modules.file_transfer import FileTransferModule
 
 
-def parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description='Bob DNS tunnel server with file transfer'
-    )
-    parser.add_argument(
-        '--domain', required=True,
-        help='Base domain for DNS tunnel (e.g., t.example.com)'
-    )
-    parser.add_argument(
-        '--listen', default='0.0.0.0:5353',
-        help='Listen address as host:port (default: 0.0.0.0:5353)'
-    )
-    parser.add_argument(
-        '--psk',
-        help='Pre-shared key for XOR encryption (omit for no encryption)'
-    )
-    parser.add_argument(
-        '--root', default='.',
-        help='Root directory for file transfers (default: current dir)'
-    )
-    parser.add_argument(
-        '--idle-timeout', type=int, default=300,
-        help='Idle timeout in seconds (default: 300)'
-    )
-    parser.add_argument(
-        '--max-size', type=int, default=None,
-        help='Max file size in bytes (default: unlimited)'
-    )
-    parser.add_argument(
-        '-v', '--verbose', action='store_true',
-        help='Enable debug logging'
-    )
-    return parser.parse_args()
-
-
 def main():
     """Main entry point."""
-    args = parse_args()
+    args = parse_args(role='server')
 
     # Setup logging
     level = logging.DEBUG if args.verbose else logging.INFO

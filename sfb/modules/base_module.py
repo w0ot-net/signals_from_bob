@@ -75,6 +75,19 @@ class BaseModule(object):
 
     TYPE = None  # Subclass must override
 
+    @classmethod
+    def register_commands(cls, subparsers, role):
+        """
+        Register CLI subcommands for this module.
+
+        Override in subclass to add argparse subcommands.
+
+        Args:
+            subparsers: argparse subparsers object to add commands to.
+            role: 'client' or 'server' - determines which commands to register.
+        """
+        pass
+
     def __init__(self, tunnel, logger=None):
         """
         Initialize module and register with tunnel.

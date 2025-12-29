@@ -110,6 +110,21 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
 
     TYPE = 'file'
 
+    @classmethod
+    def register_commands(cls, subparsers, role):
+        """Register CLI subcommands for file transfer."""
+        if role == 'client':
+            list_p = subparsers.add_parser('list', help='List remote directory')
+            list_p.add_argument('path', help='Remote directory path')
+
+            get_p = subparsers.add_parser('get', help='Download file')
+            get_p.add_argument('remote', help='Remote file path')
+            get_p.add_argument('local', nargs='?', help='Local file path (default: same name)')
+
+            put_p = subparsers.add_parser('put', help='Upload file')
+            put_p.add_argument('local', help='Local file path')
+            put_p.add_argument('remote', help='Remote file path')
+
     def __init__(self, tunnel, logger=None):
         super(FileTransferModule, self).__init__(tunnel, logger=logger)
         config = tunnel._config

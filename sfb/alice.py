@@ -3,7 +3,6 @@
 
 from __future__ import absolute_import
 
-import argparse
 import logging
 import os
 import signal
@@ -11,63 +10,12 @@ import sys
 import threading
 import time
 
+from .argparse_utils import parse_args
 from .config import Config
 from .crypto import Plain, XOR
 from .transport.dns import DnsClient
 from .tunnel import AliceTunnel, TunnelState
 from .modules.file_transfer import FileTransferModule
-
-
-def parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description='Alice DNS tunnel client with file transfer'
-    )
-
-    # Connection options
-    parser.add_argument(
-        '--domain', required=True,
-        help='Base domain for DNS tunnel (e.g., t.example.com)'
-    )
-    parser.add_argument(
-        '--resolver',
-        help='DNS resolver as host:port (default: auto-detect system resolver)'
-    )
-    parser.add_argument(
-        '--psk',
-        help='Pre-shared key for XOR encryption (omit for no encryption)'
-    )
-    parser.add_argument(
-        '--timeout', type=float, default=30.0,
-        help='Operation timeout in seconds (default: 30)'
-    )
-    parser.add_argument(
-        '--qps', type=float, default=950.0,
-        help='Max DNS queries per second (default: 950, 0=unlimited)'
-    )
-    parser.add_argument(
-        '-v', '--verbose', action='store_true',
-        help='Enable debug logging'
-    )
-
-    # Subcommands for file operations
-    subparsers = parser.add_subparsers(dest='command', help='File operation')
-
-    # list command
-    list_parser = subparsers.add_parser('list', help='List directory')
-    list_parser.add_argument('path', help='Remote directory path')
-
-    # get command
-    get_parser = subparsers.add_parser('get', help='Download file')
-    get_parser.add_argument('remote', help='Remote file path')
-    get_parser.add_argument('local', nargs='?', help='Local file path (default: same name)')
-
-    # put command
-    put_parser = subparsers.add_parser('put', help='Upload file')
-    put_parser.add_argument('local', help='Local file path')
-    put_parser.add_argument('remote', help='Remote file path')
-
-    return parser.parse_args()
 
 
 class TunnelRunner(object):
@@ -102,7 +50,7 @@ class TunnelRunner(object):
 
 def main():
     """Main entry point."""
-    args = parse_args()
+    args = parse_args(role='client')
 
     if not args.command:
         print('Error: No command specified. Use list, get, or put.')

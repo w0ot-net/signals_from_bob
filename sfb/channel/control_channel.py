@@ -39,14 +39,14 @@ class ControlChannel(Channel):
                 try:
                     return json.loads(line.decode('ascii'))
                 except ValueError as e:
-                    raise ChannelError('Invalid control message: %s' % e)
+                    raise ChannelError('invalid', 'Invalid control message: %s' % e)
 
             chunk = self.read(4096, timeout=timeout)
             if chunk is None:
                 return None
             if chunk == b'':
                 if self._line_buf:
-                    raise ChannelError('Control channel closed with partial message')
+                    raise ChannelError('closed', 'Control channel closed with partial message')
                 return None
             self._line_buf.extend(chunk)
 

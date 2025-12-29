@@ -303,7 +303,7 @@ class ChannelManager(object):
 
             # Check if we've wrapped around completely
             if channel_id == start_id:
-                raise ChannelError('No channel IDs available')
+                raise ChannelError('no_ids', 'No channel IDs available')
 
     def _handle_open(self, msg):
         """Handle OPEN request from peer."""

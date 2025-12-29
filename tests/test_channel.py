@@ -32,15 +32,17 @@ def make_test_config(**overrides):
 class ChannelTests(unittest.TestCase):
     def test_write_requires_open(self):
         ch = Channel(1)
-        with self.assertRaises(ChannelError):
+        with self.assertRaises(ChannelError) as ctx:
             ch.write(b'abc')
+        self.assertEqual(ctx.exception.code, 'not_open')
 
     def test_write_respects_max_send_buffer(self):
         ch = Channel(1, max_send_buf=4)
         ch._set_state(STATE_OPEN)
         self.assertEqual(ch.write(b'abcd'), 4)
-        with self.assertRaises(ChannelError):
+        with self.assertRaises(ChannelError) as ctx:
             ch.write(b'e')
+        self.assertEqual(ctx.exception.code, 'buffer_full')
 
     def test_read_timeout(self):
         ch = Channel(1)
@@ -66,8 +68,10 @@ class ChannelTests(unittest.TestCase):
     def test_read_closed_with_error(self):
         ch = Channel(1)
         ch._set_state(STATE_CLOSED, error='boom')
-        with self.assertRaises(ChannelError):
+        with self.assertRaises(ChannelError) as ctx:
             ch.read(1, timeout=0.1)
+        self.assertEqual(ctx.exception.code, 'closed')
+        self.assertEqual(ctx.exception.message, 'boom')
 
     def test_take_send_data_slices(self):
         ch = Channel(1)
@@ -118,6 +122,36 @@ class ChannelTests(unittest.TestCase):
         ch._set_state(STATE_CLOSED, error='connection refused')
         self.assertEqual(ch.error, 'connection refused')
 
+    def test_read_exact_success(self):
+        ch = Channel(1)
+        ch._set_state(STATE_OPEN)
+        ch._deliver(b'hello')
+        data = ch.read_exact(5, timeout=0.1)
+        self.assertEqual(data, b'hello')
+
+    def test_read_exact_timeout(self):
+        ch = Channel(1)
+        ch._set_state(STATE_OPEN)
+        with self.assertRaises(ChannelError) as ctx:
+            ch.read_exact(1, timeout=0.01)
+        self.assertEqual(ctx.exception.code, 'timeout')
+
+    def test_read_exact_closed(self):
+        ch = Channel(1)
+        ch._set_state(STATE_OPEN)
+        ch._set_state(STATE_CLOSED)
+        with self.assertRaises(ChannelError) as ctx:
+            ch.read_exact(1, timeout=0.1)
+        self.assertEqual(ctx.exception.code, 'closed')
+
+    def test_write_all_timeout(self):
+        ch = Channel(1, max_send_buf=1)
+        ch._set_state(STATE_OPEN)
+        ch.write(b'a')
+        with self.assertRaises(ChannelError) as ctx:
+            ch.write_all(b'b', timeout=0.01)
+        self.assertEqual(ctx.exception.code, 'timeout')
+
 
 class ControlChannelTests(unittest.TestCase):
     def test_send_recv_message_roundtrip(self):
@@ -133,16 +167,18 @@ class ControlChannelTests(unittest.TestCase):
         ctrl = ControlChannel()
         ctrl._set_state(STATE_OPEN)
         ctrl._deliver(b'{bad}\n')
-        with self.assertRaises(ChannelError):
+        with self.assertRaises(ChannelError) as ctx:
             ctrl.recv_message(timeout=0.1)
+        self.assertEqual(ctx.exception.code, 'invalid')
 
     def test_recv_message_partial_on_close(self):
         ctrl = ControlChannel()
         ctrl._set_state(STATE_OPEN)
         ctrl._deliver(b'{"t":"tun","c":"ping"')
         ctrl._set_state(STATE_CLOSED)
-        with self.assertRaises(ChannelError):
+        with self.assertRaises(ChannelError) as ctx:
             ctrl.recv_message(timeout=0.1)
+        self.assertEqual(ctx.exception.code, 'closed')
 
 
 class ChannelManagerTests(unittest.TestCase):

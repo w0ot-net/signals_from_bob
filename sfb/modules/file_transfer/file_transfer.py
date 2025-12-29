@@ -505,12 +505,11 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                     raise FileTransferError('io', 'send timeout')
 
             try:
-                channel.write_wait(chunk, timeout=chunk_timeout)
+                channel.write_all(chunk, timeout=chunk_timeout)
             except ChannelError as e:
-                if 'timeout' in str(e).lower():
+                if e.code == 'timeout':
                     raise FileTransferError('io', 'send timeout')
-                else:
-                    raise FileTransferError('io', str(e))
+                raise FileTransferError('io', e.message)
 
             remaining -= len(chunk)
             if stats is not None:
@@ -523,20 +522,21 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         if timeout is not None:
             deadline = time.time() + timeout
         while remaining > 0:
-            if deadline is None:
-                chunk = channel.read(min(self._chunk_size, remaining))
-            else:
-                remaining_time = deadline - time.time()
-                if remaining_time <= 0:
+            chunk_size = min(self._chunk_size, remaining)
+            try:
+                if deadline is None:
+                    chunk = channel.read_exact(chunk_size)
+                else:
+                    remaining_time = deadline - time.time()
+                    if remaining_time <= 0:
+                        raise FileTransferError('io', 'timeout')
+                    chunk = channel.read_exact(chunk_size, timeout=remaining_time)
+            except ChannelError as e:
+                if e.code == 'timeout':
                     raise FileTransferError('io', 'timeout')
-                chunk = channel.read(
-                    min(self._chunk_size, remaining),
-                    timeout=remaining_time
-                )
-            if chunk is None:
-                raise FileTransferError('io', 'timeout')
-            if chunk == b'':
-                raise FileTransferError('io', 'channel closed')
+                if e.code == 'closed':
+                    raise FileTransferError('io', 'channel closed')
+                raise FileTransferError('io', e.message)
             if hash_obj is not None:
                 hash_obj.update(chunk)
             fp.write(chunk)

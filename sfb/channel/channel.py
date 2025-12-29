@@ -106,11 +106,11 @@ class Channel(object):
 
         with self._lock:
             if self.state != STATE_OPEN:
-                raise ChannelError('Channel not open')
+                raise ChannelError('not_open', 'Channel not open')
 
             current_size = sum(len(chunk) for chunk in self._send_buf)
             if current_size >= self._max_send_buf:
-                raise ChannelError('Send buffer full')
+                raise ChannelError('buffer_full', 'Send buffer full')
 
             # Limit to available space
             available = self._max_send_buf - current_size
@@ -151,11 +151,11 @@ class Channel(object):
         while offset < len(data):
             # Check deadline
             if deadline is not None and time.time() >= deadline:
-                raise ChannelError('Write timeout')
+                raise ChannelError('timeout', 'Write timeout')
 
             # Check channel state
             if self.state != STATE_OPEN:
-                raise ChannelError('Channel not open')
+                raise ChannelError('not_open', 'Channel not open')
 
             try:
                 sent = self.write(data[offset:])
@@ -167,7 +167,7 @@ class Channel(object):
                     time.sleep(backoff)
                     backoff = min(backoff * 1.5, max_backoff)
             except ChannelError as e:
-                if 'buffer full' in str(e).lower():
+                if e.code == 'buffer_full':
                     # Wait for buffer to drain
                     time.sleep(backoff)
                     backoff = min(backoff * 1.5, max_backoff)
@@ -206,7 +206,7 @@ class Channel(object):
                 # Check for close/error
                 if self.state == STATE_CLOSED:
                     if self._error:
-                        raise ChannelError(self._error)
+                        raise ChannelError('closed', self._error)
                     return b''
 
             # Wait for data or close
@@ -220,6 +220,67 @@ class Channel(object):
                 self._recv_event.wait()
 
             self._recv_event.clear()
+
+    def read_exact(self, size, timeout=None):
+        """
+        Read exactly size bytes, blocking until all data arrives.
+
+        Args:
+            size: number of bytes to read
+            timeout: seconds to wait for all data (None=block forever)
+
+        Returns:
+            bytes: exactly size bytes
+
+        Raises:
+            ChannelError: on timeout or close before size is received
+        """
+        if size <= 0:
+            return b''
+
+        import time
+        deadline = None
+        if timeout is not None:
+            deadline = time.time() + timeout
+
+        chunks = []
+        remaining = size
+        while remaining > 0:
+            if deadline is None:
+                chunk = self.read(remaining)
+            else:
+                remaining_time = deadline - time.time()
+                if remaining_time <= 0:
+                    raise ChannelError('timeout', 'Read timeout')
+                chunk = self.read(remaining, timeout=remaining_time)
+            if chunk is None:
+                raise ChannelError('timeout', 'Read timeout')
+            if chunk == b'':
+                raise ChannelError('closed', 'Channel closed')
+            chunks.append(chunk)
+            remaining -= len(chunk)
+
+        return b''.join(chunks)
+
+    def write_all(self, data, timeout=None):
+        """
+        Write all data, blocking until fully queued or timeout.
+
+        Args:
+            data: bytes to send
+            timeout: max seconds to wait (None=wait forever)
+
+        Returns:
+            int: number of bytes written
+
+        Raises:
+            ChannelError: on timeout or close
+        """
+        data = require_bytes(data)
+        if not data:
+            return 0
+        self.write_wait(data, timeout=timeout)
+        return len(data)
 
     def _consume_recv(self, size):
         """Consume up to size bytes from recv buffer. Must hold lock."""
@@ -346,7 +407,22 @@ class Channel(object):
 
 class ChannelError(Exception):
     """Channel operation error."""
-    pass
+    def __init__(self, code, message=None):
+        if message is None:
+            message = code
+            code = 'io'
+        Exception.__init__(self, message)
+        self.code = code
+        self.message = message
+
+    def __str__(self):
+        try:
+            return str(self.message)
+        except Exception:
+            try:
+                return self.message.encode('utf-8')
+            except Exception:
+                return repr(self.message)
 
 
 

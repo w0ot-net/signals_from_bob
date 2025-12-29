@@ -159,6 +159,7 @@ class BaseModule(object):
         Args:
             msg: Dict or ControlMessage to send on channel 0.
         """
+        self._logger.debug('Send %s: %s', self.TYPE, msg)
         self._tunnel.control.send_message(msg)
 
     def _dispatch(self, msg):
@@ -169,6 +170,7 @@ class BaseModule(object):
         """
         if self._shutdown:
             return
+        self._logger.debug('Recv %s: %s', self.TYPE, msg)
         cmd = msg.get('c')
         if not cmd:
             return

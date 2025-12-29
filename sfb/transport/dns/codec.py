@@ -65,7 +65,7 @@ def base32_decode(s):
         raise TypeError('Expected text for base32 decode')
     pad = (8 - len(s) % 8) % 8
     s = s.upper() + '=' * pad
-    return base64.b32decode(s)
+    return base64.b32decode(s.encode('ascii'))
 
 
 def base64_encode(data):
@@ -80,15 +80,21 @@ def base64_decode(s):
         raise TypeError('Expected text for base64 decode')
     pad = (4 - len(s) % 4) % 4
     s = s + '=' * pad
-    return base64.b64decode(s)
+    return base64.b64decode(s.encode('ascii'))
 
 
 def encode_name(name):
     """Encode domain name to DNS wire format."""
     if not isinstance(name, text_type):
         raise TypeError('Expected text domain name')
+    if name == '.':
+        return b'\x00'
+    name = _normalize_domain(name)
     parts = []
-    for label in name.split('.'):
+    labels = [label for label in name.split('.') if label]
+    _validate_labels(labels)
+    _validate_name_length(labels)
+    for label in labels:
         if label:
             encoded = label.encode('ascii')
             parts.append(struct.pack('B', len(encoded)) + encoded)
@@ -144,6 +150,8 @@ def decode_name(data, offset, allow_compression=True):
 
         if length & 0xC0:
             raise ValueError('Invalid label length')
+        if length > MAX_LABEL_LEN:
+            raise ValueError('Label exceeds max length')
 
         offset += 1
         if offset + length > len(data):
@@ -167,8 +175,34 @@ def skip_name(data, offset):
             return offset + 1
         if (length & 0xC0) == 0xC0:
             return offset + 2
+        if length & 0xC0:
+            raise ValueError('Invalid label length')
+        if length > MAX_LABEL_LEN:
+            raise ValueError('Label exceeds max length')
         offset += 1 + length
     raise ValueError('Invalid DNS name')
+
+
+def _normalize_domain(name):
+    if not isinstance(name, text_type):
+        raise TypeError('Expected text domain name')
+    if name.endswith('.'):
+        name = name[:-1]
+    return name
+
+
+def _validate_labels(labels, max_len=MAX_LABEL_LEN):
+    for label in labels:
+        if len(label) > max_len:
+            raise ValueError('Label exceeds max length')
+
+
+def _validate_name_length(labels):
+    if not labels:
+        return
+    total_len = sum(len(label) for label in labels) + (len(labels) - 1)
+    if total_len > MAX_NAME_LEN:
+        raise ValueError('Name exceeds max length')
 
 
 def _normalize_label_max_len(label_max_len):
@@ -195,6 +229,11 @@ def encode_query_name(data, base_domain, nonce, label_max_len=None):
         str: complete query name
     """
     label_max_len = _normalize_label_max_len(label_max_len)
+    base_domain = _normalize_domain(base_domain)
+    base_labels = [label for label in base_domain.split('.') if label]
+    if not base_labels:
+        raise ValueError('base_domain required')
+    _validate_labels(base_labels)
 
     # Generate nonce label
     nonce_label = base32_encode(struct.pack('>H', nonce & 0xFFFF))[:NONCE_LEN]
@@ -209,7 +248,8 @@ def encode_query_name(data, base_domain, nonce, label_max_len=None):
         b32 = b32[label_max_len:]
 
     # Append base domain
-    labels.extend(base_domain.split('.'))
+    labels.extend(base_labels)
+    _validate_name_length(labels)
     return '.'.join(labels)
 
 
@@ -226,8 +266,14 @@ def decode_query_name(query_name, base_domain, label_max_len=None):
         bytes: decoded tunnel data
     """
     # Remove base domain suffix
-    base_parts = base_domain.lower().split('.')
-    name_parts = query_name.lower().split('.')
+    base_domain = _normalize_domain(base_domain).lower()
+    query_name = _normalize_domain(query_name).lower()
+    base_parts = [label for label in base_domain.split('.') if label]
+    name_parts = [label for label in query_name.split('.') if label]
+    if not base_parts:
+        raise ValueError('base_domain required')
+    _validate_labels(base_parts)
+    _validate_labels(name_parts)
 
     # Verify suffix matches
     if name_parts[-len(base_parts):] != base_parts:
@@ -315,6 +361,9 @@ def calc_query_mtu(base_domain, label_max_len=None):
         int: max bytes that can be encoded in a query
     """
     label_max_len = _normalize_label_max_len(label_max_len)
+    base_domain = _normalize_domain(base_domain)
+    base_labels = [label for label in base_domain.split('.') if label]
+    _validate_labels(base_labels)
 
     # Available chars after base domain, trailing dot, nonce, and nonce dot
     available = MAX_NAME_LEN - len(base_domain) - 1 - NONCE_LEN - 1
@@ -340,6 +389,7 @@ def encode_cname_target(data, cname_suffix, label_max_len=None):
         str: CNAME target name
     """
     label_max_len = _normalize_label_max_len(label_max_len)
+    cname_suffix = _normalize_domain(cname_suffix)
 
     b32 = base32_encode(data)
     labels = []
@@ -347,9 +397,10 @@ def encode_cname_target(data, cname_suffix, label_max_len=None):
         labels.append(b32[:label_max_len])
         b32 = b32[label_max_len:]
 
-    suffix = cname_suffix.strip('.')
-    if suffix:
-        labels.extend(suffix.split('.'))
+    suffix_labels = [label for label in cname_suffix.split('.') if label]
+    _validate_labels(suffix_labels)
+    labels.extend(suffix_labels)
+    _validate_name_length(labels)
     return '.'.join(labels)
 
 
@@ -367,10 +418,14 @@ def decode_cname_target(target_name, cname_suffix, label_max_len=None):
     """
     label_max_len = _normalize_label_max_len(label_max_len)
 
-    suffix_parts = cname_suffix.lower().strip('.').split('.')
-    name_parts = target_name.lower().strip('.').split('.')
+    cname_suffix = _normalize_domain(cname_suffix).lower()
+    target_name = _normalize_domain(target_name).lower()
+    suffix_parts = [label for label in cname_suffix.split('.') if label]
+    name_parts = [label for label in target_name.split('.') if label]
+    _validate_labels(suffix_parts)
+    _validate_labels(name_parts)
 
-    if suffix_parts != [''] and suffix_parts:
+    if suffix_parts:
         if name_parts[-len(suffix_parts):] != suffix_parts:
             raise ValueError('CNAME target does not match suffix')
         data_parts = name_parts[:-len(suffix_parts)]
@@ -415,7 +470,12 @@ def calc_response_mtu(rtype, edns_size=512, cname_suffix=None,
         # EDNS0: larger response
         overhead = 45  # DNS header + answer overhead
         available = edns_size - overhead
-        return (available * 3) // 4
+        if available <= 0:
+            return 0
+        # Each 255-byte chunk adds a length byte.
+        length_bytes = (available + 255) // 256
+        max_b64 = available - length_bytes
+        return (max_b64 * 3) // 4
     if rtype == QTYPE_CNAME:
         if cname_suffix is None:
             raise ValueError('cname_suffix required for CNAME MTU')

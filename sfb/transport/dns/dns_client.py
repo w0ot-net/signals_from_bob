@@ -300,6 +300,9 @@ class DnsClient(Transport):
                 'DNS error response',
                 {'corr_id': corr_id, 'dns_id': dns_id},
             )
+            # Clean up tracking to avoid pending exhaustion
+            self._pending.pop(corr_id)
+            del self._dns_to_corr[dns_id]
             return (None, None)  # RCODE error, drop
 
         # Clean up tracking

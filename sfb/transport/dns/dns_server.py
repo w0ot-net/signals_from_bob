@@ -15,6 +15,7 @@ import struct
 from ..transport_base import Server, TransportError
 from . import codec
 from ...config import Config
+from ...protocol.constants import PACKET_HEADER_SIZE, SEGMENT_HEADER_SIZE
 from ...logging_util import get_logger, log_event
 
 
@@ -66,12 +67,26 @@ class DnsServer(Server):
             raise
 
         # Calculate MTUs
-        self._recv_mtu = codec.calc_query_mtu(self._base_domain,
-                                              self._label_max_len)
-        self._send_mtu = codec.calc_response_mtu(self._rtype,
-                                                 config.dns_edns_size,
-                                                 self._cname_suffix,
-                                                 self._label_max_len)
+        if self._rtype == codec.QTYPE_CNAME and config.dns_edns_size <= 512:
+            min_response_payload = (
+                PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1
+            )
+            query_mtu, response_mtu = codec.calc_cname_mtu_pair(
+                self._base_domain,
+                self._cname_suffix,
+                self._label_max_len,
+                config.dns_edns_size,
+                min_response_payload,
+            )
+            self._recv_mtu = query_mtu
+            self._send_mtu = response_mtu
+        else:
+            self._recv_mtu = codec.calc_query_mtu(self._base_domain,
+                                                  self._label_max_len)
+            self._send_mtu = codec.calc_response_mtu(self._rtype,
+                                                     config.dns_edns_size,
+                                                     self._cname_suffix,
+                                                     self._label_max_len)
         self._logger = get_logger(__name__)
         self._logger.debug(
             'DnsServer MTU calc: base_domain=%r label_max=%d recv_mtu=%d send_mtu=%d',

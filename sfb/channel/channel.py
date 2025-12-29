@@ -40,7 +40,7 @@ class Channel(object):
         'id', 'state', '_send_buf', '_recv_buf', '_lock',
         '_recv_event', '_closed_event', '_open_event', '_error', '_max_send_buf',
         '_send_buf_size', '_recv_buf_size',
-        '_write_backoff_initial', '_write_backoff_max',
+        '_write_backoff_initial', '_write_backoff_max', '_close_callback',
     )
 
     def __init__(self, channel_id, max_send_buf=65536,
@@ -68,6 +68,7 @@ class Channel(object):
         self._recv_buf_size = 0
         self._write_backoff_initial = write_backoff_initial
         self._write_backoff_max = write_backoff_max
+        self._close_callback = None
 
     @property
     def is_open(self):
@@ -318,15 +319,21 @@ class Channel(object):
         Does not block. The muxer will send CLOSE and transition
         to CLOSED when CLOSE_OK is received.
         """
+        callback = None
         with self._lock:
             if self.state in (STATE_CLOSED, STATE_CLOSING):
                 return
             if self.state == STATE_OPEN:
                 self.state = STATE_CLOSING
+                callback = self._close_callback
             else:
                 self.state = STATE_CLOSED
                 self._closed_event.set()
                 self._recv_event.set()
+
+        # Notify manager outside lock
+        if callback:
+            callback(self.id)
 
     def wait_closed(self, timeout=None):
         """

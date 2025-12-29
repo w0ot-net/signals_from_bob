@@ -253,13 +253,12 @@ class SocksServerModule(BaseModule):
             if not channel.wait_open(timeout=self._config.socks_channel_open_timeout):
                 self._logger.warning('Channel open failed (rid=%d)', rid)
                 self._socks5_send_reply(sock, SOCKS5_REP_GENERAL_FAILURE)
-                self._tunnel.channel_manager.close_channel(channel.id)
+                channel.close()
                 return
 
             # Create connection tracker
             conn = _ServerConnection(rid, sock, channel, host, port,
-                                     self._logger, self._config,
-                                     self._tunnel.channel_manager)
+                                     self._logger, self._config)
             with self._connections_lock:
                 self._connections[rid] = conn
 
@@ -447,11 +446,10 @@ class _ServerConnection(object):
 
     __slots__ = (
         'rid', 'sock', 'channel', 'host', 'port', '_logger', '_config',
-        '_stop_event', '_threads', '_channel_manager',
+        '_stop_event', '_threads',
     )
 
-    def __init__(self, rid, sock, channel, host, port, logger, config,
-                 channel_manager):
+    def __init__(self, rid, sock, channel, host, port, logger, config):
         self.rid = rid
         self.sock = sock
         self.channel = channel
@@ -459,7 +457,6 @@ class _ServerConnection(object):
         self.port = port
         self._logger = logger
         self._config = config
-        self._channel_manager = channel_manager
         self._stop_event = threading.Event()
         self._threads = []
 
@@ -558,10 +555,10 @@ class _ServerConnection(object):
             except Exception:
                 pass
 
-        # Close channel via manager to notify peer
-        if self.channel and self._channel_manager:
+        # Close channel (notifies peer automatically)
+        if self.channel:
             try:
-                self._channel_manager.close_channel(self.channel.id)
+                self.channel.close()
             except Exception:
                 pass
 

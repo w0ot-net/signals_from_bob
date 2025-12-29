@@ -106,6 +106,7 @@ class ChannelManager(object):
                 write_backoff_initial=self._config.channel_write_backoff_initial,
                 write_backoff_max=self._config.channel_write_backoff_max,
             )
+            channel._close_callback = self._on_channel_close
             channel._set_state(STATE_OPENING)
             self._channels[channel_id] = channel
 
@@ -136,13 +137,12 @@ class ChannelManager(object):
         """
         with self._lock:
             channel = self._channels.get(channel_id)
-            if channel is None:
-                return
-            if channel.state in (STATE_CLOSED, STATE_CLOSING):
-                return
-            channel._set_state(STATE_CLOSING)
 
-        # Send CLOSE control message
+        if channel is not None:
+            channel.close()
+
+    def _on_channel_close(self, channel_id):
+        """Callback invoked when channel.close() is called."""
         self._control.send_message(ch_close(channel_id))
 
     def deliver_segment(self, segment):
@@ -338,6 +338,7 @@ class ChannelManager(object):
                 write_backoff_initial=self._config.channel_write_backoff_initial,
                 write_backoff_max=self._config.channel_write_backoff_max,
             )
+            channel._close_callback = self._on_channel_close
             channel._set_state(STATE_OPEN)
             self._channels[channel_id] = channel
 

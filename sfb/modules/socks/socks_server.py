@@ -1,0 +1,516 @@
+# -*- coding: ascii -*-
+"""
+SOCKS server module (runs on Bob).
+
+Accepts SOCKS5 clients on a local TCP port and proxies their
+connections through the tunnel to Alice.
+"""
+
+from __future__ import absolute_import
+
+import logging
+import socket
+import struct
+import threading
+
+from ..base_module import BaseModule, ModuleError
+from .socks_control_messages import T_SOCK, sock_connect
+
+
+# SOCKS5 constants
+SOCKS5_VERSION = 0x05
+SOCKS5_AUTH_NONE = 0x00
+SOCKS5_AUTH_NO_ACCEPTABLE = 0xFF
+SOCKS5_CMD_CONNECT = 0x01
+SOCKS5_ATYP_IPV4 = 0x01
+SOCKS5_ATYP_DOMAIN = 0x03
+SOCKS5_ATYP_IPV6 = 0x04
+
+# SOCKS5 reply codes
+SOCKS5_REP_SUCCESS = 0x00
+SOCKS5_REP_GENERAL_FAILURE = 0x01
+SOCKS5_REP_NOT_ALLOWED = 0x02
+SOCKS5_REP_NET_UNREACHABLE = 0x03
+SOCKS5_REP_HOST_UNREACHABLE = 0x04
+SOCKS5_REP_REFUSED = 0x05
+SOCKS5_REP_TTL_EXPIRED = 0x06
+SOCKS5_REP_CMD_NOT_SUPPORTED = 0x07
+SOCKS5_REP_ADDR_NOT_SUPPORTED = 0x08
+
+# Map error codes to SOCKS5 reply codes
+ERROR_TO_SOCKS5 = {
+    'ok': SOCKS5_REP_SUCCESS,
+    'general': SOCKS5_REP_GENERAL_FAILURE,
+    'denied': SOCKS5_REP_NOT_ALLOWED,
+    'unreachable_net': SOCKS5_REP_NET_UNREACHABLE,
+    'unreachable_host': SOCKS5_REP_HOST_UNREACHABLE,
+    'refused': SOCKS5_REP_REFUSED,
+    'timeout': SOCKS5_REP_TTL_EXPIRED,
+    'unsupported_cmd': SOCKS5_REP_CMD_NOT_SUPPORTED,
+    'unsupported_addr': SOCKS5_REP_ADDR_NOT_SUPPORTED,
+}
+
+
+class Socks5Error(Exception):
+    """SOCKS5 protocol error."""
+
+    def __init__(self, code, message):
+        Exception.__init__(self, message)
+        self.code = code
+        self.message = message
+
+
+class _PendingConnect(object):
+    """Tracks a pending connect request awaiting response."""
+
+    __slots__ = ('event', 'error', 'bind_host', 'bind_port')
+
+    def __init__(self):
+        self.event = threading.Event()
+        self.error = None
+        self.bind_host = None
+        self.bind_port = None
+
+
+class SocksServerModule(BaseModule):
+    """
+    SOCKS5 proxy server module (runs on Bob).
+
+    Accepts SOCKS5 clients on a local TCP port and proxies their
+    connections through the tunnel to Alice.
+    """
+
+    TYPE = T_SOCK
+
+    def __init__(self, tunnel, logger=None):
+        super(SocksServerModule, self).__init__(tunnel, logger=logger)
+
+        # TCP server
+        self._server_socket = None
+        self._accept_thread = None
+        self._running = False
+
+        # Connection tracking
+        self._connections = {}  # rid -> _ServerConnection
+        self._connections_lock = threading.Lock()
+
+        # Request ID allocation
+        self._rid_lock = threading.Lock()
+        self._next_rid = 1
+
+        # Pending connect requests
+        self._pending = {}  # rid -> _PendingConnect
+
+    def start(self, listen_addr='127.0.0.1', listen_port=1080):
+        """
+        Start the SOCKS5 server.
+
+        Args:
+            listen_addr: Address to listen on
+            listen_port: Port to listen on
+        """
+        if self._running:
+            raise ModuleError('already_running', 'SOCKS server already running')
+
+        self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._server_socket.bind((listen_addr, listen_port))
+        self._server_socket.listen(5)
+
+        self._running = True
+        self._accept_thread = threading.Thread(
+            target=self._accept_loop,
+            name='socks-accept',
+        )
+        self._accept_thread.daemon = True
+        self._accept_thread.start()
+
+        self._logger.info('SOCKS5 server listening on %s:%d',
+                          listen_addr, listen_port)
+
+    def stop(self):
+        """Stop the SOCKS5 server."""
+        self._running = False
+
+        # Close server socket to unblock accept
+        if self._server_socket:
+            try:
+                self._server_socket.close()
+            except Exception:
+                pass
+
+        # Wait for accept thread
+        if self._accept_thread:
+            self._accept_thread.join(timeout=2.0)
+
+        # Stop all connections
+        with self._connections_lock:
+            connections = list(self._connections.values())
+
+        for conn in connections:
+            conn.stop()
+
+        self._logger.info('SOCKS5 server stopped')
+
+    def shutdown(self):
+        """Stop module and clean up."""
+        self.stop()
+        super(SocksServerModule, self).shutdown()
+
+    def _alloc_rid(self):
+        """Allocate a unique request ID."""
+        with self._rid_lock:
+            rid = self._next_rid
+            self._next_rid += 1
+            return rid
+
+    def _accept_loop(self):
+        """Accept incoming connections."""
+        while self._running:
+            try:
+                self._server_socket.settimeout(0.5)
+                try:
+                    client_sock, addr = self._server_socket.accept()
+                except socket.timeout:
+                    continue
+
+                self._logger.debug('Accepted connection from %s:%d', addr[0], addr[1])
+
+                # Spawn handler thread
+                t = threading.Thread(
+                    target=self._handle_client,
+                    args=(client_sock, addr),
+                    name='socks-client-%s:%d' % addr,
+                )
+                t.daemon = True
+                t.start()
+
+            except Exception as e:
+                if self._running:
+                    self._logger.exception('Accept error: %s', e)
+
+    def _handle_client(self, sock, addr):
+        """Handle a single SOCKS5 client connection."""
+        rid = self._alloc_rid()
+        channel = None
+        conn = None
+
+        try:
+            # SOCKS5 handshake
+            self._socks5_negotiate_method(sock)
+            host, port = self._socks5_read_connect(sock)
+
+            self._logger.info('CONNECT %s:%d from %s:%d (rid=%d)',
+                              host, port, addr[0], addr[1], rid)
+
+            # Open tunnel channel
+            channel = self._tunnel.channel_manager.open_channel()
+            if not channel.wait_open(timeout=10.0):
+                self._logger.warning('Channel open failed (rid=%d)', rid)
+                self._socks5_send_reply(sock, SOCKS5_REP_GENERAL_FAILURE)
+                return
+
+            # Create connection tracker
+            conn = _ServerConnection(rid, sock, channel, host, port, self._logger)
+            with self._connections_lock:
+                self._connections[rid] = conn
+
+            # Register pending and send connect request
+            pending = _PendingConnect()
+            with self._pending_lock:
+                self._pending[rid] = pending
+
+            self.send_message(sock_connect(rid, channel.id, host, port))
+
+            # Wait for response
+            if not pending.event.wait(timeout=30.0):
+                self._logger.warning('Connect timeout (rid=%d)', rid)
+                self._socks5_send_reply(sock, SOCKS5_REP_TTL_EXPIRED)
+                return
+
+            if pending.error:
+                error_code = ERROR_TO_SOCKS5.get(pending.error, SOCKS5_REP_GENERAL_FAILURE)
+                self._logger.info('Connect failed (rid=%d): %s', rid, pending.error)
+                self._socks5_send_reply(sock, error_code)
+                return
+
+            # Send success reply
+            bind_host = pending.bind_host or '0.0.0.0'
+            bind_port = pending.bind_port or 0
+            self._socks5_send_reply(sock, SOCKS5_REP_SUCCESS, bind_host, bind_port)
+
+            self._logger.info('Connected %s:%d (rid=%d)', host, port, rid)
+
+            # Start relay and wait for completion
+            conn.start_relay()
+            conn.wait()
+
+        except Socks5Error as e:
+            self._logger.warning('SOCKS5 error (rid=%d): %s', rid, e)
+        except Exception as e:
+            self._logger.exception('Client handler error (rid=%d): %s', rid, e)
+        finally:
+            self._cleanup_connection(rid)
+
+    def _cleanup_connection(self, rid):
+        """Clean up connection resources."""
+        # Remove from pending
+        with self._pending_lock:
+            self._pending.pop(rid, None)
+
+        # Remove from connections
+        with self._connections_lock:
+            conn = self._connections.pop(rid, None)
+
+        if conn:
+            conn.stop()
+            self._logger.debug('Cleaned up connection rid=%d', rid)
+
+    # --- SOCKS5 Protocol Implementation ---
+
+    def _recv_exact(self, sock, size):
+        """Receive exactly size bytes from socket."""
+        data = b''
+        while len(data) < size:
+            chunk = sock.recv(size - len(data))
+            if not chunk:
+                raise Socks5Error('closed', 'connection closed')
+            data += chunk
+        return data
+
+    def _socks5_negotiate_method(self, sock):
+        """
+        SOCKS5 method negotiation.
+
+        Client sends: VER | NMETHODS | METHODS
+        Server sends: VER | METHOD
+        """
+        # Read version and method count
+        data = self._recv_exact(sock, 2)
+        version, nmethods = struct.unpack('!BB', data)
+
+        if version != SOCKS5_VERSION:
+            raise Socks5Error('version', 'SOCKS version %d not supported' % version)
+
+        if nmethods == 0:
+            raise Socks5Error('no_methods', 'no methods offered')
+
+        # Read methods
+        methods = self._recv_exact(sock, nmethods)
+
+        # Check for NO AUTH (0x00)
+        if SOCKS5_AUTH_NONE not in methods:
+            # Send rejection
+            sock.sendall(struct.pack('!BB', SOCKS5_VERSION, SOCKS5_AUTH_NO_ACCEPTABLE))
+            raise Socks5Error('auth', 'no acceptable auth method')
+
+        # Accept NO AUTH
+        sock.sendall(struct.pack('!BB', SOCKS5_VERSION, SOCKS5_AUTH_NONE))
+
+    def _socks5_read_connect(self, sock):
+        """
+        Read SOCKS5 CONNECT request.
+
+        Client sends: VER | CMD | RSV | ATYP | DST.ADDR | DST.PORT
+
+        Returns:
+            tuple: (host, port)
+        """
+        # Read header
+        data = self._recv_exact(sock, 4)
+        version, cmd, rsv, atyp = struct.unpack('!BBBB', data)
+
+        if version != SOCKS5_VERSION:
+            raise Socks5Error('version', 'bad version in request')
+
+        if cmd != SOCKS5_CMD_CONNECT:
+            self._socks5_send_reply(sock, SOCKS5_REP_CMD_NOT_SUPPORTED)
+            raise Socks5Error('command', 'only CONNECT supported')
+
+        # Parse address
+        if atyp == SOCKS5_ATYP_IPV4:
+            addr_data = self._recv_exact(sock, 4)
+            host = socket.inet_ntoa(addr_data)
+        elif atyp == SOCKS5_ATYP_DOMAIN:
+            len_byte = self._recv_exact(sock, 1)
+            name_len = struct.unpack('!B', len_byte)[0]
+            host = self._recv_exact(sock, name_len).decode('ascii')
+        elif atyp == SOCKS5_ATYP_IPV6:
+            addr_data = self._recv_exact(sock, 16)
+            host = socket.inet_ntop(socket.AF_INET6, addr_data)
+        else:
+            self._socks5_send_reply(sock, SOCKS5_REP_ADDR_NOT_SUPPORTED)
+            raise Socks5Error('address', 'address type %d not supported' % atyp)
+
+        # Read port
+        port_data = self._recv_exact(sock, 2)
+        port = struct.unpack('!H', port_data)[0]
+
+        return host, port
+
+    def _socks5_send_reply(self, sock, reply_code, bind_addr='0.0.0.0', bind_port=0):
+        """
+        Send SOCKS5 reply.
+
+        VER | REP | RSV | ATYP | BND.ADDR | BND.PORT
+        """
+        reply = bytearray([
+            SOCKS5_VERSION,
+            reply_code,
+            0x00,  # Reserved
+            SOCKS5_ATYP_IPV4,  # Address type: IPv4
+        ])
+        reply.extend(socket.inet_aton(bind_addr))
+        reply.extend(struct.pack('!H', bind_port))
+        sock.sendall(bytes(reply))
+
+    # --- Response Handlers ---
+
+    def handle_connect_ok(self, msg):
+        """Handle connect_ok from Alice."""
+        rid = msg.get('rid')
+        if rid is None:
+            return
+
+        with self._pending_lock:
+            pending = self._pending.get(rid)
+
+        if pending:
+            pending.bind_host = msg.get('bhost')
+            pending.bind_port = msg.get('bport')
+            pending.event.set()
+
+    def handle_err(self, msg):
+        """Handle error from Alice."""
+        rid = msg.get('rid')
+        if rid is None:
+            return
+
+        with self._pending_lock:
+            pending = self._pending.get(rid)
+
+        if pending:
+            pending.error = msg.get('code', 'general')
+            pending.event.set()
+
+
+class _ServerConnection(object):
+    """Manages a single SOCKS client connection."""
+
+    __slots__ = (
+        'rid', 'sock', 'channel', 'host', 'port', '_logger',
+        '_stop_event', '_threads',
+    )
+
+    def __init__(self, rid, sock, channel, host, port, logger):
+        self.rid = rid
+        self.sock = sock
+        self.channel = channel
+        self.host = host
+        self.port = port
+        self._logger = logger
+        self._stop_event = threading.Event()
+        self._threads = []
+
+    def start_relay(self):
+        """Start bidirectional relay threads."""
+        # Client -> Channel
+        t1 = threading.Thread(
+            target=self._relay_client_to_channel,
+            name='socks-rid%d-c2ch' % self.rid,
+        )
+        t1.daemon = True
+
+        # Channel -> Client
+        t2 = threading.Thread(
+            target=self._relay_channel_to_client,
+            name='socks-rid%d-ch2c' % self.rid,
+        )
+        t2.daemon = True
+
+        self._threads = [t1, t2]
+        t1.start()
+        t2.start()
+
+    def _relay_client_to_channel(self):
+        """Relay data from SOCKS client to channel."""
+        try:
+            self.sock.settimeout(0.5)
+            while not self._stop_event.is_set():
+                try:
+                    data = self.sock.recv(8192)
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    if not self._stop_event.is_set():
+                        self._logger.debug('Client recv error (rid=%d): %s', self.rid, e)
+                    break
+
+                if not data:
+                    # EOF from client
+                    self._logger.debug('Client EOF (rid=%d)', self.rid)
+                    break
+
+                try:
+                    self.channel.write_all(data, timeout=30.0)
+                except Exception as e:
+                    if not self._stop_event.is_set():
+                        self._logger.debug('Channel write error (rid=%d): %s', self.rid, e)
+                    break
+        finally:
+            self._stop_event.set()
+
+    def _relay_channel_to_client(self):
+        """Relay data from channel to SOCKS client."""
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    data = self.channel.read(8192, timeout=0.5)
+                except Exception as e:
+                    if not self._stop_event.is_set():
+                        self._logger.debug('Channel read error (rid=%d): %s', self.rid, e)
+                    break
+
+                if data is None:
+                    # Timeout, check stop event and retry
+                    continue
+                if data == b'':
+                    # EOF from channel
+                    self._logger.debug('Channel EOF (rid=%d)', self.rid)
+                    break
+
+                try:
+                    self.sock.sendall(data)
+                except Exception as e:
+                    if not self._stop_event.is_set():
+                        self._logger.debug('Client send error (rid=%d): %s', self.rid, e)
+                    break
+        finally:
+            self._stop_event.set()
+
+    def wait(self, timeout=None):
+        """Wait for relay threads to complete."""
+        for t in self._threads:
+            t.join(timeout=timeout)
+
+    def stop(self):
+        """Signal relay to stop and close resources."""
+        self._stop_event.set()
+
+        # Close client socket
+        if self.sock:
+            try:
+                self.sock.close()
+            except Exception:
+                pass
+
+        # Close channel
+        if self.channel:
+            try:
+                self.channel.close()
+            except Exception:
+                pass
+
+        # Wait for threads with timeout
+        for t in self._threads:
+            t.join(timeout=2.0)

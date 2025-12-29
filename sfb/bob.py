@@ -7,7 +7,6 @@ import logging
 import os
 import signal
 import sys
-import threading
 import time
 
 from .argparse_utils import parse_args
@@ -16,41 +15,6 @@ from .crypto import Plain, XOR
 from .transport.dns import DnsServer
 from .tunnel import BobTunnel, TunnelState
 from .modules import ModuleLoader, FileTransferModule
-
-
-class TunnelRunner(object):
-    """Runs the tunnel serve loop in a background thread for command mode."""
-
-    def __init__(self, tunnel, logger):
-        self._tunnel = tunnel
-        self._logger = logger
-        self._stop = False
-        self._thread = None
-
-    def start(self):
-        """Start the background serve loop."""
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def stop(self):
-        """Stop the background serve loop."""
-        self._stop = True
-        self._tunnel.close()
-        if self._thread:
-            self._thread.join(timeout=2.0)
-
-    def _run(self):
-        """Background serve loop."""
-        while not self._stop and self._tunnel._state != TunnelState.CLOSED:
-            try:
-                result = self._tunnel._transport.recv(timeout=0.1)
-                if result is None or result[0] is None:
-                    continue
-                data, responder = result
-                self._tunnel.handle_request(data, responder)
-            except Exception as e:
-                if not self._stop:
-                    self._logger.warning('Serve loop error: %s', e)
 
 
 def main():
@@ -133,15 +97,13 @@ def run_command_mode(args, tunnel, logger, shutdown_requested):
     """Run in command mode - wait for Alice, load module, execute command."""
     module_loader = None
     file_module = None
-    runner = None
 
     try:
         # Allow 'mod' messages for module loading responses
         tunnel.allow_message_type('mod')
 
         # Start background serve loop
-        runner = TunnelRunner(tunnel, logger)
-        runner.start()
+        tunnel.start_background()
 
         # Wait for Alice to connect
         logger.info('Waiting for Alice to connect on %s...', args.listen)
@@ -203,13 +165,11 @@ def run_command_mode(args, tunnel, logger, shutdown_requested):
         return 1
 
     finally:
-        if runner:
-            runner.stop()
         if file_module:
             file_module.shutdown()
         if module_loader:
             module_loader.shutdown()
-        tunnel.close()
+        tunnel.close()  # This also stops the background thread
         logger.info('Shutdown complete')
 
 

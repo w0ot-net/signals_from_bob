@@ -455,6 +455,15 @@ class AliceTunnel(BaseTunnel):
             # Brief sleep to avoid busy loop
             time.sleep(0.001)
 
+    def _run_loop(self):
+        """Background thread loop - calls tick() until stopped."""
+        while not self._bg_stop and self._state == TunnelState.CONNECTED:
+            try:
+                self.tick()
+            except Exception as e:
+                self._logger.warning('Tick error: %s', e)
+            time.sleep(0.001)
+
     def close(self):
         """Close the tunnel and transport."""
         super(AliceTunnel, self).close()

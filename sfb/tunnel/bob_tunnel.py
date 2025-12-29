@@ -96,6 +96,19 @@ class BobTunnel(BaseTunnel):
                     break
                 self._logger.warning('Error in serve loop: %s', e)
 
+    def _run_loop(self):
+        """Background thread loop - processes requests until stopped."""
+        while not self._bg_stop and self._state != TunnelState.CLOSED:
+            try:
+                result = self._transport.recv(timeout=0.1)
+                if result is None or result[0] is None:
+                    continue
+                data, responder = result
+                self.handle_request(data, responder)
+            except Exception as e:
+                if not self._bg_stop:
+                    self._logger.warning('Serve loop error: %s', e)
+
     def handle_request(self, data, responder):
         """
         Handle a single request from Alice.

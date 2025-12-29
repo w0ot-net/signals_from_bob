@@ -13,6 +13,7 @@ Provides common infrastructure for both AliceTunnel and BobTunnel:
 from __future__ import absolute_import
 
 import logging
+import threading
 import time
 
 from ..channel import ChannelManager, ChannelError
@@ -135,6 +136,10 @@ class BaseTunnel(object):
 
         # Transport MTU for receive (payload + header)
         self._max_packet_size = self.DEFAULT_MTU + PACKET_HEADER_SIZE
+
+        # Background thread support
+        self._bg_thread = None
+        self._bg_stop = False
 
     @property
     def state(self):
@@ -576,10 +581,54 @@ class BaseTunnel(object):
             max_payload, keepalive_data=keepalive_data
         )
 
+    def start_background(self):
+        """
+        Start the tunnel's message loop in a background thread.
+
+        The loop runs until stop_background() is called or the tunnel closes.
+        Subclasses must implement _run_loop() to define their specific loop.
+        """
+        if self._bg_thread is not None:
+            return  # Already running
+
+        self._bg_stop = False
+        self._bg_thread = threading.Thread(target=self._bg_run, daemon=True)
+        self._bg_thread.start()
+
+    def stop_background(self, timeout=2.0):
+        """
+        Stop the background thread.
+
+        Args:
+            timeout: Max seconds to wait for thread to finish
+        """
+        self._bg_stop = True
+        if self._bg_thread is not None:
+            self._bg_thread.join(timeout=timeout)
+            self._bg_thread = None
+
+    def _bg_run(self):
+        """Background thread entry point."""
+        try:
+            self._run_loop()
+        except Exception as e:
+            if not self._bg_stop:
+                self._logger.exception('Background loop error: %s', e)
+
+    def _run_loop(self):
+        """
+        Subclass-specific message processing loop.
+
+        Subclasses must implement this to define their loop behavior.
+        The loop should check self._bg_stop and self._state to know when to exit.
+        """
+        raise NotImplementedError('Subclass must implement _run_loop()')
+
     def close(self):
-        """Close the tunnel."""
+        """Close the tunnel and stop background thread."""
         if self._state == TunnelState.CLOSED:
             return
 
+        self.stop_background()
         self._set_state(TunnelState.CLOSED)
         self._logger.info('Tunnel closed')

@@ -4,10 +4,8 @@
 from __future__ import absolute_import
 
 import logging
-import os
 import signal
 import sys
-import threading
 import time
 
 from .argparse_utils import parse_args
@@ -16,36 +14,6 @@ from .crypto import Plain, XOR
 from .transport.dns import DnsClient
 from .tunnel import AliceTunnel, TunnelState
 from .modules import ModuleLoader
-
-
-class TunnelRunner(object):
-    """Runs the tunnel tick loop in a background thread."""
-
-    def __init__(self, tunnel, logger):
-        self._tunnel = tunnel
-        self._logger = logger
-        self._stop = False
-        self._thread = None
-
-    def start(self):
-        """Start the background tick loop."""
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def stop(self):
-        """Stop the background tick loop."""
-        self._stop = True
-        if self._thread:
-            self._thread.join(timeout=2.0)
-
-    def _run(self):
-        """Background tick loop."""
-        while not self._stop and self._tunnel._state == TunnelState.CONNECTED:
-            try:
-                self._tunnel.tick()
-            except Exception as e:
-                self._logger.warning('Tick error: %s', e)
-            time.sleep(0.001)
 
 
 def main():
@@ -79,7 +47,6 @@ def main():
     transport = DnsClient(config)
     tunnel = AliceTunnel(transport, config, crypto=crypto)
     module_loader = None
-    runner = None
 
     # Signal handling
     shutdown_requested = [False]  # Use list for mutable closure
@@ -103,8 +70,7 @@ def main():
         logger.info('Connected')
 
         # Start background tick loop
-        runner = TunnelRunner(tunnel, logger)
-        runner.start()
+        tunnel.start_background()
 
         # Create module loader to handle Bob's module load requests
         module_loader = ModuleLoader(tunnel, logger=logger)
@@ -123,11 +89,9 @@ def main():
         return 1
 
     finally:
-        if runner:
-            runner.stop()
         if module_loader:
             module_loader.shutdown()
-        tunnel.close()
+        tunnel.close()  # This also stops the background thread
         logger.info('Shutdown complete')
 
 

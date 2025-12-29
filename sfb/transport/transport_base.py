@@ -17,6 +17,7 @@ max_pending=1 or call recv() after each send().
 from __future__ import absolute_import
 
 import abc
+import time
 
 
 class Transport(object):
@@ -196,3 +197,83 @@ class Server(object):
 class TransportError(Exception):
     """Base exception for transport errors."""
     pass
+
+
+class TokenBucket(object):
+    """
+    Simple token bucket rate limiter.
+    """
+
+    def __init__(self, rate, capacity=None):
+        self._rate = float(rate)
+        if capacity is None:
+            capacity = rate
+        self._capacity = float(capacity)
+        self._tokens = self._capacity
+        self._last_refill = time.time()
+
+    def _refill(self, now):
+        elapsed = now - self._last_refill
+        if elapsed <= 0:
+            return
+        self._tokens = min(self._capacity, self._tokens + elapsed * self._rate)
+        self._last_refill = now
+
+    def can_take(self, amount=1.0, now=None):
+        if self._rate <= 0:
+            return True
+        if now is None:
+            now = time.time()
+        self._refill(now)
+        return self._tokens >= amount
+
+    def take(self, amount=1.0, now=None):
+        if self._rate <= 0:
+            return True
+        if now is None:
+            now = time.time()
+        self._refill(now)
+        if self._tokens >= amount:
+            self._tokens -= amount
+            return True
+        return False
+
+
+class PendingTracker(object):
+    """
+    Tracks pending requests with timeouts.
+    """
+
+    def __init__(self, timeout):
+        self._timeout = timeout
+        self._entries = {}
+
+    def add(self, key, value, now=None):
+        if now is None:
+            now = time.time()
+        self._entries[key] = (value, now)
+
+    def get(self, key):
+        entry = self._entries.get(key)
+        if entry is None:
+            return None
+        return entry[0]
+
+    def pop(self, key, default=None):
+        entry = self._entries.pop(key, None)
+        if entry is None:
+            return default
+        return entry[0]
+
+    def prune(self, now=None):
+        if now is None:
+            now = time.time()
+        stale = []
+        for key, (value, ts) in list(self._entries.items()):
+            if now - ts > self._timeout:
+                stale.append((key, value))
+                del self._entries[key]
+        return stale
+
+    def __len__(self):
+        return len(self._entries)

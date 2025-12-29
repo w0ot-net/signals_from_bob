@@ -15,7 +15,7 @@ import socket
 import struct
 import time
 
-from ..transport_base import Transport, TransportError
+from ..transport_base import Transport, TransportError, PendingTracker, TokenBucket
 from . import codec
 from ...compat import require_bytes
 from ...config import Config
@@ -25,12 +25,11 @@ from ...logging_util import get_logger
 class _PendingQuery(object):
     """Tracks an in-flight DNS query."""
 
-    __slots__ = ('dns_id', 'query_pkt', 'send_time')
+    __slots__ = ('dns_id', 'query_pkt')
 
     def __init__(self, dns_id, query_pkt):
         self.dns_id = dns_id
         self.query_pkt = query_pkt
-        self.send_time = time.time()
 
 
 class DnsClient(Transport):
@@ -96,13 +95,15 @@ class DnsClient(Transport):
 
         # Pending query tracking
         self._next_corr_id = 0
-        self._pending = {}  # corr_id -> _PendingQuery
+        self._pending = PendingTracker(self._pending_timeout)
         self._dns_to_corr = {}  # dns_id -> corr_id
 
         # Rate limiting (token bucket)
         self._qps_limit = config.dns_queries_per_second
-        self._tokens = self._qps_limit if self._qps_limit > 0 else 0
-        self._last_refill = time.time()
+        if self._qps_limit > 0:
+            self._rate_limiter = TokenBucket(self._qps_limit)
+        else:
+            self._rate_limiter = None
 
     @property
     def send_mtu(self):
@@ -130,16 +131,9 @@ class DnsClient(Transport):
         """
         if self.pending_count() >= self._max_pending:
             return False
-        if self._qps_limit <= 0:
+        if self._rate_limiter is None:
             return True  # Unlimited
-        self._refill_tokens(time.time())
-        return self._tokens >= 1.0
-
-    def _refill_tokens(self, now):
-        """Refill tokens based on elapsed time."""
-        elapsed = now - self._last_refill
-        self._tokens = min(self._qps_limit, self._tokens + elapsed * self._qps_limit)
-        self._last_refill = now
+        return self._rate_limiter.can_take(1.0, now=time.time())
 
     def send(self, data):
         """
@@ -184,12 +178,12 @@ class DnsClient(Transport):
 
         # Track pending
         pending = _PendingQuery(dns_id, query_pkt)
-        self._pending[corr_id] = pending
+        self._pending.add(corr_id, pending)
         self._dns_to_corr[dns_id] = corr_id
 
         # Consume a token for rate limiting
-        if self._qps_limit > 0:
-            self._tokens -= 1.0
+        if self._rate_limiter is not None:
+            self._rate_limiter.take(1.0, now=time.time())
 
         return corr_id
 
@@ -277,7 +271,7 @@ class DnsClient(Transport):
             return (None, None)  # RCODE error, drop
 
         # Clean up tracking
-        del self._pending[corr_id]
+        self._pending.pop(corr_id)
         del self._dns_to_corr[dns_id]
 
         _LOG.debug('dns recv corr=%d dns_id=%d len=%d', corr_id, dns_id, len(payload))
@@ -287,11 +281,9 @@ class DnsClient(Transport):
         """Remove stale pending queries to free capacity."""
         if now is None:
             now = time.time()
-        stale = [cid for cid, pq in self._pending.items()
-                 if now - pq.send_time > self._pending_timeout]
-        for cid in stale:
-            dns_id = self._pending[cid].dns_id
-            del self._pending[cid]
+        stale = self._pending.prune(now=now)
+        for cid, pending in stale:
+            dns_id = pending.dns_id
             self._dns_to_corr.pop(dns_id, None)
 
     def _encode_query(self, data):

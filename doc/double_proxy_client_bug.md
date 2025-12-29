@@ -39,6 +39,11 @@ collapse:
 3) Bob keeps retransmitting the same seq, but ACK progress stalls.
 4) No forward progress, so both sides keep retrying.
 
+Additional note: this does not reproduce with a single SOCKS client, and the
+user does not believe this is a public resolver issue. The stall only appears
+after a second concurrent client starts, suggesting a concurrency or pipeline
+handling bug on the client receive path rather than resolver availability.
+
 ## Instrumentation Added
 
 Structured logging to SQLite with these events:

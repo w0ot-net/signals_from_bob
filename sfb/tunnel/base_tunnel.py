@@ -296,9 +296,14 @@ class BaseTunnel(object):
             now = time.time()
 
         # Process ACK/SACK from peer (updates our send window)
+        unacked_before = len(self._send_window._unacked)
         rtt_samples = self._send_window.process_ack(
             packet.ack, packet.sack, now=now
         )
+        unacked_after = len(self._send_window._unacked)
+        if unacked_before != unacked_after or unacked_after > 0:
+            self._logger.debug('ACK=%d SACK=0x%x: unacked %d->%d',
+                              packet.ack, packet.sack, unacked_before, unacked_after)
 
         # Pass through recv_window for ordering and deduplication
         # recv_window.receive() returns list of (seq, packet) ready for delivery

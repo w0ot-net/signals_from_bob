@@ -52,6 +52,11 @@ def main():
     """Main entry point."""
     args = parse_args(role='client')
 
+    if not args.command:
+        print('Error: No command specified. Use list, get, or put.')
+        print('Run with --help for usage.')
+        return 1
+
     # Setup logging
     level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
@@ -109,7 +114,7 @@ def main():
         # Create file module
         file_module = FileTransferModule(tunnel, logger=logger)
 
-        # Execute command or wait for Bob's commands
+        # Execute command
         if args.command == 'list':
             result = file_module.list_dir(args.path, timeout=args.timeout)
             for entry in result:
@@ -132,12 +137,6 @@ def main():
             logger.info('Uploading %s (%d bytes) -> %s', args.local, size, args.remote)
             file_module.put(args.local, args.remote, timeout=args.timeout)
             logger.info('Upload complete: %s', args.remote)
-
-        else:
-            # No command - stay connected and handle Bob's requests
-            logger.info('Connected. Waiting for commands from server...')
-            while tunnel.connected:
-                time.sleep(0.1)
 
         return 0
 

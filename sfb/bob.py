@@ -7,8 +7,6 @@ import logging
 import os
 import signal
 import sys
-import threading
-import time
 
 from .argparse_utils import parse_args
 from .config import Config
@@ -16,37 +14,6 @@ from .crypto import Plain, XOR
 from .transport.dns import DnsServer
 from .tunnel import BobTunnel
 from .modules.file_transfer import FileTransferModule
-
-
-class TunnelRunner(object):
-    """Runs the tunnel tick loop in a background thread."""
-
-    def __init__(self, tunnel, logger):
-        self._tunnel = tunnel
-        self._logger = logger
-        self._stop = False
-        self._thread = None
-
-    def start(self):
-        """Start the background tick loop."""
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def stop(self):
-        """Stop the background tick loop."""
-        self._stop = True
-        if self._thread:
-            self._thread.join(timeout=2.0)
-
-    def _run(self):
-        """Background tick loop."""
-        while not self._stop:
-            try:
-                if not self._tunnel.tick():
-                    break
-            except Exception as e:
-                self._logger.warning('Tick error: %s', e)
-            time.sleep(0.001)
 
 
 def main():
@@ -106,51 +73,12 @@ def main():
 
     # Run
     logger.info('Listening on %s for domain %s', args.listen, args.domain)
-    runner = None
     try:
-        if args.command:
-            # Wait for Alice to connect, then execute command
-            if not tunnel.wait_for_connection():
-                logger.error('Connection failed or timed out')
-                return 1
-
-            # Start background tick loop to handle Alice's polls
-            runner = TunnelRunner(tunnel, logger)
-            runner.start()
-
-            logger.info('Executing command: %s', args.command)
-
-            if args.command == 'list':
-                result = file_module.list_dir(args.path, timeout=30.0)
-                for entry in result:
-                    if entry.get('dir'):
-                        print('d %10s %s/' % ('-', entry['name']))
-                    else:
-                        print('- %10d %s' % (entry.get('size', 0), entry['name']))
-
-            elif args.command == 'get':
-                local_path = args.local or os.path.basename(args.remote)
-                logger.info('Downloading %s -> %s', args.remote, local_path)
-                file_module.get(args.remote, local_path, timeout=30.0)
-                logger.info('Download complete: %s', local_path)
-
-            elif args.command == 'put':
-                if not os.path.isfile(args.local):
-                    logger.error('Local file not found: %s', args.local)
-                    return 1
-                size = os.path.getsize(args.local)
-                logger.info('Uploading %s (%d bytes) -> %s', args.local, size, args.remote)
-                file_module.put(args.local, args.remote, timeout=30.0)
-                logger.info('Upload complete: %s', args.remote)
-        else:
-            # No command - serve forever (respond to Alice's requests)
-            tunnel.serve_forever()
+        tunnel.serve_forever()
     except Exception as e:
-        logger.exception('Error: %s', e)
+        logger.exception('Error in serve loop: %s', e)
         return 1
     finally:
-        if runner:
-            runner.stop()
         file_module.shutdown()
         tunnel.close()
         logger.info('Shutdown complete')

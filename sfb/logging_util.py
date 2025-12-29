@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import sqlite3
+import json
 
 try:
     import Queue as queue
@@ -67,11 +68,15 @@ class SQLiteLogHandler(logging.Handler):
             self.handleError(record)
             return
 
+        event_name = _coerce_text(getattr(record, 'event', None))
+        fields = _encode_fields(getattr(record, 'fields', None))
         event = (
             float(record.created),
             _coerce_text(record.levelname),
             _coerce_text(record.name),
             _coerce_text(message),
+            event_name,
+            fields,
             _coerce_text(record.pathname),
             int(record.lineno),
             _coerce_text(record.funcName),
@@ -105,6 +110,8 @@ class SQLiteLogHandler(logging.Handler):
                 'level TEXT,'
                 'logger TEXT,'
                 'message TEXT,'
+                'event TEXT,'
+                'fields TEXT,'
                 'pathname TEXT,'
                 'lineno INTEGER,'
                 'func TEXT,'
@@ -112,6 +119,8 @@ class SQLiteLogHandler(logging.Handler):
                 'process INTEGER'
                 ')'
             )
+            _ensure_log_columns(cur)
+            _ensure_log_indexes(cur)
             conn.commit()
 
             batch = []
@@ -133,8 +142,8 @@ class SQLiteLogHandler(logging.Handler):
 
                 if batch and (len(batch) >= 100 or time.time() - last_flush >= self._flush_interval):
                     cur.executemany(
-                        'INSERT INTO logs (created, level, logger, message, pathname, lineno, func, thread, process) '
-                        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        'INSERT INTO logs (created, level, logger, message, event, fields, pathname, lineno, func, thread, process) '
+                        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                         batch,
                     )
                     conn.commit()
@@ -143,8 +152,8 @@ class SQLiteLogHandler(logging.Handler):
 
             if batch:
                 cur.executemany(
-                    'INSERT INTO logs (created, level, logger, message, pathname, lineno, func, thread, process) '
-                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO logs (created, level, logger, message, event, fields, pathname, lineno, func, thread, process) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     batch,
                 )
                 conn.commit()
@@ -176,6 +185,31 @@ def _coerce_text(value):
         return text_type(value)
     except Exception:
         return text_type(repr(value))
+
+
+def _encode_fields(fields):
+    if fields is None:
+        return None
+    try:
+        return json.dumps(fields, ensure_ascii=True, sort_keys=True)
+    except Exception:
+        return _coerce_text(fields)
+
+
+def _ensure_log_columns(cursor):
+    cursor.execute('PRAGMA table_info(logs)')
+    existing = set([row[1] for row in cursor.fetchall()])
+    if 'event' not in existing:
+        cursor.execute('ALTER TABLE logs ADD COLUMN event TEXT')
+    if 'fields' not in existing:
+        cursor.execute('ALTER TABLE logs ADD COLUMN fields TEXT')
+
+
+def _ensure_log_indexes(cursor):
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_created ON logs (created)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_logger ON logs (logger)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_level ON logs (level)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_event ON logs (event)')
 
 
 def _ensure_handler(logger, handler_cls, formatter, *args):

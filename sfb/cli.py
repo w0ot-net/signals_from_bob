@@ -19,6 +19,7 @@ import time
 
 from .config import Config
 from .crypto import Plain, XOR
+from .logging_util import add_sqlite_handler
 from .transport import TRANSPORTS, get_transport_class
 from .tunnel import AliceTunnel, BobTunnel, TunnelState
 from .modules import AVAILABLE_MODULES
@@ -70,6 +71,18 @@ def add_common_args(parser, config):
     parser.add_argument(
         '-v', '--verbose', action='store_true',
         help='Enable debug logging'
+    )
+    parser.add_argument(
+        '--db-log',
+        help='Enable SQLite logging to PATH'
+    )
+    parser.add_argument(
+        '--db-log-flush', type=float, default=0.5,
+        help='SQLite log flush interval in seconds (default: 0.5)'
+    )
+    parser.add_argument(
+        '--db-log-queue', type=int, default=0,
+        help='SQLite log queue max size (default: 0=unbounded)'
     )
 
 
@@ -373,6 +386,16 @@ def main(args=None):
         level=level,
         format='%(name)s %(levelname)s %(message)s'
     )
+    if parsed.db_log:
+        formatter = logging.Formatter('%(name)s %(levelname)s %(message)s')
+        add_sqlite_handler(
+            logging.getLogger(),
+            parsed.db_log,
+            level=level,
+            formatter=formatter,
+            flush_interval=parsed.db_log_flush,
+            queue_maxsize=parsed.db_log_queue,
+        )
     logger = logging.getLogger('sfb')
 
     # Create config and crypto

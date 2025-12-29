@@ -38,6 +38,39 @@ def configure_logging(level='INFO', to_stdout=True, log_file=None):
         _ensure_handler(logger, logging.FileHandler, formatter, log_file)
 
 
+def log_event(logger, level, event, message, fields=None):
+    """
+    Emit a structured log event.
+    """
+    extra = {
+        'event': event,
+        'fields': fields,
+    }
+    logger.log(level, message, extra=extra)
+
+
+def add_sqlite_handler(logger, db_path, level=None, formatter=None,
+                       flush_interval=0.5, queue_maxsize=0):
+    """
+    Attach SQLite log handler to a logger if not already present.
+    """
+    for handler in logger.handlers:
+        if isinstance(handler, SQLiteLogHandler):
+            return handler
+    handler = SQLiteLogHandler(
+        db_path=db_path,
+        flush_interval=flush_interval,
+        queue_maxsize=queue_maxsize,
+    )
+    if level is not None:
+        handler.setLevel(_coerce_level(level))
+    if formatter is None:
+        formatter = logging.Formatter(DEFAULT_FORMAT)
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    return handler
+
+
 class SQLiteLogHandler(logging.Handler):
     """
     Log handler that writes records to SQLite in a background thread.

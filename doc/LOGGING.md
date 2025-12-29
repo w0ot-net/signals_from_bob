@@ -66,6 +66,7 @@ Current structured events (non-exhaustive):
 - `dns.error_response`
 - `dns.malformed_response`
 - `dns.stale_response`
+- `dns.mismatched_response`
 - `dns.send_blocked`
 - `dns.prune_stale`
 - `tunnel.send_blocked`

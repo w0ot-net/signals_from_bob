@@ -6,6 +6,7 @@ from __future__ import absolute_import
 import logging
 import os
 import signal
+import sys
 
 from .argparse_utils import parse_args
 from .config import Config
@@ -57,7 +58,13 @@ def main():
     file_module = FileTransferModule(tunnel, logger=logger)
 
     # Signal handling for graceful shutdown
+    shutdown_requested = [False]  # Use list for mutable closure
+
     def handle_signal(sig, frame):
+        if shutdown_requested[0]:
+            # Second signal - force exit
+            sys.exit(1)
+        shutdown_requested[0] = True
         logger.info('Received signal %d, shutting down...', sig)
         tunnel.close()
 

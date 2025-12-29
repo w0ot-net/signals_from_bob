@@ -117,6 +117,10 @@ class AliceTunnel(BaseTunnel):
         attempt = 0
 
         while time.time() - start_time < timeout:
+            # Check if tunnel was closed (e.g., by signal handler)
+            if self._state == TunnelState.CLOSED:
+                raise TunnelError('Tunnel closed during handshake')
+
             attempt += 1
             self._logger.debug('Handshake attempt %d', attempt)
 

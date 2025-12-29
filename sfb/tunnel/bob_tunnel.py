@@ -57,6 +57,8 @@ class BobTunnel(BaseTunnel):
         self._send_mtu = send_payload
         self._recv_mtu = recv_payload
         self._max_packet_size = recv_payload + PACKET_HEADER_SIZE
+        self._logger.debug('BobTunnel init: transport.recv_mtu=%d recv_payload=%d max_packet_size=%d',
+                          transport.recv_mtu, recv_payload, self._max_packet_size)
 
         # Timing
         self._last_request_time = 0

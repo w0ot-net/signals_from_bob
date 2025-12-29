@@ -161,6 +161,11 @@ class BaseTunnel(object):
         return self._state == TunnelState.CONNECTED
 
     @property
+    def is_connected(self):
+        """True if tunnel is connected (alias for connected)."""
+        return self._state == TunnelState.CONNECTED
+
+    @property
     def channel_manager(self):
         """Channel manager for this tunnel."""
         return self._channel_manager

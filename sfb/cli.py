@@ -371,7 +371,7 @@ def main(args=None):
     level = logging.DEBUG if parsed.verbose else logging.INFO
     logging.basicConfig(
         level=level,
-        format='%(asctime)s %(name)s %(levelname)s %(message)s'
+        format='%(name)s %(levelname)s %(message)s'
     )
     logger = logging.getLogger('sfb')
 

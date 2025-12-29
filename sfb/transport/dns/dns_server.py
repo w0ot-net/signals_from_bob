@@ -19,13 +19,16 @@ from ...logging_util import get_logger, log_event
 
 
 class _ResponseSender(object):
-    def __init__(self, server, query_id, qname, qtype, addr, payload_cap):
+    def __init__(self, server, query_id, qname, qtype, addr, payload_cap,
+                 qname_wire_len, max_packet_size):
         self._server = server
         self._query_id = query_id
         self._qname = qname
         self._qtype = qtype
         self._addr = addr
         self.payload_cap = payload_cap
+        self.qname_wire_len = qname_wire_len
+        self.max_packet_size = max_packet_size
 
     def __call__(self, data):
         self._server._send_response(
@@ -186,9 +189,12 @@ class DnsServer(Server):
                                           reason='decode_failed')
                 continue
 
-            payload_cap = self._response_payload_cap(qname)
+            payload_cap, qname_wire_len, max_packet_size = (
+                self._response_payload_cap(qname)
+            )
             responder = _ResponseSender(
-                self, query_id, qname, qtype, client_addr, payload_cap
+                self, query_id, qname, qtype, client_addr, payload_cap,
+                qname_wire_len, max_packet_size
             )
 
             log_event(
@@ -310,7 +316,7 @@ class DnsServer(Server):
 
     def _response_payload_cap(self, qname):
         if self._rtype != codec.QTYPE_CNAME:
-            return None
+            return None, None, None
         max_packet_size = 512
         if self._edns_size > 512:
             max_packet_size = self._edns_size
@@ -325,7 +331,7 @@ class DnsServer(Server):
         fixed_len = (12 + question_len + answer_name_len +
                      answer_fixed_len + additional_len)
         if fixed_len >= max_packet_size:
-            return 0
+            return 0, qname_wire_len, max_packet_size
 
         low = 0
         high = codec.calc_response_mtu(
@@ -351,7 +357,7 @@ class DnsServer(Server):
                 low = mid + 1
             else:
                 high = mid - 1
-        return best
+        return best, qname_wire_len, max_packet_size
 
     def _send_empty_response(self, query_id, qname, qtype, addr, reason=None):
         """Send NOERROR response with no answers (NODATA) and SOA in authority."""

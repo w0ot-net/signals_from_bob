@@ -222,6 +222,7 @@ class BobTunnel(BaseTunnel):
                 'Retransmitting packet',
                 {'seq': seq, 'seg_count': len(segments), 'side': 'bob'},
             )
+            self._log_response_cap(responder, response_data)
 
             self._packets_sent += 1
             self._bytes_sent += len(response_data)
@@ -300,6 +301,7 @@ class BobTunnel(BaseTunnel):
         self._bytes_sent += len(response_data)
 
         # Send response
+        self._log_response_cap(responder, response_data)
         responder(response_data)
         log_event(
             self._logger,
@@ -313,6 +315,28 @@ class BobTunnel(BaseTunnel):
                 'flags': packet.flags,
                 'seg_count': len(packet.segments),
                 'bytes': len(response_data),
+                'side': 'bob',
+            },
+        )
+
+    def _log_response_cap(self, responder, response_data):
+        response_payload_cap = None
+        if hasattr(responder, 'payload_cap'):
+            response_payload_cap = responder.payload_cap
+        qname_wire_len = getattr(responder, 'qname_wire_len', None)
+        max_packet_size = getattr(responder, 'max_packet_size', None)
+        if response_payload_cap is None or qname_wire_len is None:
+            return
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.response_cap',
+            'DNS response cap detail',
+            {
+                'payload_cap': response_payload_cap,
+                'qname_wire_len': qname_wire_len,
+                'max_packet_size': max_packet_size,
+                'response_bytes': len(response_data),
                 'side': 'bob',
             },
         )

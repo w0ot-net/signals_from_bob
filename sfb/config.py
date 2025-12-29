@@ -176,8 +176,6 @@ class Config:
             raise ValueError("dns_query_type must be 'A'")
         if self.dns_response_type not in ("CNAME",):
             raise ValueError("dns_response_type must be 'CNAME'")
-        if self.dns_edns_size < 512:
-            raise ValueError("dns_edns_size must be >= 512")
         if self.dns_edns_size > 512:
             raise ValueError("dns_edns_size must be <= 512")
         if self.dns_recv_bufsize_min < 512:

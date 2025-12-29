@@ -66,6 +66,62 @@ class BobTunnel(BaseTunnel):
         # Handshake state
         self._handshake_complete = False
 
+    def wait_for_connection(self, timeout=None):
+        """
+        Wait for Alice to connect.
+
+        Args:
+            timeout: Max seconds to wait (None = wait forever)
+
+        Returns:
+            True if connected, False on timeout
+        """
+        self._logger.info('Waiting for connection...')
+        import time
+        start = time.time()
+
+        while self._state != TunnelState.CONNECTED:
+            if self._state == TunnelState.CLOSED:
+                return False
+            if timeout is not None and (time.time() - start) >= timeout:
+                return False
+
+            try:
+                result = self._transport.recv(timeout=1.0)
+                if result is None or result[0] is None:
+                    continue
+                data, responder = result
+                self.handle_request(data, responder)
+            except Exception as e:
+                if self._state == TunnelState.CLOSED:
+                    return False
+                self._logger.warning('Error waiting for connection: %s', e)
+
+        self._logger.info('Connection established')
+        return True
+
+    def tick(self):
+        """
+        Handle one iteration of the event loop.
+
+        Returns:
+            bool: True if still running, False if closed
+        """
+        if self._state == TunnelState.CLOSED:
+            return False
+
+        try:
+            result = self._transport.recv(timeout=0.1)
+            if result is not None and result[0] is not None:
+                data, responder = result
+                self.handle_request(data, responder)
+        except Exception as e:
+            if self._state == TunnelState.CLOSED:
+                return False
+            self._logger.warning('Tick error: %s', e)
+
+        return self._state != TunnelState.CLOSED
+
     def serve_forever(self):
         """
         Serve requests until closed or idle timeout.

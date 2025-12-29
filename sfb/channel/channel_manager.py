@@ -12,7 +12,10 @@ Responsibilities:
 
 from __future__ import absolute_import
 
+import logging
 import threading
+
+logger = logging.getLogger(__name__)
 
 from .channel import (
     Channel,
@@ -150,7 +153,7 @@ class ChannelManager(object):
             channel = self._channels.get(channel_id)
 
         if channel is None:
-            # Unknown channel, ignore
+            logger.debug('Segment for unknown channel %d, ignoring', channel_id)
             return
 
         channel._deliver(segment.data)

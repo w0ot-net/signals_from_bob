@@ -60,6 +60,12 @@ Latest interpretation:
 - Alice stops receiving packets entirely during the stall window.
 - This points to a receive-path stall on Alice (DNS responses being dropped
   or not processed), rather than a channel lifecycle mismatch.
+- `dns.error_response` on Alice shows `rcode=0` (NOERROR) with `reason=no_answer`,
+  indicating responses without the expected CNAME answer.
+- Correlation suggests Alice is treating CNAME follow-up responses as tunnel
+  replies, which produces the `no_answer` errors and stalls ACK progress.
+- Implemented a qname filter in the DNS client to ignore mismatched responses
+  and log `dns.mismatched_response`.
 
 ## Instrumentation Added
 
@@ -74,7 +80,7 @@ Structured logging to SQLite with these events:
 - SOCKS: `sock.connect`, `sock.connect_ok`, `sock.connect_err`
 - DNS: `dns.send`, `dns.recv`, `dns.error_response`, `dns.send_blocked`,
   `dns.prune_stale`, `dns.send_empty`, `dns.cname_followup`,
-  `dns.malformed_response`, `dns.stale_response`
+  `dns.malformed_response`, `dns.stale_response`, `dns.mismatched_response`
 - Segment packing: `channel.pack`
 - Send window saturation: `tunnel.send_blocked`
 

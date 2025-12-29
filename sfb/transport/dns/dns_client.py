@@ -20,7 +20,6 @@ from ..transport_base import Transport, TransportError, PendingTracker, TokenBuc
 from . import codec
 from ...compat import require_bytes
 from ...config import Config
-from ...protocol.constants import PACKET_HEADER_SIZE, SEGMENT_HEADER_SIZE
 from ...logging_util import get_logger, log_event
 
 
@@ -88,26 +87,12 @@ class DnsClient(Transport):
         self._sock.setblocking(False)
 
         # Calculate MTUs
-        if self._rtype == codec.QTYPE_CNAME and config.dns_edns_size <= 512:
-            min_response_payload = (
-                PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1
-            )
-            query_mtu, response_mtu = codec.calc_cname_mtu_pair(
-                self._base_domain,
-                self._cname_suffix,
-                self._label_max_len,
-                config.dns_edns_size,
-                min_response_payload,
-            )
-            self._send_mtu = query_mtu
-            self._recv_mtu = response_mtu
-        else:
-            self._send_mtu = codec.calc_query_mtu(self._base_domain,
-                                                  self._label_max_len)
-            self._recv_mtu = codec.calc_response_mtu(self._rtype,
-                                                     config.dns_edns_size,
-                                                     self._cname_suffix,
-                                                     self._label_max_len)
+        self._send_mtu = codec.calc_query_mtu(self._base_domain,
+                                              self._label_max_len)
+        self._recv_mtu = codec.calc_response_mtu(self._rtype,
+                                                 config.dns_edns_size,
+                                                 self._cname_suffix,
+                                                 self._label_max_len)
         self._recv_bufsize = max(self._edns_size, config.dns_recv_bufsize_min)
 
         # Pending query tracking

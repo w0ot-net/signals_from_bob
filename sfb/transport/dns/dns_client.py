@@ -430,6 +430,7 @@ class DnsClient(Transport):
                     qname, offset = codec.decode_name(
                         data, offset, allow_compression=True
                     )
+                    qname = qname.lower()
                 else:
                     offset = codec.skip_name(data, offset)
                 offset += 4  # QTYPE + QCLASS

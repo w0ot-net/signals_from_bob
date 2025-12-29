@@ -70,9 +70,7 @@ class BaseTunnel(object):
     # Reserved message types - cannot be overridden by modules
     RESERVED_TYPES = frozenset(['tun', 'ch'])
 
-    # Pre-negotiation limits (conservative defaults)
-    DEFAULT_MTU = 100  # Bytes, before MTU negotiation
-    DEFAULT_WINDOW = 1  # Packets, before window negotiation
+    # Pre-negotiation limits
     MAX_WINDOW = 64  # SACK bitmap size limit
 
     def __init__(self, config, crypto=None, is_initiator=True, logger=None):
@@ -97,7 +95,11 @@ class BaseTunnel(object):
         # Channel management
         self._channel_manager = ChannelManager(is_alice=is_initiator, config=config)
 
-        # Reliability - start with window=1 until negotiated
+        # Initial MTU/window before negotiation
+        self._default_mtu = config.protocol_initial_mtu
+        self._default_window = config.tunnel_initial_window
+
+        # Reliability - start with initial window until negotiated
         self._proposed_max_in_flight = min(config.tunnel_max_in_flight, self.MAX_WINDOW)
         if config.tunnel_stats_enabled:
             self._reliability_stats = ReliabilityStats()
@@ -106,7 +108,7 @@ class BaseTunnel(object):
             self._reliability_stats = NoopReliabilityStats()
             self._stats_enabled = False
         self._send_window = SendWindow(
-            max_in_flight=self.DEFAULT_WINDOW,
+            max_in_flight=self._default_window,
             stats=self._reliability_stats,
         )
         self._recv_window = RecvWindow(
@@ -121,12 +123,12 @@ class BaseTunnel(object):
         # MTU/Window negotiation state (asymmetric)
         self._proposed_send_mtu = None  # Set by subclass from transport
         self._proposed_recv_mtu = None  # Set by subclass from transport
-        self._negotiated_send_mtu = self.DEFAULT_MTU
-        self._negotiated_recv_mtu = self.DEFAULT_MTU
-        self._send_mtu = self.DEFAULT_MTU  # Sender payload MTU
-        self._recv_mtu = self.DEFAULT_MTU  # Receiver payload MTU
+        self._negotiated_send_mtu = self._default_mtu
+        self._negotiated_recv_mtu = self._default_mtu
+        self._send_mtu = self._default_mtu  # Sender payload MTU
+        self._recv_mtu = self._default_mtu  # Receiver payload MTU
         self._pending_send_mtu = None
-        self._negotiated_window = self.DEFAULT_WINDOW
+        self._negotiated_window = self._default_window
         self._mtu_negotiated = False
         self._window_negotiated = False
 
@@ -142,7 +144,7 @@ class BaseTunnel(object):
         self._bytes_received = 0
 
         # Transport MTU for receive (payload + header)
-        self._max_packet_size = self.DEFAULT_MTU + PACKET_HEADER_SIZE
+        self._max_packet_size = self._default_mtu + PACKET_HEADER_SIZE
 
         # Background thread support
         self._bg_thread = None
@@ -471,16 +473,16 @@ class BaseTunnel(object):
         Responds with mtu_ok containing per-direction MTUs.
         Does NOT update _send_mtu yet - waits for mtu_ack from Alice.
         """
-        requested_tx = msg.get('tx', self.DEFAULT_MTU)
-        requested_rx = msg.get('rx', self.DEFAULT_MTU)
+        requested_tx = msg.get('tx', self._default_mtu)
+        requested_rx = msg.get('rx', self._default_mtu)
         if (not isinstance(requested_tx, integer_types) or requested_tx < 1 or
                 not isinstance(requested_rx, integer_types) or requested_rx < 1):
             self._logger.warning('Invalid MTU request: %s', msg)
             return
 
         # Negotiate each direction independently.
-        agreed_recv = min(requested_tx, self._proposed_recv_mtu or self.DEFAULT_MTU)
-        agreed_send = min(requested_rx, self._proposed_send_mtu or self.DEFAULT_MTU)
+        agreed_recv = min(requested_tx, self._proposed_recv_mtu or self._default_mtu)
+        agreed_send = min(requested_rx, self._proposed_send_mtu or self._default_mtu)
 
         self._negotiated_recv_mtu = agreed_recv
         self._recv_mtu = agreed_recv
@@ -500,16 +502,16 @@ class BaseTunnel(object):
 
         Updates negotiated send/recv MTU, then sends mtu_ack.
         """
-        agreed_tx = msg.get('tx', self.DEFAULT_MTU)
-        agreed_rx = msg.get('rx', self.DEFAULT_MTU)
+        agreed_tx = msg.get('tx', self._default_mtu)
+        agreed_rx = msg.get('rx', self._default_mtu)
         if (not isinstance(agreed_tx, integer_types) or agreed_tx < 1 or
                 not isinstance(agreed_rx, integer_types) or agreed_rx < 1):
             self._logger.warning('Invalid MTU response: %s', msg)
             return
 
         # Clamp to our transport limits.
-        agreed_send = min(agreed_rx, self._proposed_send_mtu or self.DEFAULT_MTU)
-        agreed_recv = min(agreed_tx, self._proposed_recv_mtu or self.DEFAULT_MTU)
+        agreed_send = min(agreed_rx, self._proposed_send_mtu or self._default_mtu)
+        agreed_recv = min(agreed_tx, self._proposed_recv_mtu or self._default_mtu)
 
         self._negotiated_send_mtu = agreed_send
         self._negotiated_recv_mtu = agreed_recv
@@ -547,7 +549,7 @@ class BaseTunnel(object):
         Responds with window_ok containing min(requested, our_max, 64).
         """
         self._logger.debug('RECV window request: %s', msg)
-        requested = msg.get('size', self.DEFAULT_WINDOW)
+        requested = msg.get('size', self._default_window)
         if not isinstance(requested, integer_types) or requested < 1:
             self._logger.warning('Invalid window request: %s', requested)
             return
@@ -571,7 +573,7 @@ class BaseTunnel(object):
         Updates negotiated_window and send_window limit.
         """
         self._logger.debug('RECV window_ok: %s', msg)
-        agreed = msg.get('size', self.DEFAULT_WINDOW)
+        agreed = msg.get('size', self._default_window)
         if not isinstance(agreed, integer_types) or agreed < 1:
             self._logger.warning('Invalid window response: %s', agreed)
             return
@@ -613,7 +615,7 @@ class BaseTunnel(object):
         self._bg_thread.daemon = True
         self._bg_thread.start()
 
-    def stop_background(self, timeout=2.0):
+    def stop_background(self, timeout=None):
         """
         Stop the background thread.
 
@@ -621,6 +623,8 @@ class BaseTunnel(object):
             timeout: Max seconds to wait for thread to finish
         """
         self._bg_stop = True
+        if timeout is None:
+            timeout = self._config.tunnel_bg_stop_timeout
         if self._bg_thread is not None:
             self._bg_thread.join(timeout=timeout)
             self._bg_thread = None

@@ -40,15 +40,19 @@ class Channel(object):
         'id', 'state', '_send_buf', '_recv_buf', '_lock',
         '_recv_event', '_closed_event', '_open_event', '_error', '_max_send_buf',
         '_send_buf_size', '_recv_buf_size',
+        '_write_backoff_initial', '_write_backoff_max',
     )
 
-    def __init__(self, channel_id, max_send_buf=65536):
+    def __init__(self, channel_id, max_send_buf=65536,
+                 write_backoff_initial=0.01, write_backoff_max=1.0):
         """
         Create a channel.
 
         Args:
             channel_id: Channel ID (0=control, odd=Alice, even=Bob)
             max_send_buf: Max bytes to buffer for sending
+            write_backoff_initial: Initial backoff delay for write_wait
+            write_backoff_max: Maximum backoff delay for write_wait
         """
         self.id = channel_id
         self.state = STATE_INIT
@@ -62,6 +66,8 @@ class Channel(object):
         self._max_send_buf = max_send_buf
         self._send_buf_size = 0
         self._recv_buf_size = 0
+        self._write_backoff_initial = write_backoff_initial
+        self._write_backoff_max = write_backoff_max
 
     @property
     def is_open(self):
@@ -149,8 +155,8 @@ class Channel(object):
             deadline = time.time() + timeout
 
         offset = 0
-        backoff = 0.01  # Start with 10ms
-        max_backoff = 1.0  # Cap at 1 second
+        backoff = self._write_backoff_initial
+        max_backoff = self._write_backoff_max
 
         while offset < len(data):
             # Check deadline
@@ -165,7 +171,7 @@ class Channel(object):
                 sent = self.write(data[offset:])
                 if sent > 0:
                     offset += sent
-                    backoff = 0.01  # Reset backoff on success
+                    backoff = self._write_backoff_initial
                 else:
                     # No space, wait
                     time.sleep(backoff)

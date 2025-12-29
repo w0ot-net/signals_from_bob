@@ -111,24 +111,30 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
     TYPE = 'file'
 
     @classmethod
-    def register_commands(cls, subparsers, role):
+    def register_commands(cls, subparsers, role, config=None):
         """Register CLI subcommands for file transfer."""
+        timeout_default = None
+        if config is not None:
+            timeout_default = config.file_transfer_timeout
         list_p = subparsers.add_parser('list', help='List remote directory')
         list_p.add_argument('path', help='Remote directory path')
-        list_p.add_argument('--timeout', type=float, default=None,
-                           help='Operation timeout in seconds (default: no timeout)')
+        list_p.add_argument('--timeout', type=float, default=timeout_default,
+                           help='Operation timeout in seconds (default: %s)' %
+                           timeout_default)
 
         get_p = subparsers.add_parser('get', help='Download file')
         get_p.add_argument('remote', help='Remote file path')
         get_p.add_argument('local', nargs='?', help='Local file path (default: same name)')
-        get_p.add_argument('--timeout', type=float, default=None,
-                           help='Operation timeout in seconds (default: no timeout)')
+        get_p.add_argument('--timeout', type=float, default=timeout_default,
+                           help='Operation timeout in seconds (default: %s)' %
+                           timeout_default)
 
         put_p = subparsers.add_parser('put', help='Upload file')
         put_p.add_argument('local', help='Local file path')
         put_p.add_argument('remote', help='Remote file path')
-        put_p.add_argument('--timeout', type=float, default=None,
-                           help='Operation timeout in seconds (default: no timeout)')
+        put_p.add_argument('--timeout', type=float, default=timeout_default,
+                           help='Operation timeout in seconds (default: %s)' %
+                           timeout_default)
 
     @classmethod
     def run_command(cls, args, tunnel, logger):

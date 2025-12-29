@@ -80,7 +80,7 @@ class BobTunnel(BaseTunnel):
 
         while self._state != TunnelState.CLOSED:
             try:
-                result = self._transport.recv(timeout=1.0)
+                result = self._transport.recv(timeout=self._config.tunnel_bob_poll_interval)
                 if result is None or result[0] is None:
                     # Timeout - check idle
                     if self._check_idle_timeout():
@@ -100,7 +100,7 @@ class BobTunnel(BaseTunnel):
         """Background thread loop - processes requests until stopped."""
         while not self._bg_stop and self._state != TunnelState.CLOSED:
             try:
-                result = self._transport.recv(timeout=0.1)
+                result = self._transport.recv(timeout=self._config.tunnel_bob_poll_interval_bg)
                 if result is None or result[0] is None:
                     continue
                 data, responder = result

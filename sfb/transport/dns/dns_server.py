@@ -110,7 +110,9 @@ class DnsServer(Server):
                     ready, _, _ = select.select([self._sock], [], [], timeout)
                 if not ready:
                     return None, None
-                pkt_data, client_addr = self._sock.recvfrom(max(self._edns_size, 4096))
+                pkt_data, client_addr = self._sock.recvfrom(
+                    max(self._edns_size, self._config.dns_recv_bufsize_min)
+                )
             except select.error as e:
                 raise TransportError('Select failed: %s' % e)
             except socket.error as e:

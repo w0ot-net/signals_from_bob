@@ -63,7 +63,12 @@ class ChannelManager(object):
         self._next_channel_id = 1 if is_alice else 2
 
         # Control channel (always exists)
-        self._control = ControlChannel(max_send_buf=config.channel_max_send_buf)
+        self._control = ControlChannel(
+            max_send_buf=config.channel_max_send_buf,
+            read_chunk_size=config.channel_control_read_chunk,
+            write_backoff_initial=config.channel_write_backoff_initial,
+            write_backoff_max=config.channel_write_backoff_max,
+        )
         self._control._set_state(STATE_OPEN)
         self._channels[CHANNEL_CONTROL] = self._control
 
@@ -95,7 +100,12 @@ class ChannelManager(object):
         """
         with self._lock:
             channel_id = self._allocate_id()
-            channel = Channel(channel_id, max_send_buf=self._config.channel_max_send_buf)
+            channel = Channel(
+                channel_id,
+                max_send_buf=self._config.channel_max_send_buf,
+                write_backoff_initial=self._config.channel_write_backoff_initial,
+                write_backoff_max=self._config.channel_write_backoff_max,
+            )
             channel._set_state(STATE_OPENING)
             self._channels[channel_id] = channel
 
@@ -322,7 +332,12 @@ class ChannelManager(object):
         with self._lock:
             if channel_id in self._channels:
                 return
-            channel = Channel(channel_id, max_send_buf=self._config.channel_max_send_buf)
+            channel = Channel(
+                channel_id,
+                max_send_buf=self._config.channel_max_send_buf,
+                write_backoff_initial=self._config.channel_write_backoff_initial,
+                write_backoff_max=self._config.channel_write_backoff_max,
+            )
             channel._set_state(STATE_OPEN)
             self._channels[channel_id] = channel
 

@@ -83,16 +83,21 @@ class SocksServerModule(BaseModule):
     TYPE = T_SOCK
 
     @classmethod
-    def register_commands(cls, subparsers, role):
+    def register_commands(cls, subparsers, role, config=None):
         """Register CLI subcommands for SOCKS server."""
+        host_default = '0.0.0.0'
+        port_default = 1080
+        if config is not None:
+            host_default = config.socks_listen_host
+            port_default = config.socks_listen_port
         start_p = subparsers.add_parser('start', help='Start SOCKS5 proxy server')
         start_p.add_argument(
-            '--socks_host', default='0.0.0.0',
-            help='SOCKS server listen address (default: 0.0.0.0)'
+            '--socks_host', default=host_default,
+            help='SOCKS server listen address (default: %s)' % host_default
         )
         start_p.add_argument(
-            '--socks_port', type=int, default=1080,
-            help='SOCKS server listen port (default: 1080)'
+            '--socks_port', type=int, default=port_default,
+            help='SOCKS server listen port (default: %s)' % port_default
         )
 
     @classmethod
@@ -101,19 +106,24 @@ class SocksServerModule(BaseModule):
         import time
         module = cls(tunnel, logger=logger)
         try:
-            host = getattr(args, 'socks_host', '0.0.0.0')
-            port = getattr(args, 'socks_port', 1080)
+            host = getattr(args, 'socks_host', None)
+            port = getattr(args, 'socks_port', None)
+            if host is None:
+                host = module._config.socks_listen_host
+            if port is None:
+                port = module._config.socks_listen_port
             module.start(listen_addr=host, listen_port=port)
 
             # Wait for tunnel to close
             while tunnel.is_connected:
-                time.sleep(0.1)
+                time.sleep(tunnel._config.tunnel_connect_poll_interval)
             return 0
         finally:
             module.shutdown()
 
     def __init__(self, tunnel, logger=None):
         super(SocksServerModule, self).__init__(tunnel, logger=logger)
+        self._config = tunnel._config
 
         # TCP server
         self._server_socket = None
@@ -131,7 +141,7 @@ class SocksServerModule(BaseModule):
         # Pending connect requests
         self._pending = {}  # rid -> _PendingConnect
 
-    def start(self, listen_addr='127.0.0.1', listen_port=1080):
+    def start(self, listen_addr=None, listen_port=None):
         """
         Start the SOCKS5 server.
 
@@ -142,10 +152,15 @@ class SocksServerModule(BaseModule):
         if self._running:
             raise ModuleError('already_running', 'SOCKS server already running')
 
+        if listen_addr is None:
+            listen_addr = self._config.socks_listen_host
+        if listen_port is None:
+            listen_port = self._config.socks_listen_port
+
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._server_socket.bind((listen_addr, listen_port))
-        self._server_socket.listen(5)
+        self._server_socket.listen(self._config.socks_listen_backlog)
 
         self._running = True
         self._accept_thread = threading.Thread(
@@ -171,7 +186,7 @@ class SocksServerModule(BaseModule):
 
         # Wait for accept thread
         if self._accept_thread:
-            self._accept_thread.join(timeout=2.0)
+            self._accept_thread.join(timeout=self._config.socks_thread_join_timeout)
 
         # Stop all connections
         with self._connections_lock:
@@ -198,7 +213,7 @@ class SocksServerModule(BaseModule):
         """Accept incoming connections."""
         while self._running:
             try:
-                self._server_socket.settimeout(0.5)
+                self._server_socket.settimeout(self._config.socks_accept_timeout)
                 try:
                     client_sock, addr = self._server_socket.accept()
                 except socket.timeout:
@@ -235,13 +250,14 @@ class SocksServerModule(BaseModule):
 
             # Open tunnel channel
             channel = self._tunnel.channel_manager.open_channel()
-            if not channel.wait_open(timeout=10.0):
+            if not channel.wait_open(timeout=self._config.socks_channel_open_timeout):
                 self._logger.warning('Channel open failed (rid=%d)', rid)
                 self._socks5_send_reply(sock, SOCKS5_REP_GENERAL_FAILURE)
                 return
 
             # Create connection tracker
-            conn = _ServerConnection(rid, sock, channel, host, port, self._logger)
+            conn = _ServerConnection(rid, sock, channel, host, port,
+                                     self._logger, self._config)
             with self._connections_lock:
                 self._connections[rid] = conn
 
@@ -253,7 +269,7 @@ class SocksServerModule(BaseModule):
             self.send_message(sock_connect(rid, channel.id, host, port))
 
             # Wait for response
-            if not pending.event.wait(timeout=30.0):
+            if not pending.event.wait(timeout=self._config.socks_connect_timeout):
                 self._logger.warning('Connect timeout (rid=%d)', rid)
                 self._socks5_send_reply(sock, SOCKS5_REP_TTL_EXPIRED)
                 return
@@ -428,17 +444,18 @@ class _ServerConnection(object):
     """Manages a single SOCKS client connection."""
 
     __slots__ = (
-        'rid', 'sock', 'channel', 'host', 'port', '_logger',
+        'rid', 'sock', 'channel', 'host', 'port', '_logger', '_config',
         '_stop_event', '_threads',
     )
 
-    def __init__(self, rid, sock, channel, host, port, logger):
+    def __init__(self, rid, sock, channel, host, port, logger, config):
         self.rid = rid
         self.sock = sock
         self.channel = channel
         self.host = host
         self.port = port
         self._logger = logger
+        self._config = config
         self._stop_event = threading.Event()
         self._threads = []
 
@@ -465,10 +482,10 @@ class _ServerConnection(object):
     def _relay_client_to_channel(self):
         """Relay data from SOCKS client to channel."""
         try:
-            self.sock.settimeout(0.5)
+            self.sock.settimeout(self._config.socks_relay_socket_timeout)
             while not self._stop_event.is_set():
                 try:
-                    data = self.sock.recv(8192)
+                    data = self.sock.recv(self._config.socks_relay_buffer_size)
                 except socket.timeout:
                     continue
                 except Exception as e:
@@ -482,7 +499,7 @@ class _ServerConnection(object):
                     break
 
                 try:
-                    self.channel.write_all(data, timeout=30.0)
+                    self.channel.write_all(data, timeout=self._config.socks_relay_write_timeout)
                 except Exception as e:
                     if not self._stop_event.is_set():
                         self._logger.debug('Channel write error (rid=%d): %s', self.rid, e)
@@ -495,7 +512,10 @@ class _ServerConnection(object):
         try:
             while not self._stop_event.is_set():
                 try:
-                    data = self.channel.read(8192, timeout=0.5)
+                    data = self.channel.read(
+                        self._config.socks_relay_buffer_size,
+                        timeout=self._config.socks_relay_channel_timeout
+                    )
                 except Exception as e:
                     if not self._stop_event.is_set():
                         self._logger.debug('Channel read error (rid=%d): %s', self.rid, e)
@@ -543,4 +563,4 @@ class _ServerConnection(object):
 
         # Wait for threads with timeout
         for t in self._threads:
-            t.join(timeout=2.0)
+            t.join(timeout=self._config.socks_thread_join_timeout)

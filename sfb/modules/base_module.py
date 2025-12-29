@@ -76,7 +76,7 @@ class BaseModule(object):
     TYPE = None  # Subclass must override
 
     @classmethod
-    def register_commands(cls, subparsers, role):
+    def register_commands(cls, subparsers, role, config=None):
         """
         Register CLI subcommands for this module.
 
@@ -85,6 +85,7 @@ class BaseModule(object):
         Args:
             subparsers: argparse subparsers object to add commands to.
             role: 'client' or 'server' - determines which commands to register.
+            config: Optional Config instance for defaults.
         """
         pass
 
@@ -140,8 +141,9 @@ class BaseModule(object):
             self._logger.exception('Failed to unregister module')
         with self._threads_lock:
             threads = list(self._threads)
+        timeout = getattr(self._tunnel._config, 'module_shutdown_timeout', 5.0)
         for t in threads:
-            t.join(timeout=5.0)
+            t.join(timeout=timeout)
 
     def unregister(self):
         """Unregister from tunnel."""

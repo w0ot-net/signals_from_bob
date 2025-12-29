@@ -33,6 +33,13 @@ ROLE_ALIASES = {
 }
 
 
+def _split_host_port(addr, default_port):
+    if ':' in addr:
+        host, port = addr.rsplit(':', 1)
+        return host, int(port)
+    return addr, default_port
+
+
 def normalize_role(role):
     """Normalize role name (bob->server, alice->client)."""
     role = role.lower()
@@ -41,16 +48,16 @@ def normalize_role(role):
     return ROLE_ALIASES[role]
 
 
-def add_common_args(parser):
+def add_common_args(parser, config):
     """Add arguments shared by all roles."""
     parser.add_argument(
         '--role', required=True,
         help='Role: server (bob) or client (alice)'
     )
     parser.add_argument(
-        '--transport', default='dns',
+        '--transport', default=config.transport_default,
         choices=list(TRANSPORTS.keys()),
-        help='Transport type (default: dns)'
+        help='Transport type (default: %s)' % config.transport_default
     )
     parser.add_argument(
         '--domain', required=True,
@@ -66,31 +73,34 @@ def add_common_args(parser):
     )
 
 
-def add_dns_server_args(parser):
+def add_dns_server_args(parser, config):
     """Add DNS server-specific arguments."""
+    host, port = _split_host_port(config.dns_listen_addr, 53)
     parser.add_argument(
-        '--dns_host', default='0.0.0.0',
-        help='DNS server listen address (default: 0.0.0.0)'
+        '--dns_host', default=host,
+        help='DNS server listen address (default: %s)' % host
     )
     parser.add_argument(
-        '--dns_port', type=int, default=53,
-        help='DNS server listen port (default: 53)'
+        '--dns_port', type=int, default=port,
+        help='DNS server listen port (default: %s)' % port
     )
     parser.add_argument(
-        '--idle-timeout', type=int, default=300,
-        help='Idle timeout in seconds (default: 300)'
+        '--idle-timeout', type=int, default=config.tunnel_idle_timeout,
+        help='Idle timeout in seconds (default: %s)' % config.tunnel_idle_timeout
     )
 
 
-def add_dns_client_args(parser):
+def add_dns_client_args(parser, config):
     """Add DNS client-specific arguments."""
     parser.add_argument(
         '--resolver',
+        default=config.dns_resolver,
         help='DNS resolver as host:port (default: auto-detect system resolver)'
     )
     parser.add_argument(
-        '--qps', type=float, default=950.0,
-        help='Max DNS queries per second (default: 950, 0=unlimited)'
+        '--qps', type=float, default=config.dns_queries_per_second,
+        help='Max DNS queries per second (default: %s, 0=unlimited)' %
+             config.dns_queries_per_second
     )
 
 
@@ -103,15 +113,15 @@ def add_module_args(parser):
     )
 
 
-def add_server_args(parser):
+def add_server_args(parser, config):
     """Add server-specific arguments."""
     parser.add_argument(
-        '--root', default='.',
-        help='Root directory for file transfers (default: current dir)'
+        '--root', default=config.file_transfer_root,
+        help='Root directory for file transfers (default: %s)' % config.file_transfer_root
     )
     parser.add_argument(
-        '--max-size', type=int, default=None,
-        help='Max file size in bytes (default: unlimited)'
+        '--max-size', type=int, default=config.file_transfer_max_size,
+        help='Max file size in bytes (default: %s)' % config.file_transfer_max_size
     )
 
 
@@ -128,7 +138,8 @@ def parse_args(args=None):
         description='sfb - Signals From Bob tunnel',
         add_help=False,  # Add help in second pass
     )
-    add_common_args(parser)
+    config_defaults = Config()
+    add_common_args(parser, config_defaults)
     add_module_args(parser)
 
     partial_args, remaining = parser.parse_known_args(args)
@@ -139,25 +150,25 @@ def parse_args(args=None):
     parser = argparse.ArgumentParser(
         description='sfb - Signals From Bob tunnel'
     )
-    add_common_args(parser)
+    add_common_args(parser, config_defaults)
     add_module_args(parser)
 
     # Transport-specific args
     if transport == 'dns':
         if role == 'server':
-            add_dns_server_args(parser)
+            add_dns_server_args(parser, config_defaults)
         else:
-            add_dns_client_args(parser)
+            add_dns_client_args(parser, config_defaults)
 
     # Server-specific args
     if role == 'server':
-        add_server_args(parser)
+        add_server_args(parser, config_defaults)
 
     # Module subcommands
     if partial_args.module:
         module_cls = AVAILABLE_MODULES[partial_args.module]
         subparsers = parser.add_subparsers(dest='command', help='Module commands')
-        module_cls.register_commands(subparsers, role)
+        module_cls.register_commands(subparsers, role, config=config_defaults)
 
     parsed = parser.parse_args(args)
     parsed.role = normalize_role(parsed.role)  # Normalize in final result
@@ -173,18 +184,22 @@ def create_config(args):
     # DNS transport args
     if args.transport == 'dns':
         if args.role == 'server':
-            host = getattr(args, 'dns_host', '0.0.0.0')
-            port = getattr(args, 'dns_port', 53)
+            host = getattr(args, 'dns_host', None)
+            port = getattr(args, 'dns_port', None)
+            if host is None or port is None:
+                host, port = _split_host_port(Config().dns_listen_addr, 53)
             config_kwargs['dns_listen_addr'] = '%s:%d' % (host, port)
             config_kwargs['tunnel_idle_timeout'] = float(args.idle_timeout)
         else:
             config_kwargs['dns_resolver'] = getattr(args, 'resolver', None)
-            config_kwargs['dns_queries_per_second'] = getattr(args, 'qps', 950.0)
+            config_kwargs['dns_queries_per_second'] = getattr(args, 'qps', None)
 
     # Server-specific
     if args.role == 'server':
+        config_kwargs['file_transfer_root'] = getattr(args, 'root', None)
         config_kwargs['file_transfer_max_size'] = getattr(args, 'max_size', None)
 
+    config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
     return Config(**config_kwargs)
 
 
@@ -202,7 +217,7 @@ def create_crypto(args, logger):
 def run_server(args, config, crypto, logger):
     """Run in server role."""
     # Change to root directory for file transfers
-    root = os.path.abspath(getattr(args, 'root', '.'))
+    root = os.path.abspath(config.file_transfer_root)
     if not os.path.isdir(root):
         logger.error('Root directory does not exist: %s', root)
         return 1
@@ -236,8 +251,7 @@ def run_server(args, config, crypto, logger):
 
 def run_server_passive(args, tunnel, logger):
     """Run server in passive mode (no command, just wait for connections)."""
-    host = getattr(args, 'dns_host', '0.0.0.0')
-    port = getattr(args, 'dns_port', 53)
+    host, port = _split_host_port(tunnel._config.dns_listen_addr, 53)
     logger.info('Listening on %s:%d for domain %s (passive mode)', host, port, args.domain)
     try:
         tunnel.serve_forever()
@@ -259,13 +273,12 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
         tunnel.start_background()
 
         # Wait for client to connect
-        host = getattr(args, 'dns_host', '0.0.0.0')
-        port = getattr(args, 'dns_port', 53)
+        host, port = _split_host_port(tunnel._config.dns_listen_addr, 53)
         logger.info('Waiting for client on %s:%d...', host, port)
         while tunnel._state != TunnelState.CONNECTED:
             if shutdown_requested[0]:
                 return 1
-            time.sleep(0.1)
+            time.sleep(tunnel._config.tunnel_connect_poll_interval)
 
         logger.info('Client connected')
 
@@ -327,7 +340,7 @@ def run_client(args, config, crypto, logger):
 
         # Run until connection closes or signal received
         while tunnel._state == TunnelState.CONNECTED and not shutdown_requested[0]:
-            time.sleep(0.1)
+            time.sleep(tunnel._config.tunnel_connect_poll_interval)
 
         return 0
 

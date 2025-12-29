@@ -91,7 +91,7 @@ class DnsClient(Transport):
                                                  config.dns_edns_size,
                                                  self._cname_suffix,
                                                  self._label_max_len)
-        self._recv_bufsize = max(self._edns_size, 4096)
+        self._recv_bufsize = max(self._edns_size, config.dns_recv_bufsize_min)
 
         # Pending query tracking
         self._next_corr_id = 0

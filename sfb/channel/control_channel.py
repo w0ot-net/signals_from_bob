@@ -17,13 +17,18 @@ class ControlChannel(Channel):
     Control messages are JSON, one per line, ASCII encoded.
     """
 
-    __slots__ = ('_line_buf',)
+    __slots__ = ('_line_buf', '_read_chunk_size')
 
-    def __init__(self, channel_id=CHANNEL_CONTROL, max_send_buf=65536):
+    def __init__(self, channel_id=CHANNEL_CONTROL, max_send_buf=65536,
+                 read_chunk_size=4096, write_backoff_initial=0.01,
+                 write_backoff_max=1.0):
         if channel_id != CHANNEL_CONTROL:
             raise ValueError('ControlChannel must use channel 0')
-        Channel.__init__(self, channel_id, max_send_buf=max_send_buf)
+        Channel.__init__(self, channel_id, max_send_buf=max_send_buf,
+                         write_backoff_initial=write_backoff_initial,
+                         write_backoff_max=write_backoff_max)
         self._line_buf = bytearray()
+        self._read_chunk_size = read_chunk_size
 
     def send_message(self, obj):
         from ..tunnel.tunnel_control_messages import encode as encode_message
@@ -41,7 +46,7 @@ class ControlChannel(Channel):
                 except ValueError as e:
                     raise ChannelError('invalid', 'Invalid control message: %s' % e)
 
-            chunk = self.read(4096, timeout=timeout)
+            chunk = self.read(self._read_chunk_size, timeout=timeout)
             if chunk is None:
                 return None
             if chunk == b'':

@@ -37,13 +37,14 @@ class SocksRelayModule(BaseModule):
         try:
             # Wait for tunnel to close
             while tunnel.is_connected:
-                time.sleep(0.1)
+                time.sleep(tunnel._config.tunnel_connect_poll_interval)
             return 0
         finally:
             module.shutdown()
 
     def __init__(self, tunnel, logger=None):
         super(SocksRelayModule, self).__init__(tunnel, logger=logger)
+        self._config = tunnel._config
 
         # Active connections: ch -> _RelayConnection
         self._connections = {}
@@ -87,7 +88,7 @@ class SocksRelayModule(BaseModule):
             return
 
         # Wait for channel to open
-        if not channel.wait_open(timeout=10.0):
+        if not channel.wait_open(timeout=self._config.socks_channel_open_timeout):
             self._logger.warning('Channel %d failed to open', ch)
             self.send_message(sock_err(rid, ch, 'general', 'channel open failed'))
             return
@@ -134,7 +135,8 @@ class SocksRelayModule(BaseModule):
                           host, port, bind_host, bind_port)
 
         # Create and register connection
-        conn = _RelayConnection(rid, ch, channel, target_sock, self._logger)
+        conn = _RelayConnection(rid, ch, channel, target_sock,
+                                self._logger, self._config)
         with self._connections_lock:
             self._connections[ch] = conn
 
@@ -148,7 +150,7 @@ class SocksRelayModule(BaseModule):
         finally:
             self._cleanup_connection(ch)
 
-    def _connect_target(self, host, port, timeout=30.0):
+    def _connect_target(self, host, port, timeout=None):
         """
         Connect to target host with timeout.
 
@@ -164,6 +166,8 @@ class SocksRelayModule(BaseModule):
             socket.error: On connection failure
         """
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if timeout is None:
+            timeout = self._config.socks_connect_target_timeout
         sock.settimeout(timeout)
         sock.connect((host, port))
         sock.settimeout(None)  # Back to blocking for relay
@@ -185,16 +189,17 @@ class _RelayConnection(object):
     """Manages a single relay connection between channel and target socket."""
 
     __slots__ = (
-        'rid', 'ch', 'channel', 'sock', '_logger',
+        'rid', 'ch', 'channel', 'sock', '_logger', '_config',
         '_stop_event', '_threads', '_error',
     )
 
-    def __init__(self, rid, ch, channel, sock, logger):
+    def __init__(self, rid, ch, channel, sock, logger, config):
         self.rid = rid
         self.ch = ch
         self.channel = channel
         self.sock = sock
         self._logger = logger
+        self._config = config
         self._stop_event = threading.Event()
         self._threads = []
         self._error = None
@@ -224,7 +229,10 @@ class _RelayConnection(object):
         try:
             while not self._stop_event.is_set():
                 try:
-                    data = self.channel.read(8192, timeout=0.5)
+                    data = self.channel.read(
+                        self._config.socks_relay_buffer_size,
+                        timeout=self._config.socks_relay_channel_timeout
+                    )
                 except Exception as e:
                     if not self._stop_event.is_set():
                         self._logger.debug('Channel read error (ch=%d): %s', self.ch, e)
@@ -250,10 +258,10 @@ class _RelayConnection(object):
     def _relay_target_to_channel(self):
         """Relay data from target socket to channel."""
         try:
-            self.sock.settimeout(0.5)
+            self.sock.settimeout(self._config.socks_relay_socket_timeout)
             while not self._stop_event.is_set():
                 try:
-                    data = self.sock.recv(8192)
+                    data = self.sock.recv(self._config.socks_relay_buffer_size)
                 except socket.timeout:
                     # Timeout, check stop event and retry
                     continue
@@ -268,7 +276,9 @@ class _RelayConnection(object):
                     break
 
                 try:
-                    self.channel.write_all(data, timeout=30.0)
+                    self.channel.write_all(
+                        data, timeout=self._config.socks_relay_write_timeout
+                    )
                 except Exception as e:
                     if not self._stop_event.is_set():
                         self._logger.debug('Channel write error (ch=%d): %s', self.ch, e)
@@ -301,4 +311,4 @@ class _RelayConnection(object):
 
         # Wait for threads with timeout
         for t in self._threads:
-            t.join(timeout=2.0)
+            t.join(timeout=self._config.socks_thread_join_timeout)

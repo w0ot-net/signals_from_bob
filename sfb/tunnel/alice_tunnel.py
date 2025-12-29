@@ -470,7 +470,7 @@ class AliceTunnel(BaseTunnel):
                 break
 
             # Brief sleep to avoid busy loop
-            time.sleep(0.001)
+            time.sleep(self._config.tunnel_tick_sleep)
 
     def _run_loop(self):
         """Background thread loop - calls tick() until stopped."""
@@ -479,7 +479,7 @@ class AliceTunnel(BaseTunnel):
                 self.tick()
             except Exception as e:
                 self._logger.warning('Tick error: %s', e)
-            time.sleep(0.001)
+            time.sleep(self._config.tunnel_tick_sleep)
 
     def close(self):
         """Close the tunnel and transport."""

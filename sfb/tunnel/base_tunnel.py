@@ -687,8 +687,11 @@ class BaseTunnel(object):
             list: List of Segment instances
         """
         if self._payload_cap:
-            if max_payload > self._payload_cap:
-                max_payload = self._payload_cap
+            cap_payload = self._payload_cap - PACKET_HEADER_SIZE
+            if cap_payload < 0:
+                cap_payload = 0
+            if max_payload > cap_payload:
+                max_payload = cap_payload
         return self._channel_manager.collect_segments(
             max_payload, keepalive_data=keepalive_data
         )

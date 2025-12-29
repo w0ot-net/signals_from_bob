@@ -206,6 +206,10 @@ class BobTunnel(BaseTunnel):
 
     def _send_response(self, responder, now):
         """Build and send response packet."""
+        response_payload_cap = None
+        if hasattr(responder, 'payload_cap'):
+            response_payload_cap = responder.payload_cap
+
         # Opportunistic retransmit: if we have unacked packets, resend oldest
         # Rebuild with fresh ack/sack to ensure current ACK state is sent
         oldest = self._send_window.get_oldest_unacked()
@@ -213,40 +217,51 @@ class BobTunnel(BaseTunnel):
             seq, segments = oldest
             packet = self._rebuild_packet(seq, segments)
             response_data = self._encode_packet(packet)
-            self._send_window.mark_retransmit(seq, now=now)
-            self._logger.debug('Retransmitting seq=%d', seq)
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.retransmit',
-                'Retransmitting packet',
-                {'seq': seq, 'seg_count': len(segments), 'side': 'bob'},
-            )
-            self._log_response_cap(responder, response_data)
+            if (response_payload_cap is not None and
+                    len(response_data) > response_payload_cap):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.retransmit_skip',
+                    'Retransmit exceeds per-request cap',
+                    {
+                        'seq': seq,
+                        'bytes': len(response_data),
+                        'cap': response_payload_cap,
+                        'side': 'bob',
+                    },
+                )
+            else:
+                self._send_window.mark_retransmit(seq, now=now)
+                self._logger.debug('Retransmitting seq=%d', seq)
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.retransmit',
+                    'Retransmitting packet',
+                    {'seq': seq, 'seg_count': len(segments), 'side': 'bob'},
+                )
+                self._log_response_cap(responder, response_data)
 
-            self._packets_sent += 1
-            self._bytes_sent += len(response_data)
-            responder(response_data)
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.packet_send',
-                'Packet sent',
-                {
-                    'seq': packet.seq,
-                    'ack': packet.ack,
-                    'sack': packet.sack,
-                    'flags': packet.flags,
-                    'seg_count': len(packet.segments),
-                    'bytes': len(response_data),
-                    'side': 'bob',
-                },
-            )
-            return
-
-        response_payload_cap = None
-        if hasattr(responder, 'payload_cap'):
-            response_payload_cap = responder.payload_cap
+                self._packets_sent += 1
+                self._bytes_sent += len(response_data)
+                responder(response_data)
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.packet_send',
+                    'Packet sent',
+                    {
+                        'seq': packet.seq,
+                        'ack': packet.ack,
+                        'sack': packet.sack,
+                        'flags': packet.flags,
+                        'seg_count': len(packet.segments),
+                        'bytes': len(response_data),
+                        'side': 'bob',
+                    },
+                )
+                return
 
         # No retransmits needed - check window before sending new data
         if not self._send_window.can_send:
@@ -265,8 +280,12 @@ class BobTunnel(BaseTunnel):
                 },
             )
             max_payload = self._send_mtu
-            if response_payload_cap is not None and response_payload_cap < max_payload:
-                max_payload = response_payload_cap
+            if response_payload_cap is not None:
+                cap_payload = response_payload_cap - PACKET_HEADER_SIZE
+                if cap_payload < 0:
+                    cap_payload = 0
+                if cap_payload < max_payload:
+                    max_payload = cap_payload
             segments = self._collect_segments(
                 max_payload,
                 keepalive_data=encode_message(tun_pong())
@@ -280,8 +299,12 @@ class BobTunnel(BaseTunnel):
 
         # Collect new segments - use send MTU
         max_payload = self._send_mtu
-        if response_payload_cap is not None and response_payload_cap < max_payload:
-            max_payload = response_payload_cap
+        if response_payload_cap is not None:
+            cap_payload = response_payload_cap - PACKET_HEADER_SIZE
+            if cap_payload < 0:
+                cap_payload = 0
+            if cap_payload < max_payload:
+                max_payload = cap_payload
         segments = self._collect_segments(max_payload)
 
         # If no data, send pong

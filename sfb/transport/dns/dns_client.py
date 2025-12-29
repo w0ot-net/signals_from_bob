@@ -290,7 +290,7 @@ class DnsClient(Transport):
             )
             return (None, None)  # Malformed packet
 
-        dns_id, payload, rcode = result
+        dns_id, payload, rcode, reason = result
 
         if dns_id not in self._dns_to_corr:
             _LOG.debug('dns stale response dns_id=%d', dns_id)
@@ -312,7 +312,7 @@ class DnsClient(Transport):
                 logging.DEBUG,
                 'dns.error_response',
                 'DNS error response',
-                {'corr_id': corr_id, 'dns_id': dns_id, 'rcode': rcode},
+                {'corr_id': corr_id, 'dns_id': dns_id, 'rcode': rcode, 'reason': reason},
             )
             # Clean up tracking to avoid pending exhaustion
             self._pending.pop(corr_id)
@@ -390,9 +390,9 @@ class DnsClient(Transport):
         Parse DNS response packet.
 
         Returns:
-            tuple: (query_id, payload_bytes, rcode) on success
-            tuple: (query_id, None, rcode) if RCODE indicates error
-            tuple: (query_id, None, None) if packet is malformed
+            tuple: (query_id, payload_bytes, rcode, reason) on success
+            tuple: (query_id, None, rcode, reason) if response has no payload
+            tuple: (query_id, None, None, reason) if packet is malformed
         """
         if len(data) < 12:
             return None
@@ -402,13 +402,13 @@ class DnsClient(Transport):
         )
 
         if not (flags & codec.FLAG_QR):
-            return query_id, None, None  # Not a response
+            return query_id, None, None, 'not_response'
 
         # Check RCODE
         rcode = flags & codec.RCODE_MASK
         if rcode != codec.RCODE_NOERROR:
             _LOG.debug('dns rcode=%d id=%d', rcode, query_id)
-            return query_id, None, rcode
+            return query_id, None, rcode, 'rcode'
 
         # Skip questions
         offset = 12
@@ -417,19 +417,19 @@ class DnsClient(Transport):
                 offset = codec.skip_name(data, offset)
                 offset += 4  # QTYPE + QCLASS
         except ValueError:
-            return query_id, None, None
+            return query_id, None, None, 'question_parse'
 
         if ancount < 1:
-            return query_id, None, rcode
+            return query_id, None, rcode, 'no_answer'
 
         for _ in range(ancount):
             try:
                 offset = codec.skip_name(data, offset)  # NAME
             except ValueError:
-                return query_id, None, rcode
+                return query_id, None, rcode, 'answer_name'
 
             if offset + 10 > len(data):
-                return query_id, None, rcode
+                return query_id, None, rcode, 'answer_header'
 
             rtype, rclass, ttl, rdlength = struct.unpack(
                 '>HHIH', data[offset:offset + 10]
@@ -437,7 +437,7 @@ class DnsClient(Transport):
             offset += 10
 
             if offset + rdlength > len(data):
-                return query_id, None, rcode
+                return query_id, None, rcode, 'answer_rdlength'
 
             if rclass != codec.QCLASS_IN or rtype != self._rtype:
                 offset += rdlength
@@ -453,11 +453,11 @@ class DnsClient(Transport):
                 )
             except ValueError:
                 _LOG.debug('dns invalid cname id=%d', query_id)
-                return query_id, None, rcode
+                return query_id, None, rcode, 'cname_decode'
 
             if end_offset > offset + rdlength:
                 _LOG.debug('dns cname exceeds rdlength id=%d', query_id)
-                return query_id, None, rcode
+                return query_id, None, rcode, 'cname_rdlength'
 
             try:
                 payload = codec.decode_cname_target(
@@ -465,11 +465,11 @@ class DnsClient(Transport):
                 )
             except ValueError:
                 _LOG.debug('dns invalid cname payload id=%d', query_id)
-                return query_id, None, rcode
+                return query_id, None, rcode, 'payload_decode'
 
-            return query_id, payload, rcode
+            return query_id, payload, rcode, 'ok'
 
-        return query_id, None, rcode
+        return query_id, None, rcode, 'no_matching_answer'
 
     def close(self):
         """Close the UDP socket and cancel all pending queries."""

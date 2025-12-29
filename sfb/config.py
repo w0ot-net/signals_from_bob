@@ -123,7 +123,7 @@ class Config:
 
     # --- Logging ---
     # SQLite log path (None = disabled)
-    db_log_path: Optional[str] = "./logs/log.db"
+    db_log_path: Optional[str] = None
     # SQLite log flush interval (seconds)
     db_log_flush: float = 0.5
     # SQLite log queue max size (0 = unbounded)

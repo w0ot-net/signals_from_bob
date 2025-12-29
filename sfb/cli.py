@@ -34,6 +34,8 @@ ROLE_ALIASES = {
     'client': 'client',
 }
 
+_DB_LOG_DEFAULT = object()
+
 
 def _split_host_port(addr, default_port):
     if ':' in addr:
@@ -76,7 +78,7 @@ def add_common_args(parser, config):
     parser.add_argument(
         '--db-log',
         nargs='?',
-        const=config.db_log_path,
+        const=_DB_LOG_DEFAULT,
         default=config.db_log_path,
         help='Enable SQLite logging to PATH'
     )
@@ -388,6 +390,8 @@ def run_client(args, config, crypto, logger):
 def main(args=None):
     """Main entry point."""
     parsed = parse_args(args)
+    if parsed.db_log is None or parsed.db_log is _DB_LOG_DEFAULT:
+        parsed.db_log = './logs/%s_log.db' % parsed.role
 
     # Setup logging
     level = logging.DEBUG if parsed.verbose else logging.INFO

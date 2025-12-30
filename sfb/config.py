@@ -154,6 +154,8 @@ class Config:
     socks_relay_write_timeout: Optional[float] = None
     # SOCKS relay buffer size (bytes)
     socks_relay_buffer_size: int = 8192
+    # SOCKS relay sleep when channel buffer is full (seconds)
+    socks_relay_full_sleep: float = 0.005
     # SOCKS thread join timeout (seconds)
     socks_thread_join_timeout: float = 2.0
 
@@ -267,6 +269,8 @@ class Config:
             raise ValueError("socks_relay_write_timeout must be > 0 or None")
         if self.socks_relay_buffer_size < 1:
             raise ValueError("socks_relay_buffer_size must be >= 1")
+        if self.socks_relay_full_sleep < 0:
+            raise ValueError("socks_relay_full_sleep must be >= 0")
         if self.socks_thread_join_timeout <= 0:
             raise ValueError("socks_thread_join_timeout must be > 0")
 

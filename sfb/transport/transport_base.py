@@ -265,6 +265,9 @@ class PendingTracker(object):
             return default
         return entry[0]
 
+    def clear(self):
+        self._entries.clear()
+
     def prune(self, now=None):
         if now is None:
             now = time.time()

@@ -245,18 +245,7 @@ class DnsClient(Transport):
             TransportError: on I/O failure
         """
         self._prune_stale()
-        if timeout is None:
-            # Block indefinitely until we get a valid response
-            while True:
-                try:
-                    ready, _, _ = select.select([self._sock], [], [])
-                except select.error as e:
-                    raise TransportError('Select failed: %s' % e)
-                if ready:
-                    result = self._try_recv()
-                    if result[0] is not None:
-                        return result
-        elif timeout == 0:
+        if timeout == 0:
             # Non-blocking poll
             try:
                 ready, _, _ = select.select([self._sock], [], [], 0)
@@ -265,22 +254,29 @@ class DnsClient(Transport):
             if ready:
                 return self._try_recv()
             return (None, None)
-        else:
-            # Wait up to timeout
+        # Wait up to timeout (or indefinitely if timeout is None)
+        deadline = None
+        if timeout is not None:
             deadline = time.time() + timeout
-            while True:
+        while True:
+            if timeout is None:
+                wait = None
+            else:
                 remaining = deadline - time.time()
                 if remaining <= 0:
                     return (None, None)
-                try:
-                    ready, _, _ = select.select([self._sock], [], [], remaining)
-                except select.error as e:
-                    raise TransportError('Select failed: %s' % e)
-                if not ready:
-                    return (None, None)
-                result = self._try_recv()
-                if result[0] is not None:
-                    return result
+                wait = remaining
+            try:
+                ready, _, _ = select.select([self._sock], [], [], wait)
+            except select.error as e:
+                raise TransportError('Select failed: %s' % e)
+            if not ready:
+                if timeout is None:
+                    continue
+                return (None, None)
+            result = self._try_recv()
+            if result[0] is not None:
+                return result
 
     def _try_recv(self):
         """

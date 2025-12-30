@@ -11,6 +11,7 @@ import logging
 import select
 import socket
 import struct
+import time
 
 from ..transport_base import Server, TransportError
 from . import codec
@@ -143,12 +144,25 @@ class DnsServer(Server):
         Raises:
             TransportError: on I/O failure
         """
+        deadline = None
+        use_deadline = False
+        if timeout is not None and timeout > 0:
+            deadline = time.time() + timeout
+            use_deadline = True
         while True:
             try:
                 if timeout is None:
-                    ready, _, _ = select.select([self._sock], [], [])
+                    wait = None
+                elif timeout == 0:
+                    wait = 0
+                elif use_deadline:
+                    remaining = deadline - time.time()
+                    if remaining <= 0:
+                        return None, None
+                    wait = remaining
                 else:
-                    ready, _, _ = select.select([self._sock], [], [], timeout)
+                    wait = timeout
+                ready, _, _ = select.select([self._sock], [], [], wait)
                 if not ready:
                     return None, None
                 pkt_data, client_addr = self._sock.recvfrom(

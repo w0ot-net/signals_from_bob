@@ -10,10 +10,11 @@ from __future__ import absolute_import
 
 import errno
 import logging
+import socket
 import threading
 
 from ..base_module import BaseModule, ModuleError, blocking
-from .relay_pump import relay_channel_to_socket, relay_socket_to_channel
+from ...logging_util import log_event
 from .socks_control_messages import T_SOCK, sock_connect_ok, sock_err
 
 
@@ -330,33 +331,91 @@ class _RelayConnection(object):
 
     def _relay_channel_to_target(self):
         """Relay data from channel to target socket."""
-        relay_channel_to_socket(
-            self.channel,
-            self.sock,
-            self._config,
-            self._logger,
-            self._stop_event,
-            self.rid,
-            self.ch,
-            'alice',
-            'Target',
-            'channel_to_target',
-        )
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    data = self.channel.read(
+                        self._config.socks_relay_buffer_size,
+                        timeout=self._config.socks_relay_channel_timeout
+                    )
+                except Exception as e:
+                    if not self._stop_event.is_set():
+                        self._logger.debug('Channel read error (ch=%d): %s', self.ch, e)
+                    break
+
+                if data is None:
+                    # Timeout, check stop event and retry
+                    continue
+                if data == b'':
+                    # EOF from channel
+                    self._logger.debug('Channel EOF (ch=%d)', self.ch)
+                    break
+
+                try:
+                    self.sock.sendall(data)
+                except Exception as e:
+                    if not self._stop_event.is_set():
+                        self._logger.debug('Target send error (ch=%d): %s', self.ch, e)
+                        log_event(
+                            self._logger,
+                            logging.DEBUG,
+                            'sock.relay_error',
+                            'SOCKS relay target send error',
+                            {
+                                'rid': self.rid,
+                                'ch': self.ch,
+                                'direction': 'channel_to_target',
+                                'error': str(e),
+                                'side': 'alice',
+                            },
+                        )
+                    break
+        finally:
+            self._stop_event.set()
 
     def _relay_target_to_channel(self):
         """Relay data from target socket to channel."""
-        relay_socket_to_channel(
-            self.sock,
-            self.channel,
-            self._config,
-            self._logger,
-            self._stop_event,
-            self.rid,
-            self.ch,
-            'alice',
-            'Target',
-            'target_to_channel',
-        )
+        try:
+            self.sock.settimeout(self._config.socks_relay_socket_timeout)
+            while not self._stop_event.is_set():
+                try:
+                    data = self.sock.recv(self._config.socks_relay_buffer_size)
+                except socket.timeout:
+                    # Timeout, check stop event and retry
+                    continue
+                except Exception as e:
+                    if not self._stop_event.is_set():
+                        self._logger.debug('Target recv error (ch=%d): %s', self.ch, e)
+                    break
+
+                if not data:
+                    # EOF from target
+                    self._logger.debug('Target EOF (ch=%d)', self.ch)
+                    break
+
+                try:
+                    self.channel.write_all(
+                        data, timeout=self._config.socks_relay_write_timeout
+                    )
+                except Exception as e:
+                    if not self._stop_event.is_set():
+                        self._logger.debug('Channel write error (ch=%d): %s', self.ch, e)
+                        log_event(
+                            self._logger,
+                            logging.DEBUG,
+                            'sock.relay_error',
+                            'SOCKS relay channel write error',
+                            {
+                                'rid': self.rid,
+                                'ch': self.ch,
+                                'direction': 'target_to_channel',
+                                'error': str(e),
+                                'side': 'alice',
+                            },
+                        )
+                    break
+        finally:
+            self._stop_event.set()
 
     def wait(self, timeout=None):
         """Wait for relay threads to complete."""

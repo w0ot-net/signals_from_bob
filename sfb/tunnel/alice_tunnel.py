@@ -394,12 +394,20 @@ class AliceTunnel(BaseTunnel):
             return False
         can_send = self._transport.can_send()
         if not can_send:
+            fields = {'side': 'alice'}
+            if hasattr(self._transport, 'pending_count'):
+                try:
+                    fields['pending'] = self._transport.pending_count()
+                except Exception:
+                    pass
+            if hasattr(self._transport, 'max_pending'):
+                fields['max_pending'] = self._transport.max_pending
             log_event(
                 self._logger,
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Transport cannot send',
-                {'side': 'alice'},
+                fields,
             )
         return can_send
 
@@ -407,12 +415,20 @@ class AliceTunnel(BaseTunnel):
         """Check if we can send a retransmit packet."""
         can_send = self._transport.can_send()
         if not can_send:
+            fields = {'side': 'alice'}
+            if hasattr(self._transport, 'pending_count'):
+                try:
+                    fields['pending'] = self._transport.pending_count()
+                except Exception:
+                    pass
+            if hasattr(self._transport, 'max_pending'):
+                fields['max_pending'] = self._transport.max_pending
             log_event(
                 self._logger,
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Transport cannot send',
-                {'side': 'alice'},
+                fields,
             )
         return can_send
 

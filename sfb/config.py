@@ -39,7 +39,7 @@ class Config:
     # Maximum concurrent DNS queries in flight
     dns_max_pending: int = 32
     # Timeout before considering a DNS query stale (seconds)
-    dns_pending_timeout: float = 10.0
+    dns_pending_timeout: float = 1.0
     # Query type for DNS tunneling (currently fixed to 'A')
     dns_query_type: str = "A"
     # Response type for DNS tunneling

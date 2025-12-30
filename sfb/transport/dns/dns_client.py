@@ -341,19 +341,7 @@ class DnsClient(Transport):
                 },
             )
             return (None, None)
-        if qname is None:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'dns.response_no_question',
-                'DNS response missing question section',
-                {
-                    'corr_id': corr_id,
-                    'dns_id': dns_id,
-                    'addr': '%s:%d' % (addr[0], addr[1]),
-                },
-            )
-        elif pending.qname != qname:
+        if pending is not None and pending.qname != qname:
             log_event(
                 _LOG,
                 logging.DEBUG,
@@ -480,22 +468,24 @@ class DnsClient(Transport):
             _LOG.debug('dns rcode=%d id=%d', rcode, query_id)
             return query_id, None, None, rcode, 'rcode'
 
-        # Skip questions (allow responses without question section)
+        # Skip questions
         offset = 12
         qname = None
-        if qdcount > 0:
-            try:
-                for _ in range(qdcount):
-                    if qname is None:
-                        qname, offset = codec.decode_name(
-                            data, offset, allow_compression=True
-                        )
-                        qname = qname.lower()
-                    else:
-                        offset = codec.skip_name(data, offset)
-                    offset += 4  # QTYPE + QCLASS
-            except ValueError:
-                return query_id, None, None, None, 'question_parse'
+        try:
+            for _ in range(qdcount):
+                if qname is None:
+                    qname, offset = codec.decode_name(
+                        data, offset, allow_compression=True
+                    )
+                    qname = qname.lower()
+                else:
+                    offset = codec.skip_name(data, offset)
+                offset += 4  # QTYPE + QCLASS
+        except ValueError:
+            return query_id, None, None, None, 'question_parse'
+
+        if qname is None:
+            return query_id, None, None, None, 'question_parse'
 
         if ancount < 1:
             return query_id, qname, None, rcode, 'no_answer'

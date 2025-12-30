@@ -22,6 +22,8 @@ from ...compat import require_bytes
 from ...config import Config
 from ...logging_util import get_logger, log_event
 
+_LOG = get_logger(__name__)
+
 
 class _PendingQuery(object):
     """Tracks an in-flight DNS query."""
@@ -477,10 +479,6 @@ class DnsClient(Transport):
                 offset += rdlength
                 continue
 
-            if rtype != codec.QTYPE_CNAME:
-                offset += rdlength
-                continue
-
             try:
                 cname, end_offset = codec.decode_name(
                     data, offset, allow_compression=True
@@ -625,5 +623,3 @@ class DnsClient(Transport):
                 addrs.append(addr)
         return addrs
 
-
-_LOG = get_logger(__name__)

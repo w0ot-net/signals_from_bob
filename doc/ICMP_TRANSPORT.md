@@ -1,7 +1,7 @@
 # ICMP Transport
 
 This document defines the plan and design for an ICMP Echo transport.
-It targets Linux first and includes a Windows backend in the plan.
+It targets Linux first. Windows support will be added later.
 All code must remain Python 2.7/3 compatible and use only the standard library.
 
 ---
@@ -14,10 +14,10 @@ All code must remain Python 2.7/3 compatible and use only the standard library.
 - Preserve per-direction MTU negotiation (independent send/recv MTUs).
 - Keep transport stateless: Bob accepts packets if the payload decodes
   as an SFB packet, and responds to the source address of that poll.
-- Keep the design compatible with Linux and Windows backends.
 
 ## Non-Goals (for initial implementation)
 
+- Windows support (planned follow-up).
 - IPv6 support.
 - Session tracking beyond the source address for the current request.
 
@@ -158,7 +158,7 @@ CLI:
    - checksum correctness
    - send/recv path with fake sockets
    - non-blocking poll behavior (uses `non_blocking_poll_timeout`)
-7. Add Windows backend using ctypes (IcmpSendEcho) and OS switch.
+7. Document Windows follow-up work (ctypes + IcmpSendEcho).
 
 ---
 
@@ -177,5 +177,6 @@ Test cases:
 
 ## Future Work
 
+- Windows support using ctypes and IcmpSendEcho or raw sockets where allowed.
 - IPv6 ICMPv6 support.
 - Optional path MTU discovery and dynamic MTU updates.

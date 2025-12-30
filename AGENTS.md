@@ -2,6 +2,7 @@ Project Rules
 - Maintain Python 2.7 and 3 compatibility in all code changes.
 - Use ASCII only for code and scripts. Non-ASCII is allowed in .md files.
 - Must support windows and linux
+- ICMP transport is Linux-only for now; Windows support is deferred.
 - never mention claude, anthropic, or use emojis
 - must use only python standard library
 - Tunnel supports asymmetric MTU: negotiate independent send and receive MTUs per side.

@@ -71,6 +71,47 @@ def add_sqlite_handler(logger, db_path, level=None, formatter=None,
     return handler
 
 
+class ComponentFilter(logging.Filter):
+    """
+    Filter log records by component using config toggles.
+    """
+
+    def __init__(self, config):
+        logging.Filter.__init__(self)
+        self._dns_enabled = bool(getattr(config, 'log_component_transport_dns', True))
+        self._dns_event_prefix = 'dns.'
+        self._dns_logger_prefixes = (
+            'sfb.transport.dns.',
+            'tunnel.sfb.transport.dns.',
+            'sfb.transport.dns',
+            'tunnel.sfb.transport.dns',
+        )
+
+    def filter(self, record):
+        if not self._dns_enabled:
+            event = getattr(record, 'event', None)
+            if event is not None:
+                event_text = _coerce_text(event)
+                if event_text.startswith(self._dns_event_prefix):
+                    return False
+            name = getattr(record, 'name', '')
+            if name.startswith(self._dns_logger_prefixes):
+                return False
+        return True
+
+
+def add_component_filters(logger, config):
+    """
+    Attach component-based filters to all handlers on a logger.
+    """
+    filt = ComponentFilter(config)
+    for handler in logger.handlers:
+        if _handler_has_component_filter(handler):
+            continue
+        handler.addFilter(filt)
+    return filt
+
+
 class SQLiteLogHandler(logging.Handler):
     """
     Log handler that writes records to SQLite in a background thread.
@@ -243,6 +284,13 @@ def _ensure_log_indexes(cursor):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_logger ON logs (logger)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_level ON logs (level)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_event ON logs (event)')
+
+
+def _handler_has_component_filter(handler):
+    for filt in handler.filters:
+        if isinstance(filt, ComponentFilter):
+            return True
+    return False
 
 
 def _ensure_handler(logger, handler_cls, formatter, *args):

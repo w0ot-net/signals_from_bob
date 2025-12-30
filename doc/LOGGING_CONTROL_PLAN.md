@@ -47,7 +47,7 @@
    - Update logging docs with new config options and component map.
 
 ## Progress
-- [ ] Phase 1: transport/dns component filter
+- [x] Phase 1: transport/dns component filter
 - [ ] Phase 2: tunnel/channel component filter
 - [ ] Phase 3: modules component filter
 - [ ] Phase 4: protocol and misc loggers

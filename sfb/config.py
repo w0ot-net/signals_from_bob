@@ -148,6 +148,8 @@ class Config:
     db_log_flush: float = 0.5
     # SQLite log queue max size (0 = unbounded)
     db_log_queue: int = 0
+    # Enable DNS transport logging (stdout + SQLite)
+    log_component_transport_dns: bool = False
 
     # --- SOCKS ---
     # SOCKS server listen host

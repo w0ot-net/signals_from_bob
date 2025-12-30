@@ -20,7 +20,7 @@ import time
 
 from .config import Config
 from .crypto import Plain, XOR
-from .logging_util import add_sqlite_handler
+from .logging_util import add_component_filters, add_sqlite_handler
 from .transport import TRANSPORTS, TransportError, get_transport_class
 from .tunnel import AliceTunnel, BobTunnel, TunnelState
 from .modules import AVAILABLE_MODULES
@@ -461,6 +461,8 @@ def main(args=None):
         # --db-log passed without a path, use default
         parsed.db_log = './logs/%s_log.db' % parsed.role
 
+    config = create_config(parsed)
+
     # Setup logging
     level = logging.DEBUG if parsed.verbose else logging.INFO
     logging.basicConfig(
@@ -484,10 +486,10 @@ def main(args=None):
             flush_interval=parsed.db_log_flush,
             queue_maxsize=parsed.db_log_queue,
         )
+    add_component_filters(logging.getLogger(), config)
     logger = logging.getLogger('sfb')
 
     # Create config and crypto
-    config = create_config(parsed)
     crypto = create_crypto(parsed, logger)
 
     # Dispatch to role

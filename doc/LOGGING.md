@@ -9,6 +9,17 @@ python3 -m sfb.cli --role alice --domain example.com --db-log
 When `--db-log` is provided without a value, the default path is
 `./logs/<role>_log.db` (role is `client` or `server`).
 
+## Component Logging (config-only)
+
+Fine-grained logging is controlled in `sfb/config.py` and applies to both
+stdout and SQLite handlers.
+
+Current toggle:
+- `log_component_transport_dns` (default: false) - enable or disable DNS
+  transport logs and events (`dns.*`).
+
+Set the default in `sfb/config.py`, or pass to `Config(...)` when embedding.
+
 ## Schema
 
 Table: `logs`

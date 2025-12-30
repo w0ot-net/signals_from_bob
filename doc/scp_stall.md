@@ -15,6 +15,8 @@ tunnel outage.
 - Concurrent proxying (wget) from Bob to the public Internet remains fast.
 - scp prompts for password, then stalls at 0% and eventually disconnects.
 - The same scp command succeeds with a small file like `/etc/passwd`.
+- Normal SSH (interactive, same path through SOCKS) works; only scp stalls.
+- Transport is DNS with defaults from `sfb/config.py` (polling and timeouts).
 
 Command context:
 ```

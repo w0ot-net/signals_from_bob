@@ -1,19 +1,17 @@
 # -*- coding: ascii -*-
 """
-Shared SOCKS data pump helpers.
+Shared SOCKS relay pump helpers.
 """
 
 from __future__ import absolute_import
 
 import logging
 import socket
-import time
 
 from ...logging_util import log_event
-from ...channel import ChannelError
 
 
-def _log_pump_error(logger, rid, ch, side, direction, msg, exc):
+def _log_relay_error(logger, rid, ch, side, direction, msg, exc):
     logger.debug('%s (rid=%d ch=%d): %s', msg, rid, ch, exc)
     log_event(
         logger,
@@ -30,54 +28,35 @@ def _log_pump_error(logger, rid, ch, side, direction, msg, exc):
     )
 
 
-def pump_socket_to_channel(sock, channel, config, logger, stop_event,
-                           rid, ch, side, recv_label, direction):
+def relay_socket_to_channel(sock, channel, config, logger, stop_event,
+                            rid, ch, side, recv_label, direction):
     """
-    Pump data from a socket to a tunnel channel.
-
-    Uses non-blocking writes with backpressure: stops reading from socket
-    when channel buffer is full, which naturally backpressures TCP.
+    Relay data from a socket to a tunnel channel.
     """
     try:
         sock.settimeout(config.socks_relay_socket_timeout)
-        pending = b''
         while not stop_event.is_set():
             try:
-                if not pending:
-                    pending = sock.recv(config.socks_relay_buffer_size)
+                data = sock.recv(config.socks_relay_buffer_size)
             except socket.timeout:
                 continue
             except Exception as exc:
                 if not stop_event.is_set():
-                    _log_pump_error(
+                    _log_relay_error(
                         logger, rid, ch, side, direction,
                         '%s recv error' % recv_label, exc
                     )
                 break
 
-            if not pending:
+            if not data:
                 logger.debug('%s EOF (rid=%d ch=%d)', recv_label, rid, ch)
                 break
 
             try:
-                written = channel.write(pending)
-                if written < len(pending):
-                    pending = pending[written:]
-                else:
-                    pending = b''
-            except ChannelError as exc:
-                if exc.code == 'buffer_full':
-                    time.sleep(0.005)  # Yield CPU to avoid starving other threads
-                    continue
-                if not stop_event.is_set():
-                    _log_pump_error(
-                        logger, rid, ch, side, direction,
-                        'Channel write error', exc
-                    )
-                break
+                channel.write_all(data, timeout=config.socks_relay_write_timeout)
             except Exception as exc:
                 if not stop_event.is_set():
-                    _log_pump_error(
+                    _log_relay_error(
                         logger, rid, ch, side, direction,
                         'Channel write error', exc
                     )
@@ -86,12 +65,10 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
         stop_event.set()
 
 
-def pump_channel_to_socket(channel, sock, config, logger, stop_event,
-                           rid, ch, side, send_label, direction):
+def relay_channel_to_socket(channel, sock, config, logger, stop_event,
+                            rid, ch, side, send_label, direction):
     """
-    Pump data from a tunnel channel to a socket.
-
-    TCP backpressure applies naturally via sendall blocking.
+    Relay data from a tunnel channel to a socket.
     """
     try:
         while not stop_event.is_set():
@@ -102,7 +79,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                 )
             except Exception as exc:
                 if not stop_event.is_set():
-                    _log_pump_error(
+                    _log_relay_error(
                         logger, rid, ch, side, direction,
                         'Channel read error', exc
                     )
@@ -118,7 +95,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                 sock.sendall(data)
             except Exception as exc:
                 if not stop_event.is_set():
-                    _log_pump_error(
+                    _log_relay_error(
                         logger, rid, ch, side, direction,
                         '%s send error' % send_label, exc
                     )

@@ -15,7 +15,7 @@ import threading
 
 from ..base_module import BaseModule, ModuleError
 from ...logging_util import log_event
-from .data_pump import pump_channel_to_socket, pump_socket_to_channel
+from .relay_pump import relay_channel_to_socket, relay_socket_to_channel
 from .socks_control_messages import T_SOCK, sock_connect
 
 
@@ -496,20 +496,14 @@ class _ServerConnection(object):
         """Start bidirectional relay threads."""
         # Client -> Channel
         t1 = threading.Thread(
-            target=pump_socket_to_channel,
-            args=(self.sock, self.channel, self._config, self._logger,
-                  self._stop_event, self.rid, self.channel.id,
-                  'bob', 'Client', 'client_to_channel'),
+            target=self._relay_client_to_channel,
             name='socks-rid%d-c2ch' % self.rid,
         )
         t1.daemon = True
 
         # Channel -> Client
         t2 = threading.Thread(
-            target=pump_channel_to_socket,
-            args=(self.channel, self.sock, self._config, self._logger,
-                  self._stop_event, self.rid, self.channel.id,
-                  'bob', 'Client', 'channel_to_client'),
+            target=self._relay_channel_to_client,
             name='socks-rid%d-ch2c' % self.rid,
         )
         t2.daemon = True
@@ -517,6 +511,36 @@ class _ServerConnection(object):
         self._threads = [t1, t2]
         t1.start()
         t2.start()
+
+    def _relay_client_to_channel(self):
+        """Relay data from SOCKS client to channel."""
+        relay_socket_to_channel(
+            self.sock,
+            self.channel,
+            self._config,
+            self._logger,
+            self._stop_event,
+            self.rid,
+            self.channel.id,
+            'bob',
+            'Client',
+            'client_to_channel',
+        )
+
+    def _relay_channel_to_client(self):
+        """Relay data from channel to SOCKS client."""
+        relay_channel_to_socket(
+            self.channel,
+            self.sock,
+            self._config,
+            self._logger,
+            self._stop_event,
+            self.rid,
+            self.channel.id,
+            'bob',
+            'Client',
+            'channel_to_client',
+        )
 
     def wait(self, timeout=None):
         """Wait for relay threads to complete."""

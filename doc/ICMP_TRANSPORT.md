@@ -9,11 +9,12 @@ All code must remain Python 2.7/3 compatible and use only the standard library.
 ## Goals
 
 - Use ICMP Echo (type 8/0) for the request/response transport.
-- Require root (or CAP_NET_RAW) to run; fail fast with a clear error.
+- Require root to run; fail fast with a clear error.
 - Preserve tunnel asymmetry rules (Alice initiates, Bob responds to polls).
 - Preserve per-direction MTU negotiation (independent send/recv MTUs).
-- Keep transport stateless: Bob accepts packets if the payload decodes
-  as an SFB packet, and responds to the source address of that poll.
+- Keep transport stateless: Bob accepts ICMP Echo Requests with valid
+  ICMP framing and checksum, passes the payload to the tunnel unchanged,
+  and responds to the source address of that poll.
 
 ## Non-Goals (for initial implementation)
 
@@ -46,20 +47,21 @@ The transport itself does not generate keepalives or pongs.
 
 ## Privilege Check
 
-Linux raw ICMP sockets require root (or CAP_NET_RAW). The transport should
-check this in `__init__` and raise `TransportError` with a clear message if
-privileges are insufficient.
+Linux raw ICMP sockets require root. The transport should check this in
+`__init__` and raise `TransportError` with a clear message if privileges
+are insufficient.
 
 Suggested check for Linux:
-- `os.geteuid() != 0` -> error
+- `os.geteuid() != 0` -> error (hard fail)
 
 ---
 
 ## Addressing and Peer Identification
 
 - Alice targets Bob by IPv4 address or hostname (resolve via `getaddrinfo`).
-- Bob does not track sessions. If a packet payload decodes into a valid
-  SFB packet, it is processed. Otherwise it is ignored.
+- Bob does not track sessions. If a packet is a valid ICMP Echo Request
+  for this transport, its payload is passed to the tunnel as opaque bytes.
+  Otherwise it is ignored.
 - Bob responds to the source address of the received request. No long-lived
   session mapping is required.
 
@@ -78,10 +80,11 @@ send/recv MTUs per side. The ICMP transport should:
   while still allowing independent clamping during MTU negotiation.
 
 Proposed approach:
-- Add config fields (names TBD) for ICMP payload size limits, with a conservative
+- Add a config field (name TBD) for ICMP payload size limits, with a conservative
   default (for example 1200 bytes of ICMP payload to avoid fragmentation).
-- `send_mtu`/`recv_mtu` should reflect the raw ICMP payload cap, not including
-  tunnel packet overhead. The tunnel already subtracts `PACKET_HEADER_SIZE`.
+- `send_mtu`/`recv_mtu` should reflect the SFB packet size carried in the ICMP
+  data payload, not including ICMP headers. The tunnel already subtracts
+  `PACKET_HEADER_SIZE`.
 
 If future path MTU discovery is added, it should update these independently.
 
@@ -104,6 +107,7 @@ ICMP Echo:
 ```
 
 Correlation IDs:
+- Alice uses a random 16-bit Echo ID per transport instance.
 - Alice uses a monotonically increasing sequence number for each send.
 - The sequence number is used as the transport correlation ID.
 - Responses are matched by (id, seq) to the pending tracker.
@@ -113,8 +117,9 @@ Correlation IDs:
 ## Polling Semantics
 
 - Alice sends packets via `send()`, which emits an ICMP Echo Request.
-- Bob receives via `recv()`, validates payload, and returns a responder that
-  sends an Echo Reply to the same source address with the same id/seq.
+- Bob receives via `recv()`, validates ICMP framing and checksum, and returns
+  a responder that sends an Echo Reply to the same source address with the
+  same id/seq. The payload is passed to the tunnel unchanged.
 - Alice polls via `recv(timeout=non_blocking_poll_timeout)` in its loop.
 - Bob should use timeouts consistent with the tunnel poll intervals; when
   no packet is received, it returns `(None, None)` without busy looping.
@@ -127,8 +132,7 @@ Use `non_blocking_poll_timeout` in tight poll loops to avoid CPU spikes.
 
 Proposed config fields (final names TBD):
 - `icmp_target`: Alice target host/IP
-- `icmp_payload_mtu`: max payload size to send/receive (default conservative)
-- `icmp_recv_timeout`: socket timeout for recv
+- `icmp_payload_mtu`: max SFB packet size to send/receive (default conservative)
 - `icmp_send_interval`: optional pacing for Alice sends
 
 CLI:
@@ -150,8 +154,8 @@ CLI:
    - `recv()` reads replies, validates checksum/type, returns `(corr_id, data)`
 3. Add `sfb/transport/icmp/icmp_server.py`:
    - raw ICMP socket
-   - `recv()` reads Echo Requests, validates payload as SFB packet
-   - responder sends Echo Reply to request source address
+  - `recv()` reads Echo Requests, validates ICMP header/checksum
+  - responder sends Echo Reply to request source address
 4. Wire into `sfb/transport/__init__.py` and CLI transport selection.
 5. Add config defaults and validation in `sfb/config.py`.
 6. Add unit tests:

@@ -15,8 +15,12 @@ Fine-grained logging is controlled in `sfb/config.py` and applies to both
 stdout and SQLite handlers.
 
 Current toggle:
-- `log_component_transport_dns` (default: false) - enable or disable DNS
+-- `log_component_transport_dns` (default: false) - enable or disable DNS
   transport logs and events (`dns.*`).
+- `log_component_tunnel` (default: true) - enable or disable tunnel logs and
+  events (`tunnel.*`).
+- `log_component_channel` (default: false) - enable or disable channel logs and
+  events (`channel.*`).
 
 Set the default in `sfb/config.py`, or pass to `Config(...)` when embedding.
 

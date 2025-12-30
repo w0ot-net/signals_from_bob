@@ -86,17 +86,38 @@ class ComponentFilter(logging.Filter):
             'sfb.transport.dns',
             'tunnel.sfb.transport.dns',
         )
+        self._tunnel_enabled = bool(getattr(config, 'log_component_tunnel', True))
+        self._tunnel_event_prefix = 'tunnel.'
+        self._tunnel_logger_prefixes = (
+            'sfb.tunnel.',
+            'tunnel.sfb.tunnel.',
+            'sfb.tunnel',
+            'tunnel.sfb.tunnel',
+        )
+        self._channel_enabled = bool(getattr(config, 'log_component_channel', True))
+        self._channel_event_prefix = 'channel.'
+        self._channel_logger_prefixes = (
+            'sfb.channel.',
+            'sfb.channel',
+        )
 
     def filter(self, record):
-        if not self._dns_enabled:
-            event = getattr(record, 'event', None)
-            if event is not None:
-                event_text = _coerce_text(event)
-                if event_text.startswith(self._dns_event_prefix):
-                    return False
-            name = getattr(record, 'name', '')
-            if name.startswith(self._dns_logger_prefixes):
+        event = getattr(record, 'event', None)
+        if event is not None:
+            event_text = _coerce_text(event)
+            if not self._dns_enabled and event_text.startswith(self._dns_event_prefix):
                 return False
+            if not self._tunnel_enabled and event_text.startswith(self._tunnel_event_prefix):
+                return False
+            if not self._channel_enabled and event_text.startswith(self._channel_event_prefix):
+                return False
+        name = getattr(record, 'name', '')
+        if not self._dns_enabled and name.startswith(self._dns_logger_prefixes):
+            return False
+        if not self._tunnel_enabled and name.startswith(self._tunnel_logger_prefixes):
+            return False
+        if not self._channel_enabled and name.startswith(self._channel_logger_prefixes):
+            return False
         return True
 
 

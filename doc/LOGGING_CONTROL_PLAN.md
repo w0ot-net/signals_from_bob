@@ -48,6 +48,6 @@
 
 ## Progress
 - [x] Phase 1: transport/dns component filter
-- [ ] Phase 2: tunnel/channel component filter
+- [x] Phase 2: tunnel/channel component filter
 - [ ] Phase 3: modules component filter
 - [ ] Phase 4: protocol and misc loggers

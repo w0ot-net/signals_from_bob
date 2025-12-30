@@ -150,6 +150,10 @@ class Config:
     db_log_queue: int = 0
     # Enable DNS transport logging (stdout + SQLite)
     log_component_transport_dns: bool = False
+    # Enable tunnel logging (stdout + SQLite)
+    log_component_tunnel: bool = True
+    # Enable channel logging (stdout + SQLite)
+    log_component_channel: bool = False
 
     # --- SOCKS ---
     # SOCKS server listen host

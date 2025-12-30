@@ -14,6 +14,7 @@ from __future__ import absolute_import
 
 import logging
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,12 @@ class ChannelManager(object):
 
         # Round-robin index for segment packing (see CHANNEL_MANAGER.md)
         self._rr_index = 0
+
+        # Drain stats for debugging throughput stalls
+        self._stats_lock = threading.Lock()
+        self._stats_last_log = time.time()
+        self._stats_interval = 1.0
+        self._stats_bytes_sent = {}
 
     @property
     def control(self):
@@ -311,7 +318,42 @@ class ChannelManager(object):
                 },
             )
 
+        self._record_drain_stats(segments)
         return segments
+
+    def _record_drain_stats(self, segments):
+        """Record per-channel drain stats for debugging stalls."""
+        if not segments:
+            return
+        now = time.time()
+        with self._stats_lock:
+            for seg in segments:
+                cid = seg.channel
+                self._stats_bytes_sent[cid] = (
+                    self._stats_bytes_sent.get(cid, 0) + len(seg.data)
+                )
+            if now - self._stats_last_log < self._stats_interval:
+                return
+            if self._stats_bytes_sent:
+                stats = {}
+                total = 0
+                for cid, count in self._stats_bytes_sent.items():
+                    stats[str(cid)] = count
+                    total += count
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    'channel.drain',
+                    'Channel drain stats',
+                    {
+                        'interval': self._stats_interval,
+                        'bytes_total': total,
+                        'bytes_by_channel': stats,
+                        'side': 'alice' if self._is_alice else 'bob',
+                    },
+                )
+            self._stats_bytes_sent = {}
+            self._stats_last_log = now
 
     def _allocate_id(self):
         """

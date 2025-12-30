@@ -395,8 +395,8 @@ class SocksServerModule(BaseModule):
             name_len = struct.unpack('!B', len_byte)[0]
             host = self._recv_exact(sock, name_len).decode('ascii')
         elif atyp == SOCKS5_ATYP_IPV6:
-            addr_data = self._recv_exact(sock, 16)
-            host = socket.inet_ntop(socket.AF_INET6, addr_data)
+            self._socks5_send_reply(sock, SOCKS5_REP_ADDR_NOT_SUPPORTED)
+            raise Socks5Error('address', 'IPv6 not supported')
         else:
             self._socks5_send_reply(sock, SOCKS5_REP_ADDR_NOT_SUPPORTED)
             raise Socks5Error('address', 'address type %d not supported' % atyp)

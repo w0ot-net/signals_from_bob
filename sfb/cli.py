@@ -21,7 +21,7 @@ import time
 from .config import Config
 from .crypto import Plain, XOR
 from .logging_util import add_sqlite_handler
-from .transport import TRANSPORTS, get_transport_class
+from .transport import TRANSPORTS, TransportError, get_transport_class
 from .tunnel import AliceTunnel, BobTunnel, TunnelState
 from .modules import AVAILABLE_MODULES
 
@@ -286,9 +286,13 @@ def run_server(args, config, crypto, logger):
     logger.info('Working directory: %s', root)
 
     # Create transport and tunnel
-    transport_cls = get_transport_class(args.transport, 'server')
-    transport = transport_cls(config)
-    tunnel = BobTunnel(transport, config, crypto=crypto)
+    try:
+        transport_cls = get_transport_class(args.transport, 'server')
+        transport = transport_cls(config)
+        tunnel = BobTunnel(transport, config, crypto=crypto)
+    except TransportError as e:
+        logger.error('%s', e)
+        return 1
 
     # Signal handling
     shutdown_requested = [False]
@@ -387,9 +391,13 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
 def run_client(args, config, crypto, logger):
     """Run in client role."""
     # Create transport and tunnel
-    transport_cls = get_transport_class(args.transport, 'client')
-    transport = transport_cls(config)
-    tunnel = AliceTunnel(transport, config, crypto=crypto)
+    try:
+        transport_cls = get_transport_class(args.transport, 'client')
+        transport = transport_cls(config)
+        tunnel = AliceTunnel(transport, config, crypto=crypto)
+    except TransportError as e:
+        logger.error('%s', e)
+        return 1
 
     # Signal handling
     shutdown_requested = [False]

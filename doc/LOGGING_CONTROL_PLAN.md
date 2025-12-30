@@ -15,6 +15,8 @@
 - transport.dns
   - events: dns.*
   - loggers: sfb.transport.dns.*, tunnel.sfb.transport.dns.*
+- transport.icmp
+  - loggers: sfb.transport.icmp.*
 - tunnel
   - events: tunnel.*
   - loggers: sfb.tunnel.*, tunnel.sfb.tunnel.*
@@ -33,7 +35,7 @@
 
 ## Proposed Defaults (pending confirmation)
 - on: tunnel, module.socks, module.file_transfer, cli
-- off: transport.dns, channel, protocol
+- off: transport.dns, transport.icmp, channel, protocol
 
 ## Implementation Plan
 1) Config
@@ -53,5 +55,5 @@
 - [x] Phase 1: transport/dns component filter
 - [x] Phase 2: tunnel/channel component filter
 - [x] Phase 3: modules component filter
-- [ ] Phase 4: protocol and misc loggers
+- [x] Phase 4: protocol and misc loggers
 - [x] Consistency pass: logger naming

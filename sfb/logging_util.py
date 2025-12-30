@@ -86,6 +86,11 @@ class ComponentFilter(logging.Filter):
             'sfb.transport.dns',
             'tunnel.sfb.transport.dns',
         )
+        self._icmp_enabled = bool(getattr(config, 'log_component_transport_icmp', True))
+        self._icmp_logger_prefixes = (
+            'sfb.transport.icmp.',
+            'sfb.transport.icmp',
+        )
         self._tunnel_enabled = bool(getattr(config, 'log_component_tunnel', True))
         self._tunnel_event_prefix = 'tunnel.'
         self._tunnel_logger_prefixes = (
@@ -99,6 +104,11 @@ class ComponentFilter(logging.Filter):
         self._channel_logger_prefixes = (
             'sfb.channel.',
             'sfb.channel',
+        )
+        self._protocol_enabled = bool(getattr(config, 'log_component_protocol', True))
+        self._protocol_logger_prefixes = (
+            'sfb.protocol.',
+            'sfb.protocol',
         )
         self._module_socks_enabled = bool(getattr(config, 'log_component_module_socks', True))
         self._module_socks_event_prefix = 'sock.'
@@ -130,9 +140,13 @@ class ComponentFilter(logging.Filter):
         name = getattr(record, 'name', '')
         if not self._dns_enabled and name.startswith(self._dns_logger_prefixes):
             return False
+        if not self._icmp_enabled and name.startswith(self._icmp_logger_prefixes):
+            return False
         if not self._tunnel_enabled and name.startswith(self._tunnel_logger_prefixes):
             return False
         if not self._channel_enabled and name.startswith(self._channel_logger_prefixes):
+            return False
+        if not self._protocol_enabled and name.startswith(self._protocol_logger_prefixes):
             return False
         if not self._module_socks_enabled and name.startswith(self._module_socks_logger_prefixes):
             return False

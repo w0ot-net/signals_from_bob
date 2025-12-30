@@ -17,10 +17,13 @@ stdout and SQLite handlers.
 Current toggles:
 -- `log_component_transport_dns` (default: false) - enable or disable DNS
   transport logs and events (`dns.*`).
+- `log_component_transport_icmp` (default: false) - enable or disable ICMP
+  transport logs.
 - `log_component_tunnel` (default: true) - enable or disable tunnel logs and
   events (`tunnel.*`).
 - `log_component_channel` (default: false) - enable or disable channel logs and
   events (`channel.*`).
+- `log_component_protocol` (default: false) - enable or disable protocol logs.
 - `log_component_module_socks` (default: true) - enable or disable SOCKS module
   logs and events (`sock.*`).
 - `log_component_module_file_transfer` (default: true) - enable or disable file

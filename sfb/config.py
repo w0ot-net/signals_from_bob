@@ -150,10 +150,14 @@ class Config:
     db_log_queue: int = 0
     # Enable DNS transport logging (stdout + SQLite)
     log_component_transport_dns: bool = False
+    # Enable ICMP transport logging (stdout + SQLite)
+    log_component_transport_icmp: bool = False
     # Enable tunnel logging (stdout + SQLite)
     log_component_tunnel: bool = True
     # Enable channel logging (stdout + SQLite)
     log_component_channel: bool = False
+    # Enable protocol logging (stdout + SQLite)
+    log_component_protocol: bool = False
     # Enable SOCKS module logging (stdout + SQLite)
     log_component_module_socks: bool = True
     # Enable file transfer module logging (stdout + SQLite)

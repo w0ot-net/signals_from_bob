@@ -17,6 +17,8 @@ tunnel outage.
 - The same scp command succeeds with a small file like `/etc/passwd`.
 - Normal SSH (interactive, same path through SOCKS) works; only scp stalls.
 - Transport is DNS with defaults from `sfb/config.py` (polling and timeouts).
+- Simultaneous SOCKS downloads remain fast, so the stall does not look like
+  a global polling slowdown.
 
 Command context:
 ```

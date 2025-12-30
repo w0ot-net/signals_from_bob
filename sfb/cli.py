@@ -37,6 +37,15 @@ ROLE_ALIASES = {
 _DB_LOG_DEFAULT = object()
 
 
+def _print_error(message):
+    prefix = 'ERROR: '
+    if sys.stderr.isatty():
+        sys.stderr.write('\x1b[31m' + prefix + message + '\x1b[0m\n')
+    else:
+        sys.stderr.write(prefix + message + '\n')
+    sys.stderr.flush()
+
+
 def _split_host_port(addr, default_port):
     if ':' in addr:
         host, port = addr.rsplit(':', 1)
@@ -291,7 +300,7 @@ def run_server(args, config, crypto, logger):
         transport = transport_cls(config)
         tunnel = BobTunnel(transport, config, crypto=crypto)
     except TransportError as e:
-        logger.error('%s', e)
+        _print_error(str(e))
         return 1
 
     # Signal handling
@@ -396,7 +405,7 @@ def run_client(args, config, crypto, logger):
         transport = transport_cls(config)
         tunnel = AliceTunnel(transport, config, crypto=crypto)
     except TransportError as e:
-        logger.error('%s', e)
+        _print_error(str(e))
         return 1
 
     # Signal handling

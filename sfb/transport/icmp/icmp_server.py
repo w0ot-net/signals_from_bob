@@ -138,8 +138,9 @@ class IcmpServer(Server):
             value = handle.read().strip()
         if value == '0':
             raise TransportError(
-                'Kernel ICMP echo replies are enabled. Disable with: '
-                'sudo sysctl -w net.ipv4.icmp_echo_ignore_all=1'
+                'Kernel ICMP echo replies are enabled.\n'
+                'Disable them with:\n'
+                '  sudo sysctl -w net.ipv4.icmp_echo_ignore_all=1'
             )
 
     def close(self):

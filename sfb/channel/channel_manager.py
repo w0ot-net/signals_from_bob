@@ -210,7 +210,7 @@ class ChannelManager(object):
             self._handle_close_ok(msg)
         # ping/pong and other messages handled by tunnel
 
-    def collect_segments(self, max_payload, keepalive_data=None):
+    def collect_segments(self, max_payload, keepalive_data=None, include_data=True):
         """
         Collect segments from channels for transmission.
 
@@ -224,6 +224,7 @@ class ChannelManager(object):
             max_payload: Max total segment bytes to collect
             keepalive_data: Optional keepalive bytes (ping/pong) to include
                            only if no other data is being sent
+            include_data: True to include data channels, False for control-only
 
         Returns:
             list: List of Segment instances
@@ -247,6 +248,9 @@ class ChannelManager(object):
                 if cid != CHANNEL_CONTROL
             }
             rr_index = self._rr_index
+
+        if not include_data:
+            channel_snapshot = {}
 
         active_channels = [
             cid for cid, ch in channel_snapshot.items()

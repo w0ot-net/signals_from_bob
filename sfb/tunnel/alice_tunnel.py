@@ -88,6 +88,8 @@ class AliceTunnel(BaseTunnel):
         self._last_was_pong_only = False
         self._pong_grace_polls = config.tunnel_pong_grace_polls
         self._pong_grace_remaining = self._pong_grace_polls
+        self._poll_reserved_pending = config.tunnel_poll_reserved_pending
+        self._last_poll_reserve_log = 0
         # Track if we have real data packets awaiting ACKs (not just keepalives)
         self._has_pending_data_acks = False
         # Window growth state (Alice only)
@@ -343,14 +345,17 @@ class AliceTunnel(BaseTunnel):
 
         # 3. Send new packets if we can
         while self._can_send_new():
-            segments = self._collect_segments(self._send_mtu)
-            is_real_data = bool(segments)
+            can_send_data = self._can_send_data(now)
+            segments = []
+            is_real_data = False
+            if can_send_data and self._channel_manager.has_pending_data():
+                segments = self._collect_segments(self._send_mtu)
+                is_real_data = bool(segments)
             if not segments:
-                # No data to send - decide whether to poll Bob
-                # If Bob's last response was pong-only, he has nothing to send,
-                # so respect keepalive interval even if we have pending ACKs.
-                # Poll immediately only if Bob sent real data (more might be coming).
-                if self._last_was_pong_only:
+                # No data to send (or preserving poll slots) - decide whether to poll Bob
+                if not can_send_data:
+                    should_poll = True
+                elif self._last_was_pong_only:
                     if self._pong_grace_remaining > 0:
                         should_poll = True
                         self._pong_grace_remaining -= 1
@@ -363,7 +368,8 @@ class AliceTunnel(BaseTunnel):
                 if should_poll:
                     segments = self._collect_segments(
                         self._send_mtu,
-                        keepalive_data=encode_message(tun_ping())
+                        keepalive_data=encode_message(tun_ping()),
+                        include_data=can_send_data
                     )
                 if not segments:
                     break
@@ -410,6 +416,38 @@ class AliceTunnel(BaseTunnel):
                 fields,
             )
         return can_send
+
+    def _can_send_data(self, now):
+        """Check if we can send data without consuming reserved poll slots."""
+        reserve = self._poll_reserved_pending
+        if reserve <= 0:
+            return True
+        if not hasattr(self._transport, 'pending_count'):
+            return True
+        max_pending = getattr(self._transport, 'max_pending', None)
+        if max_pending is None:
+            return True
+        try:
+            pending = self._transport.pending_count()
+        except Exception:
+            return True
+        if pending >= max_pending - reserve:
+            if now - self._last_poll_reserve_log >= 1.0:
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.poll_reserve',
+                    'Holding data to preserve poll slots',
+                    {
+                        'pending': pending,
+                        'max_pending': max_pending,
+                        'reserved': reserve,
+                        'side': 'alice',
+                    },
+                )
+                self._last_poll_reserve_log = now
+            return False
+        return True
 
     def _can_send_retransmit(self):
         """Check if we can send a retransmit packet."""

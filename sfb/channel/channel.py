@@ -12,13 +12,12 @@ Each channel has:
 from __future__ import absolute_import
 
 import collections
-import logging
 import threading
 
 from ..compat import require_bytes, to_native_str
-from ..logging_util import log_event
+from ..logging_util import get_logger, log_event
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 # Channel states

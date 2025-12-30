@@ -11,9 +11,9 @@ Provides common functionality for all modules:
 
 from __future__ import absolute_import
 
-import logging
 import threading
 
+from ..logging_util import get_logger
 
 class ModuleError(Exception):
     """Base exception for module errors."""
@@ -123,7 +123,7 @@ class BaseModule(object):
             raise ValueError('Subclass must define TYPE')
 
         self._tunnel = tunnel
-        self._logger = logger or logging.getLogger(self.__class__.__name__)
+        self._logger = logger or get_logger(self.__class__.__module__)
         self._threads = []
         self._threads_lock = threading.Lock()
         self._shutdown = False

@@ -27,6 +27,7 @@ Current toggles:
   transfer module logs.
 
 Set the default in `sfb/config.py`, or pass to `Config(...)` when embedding.
+Logger names are standardized under the `sfb.*` namespace for consistency.
 
 ## Schema
 

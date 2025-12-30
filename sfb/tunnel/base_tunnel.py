@@ -37,7 +37,7 @@ from ..protocol import (
     PACKET_HEADER_SIZE,
 )
 from ..reliability import SendWindow, RecvWindow, ReliabilityStats, NoopReliabilityStats
-from ..logging_util import log_event
+from ..logging_util import get_logger, log_event
 
 
 try:
@@ -91,7 +91,7 @@ class BaseTunnel(object):
         self._crypto = crypto if crypto is not None else Plain()
         self._is_initiator = is_initiator
         self._state = TunnelState.DISCONNECTED
-        self._logger = logger or logging.getLogger(__name__)
+        self._logger = logger or get_logger(__name__)
         self._payload_cap = None
 
         # Channel management

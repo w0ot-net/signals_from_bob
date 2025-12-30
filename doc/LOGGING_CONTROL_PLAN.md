@@ -45,9 +45,13 @@
    - Attach the filter to stdout and SQLite handlers after config is created.
 4) Docs
    - Update logging docs with new config options and component map.
+5) Consistency pass
+   - Standardize logger naming on the sfb.* namespace.
+   - Avoid ad-hoc logger names in modules and services.
 
 ## Progress
 - [x] Phase 1: transport/dns component filter
 - [x] Phase 2: tunnel/channel component filter
 - [x] Phase 3: modules component filter
 - [ ] Phase 4: protocol and misc loggers
+- [x] Consistency pass: logger naming

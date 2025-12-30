@@ -3,12 +3,13 @@
 DNS utility functions for resolver detection.
 """
 
-import logging
 import os
 import re
 import subprocess
 
-_LOG = logging.getLogger(__name__)
+from ...logging_util import get_logger
+
+_LOG = get_logger(__name__)
 
 
 def load_system_resolvers():

@@ -27,7 +27,7 @@ def configure_logging(level='INFO', to_stdout=True, log_file=None):
     """
     Configure tunnel logging.
     """
-    logger = logging.getLogger('tunnel')
+    logger = logging.getLogger('sfb')
     logger.setLevel(_coerce_level(level))
     formatter = logging.Formatter(DEFAULT_FORMAT)
 
@@ -279,11 +279,11 @@ class SQLiteLogHandler(logging.Handler):
 
 def get_logger(name):
     """
-    Get a module logger under the tunnel namespace.
+    Get a module logger under the sfb namespace.
     """
-    if name.startswith('tunnel.'):
+    if name.startswith(('sfb.', 'tunnel.')):
         return logging.getLogger(name)
-    return logging.getLogger('tunnel.' + name)
+    return logging.getLogger('sfb.' + name)
 
 
 def _coerce_level(level):

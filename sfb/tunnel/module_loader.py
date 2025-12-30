@@ -9,11 +9,11 @@ it's a tunnel service that manages other modules.
 
 from __future__ import absolute_import
 
-import logging
 import threading
 
 from .tunnel_control_messages import T_MOD, mod_load, mod_load_ok, mod_load_err
 from ..compat import to_native_str
+from ..logging_util import get_logger
 
 
 class ModuleLoadError(Exception):
@@ -41,7 +41,7 @@ class ModuleLoader(object):
             logger: Optional logger.
         """
         self._tunnel = tunnel
-        self._logger = logger or logging.getLogger('ModuleLoader')
+        self._logger = logger or get_logger(__name__)
         self._loaded_modules = {}
 
         # For controller side: track pending load requests
@@ -84,7 +84,7 @@ class ModuleLoader(object):
             return
 
         try:
-            module_logger = logging.getLogger('sfb.modules.%s' % name)
+            module_logger = get_logger('sfb.modules.%s' % name)
             module = module_class(self._tunnel, module_logger)
             self._loaded_modules[name] = module
             self._logger.info('Loaded module: %s', name)

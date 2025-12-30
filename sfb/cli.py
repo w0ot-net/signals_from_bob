@@ -20,7 +20,7 @@ import time
 
 from .config import Config
 from .crypto import Plain, XOR
-from .logging_util import add_component_filters, add_sqlite_handler
+from .logging_util import add_component_filters, add_sqlite_handler, get_logger
 from .transport import TRANSPORTS, TransportError, get_transport_class
 from .tunnel import AliceTunnel, BobTunnel, TunnelState
 from .modules import AVAILABLE_MODULES
@@ -367,7 +367,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
 
         module_name = args.module
         module_cls = AVAILABLE_MODULES[module_name]
-        module_logger = logging.getLogger('sfb.modules.%s' % module_name)
+        module_logger = get_logger('sfb.modules.%s' % module_name)
         remote_module = module_cls.REMOTE_MODULE or module_name
         logger.info('Loading module %s on peer...', remote_module)
         module_loader.load_remote(remote_module)

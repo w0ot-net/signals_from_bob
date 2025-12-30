@@ -12,11 +12,8 @@ Responsibilities:
 
 from __future__ import absolute_import
 
-import logging
 import threading
 import time
-
-logger = logging.getLogger(__name__)
 
 from .channel import (
     Channel,
@@ -32,9 +29,11 @@ from .channel import (
 )
 from .control_channel import ControlChannel
 from .channel_control_messages import ch_open, ch_open_ok, ch_close, ch_close_ok
-from ..logging_util import log_event
+from ..logging_util import get_logger, log_event
 from ..config import Config
 from ..protocol import Segment, SEGMENT_HEADER_SIZE
+
+logger = get_logger(__name__)
 
 
 class ChannelManager(object):

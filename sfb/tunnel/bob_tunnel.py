@@ -204,6 +204,34 @@ class BobTunnel(BaseTunnel):
         # Send response
         self._send_response(responder, now)
 
+    def _maybe_coalesce_response(self, max_payload):
+        """Wait briefly to coalesce small queued data into a fuller response."""
+        delay = self._config.tunnel_bob_coalesce_delay
+        min_bytes = self._config.tunnel_bob_coalesce_min_bytes
+        if delay <= 0 or min_bytes <= 0 or max_payload <= 0:
+            return
+        # Do not delay control messages (handshake, mtu/window, close, etc).
+        if self._channel_manager.control.send_buf_size > 0:
+            return
+        pending = self._channel_manager.pending_send_bytes(include_control=False)
+        if pending <= 0:
+            return
+        target = min(min_bytes, max_payload)
+        if pending >= target:
+            return
+        deadline = time.time() + delay
+        sleep_slice = 0.001
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            if self._channel_manager.control.send_buf_size > 0:
+                break
+            pending = self._channel_manager.pending_send_bytes(include_control=False)
+            if pending >= target:
+                break
+            time.sleep(min(sleep_slice, remaining))
+
     def _send_response(self, responder, now):
         """Build and send response packet."""
         response_payload_cap = None
@@ -294,6 +322,7 @@ class BobTunnel(BaseTunnel):
                 cap_payload = 0
             if cap_payload < max_payload:
                 max_payload = cap_payload
+        self._maybe_coalesce_response(max_payload)
         segments = self._collect_segments(max_payload)
 
         # If no data, send pong

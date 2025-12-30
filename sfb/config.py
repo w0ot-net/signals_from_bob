@@ -90,6 +90,10 @@ class Config:
     tunnel_bob_poll_interval: float = 1.0
     # Bob: poll timeout for background loop (seconds)
     tunnel_bob_poll_interval_bg: float = 0.1
+    # Bob: coalesce small responses to fill MTU (seconds, 0 disables)
+    tunnel_bob_coalesce_delay: float = 0.01
+    # Bob: minimum queued data bytes to target before responding (0 disables)
+    tunnel_bob_coalesce_min_bytes: int = 128
     # Alice: sleep between ticks when running (seconds)
     tunnel_tick_sleep: float = 0.001
     # Bob: poll interval while waiting for connection (seconds)
@@ -99,7 +103,7 @@ class Config:
 
     # --- Channel ---
     # Maximum bytes to buffer for sending per channel
-    channel_max_send_buf: int = 1024
+    channel_max_send_buf: int = 8192
     # Timeout waiting for channel to open (seconds)
     channel_open_timeout: float = 5.0
     # Write backoff initial delay (seconds)
@@ -218,6 +222,10 @@ class Config:
             raise ValueError("tunnel_window_growth_step must be >= 1")
         if self.tunnel_window_growth_interval <= 0:
             raise ValueError("tunnel_window_growth_interval must be > 0")
+        if self.tunnel_bob_coalesce_delay < 0:
+            raise ValueError("tunnel_bob_coalesce_delay must be >= 0")
+        if self.tunnel_bob_coalesce_min_bytes < 0:
+            raise ValueError("tunnel_bob_coalesce_min_bytes must be >= 0")
         if self.tunnel_bg_stop_timeout <= 0:
             raise ValueError("tunnel_bg_stop_timeout must be > 0")
         if self.tunnel_bob_poll_interval <= 0:

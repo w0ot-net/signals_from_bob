@@ -93,6 +93,17 @@ class ChannelManager(object):
         with self._lock:
             return any(ch._has_send_data() for ch in self._channels.values())
 
+    def pending_send_bytes(self, include_control=True):
+        """Return total queued send bytes across channels."""
+        with self._lock:
+            items = list(self._channels.items())
+        total = 0
+        for channel_id, channel in items:
+            if not include_control and channel_id == CHANNEL_CONTROL:
+                continue
+            total += channel.send_buf_size
+        return total
+
     def open_channel(self):
         """
         Open a new channel.

@@ -14,6 +14,7 @@ tunnel outage.
 - The stall occurs while proxying scp from Bob to Alice over SOCKS.
 - Concurrent proxying (wget) from Bob to the public Internet remains fast.
 - scp prompts for password, then stalls at 0% and eventually disconnects.
+- The same scp command succeeds with a small file like `/etc/passwd`.
 
 Command context:
 ```

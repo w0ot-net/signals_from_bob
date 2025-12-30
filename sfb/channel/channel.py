@@ -12,6 +12,7 @@ Each channel has:
 from __future__ import absolute_import
 
 import collections
+import logging
 import threading
 
 from ..compat import require_bytes, to_native_str

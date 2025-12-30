@@ -279,18 +279,7 @@ class BobTunnel(BaseTunnel):
                     'side': 'bob',
                 },
             )
-            max_payload = self._send_mtu
-            if response_payload_cap is not None:
-                cap_payload = response_payload_cap - PACKET_HEADER_SIZE
-                if cap_payload < 0:
-                    cap_payload = 0
-                if cap_payload < max_payload:
-                    max_payload = cap_payload
-            segments = self._collect_segments(
-                max_payload,
-                keepalive_data=encode_message(tun_pong())
-            )
-            packet, _ = self._build_packet(segments=segments)
+            packet, _ = self._build_packet(segments=[])
             response_data = self._encode_packet(packet)
             self._packets_sent += 1
             self._bytes_sent += len(response_data)

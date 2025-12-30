@@ -686,7 +686,7 @@ class BaseTunnel(object):
         Returns:
             list: List of Segment instances
         """
-        if self._payload_cap:
+        if self._payload_cap is not None:
             cap_payload = self._payload_cap - PACKET_HEADER_SIZE
             if cap_payload < 0:
                 cap_payload = 0

@@ -129,18 +129,23 @@ class ModuleLoader(object):
             ModuleLoadError: If loading failed or timed out
         """
         # Create pending entry
-        pending = {
-            'event': threading.Event(),
-            'success': False,
-            'reason': None,
-        }
+        created = False
         with self._pending_lock:
-            self._pending[name] = pending
+            pending = self._pending.get(name)
+            if pending is None:
+                pending = {
+                    'event': threading.Event(),
+                    'success': False,
+                    'reason': None,
+                }
+                self._pending[name] = pending
+                created = True
 
         try:
-            # Send load request
-            self._send(mod_load(name))
-            self._logger.debug('Sent mod:load for %s', name)
+            if created:
+                # Send load request
+                self._send(mod_load(name))
+                self._logger.debug('Sent mod:load for %s', name)
 
             # Wait for response
             if not pending['event'].wait(timeout=timeout):
@@ -152,8 +157,9 @@ class ModuleLoader(object):
 
             return True
         finally:
-            with self._pending_lock:
-                self._pending.pop(name, None)
+            if created:
+                with self._pending_lock:
+                    self._pending.pop(name, None)
 
     def _send(self, msg):
         """Send a control message."""

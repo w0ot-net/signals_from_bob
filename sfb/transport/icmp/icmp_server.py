@@ -30,6 +30,7 @@ class IcmpServer(Server):
             raise TypeError('config must be a Config instance')
         self._config = config
         self._require_privileges()
+        self._require_kernel_echo_disabled()
 
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_RAW,
                                    socket.IPPROTO_ICMP)
@@ -126,6 +127,20 @@ class IcmpServer(Server):
             raise TransportError('ICMP transport requires Linux raw sockets')
         if not hasattr(os, 'geteuid') or os.geteuid() != 0:
             raise TransportError('ICMP transport requires root privileges')
+
+    def _require_kernel_echo_disabled(self):
+        path = '/proc/sys/net/ipv4/icmp_echo_ignore_all'
+        try:
+            handle = open(path, 'r')
+        except (IOError, OSError):
+            raise TransportError('Unable to read %s' % path)
+        with handle:
+            value = handle.read().strip()
+        if value == '0':
+            raise TransportError(
+                'Kernel ICMP echo replies are enabled. Disable with: '
+                'sudo sysctl -w net.ipv4.icmp_echo_ignore_all=1'
+            )
 
     def close(self):
         if self._sock:

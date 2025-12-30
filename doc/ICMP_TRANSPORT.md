@@ -54,6 +54,11 @@ are insufficient.
 Suggested check for Linux:
 - `os.geteuid() != 0` -> error (hard fail)
 
+Bob must also disable kernel ICMP echo replies so the transport does not
+compete with the kernel responder:
+- `net.ipv4.icmp_echo_ignore_all` must be set to `1`
+- Disable with: `sudo sysctl -w net.ipv4.icmp_echo_ignore_all=1`
+
 ---
 
 ## Addressing and Peer Identification

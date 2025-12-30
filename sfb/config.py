@@ -8,6 +8,8 @@ All configurable values in one place with sensible defaults.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
+DNS_STANDARD_SIZE = 512
+
 if TYPE_CHECKING:
     from .crypto import Plain, RC4, XOR
 
@@ -30,8 +32,8 @@ class Config:
     dns_resolver: Optional[str] = None
     # Listen address for Bob's DNS server
     dns_listen_addr: str = "0.0.0.0:53"
-    # EDNS0 buffer size (512 standard, 4096 for larger payloads)
-    dns_edns_size: int = 512
+    # EDNS0 buffer size (DNS_STANDARD_SIZE standard, 4096 for larger payloads)
+    dns_edns_size: int = DNS_STANDARD_SIZE
     # Minimum UDP recv buffer size for DNS responses/queries
     dns_recv_bufsize_min: int = 4096
     # Maximum concurrent DNS queries in flight
@@ -176,10 +178,10 @@ class Config:
             raise ValueError("dns_query_type must be 'A'")
         if self.dns_response_type not in ("CNAME",):
             raise ValueError("dns_response_type must be 'CNAME'")
-        if self.dns_edns_size > 512:
-            raise ValueError("dns_edns_size must be <= 512")
-        if self.dns_recv_bufsize_min < 512:
-            raise ValueError("dns_recv_bufsize_min must be >= 512")
+        if self.dns_edns_size > DNS_STANDARD_SIZE:
+            raise ValueError("dns_edns_size must be <= %d" % DNS_STANDARD_SIZE)
+        if self.dns_recv_bufsize_min < DNS_STANDARD_SIZE:
+            raise ValueError("dns_recv_bufsize_min must be >= %d" % DNS_STANDARD_SIZE)
         if self.dns_queries_per_second < 0:
             raise ValueError("dns_queries_per_second must be >= 0")
         if self.dns_label_max_len < 4 or self.dns_label_max_len > 63:

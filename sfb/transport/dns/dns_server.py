@@ -14,7 +14,7 @@ import struct
 
 from ..transport_base import Server, TransportError
 from . import codec
-from ...config import Config
+from ...config import Config, DNS_STANDARD_SIZE
 from ...logging_util import get_logger, log_event
 
 
@@ -79,7 +79,7 @@ class DnsServer(Server):
         try:
             self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._sock.bind(self._listen_addr)
-        except Exception:
+        except (socket.error, OSError):
             self._sock.close()
             self._sock = None
             raise
@@ -91,7 +91,7 @@ class DnsServer(Server):
                                                  config.dns_edns_size,
                                                  self._cname_suffix,
                                                  self._label_max_len)
-        if self._rtype == codec.QTYPE_CNAME and self._edns_size <= 512:
+        if self._rtype == codec.QTYPE_CNAME and self._edns_size <= DNS_STANDARD_SIZE:
             self._payload_cap = codec.calc_cname_payload_cap(
                 self._base_domain,
                 self._cname_suffix,
@@ -99,6 +99,14 @@ class DnsServer(Server):
                 self._edns_size,
             )
         self._logger = get_logger(__name__)
+        try:
+            self._cname_a_addr_bytes = socket.inet_aton(self._cname_a_addr)
+        except (socket.error, OSError):
+            self._logger.warning(
+                'dns invalid cname_a_addr=%r, using 0.0.0.0',
+                self._cname_a_addr
+            )
+            self._cname_a_addr_bytes = b'\x00\x00\x00\x00'
         if self._payload_cap is not None:
             self._logger.debug('DnsServer payload cap=%d', self._payload_cap)
         self._logger.debug(
@@ -317,16 +325,16 @@ class DnsServer(Server):
     def _response_payload_cap(self, qname):
         if self._rtype != codec.QTYPE_CNAME:
             return None, None, None
-        max_packet_size = 512
-        if self._edns_size > 512:
-            max_packet_size = self._edns_size
+        max_packet_size = self._edns_size
+        if max_packet_size < DNS_STANDARD_SIZE:
+            max_packet_size = DNS_STANDARD_SIZE
 
         qname_wire_len = len(codec.encode_name(qname))
         question_len = qname_wire_len + 4
         answer_name_len = qname_wire_len
         answer_fixed_len = 10
         additional_len = 0
-        if self._edns_size > 512:
+        if self._edns_size > DNS_STANDARD_SIZE:
             additional_len = len(codec.build_opt_record(self._edns_size))
         fixed_len = (12 + question_len + answer_name_len +
                      answer_fixed_len + additional_len)
@@ -426,10 +434,7 @@ class DnsServer(Server):
         question = codec.encode_name(qname)
         question += struct.pack('>HH', qtype, codec.QCLASS_IN)
 
-        try:
-            addr_bytes = socket.inet_aton(self._cname_a_addr)
-        except (socket.error, OSError):
-            addr_bytes = b'\x00\x00\x00\x00'
+        addr_bytes = self._cname_a_addr_bytes
 
         answer = codec.encode_name(qname)
         rdata = codec.encode_a_rdata(addr_bytes)

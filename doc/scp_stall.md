@@ -51,9 +51,33 @@ This appears to be a per-channel backpressure and pacing issue under sustained
 bulk transfer. The scp channel fills its send buffer and blocks, while other
 channels keep draining.
 
+## Attempted Fixes (Did Not Solve)
+
+The following changes were tried but did not resolve the stall:
+
+1. **Reduce `dns_pending_timeout` from 10s to 1s**
+   - Rationale: Faster recovery from lost/delayed DNS queries
+   - Result: No improvement, suggesting responses ARE arriving
+
+2. **Reduce `channel_max_send_buf` from 64KB to 1KB**
+   - Rationale: Faster TCP backpressure to SCP client
+   - Result: No improvement
+
+3. **Add blocking recv when pending > 75%**
+   - When pending >= 24 and no responses ready, wait up to 50ms
+   - Rationale: Avoid busy-polling, give responses time to arrive
+   - Result: No improvement
+
+4. **SOCKS pump refactor: write() instead of write_all()**
+   - Use incremental writes with 5ms sleep on buffer_full
+   - Rationale: Prevent indefinite blocking, propagate backpressure
+   - Result: No improvement to stall, but cleaner code
+
 ## Next Investigation Steps
 - Add per-channel drain rate metrics (bytes dequeued per second) to correlate
   stall duration with actual throughput.
 - Improve SOCKS channel write pacing (smaller chunking, shorter backoff).
 - Review DNS inflight limits and polling cadence, since `pending` saturates at
   32 on Alice during stalls.
+- Investigate whether the issue is on Alice (relay) or Bob (server) side.
+- Check if the tunnel tick loop is being starved by other threads.

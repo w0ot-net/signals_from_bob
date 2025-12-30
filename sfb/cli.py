@@ -52,7 +52,7 @@ def normalize_role(role):
     return ROLE_ALIASES[role]
 
 
-def add_common_args(parser, config):
+def add_common_args(parser, config, require_domain=True):
     """Add arguments shared by all roles."""
     parser.add_argument(
         '--role', required=True,
@@ -64,7 +64,9 @@ def add_common_args(parser, config):
         help='Transport type (default: %s)' % config.transport_default
     )
     parser.add_argument(
-        '--domain', required=True,
+        '--domain',
+        required=require_domain,
+        default=config.dns_base_domain,
         help='Base domain for DNS tunnel (e.g., t.example.com)'
     )
     parser.add_argument(
@@ -123,6 +125,30 @@ def add_dns_client_args(parser, config):
     )
 
 
+def add_icmp_common_args(parser, config):
+    """Add ICMP arguments shared by client and server."""
+    parser.add_argument(
+        '--icmp_mtu', type=int, default=config.icmp_payload_mtu,
+        help='Max ICMP payload size in bytes (default: %s)' %
+             config.icmp_payload_mtu
+    )
+
+
+def add_icmp_client_args(parser, config, require_target=True):
+    """Add ICMP client-specific arguments."""
+    parser.add_argument(
+        '--icmp_target',
+        default=config.icmp_target,
+        required=require_target,
+        help='ICMP target host or IP for client'
+    )
+    parser.add_argument(
+        '--icmp_send_interval', type=float, default=config.icmp_send_interval,
+        help='Minimum seconds between ICMP sends (default: %s)' %
+             config.icmp_send_interval
+    )
+
+
 def add_module_args(parser):
     """Add module selection argument."""
     parser.add_argument(
@@ -158,7 +184,7 @@ def parse_args(args=None):
         add_help=False,  # Add help in second pass
     )
     config_defaults = Config()
-    add_common_args(parser, config_defaults)
+    add_common_args(parser, config_defaults, require_domain=False)
     add_module_args(parser)
 
     partial_args, remaining = parser.parse_known_args(args)
@@ -169,7 +195,7 @@ def parse_args(args=None):
     parser = argparse.ArgumentParser(
         description='sfb - Signals From Bob tunnel'
     )
-    add_common_args(parser, config_defaults)
+    add_common_args(parser, config_defaults, require_domain=(transport == 'dns'))
     add_module_args(parser)
 
     # Transport-specific args
@@ -178,6 +204,10 @@ def parse_args(args=None):
             add_dns_server_args(parser, config_defaults)
         else:
             add_dns_client_args(parser, config_defaults)
+    elif transport == 'icmp':
+        add_icmp_common_args(parser, config_defaults)
+        if role == 'client':
+            add_icmp_client_args(parser, config_defaults, require_target=True)
 
     # Server-specific args
     if role == 'server':
@@ -212,6 +242,13 @@ def create_config(args):
         else:
             config_kwargs['dns_resolver'] = getattr(args, 'resolver', None)
             config_kwargs['dns_queries_per_second'] = getattr(args, 'qps', None)
+    elif args.transport == 'icmp':
+        config_kwargs['icmp_payload_mtu'] = getattr(args, 'icmp_mtu', None)
+        if args.role == 'client':
+            config_kwargs['icmp_target'] = getattr(args, 'icmp_target', None)
+            config_kwargs['icmp_send_interval'] = getattr(
+                args, 'icmp_send_interval', None
+            )
 
     # Server-specific
     if args.role == 'server':
@@ -275,8 +312,14 @@ def run_server(args, config, crypto, logger):
 
 def run_server_passive(args, tunnel, logger):
     """Run server in passive mode (no command, just wait for connections)."""
-    host, port = _split_host_port(tunnel._config.dns_listen_addr, 53)
-    logger.info('Listening on %s:%d for domain %s (passive mode)', host, port, args.domain)
+    if args.transport == 'dns':
+        host, port = _split_host_port(tunnel._config.dns_listen_addr, 53)
+        logger.info(
+            'Listening on %s:%d for domain %s (passive mode)',
+            host, port, args.domain
+        )
+    elif args.transport == 'icmp':
+        logger.info('Listening for ICMP echo requests (passive mode)')
     try:
         tunnel.serve_forever()
     except Exception as e:
@@ -297,8 +340,11 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
         tunnel.start_background()
 
         # Wait for client to connect
-        host, port = _split_host_port(tunnel._config.dns_listen_addr, 53)
-        logger.info('Waiting for client on %s:%d...', host, port)
+        if args.transport == 'dns':
+            host, port = _split_host_port(tunnel._config.dns_listen_addr, 53)
+            logger.info('Waiting for client on %s:%d...', host, port)
+        elif args.transport == 'icmp':
+            logger.info('Waiting for ICMP client...')
         while tunnel._state != TunnelState.CONNECTED:
             if shutdown_requested[0]:
                 return 1
@@ -360,8 +406,12 @@ def run_client(args, config, crypto, logger):
 
     try:
         # Connect
-        resolver_desc = getattr(args, 'resolver', None) or 'system resolver'
-        logger.info('Connecting to %s via %s...', args.domain, resolver_desc)
+        if args.transport == 'dns':
+            resolver_desc = getattr(args, 'resolver', None) or 'system resolver'
+            logger.info('Connecting to %s via %s...', args.domain, resolver_desc)
+        elif args.transport == 'icmp':
+            target = getattr(args, 'icmp_target', None)
+            logger.info('Connecting to ICMP target %s...', target)
         tunnel.connect()
         logger.info('Connected')
 

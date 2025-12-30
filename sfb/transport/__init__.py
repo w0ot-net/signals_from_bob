@@ -30,6 +30,7 @@ from .lossy import (
 )
 
 from .dns import DnsClient, DnsServer
+from .icmp import IcmpClient, IcmpServer
 
 
 def get_transport_class(name, role):
@@ -61,6 +62,10 @@ TRANSPORTS = {
         'client': DnsClient,
         'server': DnsServer,
     },
+    'icmp': {
+        'client': IcmpClient,
+        'server': IcmpServer,
+    },
 }
 
 
@@ -78,6 +83,8 @@ __all__ = [
     'burst_loss',
     'extreme_conditions',
     'chaos',
+    'IcmpClient',
+    'IcmpServer',
     'TRANSPORTS',
     'get_transport_class',
 ]

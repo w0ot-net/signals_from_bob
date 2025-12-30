@@ -261,24 +261,24 @@ transport = DnsTransport(resolver, domain, max_pending=1)
 
 ---
 
-## ICMP Transport (Future)
+## ICMP Transport
 
 ### Overview
 
-- Alice sends ICMP echo requests with data in payload
-- Bob responds with echo replies containing response data
-- `max_pending` controls concurrent pings
+- Alice sends ICMP Echo Requests with data in payload
+- Bob responds with Echo Replies containing response data
+- `max_pending` controls concurrent requests
 
 ### Correlation
 
-- ICMP ID + sequence number maps to correlation ID
-- Responses matched by these fields
+- Random ICMP ID per transport instance + sequence number maps to correlation ID
+- Responses matched by (id, seq)
 
 ### Considerations
 
-- Requires raw sockets (root/admin)
+- Requires raw sockets (root on Linux)
 - Some networks filter ICMP
-- Payload size varies, typically ~1400 bytes safe
+- Payload size varies, typically ~1200 bytes safe
 
 ---
 

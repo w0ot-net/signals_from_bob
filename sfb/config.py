@@ -53,6 +53,18 @@ class Config:
     # Maximum DNS queries per second (0 = unlimited)
     dns_queries_per_second: float = 600.0
 
+    # --- ICMP Transport ---
+    # Target host/IP for Alice
+    icmp_target: Optional[str] = None
+    # Max SFB packet size to send/receive in ICMP payload
+    icmp_payload_mtu: int = 1200
+    # Maximum concurrent ICMP requests in flight
+    icmp_max_pending: int = 32
+    # Timeout before considering an ICMP request stale (seconds)
+    icmp_pending_timeout: float = 1.0
+    # Minimum seconds between ICMP sends (0 = unlimited)
+    icmp_send_interval: float = 0.0
+
     # --- Crypto ---
     # Encryption mode: 'none', 'xor', 'rc4'
     crypto_mode: str = "none"
@@ -198,6 +210,16 @@ class Config:
             raise ValueError("dns_cname_label must be <= 63 characters")
         if self._is_base32_label(self.dns_cname_label):
             raise ValueError("dns_cname_label must include non-base32 characters")
+
+        # ICMP validation
+        if self.icmp_payload_mtu <= 0:
+            raise ValueError("icmp_payload_mtu must be > 0")
+        if self.icmp_max_pending < 1:
+            raise ValueError("icmp_max_pending must be >= 1")
+        if self.icmp_pending_timeout <= 0:
+            raise ValueError("icmp_pending_timeout must be > 0")
+        if self.icmp_send_interval < 0:
+            raise ValueError("icmp_send_interval must be >= 0")
 
         # Crypto validation
         if self.crypto_mode not in ("none", "xor", "rc4"):

@@ -302,7 +302,10 @@ class DnsClient(Transport):
                 logging.DEBUG,
                 'dns.malformed_response',
                 'DNS response malformed',
-                {},
+                {
+                    'bytes': len(resp_data),
+                    'addr': '%s:%d' % (addr[0], addr[1]),
+                },
             )
             return (None, None)  # Malformed packet
 
@@ -315,19 +318,42 @@ class DnsClient(Transport):
                 logging.DEBUG,
                 'dns.stale_response',
                 'DNS response stale',
-                {'dns_id': dns_id},
+                {
+                    'dns_id': dns_id,
+                    'pending': len(self._pending),
+                    'addr': '%s:%d' % (addr[0], addr[1]),
+                },
             )
             return (None, None)  # Stale or unknown query
 
         corr_id = self._dns_to_corr[dns_id]
         pending = self._pending.get(corr_id)
+        if pending is None:
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'dns.missing_pending',
+                'DNS response missing pending entry',
+                {
+                    'corr_id': corr_id,
+                    'dns_id': dns_id,
+                    'addr': '%s:%d' % (addr[0], addr[1]),
+                },
+            )
+            return (None, None)
         if pending is not None and pending.qname != qname:
             log_event(
                 _LOG,
                 logging.DEBUG,
                 'dns.mismatched_response',
                 'DNS response qname mismatch',
-                {'dns_id': dns_id, 'expected': pending.qname, 'actual': qname},
+                {
+                    'dns_id': dns_id,
+                    'corr_id': corr_id,
+                    'expected': pending.qname,
+                    'actual': qname,
+                    'addr': '%s:%d' % (addr[0], addr[1]),
+                },
             )
             return (None, None)
 
@@ -338,7 +364,13 @@ class DnsClient(Transport):
                 logging.DEBUG,
                 'dns.error_response',
                 'DNS error response',
-                {'corr_id': corr_id, 'dns_id': dns_id, 'rcode': rcode, 'reason': reason},
+                {
+                    'corr_id': corr_id,
+                    'dns_id': dns_id,
+                    'rcode': rcode,
+                    'reason': reason,
+                    'addr': '%s:%d' % (addr[0], addr[1]),
+                },
             )
             # Clean up tracking to avoid pending exhaustion
             self._pending.pop(corr_id)
@@ -622,4 +654,3 @@ class DnsClient(Transport):
             if addr not in addrs:
                 addrs.append(addr)
         return addrs
-

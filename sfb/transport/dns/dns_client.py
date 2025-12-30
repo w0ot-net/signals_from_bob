@@ -562,30 +562,47 @@ class DnsClient(Transport):
         return resolvers
 
     def _load_windows_resolvers(self):
-        resolvers = []
+        candidates = []
+
+        # Gather candidates from ipconfig /all (most reliable for VPNs etc)
+        for ip in self._parse_ipconfig_dns():
+            addr = (ip, 53)
+            if addr not in candidates:
+                candidates.append(addr)
+
+        # Also gather from registry as fallback
         try:
             try:
                 import winreg
             except ImportError:
                 import _winreg as winreg
+
+            values = []
+            base_path = r'SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters'
+            values.extend(self._read_registry_nameservers(winreg, base_path))
+            interfaces = base_path + r'\\Interfaces'
+            for subkey in self._enum_registry_keys(winreg, interfaces):
+                values.extend(self._read_registry_nameservers(
+                    winreg, interfaces + r'\\' + subkey
+                ))
+
+            for host in self._split_nameserver_values(values):
+                for addr in self._resolve_host(host, 53):
+                    if addr not in candidates:
+                        candidates.append(addr)
         except ImportError:
-            return []
+            pass
 
-        values = []
-        base_path = r'SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters'
-        values.extend(self._read_registry_nameservers(winreg, base_path))
-        interfaces = base_path + r'\\Interfaces'
-        for subkey in self._enum_registry_keys(winreg, interfaces):
-            values.extend(self._read_registry_nameservers(
-                winreg, interfaces + r'\\' + subkey
-            ))
+        # Test each candidate and return the first one that works
+        for addr in candidates:
+            _LOG.debug('Testing resolver %s:%d', addr[0], addr[1])
+            if self._test_resolver(addr):
+                _LOG.debug('Resolver %s:%d works', addr[0], addr[1])
+                return [addr]
+            _LOG.debug('Resolver %s:%d failed', addr[0], addr[1])
 
-        for host in self._split_nameserver_values(values):
-            for addr in self._resolve_host(host, 53):
-                if addr not in resolvers:
-                    resolvers.append(addr)
-
-        return resolvers
+        # No working resolver found, return all candidates (let caller handle)
+        return candidates
 
     def _read_registry_nameservers(self, winreg, path):
         values = []
@@ -638,6 +655,76 @@ class DnsClient(Transport):
                 if host and host not in hosts:
                     hosts.append(host)
         return hosts
+
+    def _parse_ipconfig_dns(self):
+        """Parse ipconfig /all output for DNS server addresses."""
+        import subprocess
+        import re
+        servers = []
+        try:
+            result = subprocess.run(
+                ['ipconfig', '/all'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            output = result.stdout
+        except (subprocess.SubprocessError, OSError):
+            return servers
+
+        # Match "DNS Servers" lines and continuation lines (indented IPs)
+        # Example:
+        #    DNS Servers . . . . . . . . . . . : 10.0.0.243
+        #                                        8.8.8.8
+        in_dns_section = False
+        ip_pattern = re.compile(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})')
+        for line in output.splitlines():
+            if 'DNS Servers' in line:
+                in_dns_section = True
+                match = ip_pattern.search(line)
+                if match:
+                    ip = match.group(1)
+                    if ip not in servers:
+                        servers.append(ip)
+            elif in_dns_section:
+                # Continuation lines are heavily indented
+                stripped = line.strip()
+                if stripped and ip_pattern.match(stripped):
+                    if stripped not in servers:
+                        servers.append(stripped)
+                else:
+                    # End of DNS servers for this adapter
+                    in_dns_section = False
+        return servers
+
+    def _test_resolver(self, addr, timeout=2.0):
+        """Test if a resolver works by querying google.com."""
+        import struct
+        sock = None
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(timeout)
+            # Build minimal DNS query for google.com A record
+            dns_id = 0x1234
+            flags = 0x0100  # standard query, recursion desired
+            # Header: ID, FLAGS, QDCOUNT=1, ANCOUNT=0, NSCOUNT=0, ARCOUNT=0
+            header = struct.pack('>HHHHHH', dns_id, flags, 1, 0, 0, 0)
+            # Question: google.com, type A, class IN
+            qname = b'\x06google\x03com\x00'
+            question = qname + struct.pack('>HH', 1, 1)  # type A, class IN
+            query = header + question
+            sock.sendto(query, addr)
+            data, _ = sock.recvfrom(512)
+            # Check we got a response with matching ID
+            if len(data) >= 2:
+                resp_id = struct.unpack('>H', data[:2])[0]
+                return resp_id == dns_id
+            return False
+        except (socket.error, socket.timeout, OSError):
+            return False
+        finally:
+            if sock:
+                sock.close()
 
     def _resolve_host(self, host, port):
         addrs = []

@@ -154,6 +154,10 @@ class Config:
     log_component_tunnel: bool = True
     # Enable channel logging (stdout + SQLite)
     log_component_channel: bool = False
+    # Enable SOCKS module logging (stdout + SQLite)
+    log_component_module_socks: bool = True
+    # Enable file transfer module logging (stdout + SQLite)
+    log_component_module_file_transfer: bool = True
 
     # --- SOCKS ---
     # SOCKS server listen host

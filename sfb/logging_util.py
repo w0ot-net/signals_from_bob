@@ -100,6 +100,20 @@ class ComponentFilter(logging.Filter):
             'sfb.channel.',
             'sfb.channel',
         )
+        self._module_socks_enabled = bool(getattr(config, 'log_component_module_socks', True))
+        self._module_socks_event_prefix = 'sock.'
+        self._module_socks_logger_prefixes = (
+            'sfb.modules.socks',
+            'SocksServerModule',
+            'SocksRelayModule',
+        )
+        self._module_file_transfer_enabled = bool(
+            getattr(config, 'log_component_module_file_transfer', True)
+        )
+        self._module_file_transfer_logger_prefixes = (
+            'sfb.modules.file_transfer',
+            'FileTransferModule',
+        )
 
     def filter(self, record):
         event = getattr(record, 'event', None)
@@ -111,12 +125,19 @@ class ComponentFilter(logging.Filter):
                 return False
             if not self._channel_enabled and event_text.startswith(self._channel_event_prefix):
                 return False
+            if not self._module_socks_enabled and event_text.startswith(self._module_socks_event_prefix):
+                return False
         name = getattr(record, 'name', '')
         if not self._dns_enabled and name.startswith(self._dns_logger_prefixes):
             return False
         if not self._tunnel_enabled and name.startswith(self._tunnel_logger_prefixes):
             return False
         if not self._channel_enabled and name.startswith(self._channel_logger_prefixes):
+            return False
+        if not self._module_socks_enabled and name.startswith(self._module_socks_logger_prefixes):
+            return False
+        if (not self._module_file_transfer_enabled and
+                name.startswith(self._module_file_transfer_logger_prefixes)):
             return False
         return True
 

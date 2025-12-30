@@ -367,6 +367,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
 
         module_name = args.module
         module_cls = AVAILABLE_MODULES[module_name]
+        module_logger = logging.getLogger('sfb.modules.%s' % module_name)
         remote_module = module_cls.REMOTE_MODULE or module_name
         logger.info('Loading module %s on peer...', remote_module)
         module_loader.load_remote(remote_module)
@@ -384,7 +385,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
                 return 1
 
         # Run module command
-        return module_cls.run_command(args, tunnel, logger)
+        return module_cls.run_command(args, tunnel, module_logger)
 
     except Exception as e:
         logger.error('Error: %s', e)

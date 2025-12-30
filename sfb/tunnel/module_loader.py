@@ -84,7 +84,8 @@ class ModuleLoader(object):
             return
 
         try:
-            module = module_class(self._tunnel, self._logger)
+            module_logger = logging.getLogger('sfb.modules.%s' % name)
+            module = module_class(self._tunnel, module_logger)
             self._loaded_modules[name] = module
             self._logger.info('Loaded module: %s', name)
             self._send(mod_load_ok(name))

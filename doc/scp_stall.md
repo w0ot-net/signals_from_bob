@@ -10,6 +10,27 @@ tunnel outage.
 - Larger transfers (22KB, 44KB) stall.
 - During stall, other proxy sessions remain functional.
 - tcpdump shows DNS responses still reaching Alice during stalls.
+- Bob runs the SOCKS server; Alice runs the SOCKS relay.
+- The stall occurs while proxying scp from Bob to Alice over SOCKS.
+- Concurrent proxying (wget) from Bob to the public Internet remains fast.
+- scp prompts for password, then stalls at 0% and eventually disconnects.
+
+Command context:
+```
+proxychains scp /root/100MB.zip.5 muffin@127.0.0.1:/tmp
+proxychains wget http://ipv4.download.thinkbroadband.com/100MB.zip
+```
+
+Observed scp output (trimmed):
+```
+ProxyChains-3.1 (http://proxychains.sf.net)
+|S-chain|-<>-127.0.0.1:1080-<><>-127.0.0.1:22-<><>-OK
+muffin@127.0.0.1's password:
+Permission denied, please try again.
+muffin@127.0.0.1's password:
+100MB.zip.5 0% 0 0.0KB/s - stalled -
+Connection to 127.0.0.1 closed by remote host.
+```
 
 ## Log Evidence
 - Client shows repeated `tunnel.send_blocked` with `pending: 32` and

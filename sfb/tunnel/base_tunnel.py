@@ -675,7 +675,7 @@ class BaseTunnel(object):
             {'agreed': agreed},
         )
 
-    def _collect_segments(self, max_payload, keepalive_data=None, include_data=True):
+    def _collect_segments(self, max_payload, keepalive_data=None):
         """
         Collect segments from channels for transmission.
 
@@ -693,9 +693,7 @@ class BaseTunnel(object):
             if max_payload > cap_payload:
                 max_payload = cap_payload
         return self._channel_manager.collect_segments(
-            max_payload,
-            keepalive_data=keepalive_data,
-            include_data=include_data,
+            max_payload, keepalive_data=keepalive_data
         )
 
     def start_background(self):

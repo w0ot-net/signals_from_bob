@@ -64,8 +64,6 @@ class Config:
     tunnel_keepalive_interval: float = 1.0
     # Alice: immediate poll attempts after pong-only responses
     tunnel_pong_grace_polls: int = 5
-    # Alice: reserve transport pending slots for poll-only keepalives
-    tunnel_poll_reserved_pending: int = 2
     # Bob: seconds of inactivity before considering connection dead
     tunnel_idle_timeout: float = 60.0
     # Initial window size before negotiation (packets)
@@ -208,10 +206,6 @@ class Config:
             raise ValueError("tunnel_keepalive_interval must be > 0")
         if self.tunnel_pong_grace_polls < 0:
             raise ValueError("tunnel_pong_grace_polls must be >= 0")
-        if self.tunnel_poll_reserved_pending < 0:
-            raise ValueError("tunnel_poll_reserved_pending must be >= 0")
-        if self.tunnel_poll_reserved_pending >= self.dns_max_pending:
-            raise ValueError("tunnel_poll_reserved_pending must be < dns_max_pending")
         if self.tunnel_idle_timeout <= 0:
             raise ValueError("tunnel_idle_timeout must be > 0")
         if self.tunnel_initial_window < 1 or self.tunnel_initial_window > 64:

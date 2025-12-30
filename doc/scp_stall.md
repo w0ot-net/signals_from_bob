@@ -68,6 +68,11 @@ The following changes were tried but did not resolve the stall:
    - Rationale: Avoid busy-polling, give responses time to arrive
    - Result: No improvement
 
+4. **Drain responses first when pending is high**
+   - When pending >= 75%, drain for ~100ms before sending new polls
+   - Rationale: Free pending slots to unblock Bob->Alice data
+   - Result: No improvement
+
 4. **SOCKS pump refactor: write() instead of write_all()**
    - Use incremental writes with 5ms sleep on buffer_full
    - Rationale: Prevent indefinite blocking, propagate backpressure

@@ -315,23 +315,19 @@ class AliceTunnel(BaseTunnel):
                 last_resp_has_data = has_data
             received_any = True
 
-        # If pending is high, drain responses before sending new polls.
-        if hasattr(self._transport, 'pending_count'):
+        # If pending is high and we didn't receive anything, wait briefly for responses
+        # This avoids busy-polling when the pending queue is near capacity
+        if not received_any and hasattr(self._transport, 'pending_count'):
             pending = self._transport.pending_count()
             threshold = int(self._transport.max_pending * 0.75)
             if pending >= threshold:
-                drain_until = now + 0.1
-                while time.time() < drain_until:
-                    corr_id, data = self._transport.recv(timeout=0.02)
-                    if corr_id is None:
-                        break
-                    now = time.time()
+                corr_id, data = self._transport.recv(timeout=0.05)
+                if corr_id is not None:
                     valid, has_data = self._handle_response(data, now)
                     if valid:
                         received_valid = True
                         last_resp_has_data = has_data
                     received_any = True
-                now = time.time()
 
         if received_valid:
             self._packets_since_response = 0

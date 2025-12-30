@@ -390,7 +390,8 @@ def run_client(args, config, crypto, logger):
 def main(args=None):
     """Main entry point."""
     parsed = parse_args(args)
-    if parsed.db_log is None or parsed.db_log is _DB_LOG_DEFAULT:
+    if parsed.db_log is _DB_LOG_DEFAULT:
+        # --db-log passed without a path, use default
         parsed.db_log = './logs/%s_log.db' % parsed.role
 
     # Setup logging

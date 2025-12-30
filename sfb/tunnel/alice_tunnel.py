@@ -306,7 +306,7 @@ class AliceTunnel(BaseTunnel):
         self._got_data = False  # Tracks data status of the most recent response
         last_resp_has_data = None
         while True:
-            corr_id, data = self._transport.recv(timeout=0)
+            corr_id, data = self._transport.recv(timeout=self._config.non_blocking_poll_timeout)
             if corr_id is None:
                 break
             valid, has_data = self._handle_response(data, now)

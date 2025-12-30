@@ -386,7 +386,7 @@ class BaseTunnel(object):
         count = 0
         while True:
             try:
-                msg = ctrl.recv_message(timeout=0)
+                msg = ctrl.recv_message(timeout=self._config.non_blocking_poll_timeout)
                 if msg is None:
                     break
                 count += 1

@@ -94,6 +94,8 @@ class Config:
     tunnel_tick_sleep: float = 0.001
     # Bob: poll interval while waiting for connection (seconds)
     tunnel_connect_poll_interval: float = 0.1
+    # Small timeout for "non-blocking" polls to prevent busy loops (seconds)
+    non_blocking_poll_timeout: float = 0.0001
 
     # --- Channel ---
     # Maximum bytes to buffer for sending per channel

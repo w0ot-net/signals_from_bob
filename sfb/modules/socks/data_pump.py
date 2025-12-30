@@ -45,12 +45,15 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
         bytes_written = 0
         buffer_full_count = 0
         sleep_time = 0.0
+        backoff = config.non_blocking_poll_timeout
+        max_backoff = max(config.socks_relay_socket_timeout, backoff)
         last_stats = time.time()
         while not stop_event.is_set():
             try:
                 if not pending:
                     pending = sock.recv(config.socks_relay_buffer_size)
             except socket.timeout:
+                time.sleep(config.non_blocking_poll_timeout)
                 continue
             except Exception as exc:
                 if not stop_event.is_set():
@@ -72,11 +75,13 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 else:
                     pending = b''
                 bytes_written += written
+                backoff = config.non_blocking_poll_timeout
             except ChannelError as exc:
                 if exc.code == 'buffer_full':
                     buffer_full_count += 1
-                    sleep_time += 0.005
-                    time.sleep(0.005)
+                    sleep_time += backoff
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2.0, max_backoff)
                     continue
                 if not stop_event.is_set():
                     _log_pump_error(
@@ -146,6 +151,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                 break
 
             if data is None:
+                time.sleep(config.non_blocking_poll_timeout)
                 continue
             if data == b'':
                 logger.debug('Channel EOF (rid=%d ch=%d)', rid, ch)

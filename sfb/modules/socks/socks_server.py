@@ -12,6 +12,7 @@ import logging
 import socket
 import struct
 import threading
+import time
 
 from ..base_module import BaseModule, ModuleError
 from ...logging_util import log_event
@@ -217,14 +218,18 @@ class SocksServerModule(BaseModule):
 
     def _accept_loop(self):
         """Accept incoming connections."""
+        backoff = self._config.non_blocking_poll_timeout
+        max_backoff = max(self._config.socks_accept_timeout, backoff)
         while self._running:
             try:
                 self._server_socket.settimeout(self._config.socks_accept_timeout)
                 try:
                     client_sock, addr = self._server_socket.accept()
                 except socket.timeout:
+                    backoff = self._config.non_blocking_poll_timeout
                     continue
 
+                backoff = self._config.non_blocking_poll_timeout
                 self._logger.debug('Accepted connection from %s:%d', addr[0], addr[1])
 
                 # Spawn handler thread
@@ -239,6 +244,8 @@ class SocksServerModule(BaseModule):
             except Exception as e:
                 if self._running:
                     self._logger.exception('Accept error: %s', e)
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2.0, max_backoff)
 
     def _handle_client(self, sock, addr):
         """Handle a single SOCKS5 client connection."""

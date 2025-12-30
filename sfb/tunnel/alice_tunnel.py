@@ -315,6 +315,20 @@ class AliceTunnel(BaseTunnel):
                 last_resp_has_data = has_data
             received_any = True
 
+        # If pending is high and we didn't receive anything, wait briefly for responses
+        # This avoids busy-polling when the pending queue is near capacity
+        if not received_any and hasattr(self._transport, 'pending_count'):
+            pending = self._transport.pending_count()
+            threshold = int(self._transport.max_pending * 0.75)
+            if pending >= threshold:
+                corr_id, data = self._transport.recv(timeout=0.05)
+                if corr_id is not None:
+                    valid, has_data = self._handle_response(data, now)
+                    if valid:
+                        received_valid = True
+                        last_resp_has_data = has_data
+                    received_any = True
+
         if received_valid:
             self._packets_since_response = 0
             # Clear pending data flag if all data has been acked

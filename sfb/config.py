@@ -97,7 +97,7 @@ class Config:
 
     # --- Channel ---
     # Maximum bytes to buffer for sending per channel
-    channel_max_send_buf: int = 65536
+    channel_max_send_buf: int = 1024
     # Timeout waiting for channel to open (seconds)
     channel_open_timeout: float = 5.0
     # Write backoff initial delay (seconds)

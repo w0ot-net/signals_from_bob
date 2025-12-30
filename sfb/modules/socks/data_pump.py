@@ -1,6 +1,6 @@
 # -*- coding: ascii -*-
 """
-Shared SOCKS relay pump helpers.
+Shared SOCKS data pump helpers.
 """
 
 from __future__ import absolute_import
@@ -11,7 +11,7 @@ import socket
 from ...logging_util import log_event
 
 
-def _log_relay_error(logger, rid, ch, side, direction, msg, exc):
+def _log_pump_error(logger, rid, ch, side, direction, msg, exc):
     logger.debug('%s (rid=%d ch=%d): %s', msg, rid, ch, exc)
     log_event(
         logger,
@@ -42,7 +42,7 @@ def relay_socket_to_channel(sock, channel, config, logger, stop_event,
                 continue
             except Exception as exc:
                 if not stop_event.is_set():
-                    _log_relay_error(
+                    _log_pump_error(
                         logger, rid, ch, side, direction,
                         '%s recv error' % recv_label, exc
                     )
@@ -56,7 +56,7 @@ def relay_socket_to_channel(sock, channel, config, logger, stop_event,
                 channel.write_all(data, timeout=config.socks_relay_write_timeout)
             except Exception as exc:
                 if not stop_event.is_set():
-                    _log_relay_error(
+                    _log_pump_error(
                         logger, rid, ch, side, direction,
                         'Channel write error', exc
                     )
@@ -79,7 +79,7 @@ def relay_channel_to_socket(channel, sock, config, logger, stop_event,
                 )
             except Exception as exc:
                 if not stop_event.is_set():
-                    _log_relay_error(
+                    _log_pump_error(
                         logger, rid, ch, side, direction,
                         'Channel read error', exc
                     )
@@ -95,7 +95,7 @@ def relay_channel_to_socket(channel, sock, config, logger, stop_event,
                 sock.sendall(data)
             except Exception as exc:
                 if not stop_event.is_set():
-                    _log_relay_error(
+                    _log_pump_error(
                         logger, rid, ch, side, direction,
                         '%s send error' % send_label, exc
                     )

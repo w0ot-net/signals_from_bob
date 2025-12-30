@@ -13,7 +13,7 @@ import logging
 import threading
 
 from ..base_module import BaseModule, ModuleError, blocking
-from .relay_pump import relay_channel_to_socket, relay_socket_to_channel
+from .data_pump import relay_channel_to_socket, relay_socket_to_channel
 from .socks_control_messages import T_SOCK, sock_connect_ok, sock_err
 
 

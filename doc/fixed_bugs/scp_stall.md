@@ -1,8 +1,9 @@
 # SCP Stall Analysis
 
 ## Summary
-Large scp uploads via the SOCKS proxy stall while other proxy sessions (wget,
-interactive SSH) continue to work. This is a per-channel stall, not a full
+Large scp uploads via the SOCKS proxy appear to stall (0% progress), but they
+do complete given enough time. Other proxy sessions (wget, interactive SSH)
+continue to work. This is a per-channel slow-throughput issue, not a full
 tunnel outage.
 
 ## Observed Behavior
@@ -19,6 +20,8 @@ tunnel outage.
 - Transport is DNS with defaults from `sfb/config.py` (polling and timeouts).
 - Simultaneous SOCKS downloads remain fast, so the stall does not look like
   a global polling slowdown.
+- The 44KB file eventually transfers if you wait long enough, despite the
+  stalled progress display.
 
 Command context:
 ```
@@ -48,8 +51,9 @@ Connection to 127.0.0.1 closed by remote host.
 
 ## Interpretation
 This appears to be a per-channel backpressure and pacing issue under sustained
-bulk transfer. The scp channel fills its send buffer and blocks, while other
-channels keep draining.
+bulk transfer. The scp channel is making progress very slowly, while other
+channels keep draining, leading to a "stalled" UI even though bytes are still
+moving.
 
 ## Attempted Fixes (Did Not Solve)
 

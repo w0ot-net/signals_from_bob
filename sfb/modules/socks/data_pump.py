@@ -29,10 +29,13 @@ def _log_pump_error(logger, rid, ch, side, direction, msg, exc):
     )
 
 
-def relay_socket_to_channel(sock, channel, config, logger, stop_event,
-                            rid, ch, side, recv_label, direction):
+def pump_socket_to_channel(sock, channel, config, logger, stop_event,
+                           rid, ch, side, recv_label, direction):
     """
-    Relay data from a socket to a tunnel channel.
+    Pump data from a socket to a tunnel channel.
+
+    Uses non-blocking writes with backpressure: stops reading from socket
+    when channel buffer is full, which naturally backpressures TCP.
     """
     try:
         sock.settimeout(config.socks_relay_socket_timeout)
@@ -81,10 +84,12 @@ def relay_socket_to_channel(sock, channel, config, logger, stop_event,
         stop_event.set()
 
 
-def relay_channel_to_socket(channel, sock, config, logger, stop_event,
-                            rid, ch, side, send_label, direction):
+def pump_channel_to_socket(channel, sock, config, logger, stop_event,
+                           rid, ch, side, send_label, direction):
     """
-    Relay data from a tunnel channel to a socket.
+    Pump data from a tunnel channel to a socket.
+
+    TCP backpressure applies naturally via sendall blocking.
     """
     try:
         while not stop_event.is_set():

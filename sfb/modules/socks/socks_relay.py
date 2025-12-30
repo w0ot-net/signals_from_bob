@@ -13,7 +13,7 @@ import logging
 import threading
 
 from ..base_module import BaseModule, ModuleError, blocking
-from .data_pump import relay_channel_to_socket, relay_socket_to_channel
+from .data_pump import pump_channel_to_socket, pump_socket_to_channel
 from .socks_control_messages import T_SOCK, sock_connect_ok, sock_err
 
 
@@ -312,14 +312,20 @@ class _RelayConnection(object):
         """Start bidirectional relay threads."""
         # Channel -> Target
         t1 = threading.Thread(
-            target=self._relay_channel_to_target,
+            target=pump_channel_to_socket,
+            args=(self.channel, self.sock, self._config, self._logger,
+                  self._stop_event, self.rid, self.ch,
+                  'alice', 'Target', 'channel_to_target'),
             name='relay-ch%d-c2t' % self.ch,
         )
         t1.daemon = True
 
         # Target -> Channel
         t2 = threading.Thread(
-            target=self._relay_target_to_channel,
+            target=pump_socket_to_channel,
+            args=(self.sock, self.channel, self._config, self._logger,
+                  self._stop_event, self.rid, self.ch,
+                  'alice', 'Target', 'target_to_channel'),
             name='relay-ch%d-t2c' % self.ch,
         )
         t2.daemon = True
@@ -327,36 +333,6 @@ class _RelayConnection(object):
         self._threads = [t1, t2]
         t1.start()
         t2.start()
-
-    def _relay_channel_to_target(self):
-        """Relay data from channel to target socket."""
-        relay_channel_to_socket(
-            self.channel,
-            self.sock,
-            self._config,
-            self._logger,
-            self._stop_event,
-            self.rid,
-            self.ch,
-            'alice',
-            'Target',
-            'channel_to_target',
-        )
-
-    def _relay_target_to_channel(self):
-        """Relay data from target socket to channel."""
-        relay_socket_to_channel(
-            self.sock,
-            self.channel,
-            self._config,
-            self._logger,
-            self._stop_event,
-            self.rid,
-            self.ch,
-            'alice',
-            'Target',
-            'target_to_channel',
-        )
 
     def wait(self, timeout=None):
         """Wait for relay threads to complete."""

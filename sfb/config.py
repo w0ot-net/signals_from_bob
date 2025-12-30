@@ -69,7 +69,7 @@ class Config:
     # Initial window size before negotiation (packets)
     tunnel_initial_window: int = 1
     # Maximum unacknowledged packets in flight (max 64, SACK bitmap limit)
-    tunnel_max_in_flight: int = 16
+    tunnel_max_in_flight: int = 64
     # Handshake/connection timeout (seconds)
     tunnel_connect_timeout: float = 10.0
     # Alice: packets sent without response before giving up

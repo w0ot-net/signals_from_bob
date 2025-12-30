@@ -356,6 +356,19 @@ class _RelayConnection(object):
                 except Exception as e:
                     if not self._stop_event.is_set():
                         self._logger.debug('Target send error (ch=%d): %s', self.ch, e)
+                        log_event(
+                            self._logger,
+                            logging.DEBUG,
+                            'sock.relay_error',
+                            'SOCKS relay target send error',
+                            {
+                                'rid': self.rid,
+                                'ch': self.ch,
+                                'direction': 'channel_to_target',
+                                'error': str(e),
+                                'side': 'alice',
+                            },
+                        )
                     break
         finally:
             self._stop_event.set()
@@ -387,6 +400,19 @@ class _RelayConnection(object):
                 except Exception as e:
                     if not self._stop_event.is_set():
                         self._logger.debug('Channel write error (ch=%d): %s', self.ch, e)
+                        log_event(
+                            self._logger,
+                            logging.DEBUG,
+                            'sock.relay_error',
+                            'SOCKS relay channel write error',
+                            {
+                                'rid': self.rid,
+                                'ch': self.ch,
+                                'direction': 'target_to_channel',
+                                'error': str(e),
+                                'side': 'alice',
+                            },
+                        )
                     break
         finally:
             self._stop_event.set()

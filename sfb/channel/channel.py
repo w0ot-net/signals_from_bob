@@ -183,6 +183,7 @@ class Channel(object):
         offset = 0
         backoff = self._write_backoff_initial
         max_backoff = self._write_backoff_max
+        logged_wait = False
 
         while offset < len(data):
             # Check deadline
@@ -204,6 +205,22 @@ class Channel(object):
                     backoff = min(backoff * 1.5, max_backoff)
             except ChannelError as e:
                 if e.code == 'buffer_full':
+                    if not logged_wait:
+                        with self._lock:
+                            current_size = self._send_buf_size
+                        log_event(
+                            logger,
+                            logging.DEBUG,
+                            'channel.write_wait',
+                            'Waiting for send buffer space',
+                            {
+                                'ch': self.id,
+                                'size': current_size,
+                                'max': self._max_send_buf,
+                                'backoff': backoff,
+                            },
+                        )
+                        logged_wait = True
                     # Wait for buffer to drain
                     time.sleep(backoff)
                     backoff = min(backoff * 1.5, max_backoff)

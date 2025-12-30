@@ -523,6 +523,19 @@ class _ServerConnection(object):
                 except Exception as e:
                     if not self._stop_event.is_set():
                         self._logger.debug('Client recv error (rid=%d): %s', self.rid, e)
+                        log_event(
+                            self._logger,
+                            logging.DEBUG,
+                            'sock.relay_error',
+                            'SOCKS relay client recv error',
+                            {
+                                'rid': self.rid,
+                                'ch': self.channel.id,
+                                'direction': 'client_to_channel',
+                                'error': str(e),
+                                'side': 'bob',
+                            },
+                        )
                     break
 
                 if not data:
@@ -535,6 +548,19 @@ class _ServerConnection(object):
                 except Exception as e:
                     if not self._stop_event.is_set():
                         self._logger.debug('Channel write error (rid=%d): %s', self.rid, e)
+                        log_event(
+                            self._logger,
+                            logging.DEBUG,
+                            'sock.relay_error',
+                            'SOCKS relay channel write error',
+                            {
+                                'rid': self.rid,
+                                'ch': self.channel.id,
+                                'direction': 'client_to_channel',
+                                'error': str(e),
+                                'side': 'bob',
+                            },
+                        )
                     break
         finally:
             self._stop_event.set()
@@ -551,6 +577,19 @@ class _ServerConnection(object):
                 except Exception as e:
                     if not self._stop_event.is_set():
                         self._logger.debug('Channel read error (rid=%d): %s', self.rid, e)
+                        log_event(
+                            self._logger,
+                            logging.DEBUG,
+                            'sock.relay_error',
+                            'SOCKS relay channel read error',
+                            {
+                                'rid': self.rid,
+                                'ch': self.channel.id,
+                                'direction': 'channel_to_client',
+                                'error': str(e),
+                                'side': 'bob',
+                            },
+                        )
                     break
 
                 if data is None:
@@ -566,6 +605,19 @@ class _ServerConnection(object):
                 except Exception as e:
                     if not self._stop_event.is_set():
                         self._logger.debug('Client send error (rid=%d): %s', self.rid, e)
+                        log_event(
+                            self._logger,
+                            logging.DEBUG,
+                            'sock.relay_error',
+                            'SOCKS relay client send error',
+                            {
+                                'rid': self.rid,
+                                'ch': self.channel.id,
+                                'direction': 'channel_to_client',
+                                'error': str(e),
+                                'side': 'bob',
+                            },
+                        )
                     break
         finally:
             self._stop_event.set()

@@ -9,6 +9,7 @@ import logging
 import socket
 
 from ...logging_util import log_event
+from ...channel import ChannelError
 
 
 def _log_pump_error(logger, rid, ch, side, direction, msg, exc):
@@ -35,9 +36,11 @@ def relay_socket_to_channel(sock, channel, config, logger, stop_event,
     """
     try:
         sock.settimeout(config.socks_relay_socket_timeout)
+        pending = b''
         while not stop_event.is_set():
             try:
-                data = sock.recv(config.socks_relay_buffer_size)
+                if not pending:
+                    pending = sock.recv(config.socks_relay_buffer_size)
             except socket.timeout:
                 continue
             except Exception as exc:
@@ -48,12 +51,25 @@ def relay_socket_to_channel(sock, channel, config, logger, stop_event,
                     )
                 break
 
-            if not data:
+            if not pending:
                 logger.debug('%s EOF (rid=%d ch=%d)', recv_label, rid, ch)
                 break
 
             try:
-                channel.write_all(data, timeout=config.socks_relay_write_timeout)
+                written = channel.write(pending)
+                if written < len(pending):
+                    pending = pending[written:]
+                else:
+                    pending = b''
+            except ChannelError as exc:
+                if exc.code == 'buffer_full':
+                    continue
+                if not stop_event.is_set():
+                    _log_pump_error(
+                        logger, rid, ch, side, direction,
+                        'Channel write error', exc
+                    )
+                break
             except Exception as exc:
                 if not stop_event.is_set():
                     _log_pump_error(

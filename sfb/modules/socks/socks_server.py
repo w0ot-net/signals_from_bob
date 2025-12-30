@@ -144,6 +144,7 @@ class SocksServerModule(BaseModule):
 
         # Pending connect requests
         self._pending = {}  # rid -> _PendingConnect
+        self._pending_lock = threading.Lock()
 
     def start(self, listen_addr=None, listen_port=None):
         """

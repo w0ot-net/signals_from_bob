@@ -7,6 +7,7 @@ from __future__ import absolute_import
 
 import logging
 import socket
+import time
 
 from ...logging_util import log_event
 from ...channel import ChannelError
@@ -66,6 +67,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     pending = b''
             except ChannelError as exc:
                 if exc.code == 'buffer_full':
+                    time.sleep(0.005)  # Yield CPU to avoid starving other threads
                     continue
                 if not stop_event.is_set():
                     _log_pump_error(

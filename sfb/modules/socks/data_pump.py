@@ -7,7 +7,6 @@ from __future__ import absolute_import
 
 import logging
 import socket
-import time
 
 from ...logging_util import log_event
 from ...channel import ChannelError
@@ -30,13 +29,10 @@ def _log_pump_error(logger, rid, ch, side, direction, msg, exc):
     )
 
 
-def pump_socket_to_channel(sock, channel, config, logger, stop_event,
-                           rid, ch, side, recv_label, direction):
+def relay_socket_to_channel(sock, channel, config, logger, stop_event,
+                            rid, ch, side, recv_label, direction):
     """
-    Pump data from a socket to a tunnel channel.
-
-    Uses non-blocking writes with backpressure: stops reading from socket
-    when channel buffer is full, which naturally backpressures TCP.
+    Relay data from a socket to a tunnel channel.
     """
     try:
         sock.settimeout(config.socks_relay_socket_timeout)
@@ -67,7 +63,6 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     pending = b''
             except ChannelError as exc:
                 if exc.code == 'buffer_full':
-                    time.sleep(config.socks_relay_full_sleep)
                     continue
                 if not stop_event.is_set():
                     _log_pump_error(
@@ -86,12 +81,10 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
         stop_event.set()
 
 
-def pump_channel_to_socket(channel, sock, config, logger, stop_event,
-                           rid, ch, side, send_label, direction):
+def relay_channel_to_socket(channel, sock, config, logger, stop_event,
+                            rid, ch, side, send_label, direction):
     """
-    Pump data from a tunnel channel to a socket.
-
-    TCP backpressure applies naturally via sendall blocking.
+    Relay data from a tunnel channel to a socket.
     """
     try:
         while not stop_event.is_set():

@@ -88,6 +88,11 @@ class ChannelManager(object):
         """The control channel (channel 0)."""
         return self._control
 
+    @property
+    def control_send_event(self):
+        """Event set when control channel has pending send data."""
+        return self._control.send_event
+
     def has_pending_data(self):
         """Return True if any channel has queued send data."""
         with self._lock:

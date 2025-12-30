@@ -211,7 +211,8 @@ class BobTunnel(BaseTunnel):
         if delay <= 0 or min_bytes <= 0 or max_payload <= 0:
             return
         # Do not delay control messages (handshake, mtu/window, close, etc).
-        if self._channel_manager.control.send_buf_size > 0:
+        control_event = self._channel_manager.control_send_event
+        if self._channel_manager.control.send_buf_size > 0 or control_event.is_set():
             return
         pending = self._channel_manager.pending_send_bytes(include_control=False)
         if pending <= 0:
@@ -220,17 +221,20 @@ class BobTunnel(BaseTunnel):
         if pending >= target:
             return
         deadline = time.time() + delay
-        sleep_slice = 0.001
         while True:
             remaining = deadline - time.time()
             if remaining <= 0:
                 break
-            if self._channel_manager.control.send_buf_size > 0:
+            if (self._channel_manager.control.send_buf_size > 0 or
+                    control_event.is_set()):
                 break
-            pending = self._channel_manager.pending_send_bytes(include_control=False)
+            if control_event.wait(min(remaining, 0.005)):
+                break
+            pending = self._channel_manager.pending_send_bytes(
+                include_control=False
+            )
             if pending >= target:
                 break
-            time.sleep(min(sleep_slice, remaining))
 
     def _send_response(self, responder, now):
         """Build and send response packet."""

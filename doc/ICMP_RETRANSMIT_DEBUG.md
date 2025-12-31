@@ -4,7 +4,7 @@
 - Determine why retransmits occur on ICMP transport with a stable link.
 
 ## Current Setup
-- Default log profile: `icmp_retransmit_debug`
+- Log profile: `icmp_retransmit_debug`
 - Command: `python3 -m sfb.cli --role alice --transport icmp --icmp_target <ip> --db-log`
 
 ## Observations

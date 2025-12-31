@@ -7,6 +7,34 @@ from __future__ import absolute_import
 
 
 LOG_PROFILES = {
+    # SCP stall debugging over ICMP + SOCKS.
+    'scp_stalled_icmp_socks': {
+        'log_component_transport_icmp': True,
+        'log_component_tunnel': True,
+        'log_component_channel': True,
+        'log_component_module_socks': True,
+        'log_event_whitelist': (
+            'cli.*',
+            'sock.connect*',
+            'sock.pump_stats',
+            'channel.open*',
+            'channel.close*',
+            'channel.send_buf_*',
+            'channel.drain',
+            'tunnel.send_blocked',
+            'tunnel.send_window_*',
+            'tunnel.retransmit*',
+            'tunnel.packet_decode_failed',
+            'tunnel.state',
+            'tunnel.window_*',
+            'tunnel.mtu_*',
+            'tunnel.timeout_*',
+            'tunnel.connected',
+            'tunnel.closed',
+            'icmp.*',
+        ),
+        'log_event_blacklist': (),
+    },
     # Focused ICMP retransmit troubleshooting (default during debug).
     'icmp_retransmit_debug': {
         'log_component_transport_icmp': True,

@@ -45,7 +45,8 @@ toggle `log_component_*` flags or override `log_event_whitelist` and
 `log_event_blacklist` settings.
 
 Available profiles (current):
-- `icmp_retransmit_debug` (default)
+- `scp_stalled_icmp_socks` (default)
+- `icmp_retransmit_debug`
 - `icmp_transport`
 - `dns_transport`
 - `socks_starvation` (focused SOCKS channel fairness signals)

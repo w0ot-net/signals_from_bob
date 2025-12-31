@@ -59,7 +59,9 @@ python3 -m sfb.cli --log-profile socks_starvation ...
 
 Whitelist:
 - `cli.*`
+- `dns.*`
 - `sock.connect*`
+- `sock.server_*`
 - `channel.open*`
 - `channel.close*`
 - `channel.drain`

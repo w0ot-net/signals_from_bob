@@ -52,7 +52,7 @@ SERVER_DB_LOG = os.path.join(LOG_DIR, 'icmp_diag_server_log.db')
 CLIENT_DB_LOG = os.path.join(LOG_DIR, 'icmp_diag_client_log.db')
 DEFAULT_HTTP_PORT = 8888
 DEFAULT_SOCKS_PORT = 1080
-DEFAULT_TEST_FILE = '10MB.bin'
+DEFAULT_TEST_FILE = '2MB.bin'
 PROGRESS_INTERVAL = 1.0
 
 

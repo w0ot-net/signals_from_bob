@@ -258,6 +258,27 @@ class BaseTunnel(object):
 
         return packet, seq
 
+    def _send_window_distance_exceeded(self):
+        """
+        Check if next_seq is too far ahead of peer's cumulative ACK.
+
+        Returns:
+            tuple: (exceeded, fields) where fields is a dict or None.
+        """
+        if self._last_cum_ack is None:
+            return (False, None)
+        max_in_flight = self._send_window._max_in_flight
+        next_seq = self._send_window.next_seq
+        distance = (next_seq - self._last_cum_ack) & SEQ_MAX
+        if distance < max_in_flight:
+            return (False, None)
+        return (True, {
+            'distance': distance,
+            'max_in_flight': max_in_flight,
+            'last_cum_ack': self._last_cum_ack,
+            'next_seq': next_seq,
+        })
+
     def _rebuild_packet(self, seq, segments):
         """
         Rebuild a packet with specific seq and fresh ack/sack.

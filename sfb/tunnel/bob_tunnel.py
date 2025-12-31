@@ -446,6 +446,32 @@ class BobTunnel(BaseTunnel):
             self._bytes_sent += len(response_data)
             responder(response_data)
             return
+        exceeded, fields = self._send_window_distance_exceeded()
+        if exceeded:
+            fields = dict(fields)
+            fields['side'] = 'bob'
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_window_distance',
+                'Send window distance exceeded',
+                fields,
+            )
+            blocked_fields = dict(fields)
+            blocked_fields['reason'] = 'window_distance'
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Send window distance exceeded',
+                blocked_fields,
+            )
+            packet, _ = self._build_packet(segments=[])
+            response_data = self._encode_packet(packet)
+            self._packets_sent += 1
+            self._bytes_sent += len(response_data)
+            responder(response_data)
+            return
 
         # Collect new segments - use send MTU
         max_payload = self._send_mtu

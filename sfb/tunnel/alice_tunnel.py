@@ -439,6 +439,27 @@ class AliceTunnel(BaseTunnel):
                 },
             )
             return False
+        exceeded, fields = self._send_window_distance_exceeded()
+        if exceeded:
+            fields = dict(fields)
+            fields['side'] = 'alice'
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_window_distance',
+                'Send window distance exceeded',
+                fields,
+            )
+            blocked_fields = dict(fields)
+            blocked_fields['reason'] = 'window_distance'
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Send window distance exceeded',
+                blocked_fields,
+            )
+            return False
         can_send = self._transport.can_send()
         if not can_send:
             fields = {'side': 'alice'}

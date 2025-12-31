@@ -166,6 +166,7 @@ Current structured events (non-exhaustive):
 - `dns.send_blocked`
 - `dns.prune_stale`
 - `tunnel.send_blocked`
+- `tunnel.send_window_distance`
 
 ## Useful Queries
 

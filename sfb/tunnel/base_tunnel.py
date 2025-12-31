@@ -35,7 +35,7 @@ from ..protocol import (
     FLAG_SYN,
     FLAG_ACK,
     PACKET_HEADER_SIZE,
-    SEQ_MAX,
+    seq_diff,
 )
 from ..reliability import SendWindow, RecvWindow, ReliabilityStats, NoopReliabilityStats
 from ..logging_util import get_logger, log_event
@@ -270,7 +270,10 @@ class BaseTunnel(object):
             return (False, None)
         max_in_flight = self._send_window._max_in_flight
         next_seq = self._send_window.next_seq
-        distance = (next_seq - self._last_cum_ack) & SEQ_MAX
+        diff = seq_diff(next_seq, self._last_cum_ack)
+        if diff < 0:
+            return (False, None)
+        distance = diff
         if distance < max_in_flight:
             return (False, None)
         return (True, {

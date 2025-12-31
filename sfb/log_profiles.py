@@ -15,6 +15,7 @@ LOG_PROFILES = {
         'log_event_whitelist': (
             'cli.*',
             'tunnel.packet_*',
+            'tunnel.packet_decode_failed',
             'tunnel.ack',
             'tunnel.retransmit*',
             'tunnel.send_blocked',
@@ -25,6 +26,8 @@ LOG_PROFILES = {
             'tunnel.mtu_*',
             'tunnel.timeout_*',
             'tunnel.handshake_*',
+            'tunnel.ack_send_failed',
+            'tunnel.serve_error',
             'tunnel.connected',
             'tunnel.closed',
             'tunnel.response_cap',

@@ -20,6 +20,9 @@
     - Bob receiving from Alice: 702 out-of-window drops, 9279 delivered.
   - Many incoming packets land >64 ahead of cumulative ACK, so recv_window drops them.
   - This matches `tunnel.recv_window` showing high `ready=0` counts on Alice.
+- After adding send-window distance guard, Bob logged
+  `tunnel.send_window_distance` with `distance=65535` while `last_cum_ack=282`
+  and `next_seq=281`. That blocked responses and caused module load timeouts.
 
 ## Hypotheses
 - High poll rate + `icmp_max_pending` causes many requests with the same ack value,
@@ -27,6 +30,8 @@
 - Send window only gates by unacked count. With SACK freeing slots while cumulative
   ACK stalls, the sender can advance `next_seq` more than 64 ahead of peer ACK,
   exceeding the receiver SACK window and causing out-of-window drops.
+- The distance guard must treat `next_seq` behind the cumulative ACK as no block;
+  otherwise wraparound math yields a huge distance and stalls the tunnel.
 
 ## Next Steps
 - Apply Bob retransmit cooldown + ACK-stagnation gate and compare
@@ -37,6 +42,7 @@
   `(next_seq - last_cum_ack) >= max_in_flight` to prevent out-of-window drops.
 - Re-run the same workload and check for `tunnel.send_window_distance` events and
   reduced `recv_out_of_window` counts.
+- Fix guard to use signed sequence distance and skip when `next_seq` is behind ACK.
 
 ## Notes
 - Keep entries short and include log event names when possible.

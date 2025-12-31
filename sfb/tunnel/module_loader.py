@@ -9,11 +9,12 @@ it's a tunnel service that manages other modules.
 
 from __future__ import absolute_import
 
+import logging
 import threading
 
 from .tunnel_control_messages import T_MOD, mod_load, mod_load_ok, mod_load_err
 from ..compat import to_native_str
-from ..logging_util import get_logger
+from ..logging_util import get_logger, log_event
 
 
 class ModuleLoadError(Exception):
@@ -60,7 +61,13 @@ class ModuleLoader(object):
         elif cmd == 'load_err':
             self._handle_load_err(msg)
         else:
-            self._logger.debug('Unknown mod command: %s', cmd)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'module_loader.command_unknown',
+                'Unknown module loader command',
+                {'cmd': cmd},
+            )
 
     def _handle_load(self, msg):
         """Handle module load request."""
@@ -73,13 +80,25 @@ class ModuleLoader(object):
             return
 
         if name in self._loaded_modules:
-            self._logger.debug('Module already loaded: %s', name)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'module_loader.already_loaded',
+                'Module already loaded',
+                {'module': name},
+            )
             self._send(mod_load_ok(name))
             return
 
         module_class = AVAILABLE_MODULES.get(name)
         if module_class is None:
-            self._logger.warning('Unknown module: %s', name)
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'module_loader.unknown',
+                'Unknown module',
+                {'module': name},
+            )
             self._send(mod_load_err(name, 'unknown module'))
             return
 
@@ -87,23 +106,47 @@ class ModuleLoader(object):
             module_logger = get_logger('sfb.modules.%s' % name)
             module = module_class(self._tunnel, module_logger)
             self._loaded_modules[name] = module
-            self._logger.info('Loaded module: %s', name)
+            log_event(
+                self._logger,
+                logging.INFO,
+                'module_loader.loaded',
+                'Loaded module',
+                {'module': name},
+            )
             self._send(mod_load_ok(name))
         except Exception as e:
-            self._logger.exception('Failed to load module %s: %s', name, e)
+            self._logger.exception(
+                'Failed to load module %s: %s', name, e,
+                extra={
+                    'event': 'module_loader.load_failed',
+                    'fields': {'module': name, 'error': to_native_str(e)},
+                },
+            )
             self._send(mod_load_err(name, to_native_str(e)))
 
     def _handle_load_ok(self, msg):
         """Handle successful load response (for controller side)."""
         name = msg.get('name')
-        self._logger.debug('Module loaded on remote: %s', name)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'module_loader.remote_loaded',
+            'Module loaded on remote',
+            {'module': name},
+        )
         self._signal_pending(name, success=True)
 
     def _handle_load_err(self, msg):
         """Handle failed load response (for controller side)."""
         name = msg.get('name')
         reason = msg.get('reason', 'unknown error')
-        self._logger.error('Failed to load module %s on remote: %s', name, reason)
+        log_event(
+            self._logger,
+            logging.ERROR,
+            'module_loader.remote_failed',
+            'Failed to load module on remote',
+            {'module': name, 'reason': reason},
+        )
         self._signal_pending(name, success=False, reason=reason)
 
     def _signal_pending(self, name, success, reason=None):
@@ -146,7 +189,13 @@ class ModuleLoader(object):
             if created:
                 # Send load request
                 self._send(mod_load(name))
-                self._logger.debug('Sent mod:load for %s', name)
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'module_loader.send_load',
+                    'Sent module load request',
+                    {'module': name},
+                )
 
             # Wait for response
             if not pending['event'].wait(timeout=timeout):
@@ -176,7 +225,13 @@ class ModuleLoader(object):
             try:
                 module.shutdown()
             except Exception:
-                self._logger.exception('Error shutting down module %s', name)
+                self._logger.exception(
+                    'Error shutting down module %s', name,
+                    extra={
+                        'event': 'module_loader.shutdown_error',
+                        'fields': {'module': name},
+                    },
+                )
         self._loaded_modules.clear()
         try:
             self._tunnel.unregister_module(T_MOD)

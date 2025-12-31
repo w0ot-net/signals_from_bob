@@ -11,9 +11,11 @@ Provides common functionality for all modules:
 
 from __future__ import absolute_import
 
+import logging
 import threading
 
-from ..logging_util import get_logger
+from ..logging_util import get_logger, log_event
+
 
 class ModuleError(Exception):
     """Base exception for module errors."""
@@ -108,7 +110,13 @@ class BaseModule(object):
         Returns:
             Exit code (0 for success).
         """
-        logger.warning('Module %s does not implement run_command', cls.__name__)
+        log_event(
+            logger,
+            logging.WARNING,
+            'module.command_missing',
+            'Module does not implement run_command',
+            {'module': cls.__name__},
+        )
         return 1
 
     def __init__(self, tunnel, logger=None):
@@ -141,7 +149,10 @@ class BaseModule(object):
         try:
             self.unregister()
         except Exception:
-            self._logger.exception('Failed to unregister module')
+            self._logger.exception(
+                'Failed to unregister module',
+                extra={'event': 'module.unregister_failed', 'fields': {'type': self.TYPE}},
+            )
         with self._threads_lock:
             threads = list(self._threads)
         timeout = getattr(self._tunnel._config, 'module_shutdown_timeout', 5.0)
@@ -159,7 +170,13 @@ class BaseModule(object):
         Args:
             msg: Dict or ControlMessage to send on channel 0.
         """
-        self._logger.debug('Send %s: %s', self.TYPE, msg)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'module.send',
+            'Module send',
+            {'type': self.TYPE, 'msg': msg},
+        )
         self._tunnel.control.send_message(msg)
 
     def _dispatch(self, msg):
@@ -170,7 +187,13 @@ class BaseModule(object):
         """
         if self._shutdown:
             return
-        self._logger.debug('Recv %s: %s', self.TYPE, msg)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'module.recv',
+            'Module recv',
+            {'type': self.TYPE, 'msg': msg},
+        )
         cmd = msg.get('c')
         if not cmd:
             return
@@ -180,7 +203,13 @@ class BaseModule(object):
         if handler is None:
             handler = getattr(self, 'handle_unknown', None)
         if handler is None:
-            self._logger.debug('No handler for command: %s', cmd)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'module.command_unknown',
+                'No handler for command',
+                {'type': self.TYPE, 'cmd': cmd},
+            )
             return
 
         # Run blocking handlers in separate thread
@@ -215,7 +244,13 @@ class BaseModule(object):
         try:
             handler(msg)
         except Exception as e:
-            self._logger.exception('Handler error: %s', e)
+            self._logger.exception(
+                'Handler error: %s', e,
+                extra={
+                    'event': 'module.handler_error',
+                    'fields': {'type': self.TYPE, 'error': str(e)},
+                },
+            )
 
 
 class RequestResponseMixin(object):

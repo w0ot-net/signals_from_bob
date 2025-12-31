@@ -20,7 +20,7 @@ import time
 
 from .config import Config
 from .crypto import Plain, XOR
-from .logging_util import add_component_filters, add_sqlite_handler, get_logger
+from .logging_util import add_component_filters, add_sqlite_handler, get_logger, log_event
 from .transport import TRANSPORTS, TransportError, get_transport_class
 from .tunnel import AliceTunnel, BobTunnel, TunnelState
 from .modules import AVAILABLE_MODULES
@@ -277,10 +277,22 @@ def create_crypto(args, logger):
     """Create crypto instance from args."""
     if args.psk:
         crypto = XOR(args.psk.encode('utf-8'))
-        logger.info('Encryption: XOR')
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.crypto',
+            'Encryption enabled',
+            {'mode': 'xor'},
+        )
     else:
         crypto = Plain()
-        logger.info('Encryption: none')
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.crypto',
+            'Encryption disabled',
+            {'mode': 'none'},
+        )
     return crypto
 
 
@@ -289,10 +301,22 @@ def run_server(args, config, crypto, logger):
     # Change to root directory for file transfers
     root = os.path.abspath(config.file_transfer_root)
     if not os.path.isdir(root):
-        logger.error('Root directory does not exist: %s', root)
+        log_event(
+            logger,
+            logging.ERROR,
+            'cli.root_missing',
+            'Root directory does not exist',
+            {'path': root},
+        )
         return 1
     os.chdir(root)
-    logger.info('Working directory: %s', root)
+    log_event(
+        logger,
+        logging.INFO,
+        'cli.working_dir',
+        'Working directory',
+        {'path': root},
+    )
 
     # Create transport and tunnel
     try:
@@ -310,7 +334,12 @@ def run_server(args, config, crypto, logger):
         if shutdown_requested[0]:
             sys.exit(1)
         shutdown_requested[0] = True
-        logger.info('Shutting down...')
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.shutdown',
+            'Shutting down',
+        )
         tunnel.close()
 
     signal.signal(signal.SIGINT, handle_signal)
@@ -327,20 +356,44 @@ def run_server_passive(args, tunnel, logger):
     """Run server in passive mode (no command, just wait for connections)."""
     if args.transport == 'dns':
         host, port = _split_host_port(tunnel._config.dns_listen_addr, 53)
-        logger.info(
-            'Listening on %s:%d for domain %s (passive mode)',
-            host, port, args.domain
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.listen',
+            'Listening (passive mode)',
+            {'transport': 'dns', 'host': host, 'port': port, 'domain': args.domain},
         )
     elif args.transport == 'icmp':
-        logger.info('Listening for ICMP echo requests (passive mode)')
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.listen',
+            'Listening (passive mode)',
+            {'transport': 'icmp'},
+        )
     try:
         tunnel.serve_forever()
     except Exception as e:
-        logger.exception('Error in serve loop: %s', e)
+        log_event(
+            logger,
+            logging.ERROR,
+            'cli.serve_error',
+            'Error in serve loop',
+            {'error': str(e)},
+        )
+        logger.exception(
+            'Serve loop traceback:',
+            extra={'event': 'cli.traceback', 'fields': {'context': 'serve_loop'}},
+        )
         return 1
     finally:
         tunnel.close()
-        logger.info('Shutdown complete')
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.shutdown_complete',
+            'Shutdown complete',
+        )
     return 0
 
 
@@ -355,23 +408,52 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
         # Wait for client to connect
         if args.transport == 'dns':
             host, port = _split_host_port(tunnel._config.dns_listen_addr, 53)
-            logger.info('Waiting for client on %s:%d...', host, port)
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.wait_client',
+                'Waiting for client',
+                {'transport': 'dns', 'host': host, 'port': port},
+            )
         elif args.transport == 'icmp':
-            logger.info('Waiting for ICMP client...')
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.wait_client',
+                'Waiting for client',
+                {'transport': 'icmp'},
+            )
         while tunnel._state != TunnelState.CONNECTED:
             if shutdown_requested[0]:
                 return 1
             time.sleep(tunnel._config.tunnel_connect_poll_interval)
 
-        logger.info('Client connected')
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.client_connected',
+            'Client connected',
+        )
 
         module_name = args.module
         module_cls = AVAILABLE_MODULES[module_name]
         module_logger = get_logger('sfb.modules.%s' % module_name)
         remote_module = module_cls.REMOTE_MODULE or module_name
-        logger.info('Loading module %s on peer...', remote_module)
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.module_load',
+            'Loading module on peer',
+            {'module': remote_module},
+        )
         module_loader.load_remote(remote_module)
-        logger.info('Module %s loaded', remote_module)
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.module_loaded',
+            'Module loaded',
+            {'module': remote_module},
+        )
 
         # Allow module message type
         tunnel.allow_message_type(module_cls.TYPE)
@@ -381,21 +463,41 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
             if default_cmd:
                 args.command = default_cmd
             elif getattr(module_cls, 'REQUIRES_COMMAND', False):
-                logger.error('Module %s requires a command', module_name)
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    'cli.module_command_required',
+                    'Module requires a command',
+                    {'module': module_name},
+                )
                 return 1
 
         # Run module command
         return module_cls.run_command(args, tunnel, module_logger)
 
     except Exception as e:
-        logger.error('Error: %s', e)
+        log_event(
+            logger,
+            logging.ERROR,
+            'cli.error',
+            'Error',
+            {'error': str(e)},
+        )
         if args.verbose:
-            logger.exception('Full traceback:')
+            logger.exception(
+                'Full traceback:',
+                extra={'event': 'cli.traceback', 'fields': {'context': 'server_command'}},
+            )
         return 1
 
     finally:
         tunnel.close()
-        logger.info('Shutdown complete')
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.shutdown_complete',
+            'Shutdown complete',
+        )
 
 
 def run_client(args, config, crypto, logger):
@@ -416,7 +518,12 @@ def run_client(args, config, crypto, logger):
         if shutdown_requested[0]:
             sys.exit(1)
         shutdown_requested[0] = True
-        logger.info('Shutting down...')
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.shutdown',
+            'Shutting down',
+        )
         tunnel.close()
 
     signal.signal(signal.SIGINT, handle_signal)
@@ -426,17 +533,39 @@ def run_client(args, config, crypto, logger):
         # Connect
         if args.transport == 'dns':
             resolver_desc = getattr(args, 'resolver', None) or 'system resolver'
-            logger.info('Connecting to %s via %s...', args.domain, resolver_desc)
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.connect',
+                'Connecting',
+                {'transport': 'dns', 'domain': args.domain, 'resolver': resolver_desc},
+            )
         elif args.transport == 'icmp':
             target = getattr(args, 'icmp_target', None)
-            logger.info('Connecting to ICMP target %s...', target)
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.connect',
+                'Connecting',
+                {'transport': 'icmp', 'target': target},
+            )
         tunnel.connect()
-        logger.info('Connected')
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.connected',
+            'Connected',
+        )
 
         # Start background tick loop
         tunnel.start_background()
 
-        logger.info('Waiting for commands from server...')
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.wait_commands',
+            'Waiting for commands',
+        )
 
         # Run until connection closes or signal received
         while tunnel._state == TunnelState.CONNECTED and not shutdown_requested[0]:
@@ -445,14 +574,28 @@ def run_client(args, config, crypto, logger):
         return 0
 
     except Exception as e:
-        logger.error('Error: %s', e)
+        log_event(
+            logger,
+            logging.ERROR,
+            'cli.error',
+            'Error',
+            {'error': str(e)},
+        )
         if args.verbose:
-            logger.exception('Full traceback:')
+            logger.exception(
+                'Full traceback:',
+                extra={'event': 'cli.traceback', 'fields': {'context': 'client'}},
+            )
         return 1
 
     finally:
         tunnel.close()
-        logger.info('Shutdown complete')
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.shutdown_complete',
+            'Shutdown complete',
+        )
 
 
 def main(args=None):

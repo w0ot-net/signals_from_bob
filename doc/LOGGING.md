@@ -52,6 +52,8 @@ Default blacklist (to reduce high-volume debug events):
 - `tunnel.control_dispatch`
 - `tunnel.control_processed`
 - `tunnel.command`
+- `module.send`
+- `module.recv`
 - `channel.pack`
 - `channel.send_buf_*`
 - `dns.send`

@@ -5,13 +5,15 @@ File transfer module implementation.
 
 from __future__ import absolute_import
 
+import hashlib
+import logging
 import os
 import threading
 import time
-import hashlib
 
 from ...channel import ChannelError
 from ...compat import to_native_str
+from ...logging_util import log_event
 from ..base_module import BaseModule, RequestResponseMixin, ModuleError, blocking
 from .file_transfer_control_messages import (
     file_list,
@@ -154,24 +156,59 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
 
             elif args.command == 'get':
                 local_path = args.local or os.path.basename(args.remote)
-                logger.info('Downloading %s -> %s', args.remote, local_path)
+                log_event(
+                    logger,
+                    logging.INFO,
+                    'file.download',
+                    'Downloading file',
+                    {'remote': args.remote, 'local': local_path},
+                )
                 module.get(args.remote, local_path, timeout=timeout)
                 stats = module.last_stats
-                logger.info('Download complete: %s (%s)', local_path, stats)
+                log_event(
+                    logger,
+                    logging.INFO,
+                    'file.download_complete',
+                    'Download complete',
+                    {'local': local_path, 'stats': stats},
+                )
 
             elif args.command == 'put':
                 if not os.path.isfile(args.local):
-                    logger.error('Local file not found: %s', args.local)
+                    log_event(
+                        logger,
+                        logging.ERROR,
+                        'file.local_missing',
+                        'Local file not found',
+                        {'local': args.local},
+                    )
                     return 1
                 size = os.path.getsize(args.local)
-                logger.info('Uploading %s (%d bytes) -> %s',
-                            args.local, size, args.remote)
+                log_event(
+                    logger,
+                    logging.INFO,
+                    'file.upload',
+                    'Uploading file',
+                    {'local': args.local, 'bytes': size, 'remote': args.remote},
+                )
                 module.put(args.local, args.remote, timeout=timeout)
                 stats = module.last_stats
-                logger.info('Upload complete: %s (%s)', args.remote, stats)
+                log_event(
+                    logger,
+                    logging.INFO,
+                    'file.upload_complete',
+                    'Upload complete',
+                    {'remote': args.remote, 'stats': stats},
+                )
 
             else:
-                logger.error('Unknown command: %s', args.command)
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    'file.command_unknown',
+                    'Unknown command',
+                    {'command': args.command},
+                )
                 return 1
 
             return 0

@@ -65,3 +65,4 @@
 - [x] Event whitelist/blacklist filter
 - [x] Structured conversion: base_tunnel debug logs
 - [x] Structured conversion: dns/protocol debug logs
+- [x] Structured conversion: cli/modules logs

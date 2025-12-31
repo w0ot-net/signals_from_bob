@@ -177,8 +177,13 @@ class SocksServerModule(BaseModule):
         self._accept_thread.daemon = True
         self._accept_thread.start()
 
-        self._logger.info('SOCKS5 server listening on %s:%d',
-                          listen_addr, listen_port)
+        log_event(
+            self._logger,
+            logging.INFO,
+            'sock.server_listen',
+            'SOCKS5 server listening',
+            {'host': listen_addr, 'port': listen_port},
+        )
 
     def stop(self):
         """Stop the SOCKS5 server."""
@@ -202,7 +207,12 @@ class SocksServerModule(BaseModule):
         for conn in connections:
             conn.stop()
 
-        self._logger.info('SOCKS5 server stopped')
+        log_event(
+            self._logger,
+            logging.INFO,
+            'sock.server_stop',
+            'SOCKS5 server stopped',
+        )
 
     def shutdown(self):
         """Stop module and clean up."""
@@ -230,7 +240,13 @@ class SocksServerModule(BaseModule):
                     continue
 
                 backoff = self._config.non_blocking_poll_timeout
-                self._logger.debug('Accepted connection from %s:%d', addr[0], addr[1])
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'sock.server_accept',
+                    'Accepted connection',
+                    {'host': addr[0], 'port': addr[1]},
+                )
 
                 # Spawn handler thread
                 t = threading.Thread(
@@ -243,7 +259,13 @@ class SocksServerModule(BaseModule):
 
             except Exception as e:
                 if self._running:
-                    self._logger.exception('Accept error: %s', e)
+                    self._logger.exception(
+                        'Accept error: %s', e,
+                        extra={
+                            'event': 'sock.server_accept_error',
+                            'fields': {'error': str(e)},
+                        },
+                    )
                     time.sleep(backoff)
                     backoff = min(backoff * 2.0, max_backoff)
 
@@ -258,13 +280,25 @@ class SocksServerModule(BaseModule):
             self._socks5_negotiate_method(sock)
             host, port = self._socks5_read_connect(sock)
 
-            self._logger.info('CONNECT %s:%d from %s:%d (rid=%d)',
-                              host, port, addr[0], addr[1], rid)
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.server_connect',
+                'SOCKS connect requested',
+                {'host': host, 'port': port, 'client_host': addr[0],
+                 'client_port': addr[1], 'rid': rid},
+            )
 
             # Open tunnel channel
             channel = self._tunnel.channel_manager.open_channel()
             if not channel.wait_open(timeout=self._config.socks_channel_open_timeout):
-                self._logger.warning('Channel open failed (rid=%d)', rid)
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'sock.server_channel_failed',
+                    'Channel open failed',
+                    {'rid': rid},
+                )
                 self._socks5_send_reply(sock, SOCKS5_REP_GENERAL_FAILURE)
                 channel.close()
                 return
@@ -291,13 +325,25 @@ class SocksServerModule(BaseModule):
 
             # Wait for response
             if not pending.event.wait(timeout=self._config.socks_connect_timeout):
-                self._logger.warning('Connect timeout (rid=%d)', rid)
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'sock.server_connect_timeout',
+                    'Connect timeout',
+                    {'rid': rid},
+                )
                 self._socks5_send_reply(sock, SOCKS5_REP_TTL_EXPIRED)
                 return
 
             if pending.error:
                 error_code = ERROR_TO_SOCKS5.get(pending.error, SOCKS5_REP_GENERAL_FAILURE)
-                self._logger.info('Connect failed (rid=%d): %s', rid, pending.error)
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.server_connect_failed',
+                    'Connect failed',
+                    {'rid': rid, 'error': pending.error},
+                )
                 self._socks5_send_reply(sock, error_code)
                 return
 
@@ -306,16 +352,34 @@ class SocksServerModule(BaseModule):
             bind_port = pending.bind_port or 0
             self._socks5_send_reply(sock, SOCKS5_REP_SUCCESS, bind_host, bind_port)
 
-            self._logger.info('Connected %s:%d (rid=%d)', host, port, rid)
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.server_connected',
+                'Connected',
+                {'host': host, 'port': port, 'rid': rid},
+            )
 
             # Start relay and wait for completion
             conn.start_relay()
             conn.wait()
 
         except Socks5Error as e:
-            self._logger.warning('SOCKS5 error (rid=%d): %s', rid, e)
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'sock.server_error',
+                'SOCKS5 error',
+                {'rid': rid, 'error': str(e)},
+            )
         except Exception as e:
-            self._logger.exception('Client handler error (rid=%d): %s', rid, e)
+            self._logger.exception(
+                'Client handler error (rid=%d): %s', rid, e,
+                extra={
+                    'event': 'sock.server_client_error',
+                    'fields': {'rid': rid, 'error': str(e)},
+                },
+            )
         finally:
             self._cleanup_connection(rid)
 
@@ -331,7 +395,13 @@ class SocksServerModule(BaseModule):
 
         if conn:
             conn.stop()
-            self._logger.debug('Cleaned up connection rid=%d', rid)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'sock.server_cleanup',
+                'Cleaned up connection',
+                {'rid': rid},
+            )
 
     # --- SOCKS5 Protocol Implementation ---
 

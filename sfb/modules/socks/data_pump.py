@@ -14,7 +14,6 @@ from ...channel import ChannelError
 
 
 def _log_pump_error(logger, rid, ch, side, direction, msg, exc):
-    logger.debug('%s (rid=%d ch=%d): %s', msg, rid, ch, exc)
     log_event(
         logger,
         logging.DEBUG,
@@ -64,7 +63,13 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 break
 
             if not pending:
-                logger.debug('%s EOF (rid=%d ch=%d)', recv_label, rid, ch)
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    'sock.relay_eof',
+                    'Relay EOF',
+                    {'rid': rid, 'ch': ch, 'label': recv_label, 'side': side},
+                )
                 break
 
             bytes_recv += len(pending)
@@ -154,7 +159,13 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                 time.sleep(config.non_blocking_poll_timeout)
                 continue
             if data == b'':
-                logger.debug('Channel EOF (rid=%d ch=%d)', rid, ch)
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    'sock.relay_eof',
+                    'Channel EOF',
+                    {'rid': rid, 'ch': ch, 'side': side},
+                )
                 break
 
             bytes_read += len(data)

@@ -5,7 +5,7 @@ DNS transport for tunnel protocol.
 
 from __future__ import absolute_import
 
-from .codec import (
+from .dns_codec import (
     QTYPE_A,
     QTYPE_AAAA,
     QTYPE_CNAME,

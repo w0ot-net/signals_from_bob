@@ -16,7 +16,7 @@ import struct
 import time
 
 from ..transport_base import Transport, TransportError, PendingTracker, TokenBucket
-from . import codec
+from . import dns_codec as codec
 from .dns_utils import load_system_resolvers
 from ...compat import require_bytes
 from ...config import Config

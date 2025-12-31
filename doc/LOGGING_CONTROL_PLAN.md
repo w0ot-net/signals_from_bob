@@ -52,6 +52,7 @@
    - Avoid ad-hoc logger names in modules and services.
 6) Event filters
    - Add structured event whitelist/blacklist patterns.
+   - Default blacklist suppresses high-volume debug events.
 
 ## Progress
 - [x] Phase 1: transport/dns component filter

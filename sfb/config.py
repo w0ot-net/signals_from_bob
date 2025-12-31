@@ -161,7 +161,18 @@ class Config:
     # Structured event whitelist (empty = allow all events)
     log_event_whitelist: tuple = ()
     # Structured event blacklist (empty = deny none)
-    log_event_blacklist: tuple = ()
+    # Default blacklist reduces high-volume debug events.
+    log_event_blacklist: tuple = (
+        'tunnel.packet_*',
+        'tunnel.ack',
+        'tunnel.send_blocked',
+        'channel.pack',
+        'channel.send_buf_*',
+        'dns.send',
+        'dns.recv',
+        'icmp.send',
+        'icmp.recv',
+    )
     # Enable SOCKS module logging (stdout + SQLite)
     log_component_module_socks: bool = True
     # Enable file transfer module logging (stdout + SQLite)

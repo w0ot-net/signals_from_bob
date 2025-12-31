@@ -43,6 +43,17 @@ If the whitelist is non-empty, only matching events are emitted.
 Blacklist is applied after whitelist.
 Plain logger messages without an `event` field are not affected.
 
+Default blacklist (to reduce high-volume debug events):
+- `tunnel.packet_*`
+- `tunnel.ack`
+- `tunnel.send_blocked`
+- `channel.pack`
+- `channel.send_buf_*`
+- `dns.send`
+- `dns.recv`
+- `icmp.send`
+- `icmp.recv`
+
 ## Schema
 
 Table: `logs`

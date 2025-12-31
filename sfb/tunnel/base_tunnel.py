@@ -35,6 +35,7 @@ from ..protocol import (
     FLAG_SYN,
     FLAG_ACK,
     PACKET_HEADER_SIZE,
+    SEQ_MAX,
 )
 from ..reliability import SendWindow, RecvWindow, ReliabilityStats, NoopReliabilityStats
 from ..logging_util import get_logger, log_event

@@ -83,11 +83,20 @@ If less than 4 bytes remain (header + 1 byte payload), packing stops.
 
 1. **Channel 0 priority**: If channel 0 has non-keepalive data, emit it first.
 2. **Primary channel fill**: Choose a primary non-zero channel in round-robin
-   order and give it as much remaining space as possible.
+   order and give it as much remaining space as possible, unless there is
+   enough room for all active channels to send at least 1 byte each (see below).
 3. **Round-robin fill**: If space remains, take at most one segment from each
    other active channel, starting after the primary, until full.
 4. **Keepalive suppression**: Only emit keepalive data if no other segments
    were added to the packet.
+
+### Fairness Cap (Per-Packet)
+
+If there is enough space for every active non-zero channel to send at least
+1 byte (payload + header), the packer caps each channel's segment so it leaves
+room for the remaining active channels to send at least 1 byte in the same
+packet. This preserves the round-robin order while preventing a single channel
+from consuming the entire packet when others are active.
 
 ### Round-Robin Pointer
 

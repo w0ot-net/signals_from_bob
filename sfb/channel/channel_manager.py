@@ -286,39 +286,65 @@ class ChannelManager(object):
             primary_idx = rr_index
             primary_id = active_channels[primary_idx]
 
-            channel = channel_snapshot.get(primary_id)
-            if channel is not None:
-                data = channel._take_send_data(remaining - SEGMENT_HEADER_SIZE)
-                if data:
-                    segments.append(Segment(primary_id, data))
-                    remaining -= SEGMENT_HEADER_SIZE + len(data)
+            min_seg = SEGMENT_HEADER_SIZE + 1
+            if remaining >= len(active_channels) * min_seg:
+                ordered_ids = [primary_id]
+                for i in range(len(active_channels) - 1):
+                    idx = (primary_idx + 1 + i) % len(active_channels)
+                    ordered_ids.append(active_channels[idx])
 
-            # Advance round-robin pointer
-            with self._lock:
-                self._rr_index = (primary_idx + 1) % len(active_channels)
-
-            # Step 4: Fill remaining space from other channels (round-robin)
-            if remaining > SEGMENT_HEADER_SIZE:
-                # Start from the channel after primary
-                for i in range(len(active_channels)):
+                for idx, cid in enumerate(ordered_ids):
                     if remaining <= SEGMENT_HEADER_SIZE:
                         break
-
-                    idx = (primary_idx + 1 + i) % len(active_channels)
-                    cid = active_channels[idx]
-                    if cid == primary_id:
-                        continue
 
                     channel = channel_snapshot.get(cid)
                     if channel is None or not channel._has_send_data():
                         continue
 
-                    data = channel._take_send_data(
-                        remaining - SEGMENT_HEADER_SIZE
-                    )
+                    remaining_slots = len(ordered_ids) - idx - 1
+                    reserve = remaining_slots * min_seg
+                    cap = remaining - SEGMENT_HEADER_SIZE - reserve
+                    if cap <= 0:
+                        break
+
+                    data = channel._take_send_data(cap)
                     if data:
                         segments.append(Segment(cid, data))
                         remaining -= SEGMENT_HEADER_SIZE + len(data)
+            else:
+                channel = channel_snapshot.get(primary_id)
+                if channel is not None:
+                    data = channel._take_send_data(remaining - SEGMENT_HEADER_SIZE)
+                    if data:
+                        segments.append(Segment(primary_id, data))
+                        remaining -= SEGMENT_HEADER_SIZE + len(data)
+
+                # Step 4: Fill remaining space from other channels (round-robin)
+                if remaining > SEGMENT_HEADER_SIZE:
+                    # Start from the channel after primary
+                    for i in range(len(active_channels)):
+                        if remaining <= SEGMENT_HEADER_SIZE:
+                            break
+
+                        idx = (primary_idx + 1 + i) % len(active_channels)
+                        cid = active_channels[idx]
+                        if cid == primary_id:
+                            continue
+
+                        channel = channel_snapshot.get(cid)
+                        if channel is None or not channel._has_send_data():
+                            continue
+
+                        data = channel._take_send_data(
+                            remaining - SEGMENT_HEADER_SIZE
+                        )
+                        if data:
+                            segments.append(Segment(cid, data))
+                            remaining -= SEGMENT_HEADER_SIZE + len(data)
+
+            # Advance round-robin pointer
+            with self._lock:
+                self._rr_index = (primary_idx + 1) % len(active_channels)
 
         # Step 5: Keepalive suppression - only add keepalive if no other data
         if not segments and keepalive_data and remaining > SEGMENT_HEADER_SIZE:

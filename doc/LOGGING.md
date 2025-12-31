@@ -32,6 +32,18 @@ Current toggles:
 Set the default in `sfb/config.py`, or pass to `Config(...)` when embedding.
 Logger names are standardized under the `sfb.*` namespace for consistency.
 
+## Log Profiles
+
+For repeatable troubleshooting setups, you can apply a named logging profile:
+
+```
+python3 -m sfb.cli --log-profile tunnel_verbose ...
+```
+
+Profiles live in `sfb/log_profiles.py`. You can add new profiles there to
+toggle `log_component_*` flags or override `log_event_whitelist` and
+`log_event_blacklist` settings.
+
 ## Event Whitelist/Blacklist (structured events only)
 
 You can filter structured events (those emitted via `log_event`) by pattern:

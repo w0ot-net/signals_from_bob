@@ -21,6 +21,7 @@ import time
 from .config import Config
 from .crypto import Plain, XOR
 from .logging_util import add_component_filters, add_sqlite_handler, get_logger, log_event
+from .log_profiles import LOG_PROFILES, apply_log_profile
 from .transport import TRANSPORTS, TransportError, get_transport_class
 from .tunnel import AliceTunnel, BobTunnel, TunnelState
 from .modules import AVAILABLE_MODULES
@@ -100,6 +101,11 @@ def add_common_args(parser, config, require_domain=True):
     parser.add_argument(
         '--db-log-queue', type=int, default=config.db_log_queue,
         help='SQLite log queue max size (default: 0=unbounded)'
+    )
+    parser.add_argument(
+        '--log-profile',
+        choices=sorted(LOG_PROFILES.keys()),
+        help='Logging profile name (see sfb/log_profiles.py)'
     )
 
 
@@ -618,6 +624,12 @@ def main(args=None):
         parsed.db_log = './logs/%s_log.db' % parsed.role
 
     config = create_config(parsed)
+    if parsed.log_profile:
+        try:
+            apply_log_profile(config, parsed.log_profile)
+        except ValueError as e:
+            _print_error(str(e))
+            return 2
 
     # Setup logging
     level = logging.DEBUG if parsed.verbose else logging.INFO

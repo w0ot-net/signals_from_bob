@@ -26,6 +26,12 @@
 - Latest run shows only channel 2 in `channel.drain`, so it does not exercise
   multiple simultaneous clients. Added `sock.connect*` and `channel.open*`/`close*`
   to the debug log profile to map channels to client connections.
+- Latest run with multiple clients (channels 2/4/6):
+  - Alice `channel.drain` totals: ch2 ~4.5MB, ch4 ~7.7KB, ch6 ~2.8KB.
+  - Alice `channel.send_buf_full` is only ch2 (10k+ events).
+  - Bob `channel.drain` totals: ch0 ~137KB, ch4 ~9KB, ch6 ~663B, ch2 ~156B.
+  - Both sides show `tunnel.send_window_distance` (Alice 889, Bob 1144).
+  - Bob logged 2 `tunnel.packet_decode_failed`.
 
 ## Hypotheses
 - High poll rate + `icmp_max_pending` causes many requests with the same ack value,

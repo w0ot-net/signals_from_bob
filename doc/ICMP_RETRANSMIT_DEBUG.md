@@ -23,6 +23,9 @@
 - After adding send-window distance guard, Bob logged
   `tunnel.send_window_distance` with `distance=65535` while `last_cum_ack=282`
   and `next_seq=281`. That blocked responses and caused module load timeouts.
+- Latest run shows only channel 2 in `channel.drain`, so it does not exercise
+  multiple simultaneous clients. Added `sock.connect*` and `channel.open*`/`close*`
+  to the debug log profile to map channels to client connections.
 
 ## Hypotheses
 - High poll rate + `icmp_max_pending` causes many requests with the same ack value,

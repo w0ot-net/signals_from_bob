@@ -11,6 +11,8 @@ operations, channel lifecycle, and module-specific commands.
 - One message per line
 - Each message ends with a newline (`\n`)
 - Multiple messages can be sent in a single segment or packet
+- Maximum message length: 0x1000 bytes (excluding the newline); longer lines
+  are rejected
 
 Receivers parse channel 0 by buffering bytes until a newline is found, then
 decoding a complete JSON object. Invalid JSON should be logged and dropped.

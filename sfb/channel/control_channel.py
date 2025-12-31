@@ -10,6 +10,8 @@ import threading
 
 from .channel import Channel, ChannelError, CHANNEL_CONTROL
 
+CONTROL_MESSAGE_MAX_LENGTH = 0x1000
+
 
 class ControlChannel(Channel):
     """
@@ -57,12 +59,17 @@ class ControlChannel(Channel):
         while True:
             line = self._pop_line()
             if line is not None:
+                if len(line) > CONTROL_MESSAGE_MAX_LENGTH:
+                    raise ChannelError('invalid', 'Control message too long')
                 if not line:
                     continue
                 try:
                     return json.loads(line.decode('ascii'))
                 except ValueError as e:
                     raise ChannelError('invalid', 'Invalid control message: %s' % e)
+
+            if len(self._line_buf) > CONTROL_MESSAGE_MAX_LENGTH:
+                raise ChannelError('invalid', 'Control message too long')
 
             chunk = self.read(self._read_chunk_size, timeout=timeout)
             if chunk is None:
@@ -72,6 +79,12 @@ class ControlChannel(Channel):
                     raise ChannelError('closed', 'Control channel closed with partial message')
                 return None
             self._line_buf.extend(chunk)
+            newline_idx = self._line_buf.find(b'\n')
+            if newline_idx == -1:
+                if len(self._line_buf) > CONTROL_MESSAGE_MAX_LENGTH:
+                    raise ChannelError('invalid', 'Control message too long')
+            elif newline_idx > CONTROL_MESSAGE_MAX_LENGTH:
+                raise ChannelError('invalid', 'Control message too long')
 
     def _pop_line(self):
         idx = self._line_buf.find(b'\n')

@@ -14,7 +14,7 @@ from sfb.channel.channel import (
     is_alice_channel,
     is_bob_channel,
 )
-from sfb.channel.control_channel import ControlChannel
+from sfb.channel.control_channel import ControlChannel, CONTROL_MESSAGE_MAX_LENGTH
 from sfb.channel.channel_manager import ChannelManager
 from sfb.config import Config
 from sfb.protocol import Segment, SEGMENT_HEADER_SIZE, CHANNEL_CONTROL
@@ -188,6 +188,14 @@ class ControlChannelTests(unittest.TestCase):
         with self.assertRaises(ChannelError) as ctx:
             ctrl.recv_message(timeout=0.1)
         self.assertEqual(ctx.exception.code, 'closed')
+
+    def test_recv_message_too_long(self):
+        ctrl = ControlChannel()
+        ctrl._set_state(STATE_OPEN)
+        ctrl._deliver(b'a' * (CONTROL_MESSAGE_MAX_LENGTH + 1))
+        with self.assertRaises(ChannelError) as ctx:
+            ctrl.recv_message(timeout=0.1)
+        self.assertEqual(ctx.exception.code, 'invalid')
 
 
 class ChannelManagerTests(unittest.TestCase):

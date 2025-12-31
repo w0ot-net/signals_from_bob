@@ -12,7 +12,7 @@ import select
 import socket
 import time
 
-from ..transport_base import Transport, TransportError, PendingTracker, TokenBucket
+from ..transport_base import Transport, TransportError, PendingTracker
 from .icmp_packet import ICMP_ECHO_REPLY, build_echo_request, parse_icmp_echo
 from ...compat import require_bytes
 from ...config import Config
@@ -52,11 +52,6 @@ class IcmpClient(Transport):
         self._next_seq = random.randint(0, 0xFFFF)
         self._icmp_id = random.randint(0, 0xFFFF)
 
-        self._rate_limiter = None
-        if config.icmp_send_interval and config.icmp_send_interval > 0:
-            rate = 1.0 / float(config.icmp_send_interval)
-            self._rate_limiter = TokenBucket(rate, capacity=1.0)
-
     @property
     def send_mtu(self):
         return self._send_mtu
@@ -76,9 +71,7 @@ class IcmpClient(Transport):
     def can_send(self):
         if self.pending_count() >= self._max_pending:
             return False
-        if self._rate_limiter is None:
-            return True
-        return self._rate_limiter.can_take(1.0, now=time.time())
+        return True
 
     def send(self, data):
         if not self.can_send():
@@ -92,7 +85,7 @@ class IcmpClient(Transport):
                     'max_pending': self._max_pending,
                 },
             )
-            raise TransportError('Rate limit exceeded or too many pending requests')
+            raise TransportError('Too many pending requests')
 
         data = require_bytes(data)
         if len(data) > self._send_mtu:
@@ -110,8 +103,6 @@ class IcmpClient(Transport):
             raise TransportError('Send failed: %s' % e)
 
         self._pending.add(seq, True)
-        if self._rate_limiter is not None:
-            self._rate_limiter.take(1.0, now=time.time())
 
         log_event(
             _LOG,

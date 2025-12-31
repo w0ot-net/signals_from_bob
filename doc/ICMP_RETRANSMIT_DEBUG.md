@@ -45,7 +45,7 @@
 ## Next Steps
 - Apply Bob retransmit cooldown + ACK-stagnation gate and compare
   `tunnel.retransmit` vs `tunnel.retransmit_skip` counts.
-- Run a session with `icmp_max_pending=1` or `icmp_send_interval` set to slow polling
+- Run a session with `icmp_max_pending=1` or `tunnel_send_rate` set to slow polling
   and compare retransmit counts to confirm the poll-cadence hypothesis.
 - Add send-window distance guard: block new sends when
   `(next_seq - last_cum_ack) >= max_in_flight` to prevent out-of-window drops.

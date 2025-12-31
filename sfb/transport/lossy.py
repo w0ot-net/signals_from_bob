@@ -213,6 +213,14 @@ class LossyTransport(Transport):
     def max_pending(self):
         return self._inner.max_pending
 
+    def can_send(self):
+        if self.pending_count() >= self.max_pending:
+            return False
+        inner_can = getattr(self._inner, 'can_send', None)
+        if inner_can is None:
+            return True
+        return inner_can()
+
     def pending_count(self):
         # Include packets we "sent" but dropped
         return self._inner.pending_count() + len(self._dropped_ids)

@@ -15,7 +15,7 @@ import socket
 import struct
 import time
 
-from ..transport_base import Transport, TransportError, PendingTracker, TokenBucket
+from ..transport_base import Transport, TransportError, PendingTracker
 from . import codec
 from .dns_utils import load_system_resolvers
 from ...compat import require_bytes
@@ -117,13 +117,6 @@ class DnsClient(Transport):
         self._pending = PendingTracker(self._pending_timeout)
         self._dns_to_corr = {}  # dns_id -> corr_id
 
-        # Rate limiting (token bucket)
-        self._qps_limit = config.dns_queries_per_second
-        if self._qps_limit > 0:
-            self._rate_limiter = TokenBucket(self._qps_limit)
-        else:
-            self._rate_limiter = None
-
     @property
     def send_mtu(self):
         return self._send_mtu
@@ -154,9 +147,7 @@ class DnsClient(Transport):
         """
         if self.pending_count() >= self._max_pending:
             return False
-        if self._rate_limiter is None:
-            return True  # Unlimited
-        return self._rate_limiter.can_take(1.0, now=time.time())
+        return True
 
     def send(self, data):
         """
@@ -182,7 +173,7 @@ class DnsClient(Transport):
                     'max_pending': self._max_pending,
                 },
             )
-            raise TransportError('Rate limit exceeded or too many pending queries')
+            raise TransportError('Too many pending queries')
         data = require_bytes(data)
         if len(data) > self._send_mtu:
             raise TransportError(
@@ -211,10 +202,6 @@ class DnsClient(Transport):
         pending = _PendingQuery(dns_id, query_pkt, query_name.lower())
         self._pending.add(corr_id, pending)
         self._dns_to_corr[dns_id] = corr_id
-
-        # Consume a token for rate limiting
-        if self._rate_limiter is not None:
-            self._rate_limiter.take(1.0, now=time.time())
 
         log_event(
             _LOG,

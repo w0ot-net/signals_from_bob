@@ -239,6 +239,33 @@ class TokenBucket(object):
         return False
 
 
+class RateLimiter(object):
+    """
+    Transport-agnostic rate limiter wrapper around TokenBucket.
+
+    Used by higher layers (e.g., tunnel) to gate send pacing independently
+    from transport-specific constraints.
+    """
+
+    def __init__(self, rate_per_sec, burst=None):
+        self._enabled = rate_per_sec is not None and float(rate_per_sec) > 0
+        if not self._enabled:
+            self._bucket = None
+            return
+        capacity = burst if burst is not None else rate_per_sec
+        self._bucket = TokenBucket(rate_per_sec, capacity=capacity)
+
+    def can_send(self, amount=1.0, now=None):
+        if not self._enabled:
+            return True
+        return self._bucket.can_take(amount, now=now)
+
+    def consume(self, amount=1.0, now=None):
+        if not self._enabled:
+            return True
+        return self._bucket.take(amount, now=now)
+
+
 class PendingTracker(object):
     """
     Tracks pending requests with timeouts.

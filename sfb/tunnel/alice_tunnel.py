@@ -26,6 +26,7 @@ from ..protocol import (
     PACKET_HEADER_SIZE,
 )
 from ..reliability import RttEstimator
+from ..transport.transport_base import RateLimiter
 from ..logging_util import log_event
 
 
@@ -98,6 +99,12 @@ class AliceTunnel(BaseTunnel):
         self._last_window_request_time = 0
         self._last_ack_progress_time = 0
         self._ack_progressed = False
+
+        # Transport-agnostic send rate limiter
+        self._send_limiter = RateLimiter(
+            config.tunnel_send_rate,
+            burst=config.tunnel_send_burst,
+        )
 
         # Enable module loader for handling Bob's module requests.
         self.enable_module_loader()
@@ -460,6 +467,19 @@ class AliceTunnel(BaseTunnel):
                 blocked_fields,
             )
             return False
+        if self._send_limiter is not None and not self._send_limiter.can_send(now=time.time()):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Send rate limited',
+                {
+                    'side': 'alice',
+                    'rate': self._config.tunnel_send_rate,
+                    'burst': self._config.tunnel_send_burst,
+                },
+            )
+            return False
         can_send = self._transport.can_send()
         if not can_send:
             fields = {'side': 'alice'}
@@ -481,6 +501,19 @@ class AliceTunnel(BaseTunnel):
 
     def _can_send_retransmit(self):
         """Check if we can send a retransmit packet."""
+        if self._send_limiter is not None and not self._send_limiter.can_send(now=time.time()):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Retransmit rate limited',
+                {
+                    'side': 'alice',
+                    'rate': self._config.tunnel_send_rate,
+                    'burst': self._config.tunnel_send_burst,
+                },
+            )
+            return False
         can_send = self._transport.can_send()
         if not can_send:
             fields = {'side': 'alice'}
@@ -504,6 +537,20 @@ class AliceTunnel(BaseTunnel):
         """Send a new packet with given segments."""
         packet, seq = self._build_packet(segments=segments)
         packet_data = self._encode_packet(packet)
+
+        if self._send_limiter is not None and not self._send_limiter.consume(now=time.time()):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Send rate limited before transmit',
+                {
+                    'side': 'alice',
+                    'rate': self._config.tunnel_send_rate,
+                    'burst': self._config.tunnel_send_burst,
+                },
+            )
+            return
 
         self._send_window.send(segments, now=now)
         self._transport.send(packet_data)
@@ -532,6 +579,20 @@ class AliceTunnel(BaseTunnel):
         """Retransmit a packet."""
         packet = self._rebuild_packet(seq, segments)
         packet_data = self._encode_packet(packet)
+
+        if self._send_limiter is not None and not self._send_limiter.consume(now=time.time()):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Retransmit rate limited before transmit',
+                {
+                    'side': 'alice',
+                    'rate': self._config.tunnel_send_rate,
+                    'burst': self._config.tunnel_send_burst,
+                },
+            )
+            return
 
         self._send_window.mark_retransmit(seq, now=now)
         self._transport.send(packet_data)

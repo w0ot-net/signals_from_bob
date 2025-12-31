@@ -50,8 +50,6 @@ class Config:
     dns_cname_label: str = "0"
     # IPv4 address returned for CNAME follow-up A queries
     dns_cname_a_addr: str = "0.0.0.0"
-    # Maximum DNS queries per second (0 = unlimited)
-    dns_queries_per_second: float = 600.0
 
     # --- ICMP Transport ---
     # Target host/IP for Alice
@@ -62,8 +60,6 @@ class Config:
     icmp_max_pending: int = 32
     # Timeout before considering an ICMP request stale (seconds)
     icmp_pending_timeout: float = 1.0
-    # Minimum seconds between ICMP sends (0 = unlimited)
-    icmp_send_interval: float = 0.0
 
     # --- Crypto ---
     # Encryption mode: 'none', 'xor', 'rc4'
@@ -116,6 +112,10 @@ class Config:
     tunnel_bob_poll_ewma_alpha: float = 0.2
     # Alice: sleep between ticks when running (seconds)
     tunnel_tick_sleep: float = 0.001
+    # Alice: max send rate (packets per second, 0 = unlimited)
+    tunnel_send_rate: float = 0.0
+    # Alice: burst capacity for send rate (packets, None=rate)
+    tunnel_send_burst: Optional[float] = None
     # Bob: poll interval while waiting for connection (seconds)
     tunnel_connect_poll_interval: float = 0.1
     # Small timeout for "non-blocking" polls to prevent busy loops (seconds)
@@ -251,8 +251,6 @@ class Config:
             raise ValueError("dns_edns_size must be <= %d" % DNS_STANDARD_SIZE)
         if self.dns_recv_bufsize_min < DNS_STANDARD_SIZE:
             raise ValueError("dns_recv_bufsize_min must be >= %d" % DNS_STANDARD_SIZE)
-        if self.dns_queries_per_second < 0:
-            raise ValueError("dns_queries_per_second must be >= 0")
         if self.dns_label_max_len < 4 or self.dns_label_max_len > 63:
             raise ValueError("dns_label_max_len must be 4-63")
         if not self.dns_cname_label or '.' in self.dns_cname_label:
@@ -269,8 +267,6 @@ class Config:
             raise ValueError("icmp_max_pending must be >= 1")
         if self.icmp_pending_timeout <= 0:
             raise ValueError("icmp_pending_timeout must be > 0")
-        if self.icmp_send_interval < 0:
-            raise ValueError("icmp_send_interval must be >= 0")
 
         # Crypto validation
         if self.crypto_mode not in ("none", "xor", "rc4"):
@@ -307,6 +303,11 @@ class Config:
             raise ValueError("tunnel_bob_poll_interval_bg must be > 0")
         if self.tunnel_tick_sleep < 0:
             raise ValueError("tunnel_tick_sleep must be >= 0")
+        if self.tunnel_send_rate < 0:
+            raise ValueError("tunnel_send_rate must be >= 0")
+        if (self.tunnel_send_burst is not None and
+                self.tunnel_send_burst <= 0):
+            raise ValueError("tunnel_send_burst must be > 0 or None")
         if self.tunnel_connect_poll_interval <= 0:
             raise ValueError("tunnel_connect_poll_interval must be > 0")
 

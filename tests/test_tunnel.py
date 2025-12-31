@@ -306,6 +306,27 @@ class _PairedBobServer(Server):
         self._pair._bob_event.set()
 
 
+class AliceRateLimitTest(unittest.TestCase):
+    def test_can_send_new_respects_limiter(self):
+        config = make_test_config(
+            tunnel_send_rate=1.0,
+            tunnel_send_burst=1.0,
+        )
+        transport = MockTransport()
+        alice = AliceTunnel(transport, config, crypto=Plain())
+        alice._state = TunnelState.CONNECTED
+
+        limiter = alice._send_limiter
+        limiter._bucket._tokens = 0.0
+        limiter._bucket._last_refill = time.time()
+
+        self.assertFalse(alice._can_send_new())
+
+        limiter._bucket._tokens = 0.0
+        limiter._bucket._last_refill = time.time() - 2.0
+        self.assertTrue(alice._can_send_new())
+
+
 class BaseTunnelTests(unittest.TestCase):
     def test_initial_state_disconnected(self):
         tunnel = BaseTunnel(make_test_config())

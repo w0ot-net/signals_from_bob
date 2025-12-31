@@ -134,11 +134,6 @@ def add_dns_client_args(parser, config):
         default=config.dns_resolver,
         help='DNS resolver as host:port (default: auto-detect system resolver)'
     )
-    parser.add_argument(
-        '--qps', type=float, default=config.dns_queries_per_second,
-        help='Max DNS queries per second (default: %s, 0=unlimited)' %
-             config.dns_queries_per_second
-    )
 
 
 def add_icmp_common_args(parser, config):
@@ -158,10 +153,20 @@ def add_icmp_client_args(parser, config, require_target=True):
         required=require_target,
         help='ICMP target host or IP for client'
     )
+
+
+def add_client_pacing_args(parser, config):
+    """Add transport-agnostic client pacing arguments."""
     parser.add_argument(
-        '--icmp_send_interval', type=float, default=config.icmp_send_interval,
-        help='Minimum seconds between ICMP sends (default: %s)' %
-             config.icmp_send_interval
+        '--send_rate', type=float, default=config.tunnel_send_rate,
+        help='Max packets per second from Alice (0=unlimited, default: %s)' %
+             config.tunnel_send_rate
+    )
+    parser.add_argument(
+        '--send_burst', type=float, default=config.tunnel_send_burst,
+        help='Burst capacity for send rate (packets, default: %s)' %
+             (config.tunnel_send_burst if config.tunnel_send_burst is not None else
+              'same as send_rate')
     )
 
 
@@ -224,6 +229,8 @@ def parse_args(args=None):
         add_icmp_common_args(parser, config_defaults)
         if role == 'client':
             add_icmp_client_args(parser, config_defaults, require_target=True)
+    if role == 'client':
+        add_client_pacing_args(parser, config_defaults)
 
     # Server-specific args
     if role == 'server':
@@ -257,14 +264,14 @@ def create_config(args):
             config_kwargs['tunnel_idle_timeout'] = float(args.idle_timeout)
         else:
             config_kwargs['dns_resolver'] = getattr(args, 'resolver', None)
-            config_kwargs['dns_queries_per_second'] = getattr(args, 'qps', None)
     elif args.transport == 'icmp':
         config_kwargs['icmp_payload_mtu'] = getattr(args, 'icmp_mtu', None)
         if args.role == 'client':
             config_kwargs['icmp_target'] = getattr(args, 'icmp_target', None)
-            config_kwargs['icmp_send_interval'] = getattr(
-                args, 'icmp_send_interval', None
-            )
+
+    if args.role == 'client':
+        config_kwargs['tunnel_send_rate'] = getattr(args, 'send_rate', None)
+        config_kwargs['tunnel_send_burst'] = getattr(args, 'send_burst', None)
 
     # Server-specific
     if args.role == 'server':

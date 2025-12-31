@@ -140,11 +140,12 @@ Proposed config fields (final names TBD):
 - `icmp_payload_mtu`: max SFB packet size to send/receive (default conservative)
 - `icmp_max_pending`: max concurrent ICMP requests in flight
 - `icmp_pending_timeout`: timeout before pruning stale ICMP requests
-- `icmp_send_interval`: optional pacing for Alice sends
+- `tunnel_send_rate` / `tunnel_send_burst`: transport-agnostic pacing for Alice polls
 
 CLI:
 - `--transport icmp`
 - Alice: `--icmp_target <host>`
+- Alice pacing (all transports): `--send_rate`, `--send_burst`
 - Bob: likely no extra args beyond listen defaults
 
 ---

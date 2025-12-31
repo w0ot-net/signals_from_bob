@@ -259,12 +259,13 @@ class SocksServerModule(BaseModule):
 
             except Exception as e:
                 if self._running:
-                    self._logger.exception(
-                        'Accept error: %s', e,
-                        extra={
-                            'event': 'sock.server_accept_error',
-                            'fields': {'error': str(e)},
-                        },
+                    log_event(
+                        self._logger,
+                        logging.ERROR,
+                        'sock.server_accept_error',
+                        'Accept error',
+                        {'error': str(e)},
+                        exc_info=True,
                     )
                     time.sleep(backoff)
                     backoff = min(backoff * 2.0, max_backoff)
@@ -373,12 +374,13 @@ class SocksServerModule(BaseModule):
                 {'rid': rid, 'error': str(e)},
             )
         except Exception as e:
-            self._logger.exception(
-                'Client handler error (rid=%d): %s', rid, e,
-                extra={
-                    'event': 'sock.server_client_error',
-                    'fields': {'rid': rid, 'error': str(e)},
-                },
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'sock.server_client_error',
+                'Client handler error',
+                {'rid': rid, 'error': str(e)},
+                exc_info=True,
             )
         finally:
             self._cleanup_connection(rid)

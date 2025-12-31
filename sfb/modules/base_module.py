@@ -149,9 +149,13 @@ class BaseModule(object):
         try:
             self.unregister()
         except Exception:
-            self._logger.exception(
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'module.unregister_failed',
                 'Failed to unregister module',
-                extra={'event': 'module.unregister_failed', 'fields': {'type': self.TYPE}},
+                {'type': self.TYPE},
+                exc_info=True,
             )
         with self._threads_lock:
             threads = list(self._threads)
@@ -244,12 +248,13 @@ class BaseModule(object):
         try:
             handler(msg)
         except Exception as e:
-            self._logger.exception(
-                'Handler error: %s', e,
-                extra={
-                    'event': 'module.handler_error',
-                    'fields': {'type': self.TYPE, 'error': str(e)},
-                },
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'module.handler_error',
+                'Handler error',
+                {'type': self.TYPE, 'error': str(e)},
+                exc_info=True,
             )
 
 

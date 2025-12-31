@@ -235,18 +235,21 @@ class SocksRelayModule(BaseModule):
                 self._pending_connects.discard(ch)
             return
         except Exception as e:
-            self._logger.exception(
-                'Unexpected error connecting to %s:%d', host, port,
-                extra={
-                    'event': 'sock.connect_err',
-                    'fields': {
-                        'rid': rid,
-                        'ch': ch,
-                        'code': 'general',
-                        'reason': str(e),
-                        'side': 'alice',
-                    },
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'sock.connect_err',
+                'Unexpected SOCKS connect error',
+                {
+                    'rid': rid,
+                    'ch': ch,
+                    'code': 'general',
+                    'reason': str(e),
+                    'side': 'alice',
+                    'host': host,
+                    'port': port,
                 },
+                exc_info=True,
             )
             self.send_message(sock_err(rid, ch, 'general', str(e)))
             channel.close()

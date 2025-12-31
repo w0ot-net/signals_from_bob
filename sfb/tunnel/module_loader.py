@@ -115,12 +115,13 @@ class ModuleLoader(object):
             )
             self._send(mod_load_ok(name))
         except Exception as e:
-            self._logger.exception(
-                'Failed to load module %s: %s', name, e,
-                extra={
-                    'event': 'module_loader.load_failed',
-                    'fields': {'module': name, 'error': to_native_str(e)},
-                },
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'module_loader.load_failed',
+                'Failed to load module',
+                {'module': name, 'error': to_native_str(e)},
+                exc_info=True,
             )
             self._send(mod_load_err(name, to_native_str(e)))
 
@@ -225,12 +226,13 @@ class ModuleLoader(object):
             try:
                 module.shutdown()
             except Exception:
-                self._logger.exception(
-                    'Error shutting down module %s', name,
-                    extra={
-                        'event': 'module_loader.shutdown_error',
-                        'fields': {'module': name},
-                    },
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'module_loader.shutdown_error',
+                    'Error shutting down module',
+                    {'module': name},
+                    exc_info=True,
                 )
         self._loaded_modules.clear()
         try:

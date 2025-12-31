@@ -381,9 +381,13 @@ def run_server_passive(args, tunnel, logger):
             'Error in serve loop',
             {'error': str(e)},
         )
-        logger.exception(
-            'Serve loop traceback:',
-            extra={'event': 'cli.traceback', 'fields': {'context': 'serve_loop'}},
+        log_event(
+            logger,
+            logging.ERROR,
+            'cli.traceback',
+            'Serve loop traceback',
+            {'context': 'serve_loop'},
+            exc_info=True,
         )
         return 1
     finally:
@@ -484,9 +488,13 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
             {'error': str(e)},
         )
         if args.verbose:
-            logger.exception(
-                'Full traceback:',
-                extra={'event': 'cli.traceback', 'fields': {'context': 'server_command'}},
+            log_event(
+                logger,
+                logging.ERROR,
+                'cli.traceback',
+                'Full traceback',
+                {'context': 'server_command'},
+                exc_info=True,
             )
         return 1
 
@@ -582,9 +590,13 @@ def run_client(args, config, crypto, logger):
             {'error': str(e)},
         )
         if args.verbose:
-            logger.exception(
-                'Full traceback:',
-                extra={'event': 'cli.traceback', 'fields': {'context': 'client'}},
+            log_event(
+                logger,
+                logging.ERROR,
+                'cli.traceback',
+                'Full traceback',
+                {'context': 'client'},
+                exc_info=True,
             )
         return 1
 

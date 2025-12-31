@@ -378,8 +378,21 @@ def download_via_socks(client_id, proxy_host, proxy_port, target_host,
         first_byte_time = None
 
         while True:
-            chunk = sock.recv(65536)
+            try:
+                chunk = sock.recv(65536)
+            except socket.timeout:
+                if content_length is not None and body_bytes < content_length:
+                    raise RuntimeError(
+                        'Timeout before body complete (%d/%d bytes)' %
+                        (body_bytes, content_length)
+                    )
+                break
             if not chunk:
+                if content_length is not None and body_bytes < content_length:
+                    raise RuntimeError(
+                        'Socket closed before body complete (%d/%d bytes)' %
+                        (body_bytes, content_length)
+                    )
                 break
             if first_byte_time is None:
                 first_byte_time = time.time()
@@ -643,8 +656,21 @@ def download_direct_http(host, port, request_path, timeout, file_size):
         body_bytes = 0
         first_byte_time = None
         while True:
-            chunk = sock.recv(65536)
+            try:
+                chunk = sock.recv(65536)
+            except socket.timeout:
+                if content_length is not None and body_bytes < content_length:
+                    raise RuntimeError(
+                        'Timeout before body complete (%d/%d bytes)' %
+                        (body_bytes, content_length)
+                    )
+                break
             if not chunk:
+                if content_length is not None and body_bytes < content_length:
+                    raise RuntimeError(
+                        'Socket closed before body complete (%d/%d bytes)' %
+                        (body_bytes, content_length)
+                    )
                 break
             if first_byte_time is None:
                 first_byte_time = time.time()

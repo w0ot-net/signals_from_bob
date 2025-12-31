@@ -14,7 +14,7 @@ import struct
 import time
 
 from ..transport_base import Server, TransportError
-from . import dns_codec as codec
+from . import codec
 from ...config import Config, DNS_STANDARD_SIZE
 from ...logging_util import get_logger, log_event
 

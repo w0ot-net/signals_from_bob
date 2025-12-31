@@ -55,15 +55,12 @@ LOG_PROFILES = {
     },
     # SOCKS channel starvation debugging (focused on fairness signals).
     'socks_starvation': {
-        'log_component_transport_dns': True,
         'log_component_tunnel': True,
         'log_component_channel': True,
         'log_component_module_socks': True,
         'log_event_whitelist': (
             'cli.*',
-            'dns.*',
             'sock.connect*',
-            'sock.server_*',
             'channel.open*',
             'channel.close*',
             'channel.drain',

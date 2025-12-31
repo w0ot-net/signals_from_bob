@@ -4,7 +4,7 @@ from __future__ import absolute_import
 import struct
 import unittest
 
-from sfb.transport.dns import dns_codec as codec
+from sfb.transport.dns import codec
 from sfb.transport.dns.dns_client import DnsClient
 from sfb.transport.dns.dns_server import DnsServer
 

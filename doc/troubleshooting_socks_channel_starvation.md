@@ -59,9 +59,7 @@ python3 -m sfb.cli --log-profile socks_starvation ...
 
 Whitelist:
 - `cli.*`
-- `dns.*`
 - `sock.connect*`
-- `sock.server_*`
 - `channel.open*`
 - `channel.close*`
 - `channel.drain`
@@ -89,18 +87,6 @@ short runs only.
 - Capture time-synced client/server logs to confirm channel ID mapping and flow
   direction.
 - Track per-channel `channel.drain` bytes per second for starvation patterns.
-
-## Latest results (socks_starvation default)
-
-In the newest logs, multiple channels are flowing concurrently:
-
-- Client side last ~10 minutes: `channel.drain` shows ch2 ~64.9MB and ch22
-  ~8.0MB, with additional non-zero bytes on ch12/ch20/ch26 and others.
-- Client side last ~60 seconds: ch2 ~8.27MB and ch22 ~7.77MB, indicating
-  concurrent throughput.
-- No recent `sock.connect` channels show zero bytes drained.
-- `tunnel.send_blocked` remains frequent under load, but no longer corresponds
-  to total starvation of other channels.
 
 ## Candidate fixes (later)
 

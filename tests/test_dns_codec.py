@@ -5,7 +5,7 @@ from __future__ import absolute_import
 
 import unittest
 
-from sfb.transport.dns import dns_codec as codec
+from sfb.transport.dns import codec
 
 
 class TestBase32(unittest.TestCase):

@@ -50,6 +50,8 @@
 5) Consistency pass
    - Standardize logger naming on the sfb.* namespace.
    - Avoid ad-hoc logger names in modules and services.
+6) Event filters
+   - Add structured event whitelist/blacklist patterns.
 
 ## Progress
 - [x] Phase 1: transport/dns component filter
@@ -57,3 +59,4 @@
 - [x] Phase 3: modules component filter
 - [x] Phase 4: protocol and misc loggers
 - [x] Consistency pass: logger naming
+- [x] Event whitelist/blacklist filter

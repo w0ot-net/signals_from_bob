@@ -158,6 +158,10 @@ class Config:
     log_component_channel: bool = False
     # Enable protocol logging (stdout + SQLite)
     log_component_protocol: bool = False
+    # Structured event whitelist (empty = allow all events)
+    log_event_whitelist: tuple = ()
+    # Structured event blacklist (empty = deny none)
+    log_event_blacklist: tuple = ()
     # Enable SOCKS module logging (stdout + SQLite)
     log_component_module_socks: bool = True
     # Enable file transfer module logging (stdout + SQLite)

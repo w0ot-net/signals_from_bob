@@ -5,6 +5,7 @@ Logging helpers for the tunnel codebase.
 
 from __future__ import absolute_import
 
+import fnmatch
 import logging
 import sys
 import threading
@@ -78,6 +79,12 @@ class ComponentFilter(logging.Filter):
 
     def __init__(self, config):
         logging.Filter.__init__(self)
+        self._event_whitelist = _normalize_patterns(
+            getattr(config, 'log_event_whitelist', ())
+        )
+        self._event_blacklist = _normalize_patterns(
+            getattr(config, 'log_event_blacklist', ())
+        )
         self._dns_enabled = bool(getattr(config, 'log_component_transport_dns', True))
         self._dns_event_prefix = 'dns.'
         self._dns_logger_prefixes = (
@@ -136,6 +143,10 @@ class ComponentFilter(logging.Filter):
             if not self._channel_enabled and event_text.startswith(self._channel_event_prefix):
                 return False
             if not self._module_socks_enabled and event_text.startswith(self._module_socks_event_prefix):
+                return False
+            if self._event_whitelist and not _match_any(event_text, self._event_whitelist):
+                return False
+            if self._event_blacklist and _match_any(event_text, self._event_blacklist):
                 return False
         name = getattr(record, 'name', '')
         if not self._dns_enabled and name.startswith(self._dns_logger_prefixes):
@@ -324,6 +335,30 @@ def _encode_fields(fields):
         return json.dumps(fields, ensure_ascii=True, sort_keys=True)
     except Exception:
         return _coerce_text(fields)
+
+
+def _normalize_patterns(patterns):
+    if not patterns:
+        return ()
+    if isinstance(patterns, text_type):
+        return (_coerce_text(patterns),)
+    try:
+        items = list(patterns)
+    except Exception:
+        return (_coerce_text(patterns),)
+    normalized = []
+    for item in items:
+        if item is None:
+            continue
+        normalized.append(_coerce_text(item))
+    return tuple(normalized)
+
+
+def _match_any(value, patterns):
+    for pattern in patterns:
+        if fnmatch.fnmatch(value, pattern):
+            return True
+    return False
 
 
 def _ensure_log_columns(cursor):

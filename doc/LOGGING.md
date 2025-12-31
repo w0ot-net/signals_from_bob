@@ -32,6 +32,17 @@ Current toggles:
 Set the default in `sfb/config.py`, or pass to `Config(...)` when embedding.
 Logger names are standardized under the `sfb.*` namespace for consistency.
 
+## Event Whitelist/Blacklist (structured events only)
+
+You can filter structured events (those emitted via `log_event`) by pattern:
+- `log_event_whitelist`: tuple of wildcard patterns to allow.
+- `log_event_blacklist`: tuple of wildcard patterns to deny.
+
+Matching uses `fnmatch` wildcards (for example, `tunnel.mtu*`).
+If the whitelist is non-empty, only matching events are emitted.
+Blacklist is applied after whitelist.
+Plain logger messages without an `event` field are not affected.
+
 ## Schema
 
 Table: `logs`

@@ -45,12 +45,22 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
         buffer_full_count = 0
         sleep_time = 0.0
         backoff = config.non_blocking_poll_timeout
-        max_backoff = max(config.socks_relay_socket_timeout, backoff)
+        max_backoff = max(config.socks_pump_backoff_max, backoff)
         last_stats = time.time()
         while not stop_event.is_set():
             try:
                 if not pending:
-                    pending = sock.recv(config.socks_relay_buffer_size)
+                    available = config.channel_max_send_buf - channel.send_buf_size
+                    if available <= 0:
+                        buffer_full_count += 1
+                        sleep_time += backoff
+                        time.sleep(backoff)
+                        backoff = min(backoff * 2.0, max_backoff)
+                        continue
+                    read_size = config.socks_relay_buffer_size
+                    if available < read_size:
+                        read_size = available
+                    pending = sock.recv(read_size)
             except socket.timeout:
                 time.sleep(config.non_blocking_poll_timeout)
                 continue

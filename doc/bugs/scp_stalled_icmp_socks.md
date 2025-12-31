@@ -45,9 +45,8 @@ quiet gaps between bursts and prints "stalled" even though bytes are still movin
 - ICMP replies were mostly full-size (1200 bytes) and retransmits were low, so the
   primary constraint is poll rate + backpressure, not packet loss.
 
-## Potential smoothing changes (not yet applied)
-- Read only what fits in the channel buffer in the SOCKS pump to avoid single
-  reads filling the send buffer.
-- Cap the SOCKS pump backoff to avoid long sleep gaps when the buffer drains.
-- Reduce `socks_relay_buffer_size` and increase `channel_max_send_buf` to favor
-  smaller writes and steadier pacing.
+## Smoothing changes applied (pending validation)
+- Read only what fits in the channel buffer before each SOCKS recv.
+- Cap SOCKS pump backoff at 0.05s to reduce long sleep gaps.
+- Increase `channel_max_send_buf` to 32768 and reduce
+  `socks_relay_buffer_size` to 2048 for steadier pacing.

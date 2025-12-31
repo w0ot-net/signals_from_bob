@@ -48,6 +48,7 @@ Available profiles (current):
 - `icmp_retransmit_debug` (default)
 - `icmp_transport`
 - `dns_transport`
+- `socks_starvation` (focused SOCKS channel fairness signals)
 - `tunnel_verbose`
 
 ## Event Whitelist/Blacklist (structured events only)

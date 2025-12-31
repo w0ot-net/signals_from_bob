@@ -48,12 +48,16 @@ single-channel dominance with other channels barely moving.
 - Asymmetry: Bob throughput is bounded by Alice poll rate, so one heavy channel
   may consume the available poll budget and starve others.
 
-## Logging profile ideas
+## Logging profile
 
-We should add a focused profile for this issue to reduce log volume while
-preserving per-channel flow signals.
+Use the `socks_starvation` profile to reduce log volume while preserving
+per-channel flow signals:
 
-Suggested whitelist:
+```
+python3 -m sfb.cli --log-profile socks_starvation ...
+```
+
+Whitelist:
 - `cli.*`
 - `sock.connect*`
 - `channel.open*`
@@ -62,11 +66,12 @@ Suggested whitelist:
 - `tunnel.send_blocked`
 - `tunnel.send_window_distance`
 - `tunnel.send_window_full`
+- `tunnel.send_window_inconsistent`
 - `tunnel.retransmit*`
 - `tunnel.state`
 - `tunnel.window_*`
 
-Suggested blacklist (keep suppressed unless needed):
+Blacklist (keep suppressed unless needed):
 - `tunnel.packet_*`
 - `channel.pack`
 - `channel.send_buf_*`

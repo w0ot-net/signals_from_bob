@@ -53,6 +53,32 @@ LOG_PROFILES = {
     'dns_transport': {
         'log_component_transport_dns': True,
     },
+    # SOCKS channel starvation debugging (focused on fairness signals).
+    'socks_starvation': {
+        'log_component_tunnel': True,
+        'log_component_channel': True,
+        'log_component_module_socks': True,
+        'log_event_whitelist': (
+            'cli.*',
+            'sock.connect*',
+            'channel.open*',
+            'channel.close*',
+            'channel.drain',
+            'tunnel.send_blocked',
+            'tunnel.send_window_distance',
+            'tunnel.send_window_full',
+            'tunnel.send_window_inconsistent',
+            'tunnel.retransmit*',
+            'tunnel.state',
+            'tunnel.window_*',
+        ),
+        'log_event_blacklist': (
+            'tunnel.packet_*',
+            'channel.pack',
+            'channel.send_buf_*',
+            'sock.pump_stats',
+        ),
+    },
     # Broad tunnel debugging (turns on protocol/channel and clears blacklist).
     'tunnel_verbose': {
         'log_component_tunnel': True,

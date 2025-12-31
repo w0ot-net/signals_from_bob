@@ -213,7 +213,6 @@ class BaseTunnel(object):
         """Transition to a new state."""
         old_state = self._state
         self._state = new_state
-        self._logger.debug('State: %s -> %s', old_state, new_state)
         log_event(
             self._logger,
             logging.DEBUG,
@@ -345,8 +344,6 @@ class BaseTunnel(object):
         )
         unacked_after = len(self._send_window._unacked)
         if unacked_before != unacked_after or unacked_after > 0:
-            self._logger.debug('ACK=%d SACK=0x%x: unacked %d->%d',
-                              packet.ack, packet.sack, unacked_before, unacked_after)
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -363,13 +360,23 @@ class BaseTunnel(object):
         # Pass through recv_window for ordering and deduplication
         # recv_window.receive() returns list of (seq, packet) ready for delivery
         ready_packets = self._recv_window.receive(packet.seq, packet)
-        self._logger.debug('recv_window returned %d ready packets for seq=%d',
-                          len(ready_packets), packet.seq)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.recv_window',
+            'recv_window ready packets',
+            {'seq': packet.seq, 'ready': len(ready_packets)},
+        )
 
         # Deliver segments from in-order packets only
         for seq, ready_packet in ready_packets:
-            self._logger.debug('Delivering %d segments from seq=%d',
-                              len(ready_packet.segments), seq)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.deliver_segments',
+                'Delivering segments',
+                {'seq': seq, 'segments': len(ready_packet.segments)},
+            )
             for segment in ready_packet.segments:
                 self._channel_manager.deliver_segment(segment)
 
@@ -390,14 +397,32 @@ class BaseTunnel(object):
                 if msg is None:
                     break
                 count += 1
-                self._logger.debug('Dispatching control msg: %s', msg)
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.control_dispatch',
+                    'Dispatching control message',
+                    {'t': msg.get('t'), 'c': msg.get('c')},
+                )
                 self._dispatch_control_message(msg)
             except ChannelError as e:
                 # Invalid JSON - log and drop
-                self._logger.warning('Invalid control message: %s', e)
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.control_invalid',
+                    'Invalid control message',
+                    {'error': str(e)},
+                )
                 break
         if count > 0:
-            self._logger.debug('Processed %d control messages', count)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.control_processed',
+                'Processed control messages',
+                {'count': count},
+            )
 
     def register_module(self, type_code, handler):
         """
@@ -415,7 +440,13 @@ class BaseTunnel(object):
         if type_code in self._module_handlers:
             raise ValueError('Handler already registered: %s' % type_code)
         self._module_handlers[type_code] = handler
-        self._logger.debug('Registered module handler: %s', type_code)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.module_register',
+            'Registered module handler',
+            {'type': type_code},
+        )
 
     def unregister_module(self, type_code):
         """
@@ -429,7 +460,13 @@ class BaseTunnel(object):
         """
         if type_code in self._module_handlers:
             del self._module_handlers[type_code]
-            self._logger.debug('Unregistered module handler: %s', type_code)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.module_unregister',
+                'Unregistered module handler',
+                {'type': type_code},
+            )
             return True
         return False
 
@@ -454,7 +491,13 @@ class BaseTunnel(object):
         cmd = msg.get('c')
 
         if not msg_type or not cmd:
-            self._logger.debug('Invalid control message: missing t or c')
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.control_invalid',
+                'Invalid control message',
+                {'reason': 'missing t or c'},
+            )
             return
 
         if msg_type == 'tun':
@@ -465,9 +508,21 @@ class BaseTunnel(object):
             try:
                 self._module_handlers[msg_type](msg)
             except Exception as e:
-                self._logger.warning('Module %s error: %s', msg_type, e)
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.module_error',
+                    'Module handler error',
+                    {'type': msg_type, 'error': str(e)},
+                )
         else:
-            self._logger.debug('Unknown message type: %s', msg_type)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.control_unknown',
+                'Unknown message type',
+                {'type': msg_type},
+            )
 
     def _handle_tunnel_message(self, cmd, msg):
         """
@@ -475,7 +530,13 @@ class BaseTunnel(object):
 
         Commands: ping, pong, mtu, mtu_ok, window, window_ok
         """
-        self._logger.debug('_handle_tunnel_message: cmd=%s', cmd)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.command',
+            'Tunnel command received',
+            {'cmd': cmd},
+        )
         if cmd == 'ping':
             self._handle_ping(msg)
         elif cmd == 'pong':
@@ -492,7 +553,13 @@ class BaseTunnel(object):
         elif cmd == 'window_ok':
             self._handle_window_ok(msg)
         else:
-            self._logger.debug('Unknown tunnel command: %s', cmd)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.command_unknown',
+                'Unknown tunnel command',
+                {'cmd': cmd},
+            )
 
     def _handle_channel_message(self, cmd, msg):
         """
@@ -518,7 +585,13 @@ class BaseTunnel(object):
         requested_rx = msg.get('rx', self._default_mtu)
         if (not isinstance(requested_tx, integer_types) or requested_tx < 1 or
                 not isinstance(requested_rx, integer_types) or requested_rx < 1):
-            self._logger.warning('Invalid MTU request: %s', msg)
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.mtu_invalid',
+                'Invalid MTU request',
+                {'msg': msg},
+            )
             return
         log_event(
             self._logger,
@@ -539,10 +612,6 @@ class BaseTunnel(object):
 
         # Send confirmation (using small packets still)
         self.control.send_message(tun_mtu_ok(agreed_send, agreed_recv))
-        self._logger.debug('MTU recv updated: %d (tx=%d rx=%d), awaiting ack',
-                           agreed_recv, agreed_send, agreed_recv)
-        self._logger.info('MTU negotiate: recv=%d send(pending)=%d',
-                          agreed_recv, agreed_send)
         log_event(
             self._logger,
             logging.INFO,
@@ -561,7 +630,13 @@ class BaseTunnel(object):
         agreed_rx = msg.get('rx', self._default_mtu)
         if (not isinstance(agreed_tx, integer_types) or agreed_tx < 1 or
                 not isinstance(agreed_rx, integer_types) or agreed_rx < 1):
-            self._logger.warning('Invalid MTU response: %s', msg)
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.mtu_invalid',
+                'Invalid MTU response',
+                {'msg': msg},
+            )
             return
 
         # Clamp to our transport limits.
@@ -577,10 +652,6 @@ class BaseTunnel(object):
 
         # Send ack so Bob knows he can also start sending larger packets
         self.control.send_message(tun_mtu_ack())
-        self._logger.debug('MTU negotiated: tx=%d rx=%d, sent ack',
-                           agreed_send, agreed_recv)
-        self._logger.info('MTU negotiated: send=%d recv=%d',
-                          agreed_send, agreed_recv)
         log_event(
             self._logger,
             logging.INFO,
@@ -600,9 +671,6 @@ class BaseTunnel(object):
             self._negotiated_send_mtu = self._pending_send_mtu
             self._pending_send_mtu = None
         self._mtu_negotiated = True
-        self._logger.debug('MTU ack received, send MTU now: %d', self._send_mtu)
-        self._logger.info('MTU ack applied: send=%d recv=%d',
-                          self._send_mtu, self._recv_mtu)
         log_event(
             self._logger,
             logging.INFO,
@@ -617,10 +685,15 @@ class BaseTunnel(object):
 
         Responds with window_ok containing min(requested, our_max, 64).
         """
-        self._logger.debug('RECV window request: %s', msg)
         requested = msg.get('size', self._default_window)
         if not isinstance(requested, integer_types) or requested < 1:
-            self._logger.warning('Invalid window request: %s', requested)
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.window_invalid',
+                'Invalid window request',
+                {'size': requested},
+            )
             return
         log_event(
             self._logger,
@@ -640,7 +713,6 @@ class BaseTunnel(object):
 
         # Send confirmation
         self.control.send_message(tun_window_ok(agreed))
-        self._logger.debug('SEND window_ok: %d (requested %d)', agreed, requested)
         log_event(
             self._logger,
             logging.INFO,
@@ -655,10 +727,15 @@ class BaseTunnel(object):
 
         Updates negotiated_window and send_window limit.
         """
-        self._logger.debug('RECV window_ok: %s', msg)
         agreed = msg.get('size', self._default_window)
         if not isinstance(agreed, integer_types) or agreed < 1:
-            self._logger.warning('Invalid window response: %s', agreed)
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.window_invalid',
+                'Invalid window response',
+                {'size': agreed},
+            )
             return
 
         self._negotiated_window = agreed
@@ -666,7 +743,6 @@ class BaseTunnel(object):
 
         # Update send window limit
         self._send_window._max_in_flight = agreed
-        self._logger.debug('Window updated to: %d', agreed)
         log_event(
             self._logger,
             logging.INFO,

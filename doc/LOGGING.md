@@ -47,6 +47,11 @@ Default blacklist (to reduce high-volume debug events):
 - `tunnel.packet_*`
 - `tunnel.ack`
 - `tunnel.send_blocked`
+- `tunnel.recv_window`
+- `tunnel.deliver_segments`
+- `tunnel.control_dispatch`
+- `tunnel.control_processed`
+- `tunnel.command`
 - `channel.pack`
 - `channel.send_buf_*`
 - `dns.send`

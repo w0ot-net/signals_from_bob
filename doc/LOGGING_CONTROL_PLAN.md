@@ -53,6 +53,8 @@
 6) Event filters
    - Add structured event whitelist/blacklist patterns.
    - Default blacklist suppresses high-volume debug events.
+7) Structured conversion
+   - Convert high-volume unstructured logs to structured events.
 
 ## Progress
 - [x] Phase 1: transport/dns component filter
@@ -61,3 +63,4 @@
 - [x] Phase 4: protocol and misc loggers
 - [x] Consistency pass: logger naming
 - [x] Event whitelist/blacklist filter
+- [x] Structured conversion: base_tunnel debug logs

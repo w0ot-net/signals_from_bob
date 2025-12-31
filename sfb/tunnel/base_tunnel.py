@@ -300,7 +300,23 @@ class BaseTunnel(object):
             decrypted = self._decrypt(data)
             return Packet.decode(decrypted, max_size=max_size)
         except (ValueError, TypeError) as e:
-            self._logger.warning('Failed to decode packet: %s', e)
+            fields = {
+                'error': str(e),
+                'side': 'alice' if self._is_initiator else 'bob',
+            }
+            if max_size is not None:
+                fields['max_size'] = max_size
+            try:
+                fields['bytes'] = len(data)
+            except Exception:
+                pass
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.packet_decode_failed',
+                'Packet decode failed',
+                fields,
+            )
             return None
 
     def _process_incoming_packet(self, packet, now=None):
@@ -807,7 +823,17 @@ class BaseTunnel(object):
             self._run_loop()
         except Exception as e:
             if not self._bg_stop:
-                self._logger.exception('Background loop error: %s', e)
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'tunnel.bg_error',
+                    'Background loop error',
+                    {
+                        'error': str(e),
+                        'side': 'alice' if self._is_initiator else 'bob',
+                    },
+                    exc_info=True,
+                )
 
     def _run_loop(self):
         """
@@ -827,7 +853,13 @@ class BaseTunnel(object):
         if self._module_loader is not None:
             self._module_loader.shutdown()
         self._set_state(TunnelState.CLOSED)
-        self._logger.info('Tunnel closed')
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.closed',
+            'Tunnel closed',
+            {'side': 'alice' if self._is_initiator else 'bob'},
+        )
 
     def enable_module_loader(self, logger=None):
         """Enable and return the module loader service."""

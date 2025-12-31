@@ -92,6 +92,25 @@ Indexes:
 Current structured events (non-exhaustive):
 
 - `tunnel.state`
+- `tunnel.init`
+- `tunnel.wait`
+- `tunnel.connected`
+- `tunnel.handshake_attempt`
+- `tunnel.handshake_synack_sent`
+- `tunnel.handshake_error`
+- `tunnel.handshake_timeout`
+- `tunnel.idle_timeout`
+- `tunnel.packet_decode_failed`
+- `tunnel.request_state_unexpected`
+- `tunnel.send_window_inconsistent`
+- `tunnel.ack_send_failed`
+- `tunnel.timeout_packets`
+- `tunnel.tick_error`
+- `tunnel.bg_error`
+- `tunnel.closed`
+- `tunnel.message_type_allowed`
+- `tunnel.message_type_rejected`
+- `tunnel.serve_error`
 - `tunnel.packet_send`
 - `tunnel.packet_recv`
 - `tunnel.retransmit`
@@ -108,6 +127,7 @@ Current structured events (non-exhaustive):
 - `channel.close`
 - `channel.close_in`
 - `channel.close_ok`
+- `channel.unknown_segment`
 - `channel.send_buf_full`
 - `channel.send_buf_high`
 - `channel.pack`
@@ -118,6 +138,7 @@ Current structured events (non-exhaustive):
 - `dns.recv`
 - `dns.send_empty` (reason: `qtype_mismatch`, `decode_failed`)
 - `dns.cname_followup`
+- `dns.cname_invalid_addr`
 - `dns.error_response`
 - `dns.malformed_response`
 - `dns.stale_response`

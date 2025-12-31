@@ -198,7 +198,16 @@ class ChannelManager(object):
             channel = self._channels.get(channel_id)
 
         if channel is None:
-            logger.warning('Segment for unknown channel %d, ignoring', channel_id)
+            log_event(
+                logger,
+                logging.WARNING,
+                'channel.unknown_segment',
+                'Segment for unknown channel',
+                {
+                    'ch': channel_id,
+                    'side': 'alice' if self._is_alice else 'bob',
+                },
+            )
             return
 
         channel._deliver(segment.data)

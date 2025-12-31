@@ -103,9 +103,12 @@ class DnsServer(Server):
         try:
             self._cname_a_addr_bytes = socket.inet_aton(self._cname_a_addr)
         except (socket.error, OSError):
-            self._logger.warning(
-                'dns invalid cname_a_addr=%r, using 0.0.0.0',
-                self._cname_a_addr
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'dns.cname_invalid_addr',
+                'Invalid cname_a_addr, using 0.0.0.0',
+                {'addr': self._cname_a_addr},
             )
             self._cname_a_addr_bytes = b'\x00\x00\x00\x00'
         if self._payload_cap is not None:

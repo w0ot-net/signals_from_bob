@@ -137,7 +137,13 @@ class AliceTunnel(BaseTunnel):
                 raise TunnelError('Tunnel closed during handshake')
 
             attempt += 1
-            self._logger.debug('Handshake attempt %d', attempt)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.handshake_attempt',
+                'Handshake attempt',
+                {'attempt': attempt, 'side': 'alice'},
+            )
 
             # Build SYN packet
             syn_packet = Packet(
@@ -191,7 +197,13 @@ class AliceTunnel(BaseTunnel):
                 # Check if tunnel was closed during handshake
                 if self._state == TunnelState.CLOSED:
                     raise TunnelError('Tunnel closed during handshake')
-                self._logger.warning('Handshake error: %s', e)
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.handshake_error',
+                    'Handshake error',
+                    {'error': str(e), 'side': 'alice'},
+                )
                 self._rtt.backoff()
 
             # Check state before sleeping
@@ -244,14 +256,30 @@ class AliceTunnel(BaseTunnel):
 
                 self._rtt.backoff()
 
-            self._logger.info('Connected (local_isn=%d, remote_isn=%d)',
-                              self._local_isn, self._remote_isn)
+            log_event(
+                self._logger,
+                logging.INFO,
+                'tunnel.connected',
+                'Connected',
+                {
+                    'local_isn': self._local_isn,
+                    'remote_isn': self._remote_isn,
+                    'mode': 'syn_ack',
+                    'side': 'alice',
+                },
+            )
 
             # Initiate MTU and window negotiation
             self._send_negotiation()
 
         except Exception as e:
-            self._logger.warning('Failed to send ACK: %s', e)
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.ack_send_failed',
+                'Failed to send ACK',
+                {'error': str(e), 'side': 'alice'},
+            )
             # Still mark as connected - Bob will accept data as implicit ACK
             self._set_state(TunnelState.CONNECTED)
             # Still try to negotiate
@@ -263,8 +291,6 @@ class AliceTunnel(BaseTunnel):
         self.control.send_message(
             tun_mtu(self._proposed_send_mtu, self._proposed_recv_mtu)
         )
-        self._logger.debug('Requesting MTU: tx=%d rx=%d',
-                           self._proposed_send_mtu, self._proposed_recv_mtu)
         log_event(
             self._logger,
             logging.INFO,
@@ -275,7 +301,6 @@ class AliceTunnel(BaseTunnel):
 
         # Queue window request
         self.control.send_message(tun_window(self._proposed_max_in_flight))
-        self._logger.debug('Requesting window: %d', self._proposed_max_in_flight)
         log_event(
             self._logger,
             logging.INFO,
@@ -342,8 +367,16 @@ class AliceTunnel(BaseTunnel):
         # Check connection timeout
         if self._packets_since_response >= self._max_packets_without_response:
             self._set_state(TunnelState.CLOSED)
-            self._logger.error('Connection timeout after %d packets without response',
-                               self._max_packets_without_response)
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'tunnel.timeout_packets',
+                'Connection timeout after packets without response',
+                {
+                    'count': self._max_packets_without_response,
+                    'side': 'alice',
+                },
+            )
             return False
 
         # 2. Check for retransmits
@@ -487,7 +520,6 @@ class AliceTunnel(BaseTunnel):
         self._packets_sent += 1
         self._bytes_sent += len(packet_data)
         self._packets_since_response += 1
-        self._logger.debug('Retransmitting seq=%d', seq)
         log_event(
             self._logger,
             logging.DEBUG,
@@ -609,7 +641,14 @@ class AliceTunnel(BaseTunnel):
             try:
                 self.tick()
             except Exception as e:
-                self._logger.warning('Tick error: %s', e)
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.tick_error',
+                    'Tick error',
+                    {'error': str(e), 'side': 'alice'},
+                    exc_info=True,
+                )
             time.sleep(self._config.tunnel_tick_sleep)
 
     def close(self):

@@ -66,8 +66,18 @@ class BobTunnel(BaseTunnel):
         self._send_mtu = send_payload
         self._recv_mtu = recv_payload
         self._max_packet_size = recv_payload + PACKET_HEADER_SIZE
-        self._logger.debug('BobTunnel init: transport.recv_mtu=%d recv_payload=%d max_packet_size=%d',
-                          transport.recv_mtu, recv_payload, self._max_packet_size)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.init',
+            'Tunnel init',
+            {
+                'transport_recv_mtu': transport.recv_mtu,
+                'recv_payload': recv_payload,
+                'max_packet_size': self._max_packet_size,
+                'side': 'bob',
+            },
+        )
 
         # Timing
         self._last_request_time = 0
@@ -79,7 +89,13 @@ class BobTunnel(BaseTunnel):
         """
         Serve requests until closed or idle timeout.
         """
-        self._logger.info('Waiting for connections...')
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.wait',
+            'Waiting for connections',
+            {'side': 'bob'},
+        )
 
         while self._state != TunnelState.CLOSED:
             try:
@@ -97,7 +113,18 @@ class BobTunnel(BaseTunnel):
                 # Suppress socket errors during shutdown
                 if self._state == TunnelState.CLOSED:
                     break
-                self._logger.warning('Error in serve loop: %s', e)
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.serve_error',
+                    'Serve loop error',
+                    {
+                        'error': str(e),
+                        'loop': 'serve_forever',
+                        'side': 'bob',
+                    },
+                    exc_info=True,
+                )
 
     def _run_loop(self):
         """Background thread loop - processes requests until stopped."""
@@ -110,7 +137,18 @@ class BobTunnel(BaseTunnel):
                 self.handle_request(data, responder)
             except Exception as e:
                 if not self._bg_stop:
-                    self._logger.warning('Serve loop error: %s', e)
+                    log_event(
+                        self._logger,
+                        logging.WARNING,
+                        'tunnel.serve_error',
+                        'Serve loop error',
+                        {
+                            'error': str(e),
+                            'loop': 'background',
+                            'side': 'bob',
+                        },
+                        exc_info=True,
+                    )
 
     def handle_request(self, data, responder):
         """
@@ -126,7 +164,6 @@ class BobTunnel(BaseTunnel):
         # Decode incoming packet
         packet = self._decode_packet(data)
         if packet is None:
-            self._logger.warning('Failed to decode request')
             return
 
         self._bytes_received += len(data)
@@ -140,7 +177,13 @@ class BobTunnel(BaseTunnel):
         elif self._state == TunnelState.CONNECTED:
             self._handle_data(packet, responder, now)
         else:
-            self._logger.warning('Request in unexpected state: %s', self._state)
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.request_state_unexpected',
+                'Request in unexpected state',
+                {'state': self._state, 'side': 'bob'},
+            )
 
     def _handle_handshake(self, packet, responder, now):
         """Handle handshake packets."""
@@ -168,8 +211,17 @@ class BobTunnel(BaseTunnel):
             self._packets_sent += 1
             self._bytes_sent += len(response_data)
 
-            self._logger.debug('Sent SYN+ACK (local_isn=%d, remote_isn=%d)',
-                               self._local_isn, self._remote_isn)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.handshake_synack_sent',
+                'Sent SYN+ACK',
+                {
+                    'local_isn': self._local_isn,
+                    'remote_isn': self._remote_isn,
+                    'side': 'bob',
+                },
+            )
 
         elif packet.flags & FLAG_ACK:
             # ACK from Alice - handshake complete
@@ -177,8 +229,18 @@ class BobTunnel(BaseTunnel):
                 self._send_window._next_seq = (self._local_isn + 1) & 0xFFFF
                 self._set_state(TunnelState.CONNECTED)
                 self._handshake_complete = True
-                self._logger.info('Connected (local_isn=%d, remote_isn=%d)',
-                                  self._local_isn, self._remote_isn)
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'tunnel.connected',
+                    'Connected',
+                    {
+                        'local_isn': self._local_isn,
+                        'remote_isn': self._remote_isn,
+                        'mode': 'syn_ack',
+                        'side': 'bob',
+                    },
+                )
 
                 # Process any data in the ACK packet
                 self._process_incoming_packet(packet, now=now)
@@ -191,7 +253,18 @@ class BobTunnel(BaseTunnel):
             self._send_window._next_seq = (self._local_isn + 1) & 0xFFFF
             self._set_state(TunnelState.CONNECTED)
             self._handshake_complete = True
-            self._logger.info('Connected via implicit ACK')
+            log_event(
+                self._logger,
+                logging.INFO,
+                'tunnel.connected',
+                'Connected',
+                {
+                    'local_isn': self._local_isn,
+                    'remote_isn': self._remote_isn,
+                    'mode': 'implicit_ack',
+                    'side': 'bob',
+                },
+            )
 
             self._process_incoming_packet(packet, now=now)
             self._send_response(responder, now)
@@ -265,7 +338,6 @@ class BobTunnel(BaseTunnel):
                 )
             else:
                 self._send_window.mark_retransmit(seq, now=now)
-                self._logger.debug('Retransmitting seq=%d', seq)
                 log_event(
                     self._logger,
                     logging.DEBUG,
@@ -299,7 +371,17 @@ class BobTunnel(BaseTunnel):
         if not self._send_window.can_send:
             # Window full but no unacked? Shouldn't happen - log and send pong
             # to maintain request/response contract
-            self._logger.error('Send window full but no unacked packets')
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'tunnel.send_window_inconsistent',
+                'Send window full but no unacked packets',
+                {
+                    'unacked': self._send_window.unacked_count,
+                    'max_in_flight': self._send_window._max_in_flight,
+                    'side': 'bob',
+                },
+            )
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -398,9 +480,21 @@ class BobTunnel(BaseTunnel):
         elapsed = time.time() - self._last_request_time
         if elapsed > self._idle_timeout:
             if self._state == TunnelState.CONNECTING:
-                self._logger.warning('Handshake timeout (%.1fs)', elapsed)
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.handshake_timeout',
+                    'Handshake timeout',
+                    {'elapsed': round(elapsed, 1), 'side': 'bob'},
+                )
             else:
-                self._logger.warning('Idle timeout (%.1fs)', elapsed)
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.idle_timeout',
+                    'Idle timeout',
+                    {'elapsed': round(elapsed, 1), 'side': 'bob'},
+                )
             self._set_state(TunnelState.CLOSED)
             return True
 
@@ -416,7 +510,13 @@ class BobTunnel(BaseTunnel):
             msg_type: Message type to allow (e.g., 'file', 'mod')
         """
         self._allowed_message_types.add(msg_type)
-        self._logger.debug('Allowed message type: %s', msg_type)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.message_type_allowed',
+            'Allowed message type',
+            {'msg_type': msg_type, 'side': 'bob'},
+        )
 
     def enable_module_loader(self, logger=None):
         """Enable module loader and allow 'mod' messages."""
@@ -433,7 +533,13 @@ class BobTunnel(BaseTunnel):
         """
         msg_type = msg.get('t')
         if msg_type not in self._allowed_message_types:
-            self._logger.warning('Rejected message type from Alice: %s', msg_type)
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.message_type_rejected',
+                'Rejected message type from Alice',
+                {'msg_type': msg_type, 'side': 'bob'},
+            )
             return
 
         # Delegate to parent for actual dispatch

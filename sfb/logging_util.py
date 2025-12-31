@@ -39,7 +39,7 @@ def configure_logging(level='INFO', to_stdout=True, log_file=None):
         _ensure_handler(logger, logging.FileHandler, formatter, log_file)
 
 
-def log_event(logger, level, event, message, fields=None):
+def log_event(logger, level, event, message, fields=None, **kwargs):
     """
     Emit a structured log event.
     """
@@ -47,7 +47,7 @@ def log_event(logger, level, event, message, fields=None):
         'event': event,
         'fields': fields,
     }
-    logger.log(level, message, extra=extra)
+    logger.log(level, message, extra=extra, **kwargs)
 
 
 def add_sqlite_handler(logger, db_path, level=None, formatter=None,

@@ -106,6 +106,14 @@ class Config:
     tunnel_bob_coalesce_delay: float = 0.01
     # Bob: minimum queued data bytes to target before responding (0 disables)
     tunnel_bob_coalesce_min_bytes: int = 128
+    # Bob: min seconds between retransmits of the oldest unacked packet
+    tunnel_bob_retransmit_min_interval: float = 0.05
+    # Bob: max seconds between retransmits of the oldest unacked packet
+    tunnel_bob_retransmit_max_interval: float = 1.0
+    # Bob: multiplier for poll EWMA to derive retransmit cooldown
+    tunnel_bob_retransmit_poll_factor: float = 4.0
+    # Bob: EWMA alpha for poll interval smoothing (0-1)
+    tunnel_bob_poll_ewma_alpha: float = 0.2
     # Alice: sleep between ticks when running (seconds)
     tunnel_tick_sleep: float = 0.001
     # Bob: poll interval while waiting for connection (seconds)

@@ -138,6 +138,24 @@ class SendWindow(object):
             self._send_order.popleft()
         return None
 
+    def get_oldest_unacked_info(self):
+        """
+        Get oldest unacked packet with timing info (Bob, opportunity-driven).
+
+        Returns:
+            tuple: (seq, segments, send_time, retransmit_count) or None
+        """
+        if not self._unacked:
+            return None
+
+        while self._send_order:
+            seq = self._send_order[0]
+            pkt = self._unacked.get(seq)
+            if pkt is not None:
+                return (seq, pkt.segments, pkt.send_time, pkt.retransmit_count)
+            self._send_order.popleft()
+        return None
+
     def mark_retransmit(self, seq, now=None):
         """
         Mark a packet as retransmitted.

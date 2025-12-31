@@ -144,6 +144,7 @@ class BaseTunnel(object):
         self._packets_received = 0
         self._bytes_sent = 0
         self._bytes_received = 0
+        self._last_ack_progress_time = None
 
         # Transport MTU for receive (payload + header)
         self._max_packet_size = self._default_mtu + PACKET_HEADER_SIZE
@@ -359,6 +360,8 @@ class BaseTunnel(object):
             packet.ack, packet.sack, now=now
         )
         unacked_after = len(self._send_window._unacked)
+        if unacked_after < unacked_before:
+            self._last_ack_progress_time = now
         if unacked_before != unacked_after or unacked_after > 0:
             log_event(
                 self._logger,

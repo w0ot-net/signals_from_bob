@@ -20,8 +20,10 @@
   and Bob retransmits opportunistically on each request while unacked remains.
 
 ## Next Steps
+- Apply Bob retransmit cooldown + ACK-stagnation gate and compare
+  `tunnel.retransmit` vs `tunnel.retransmit_skip` counts.
 - Run a session with `icmp_max_pending=1` or `icmp_send_interval` set to slow polling
-  and compare retransmit counts to confirm this pattern.
+  and compare retransmit counts to confirm the poll-cadence hypothesis.
 
 ## Notes
 - Keep entries short and include log event names when possible.

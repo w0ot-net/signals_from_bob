@@ -132,6 +132,7 @@ Current structured events (non-exhaustive):
 - `tunnel.packet_send`
 - `tunnel.packet_recv`
 - `tunnel.retransmit`
+- `tunnel.retransmit_skip`
 - `tunnel.ack`
 - `tunnel.mtu_propose`
 - `tunnel.mtu_ok`

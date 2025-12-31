@@ -80,7 +80,8 @@ class BobTunnel(BaseTunnel):
         )
 
         # Timing
-        self._last_request_time = 0
+        self._last_request_time = None
+        self._poll_interval_ewma = None
 
         # Handshake state
         self._handshake_complete = False
@@ -159,7 +160,7 @@ class BobTunnel(BaseTunnel):
             responder: Callable to send response
         """
         now = time.time()
-        self._last_request_time = now
+        self._update_poll_ewma(now)
 
         # Decode incoming packet
         packet = self._decode_packet(data)
@@ -317,55 +318,85 @@ class BobTunnel(BaseTunnel):
 
         # Opportunistic retransmit: if we have unacked packets, resend oldest
         # Rebuild with fresh ack/sack to ensure current ACK state is sent
-        oldest = self._send_window.get_oldest_unacked()
+        oldest = self._send_window.get_oldest_unacked_info()
         if oldest is not None:
-            seq, segments = oldest
-            packet = self._rebuild_packet(seq, segments)
-            response_data = self._encode_packet(packet)
-            if (response_payload_cap is not None and
-                    len(response_data) > response_payload_cap):
+            seq, segments, send_time, retransmit_count = oldest
+            cooldown = self._retransmit_cooldown()
+            age = None
+            if send_time is not None:
+                age = now - send_time
+            since_ack = None
+            if self._last_ack_progress_time is not None:
+                since_ack = now - self._last_ack_progress_time
+            skip_reason = None
+            if age is not None and age < cooldown:
+                skip_reason = 'cooldown'
+            elif since_ack is not None and since_ack < cooldown:
+                skip_reason = 'ack_progress'
+            if skip_reason is not None:
                 log_event(
                     self._logger,
                     logging.DEBUG,
                     'tunnel.retransmit_skip',
-                    'Retransmit exceeds per-request cap',
+                    'Retransmit skipped',
                     {
                         'seq': seq,
-                        'bytes': len(response_data),
-                        'cap': response_payload_cap,
+                        'reason': skip_reason,
+                        'age': round(age, 6) if age is not None else None,
+                        'cooldown': cooldown,
+                        'since_ack': round(since_ack, 6) if since_ack is not None else None,
+                        'retransmit_count': retransmit_count,
                         'side': 'bob',
                     },
                 )
             else:
-                self._send_window.mark_retransmit(seq, now=now)
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.retransmit',
-                    'Retransmitting packet',
-                    {'seq': seq, 'seg_count': len(segments), 'side': 'bob'},
-                )
-                self._log_response_cap(responder, response_data)
+                packet = self._rebuild_packet(seq, segments)
+                response_data = self._encode_packet(packet)
+                if (response_payload_cap is not None and
+                        len(response_data) > response_payload_cap):
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'tunnel.retransmit_skip',
+                        'Retransmit exceeds per-request cap',
+                        {
+                            'seq': seq,
+                            'reason': 'cap',
+                            'bytes': len(response_data),
+                            'cap': response_payload_cap,
+                            'side': 'bob',
+                        },
+                    )
+                else:
+                    self._send_window.mark_retransmit(seq, now=now)
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'tunnel.retransmit',
+                        'Retransmitting packet',
+                        {'seq': seq, 'seg_count': len(segments), 'side': 'bob'},
+                    )
+                    self._log_response_cap(responder, response_data)
 
-                self._packets_sent += 1
-                self._bytes_sent += len(response_data)
-                responder(response_data)
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.packet_send',
-                    'Packet sent',
-                    {
-                        'seq': packet.seq,
-                        'ack': packet.ack,
-                        'sack': packet.sack,
-                        'flags': packet.flags,
-                        'seg_count': len(packet.segments),
-                        'bytes': len(response_data),
-                        'side': 'bob',
-                    },
-                )
-                return
+                    self._packets_sent += 1
+                    self._bytes_sent += len(response_data)
+                    responder(response_data)
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'tunnel.packet_send',
+                        'Packet sent',
+                        {
+                            'seq': packet.seq,
+                            'ack': packet.ack,
+                            'sack': packet.sack,
+                            'flags': packet.flags,
+                            'seg_count': len(packet.segments),
+                            'bytes': len(response_data),
+                            'side': 'bob',
+                        },
+                    )
+                    return
 
         # No retransmits needed - check window before sending new data
         if not self._send_window.can_send:
@@ -474,7 +505,7 @@ class BobTunnel(BaseTunnel):
         if self._state not in (TunnelState.CONNECTED, TunnelState.CONNECTING):
             return False
 
-        if self._last_request_time == 0:
+        if self._last_request_time is None:
             return False
 
         elapsed = time.time() - self._last_request_time
@@ -499,6 +530,32 @@ class BobTunnel(BaseTunnel):
             return True
 
         return False
+
+    def _update_poll_ewma(self, now):
+        if self._last_request_time is None:
+            self._last_request_time = now
+            return
+        interval = now - self._last_request_time
+        if interval < 0:
+            interval = 0.0
+        self._last_request_time = now
+        alpha = self._config.tunnel_bob_poll_ewma_alpha
+        if self._poll_interval_ewma is None:
+            self._poll_interval_ewma = interval
+        else:
+            self._poll_interval_ewma = (
+                (alpha * interval) + ((1.0 - alpha) * self._poll_interval_ewma)
+            )
+
+    def _retransmit_cooldown(self):
+        cooldown = self._config.tunnel_bob_retransmit_min_interval
+        factor = self._config.tunnel_bob_retransmit_poll_factor
+        if self._poll_interval_ewma is not None and factor > 0:
+            cooldown = max(cooldown, self._poll_interval_ewma * factor)
+        max_interval = self._config.tunnel_bob_retransmit_max_interval
+        if max_interval is not None and max_interval > 0:
+            cooldown = min(cooldown, max_interval)
+        return cooldown
 
     def allow_message_type(self, msg_type):
         """

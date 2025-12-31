@@ -145,6 +145,8 @@ class BaseTunnel(object):
         self._bytes_sent = 0
         self._bytes_received = 0
         self._last_ack_progress_time = None
+        self._last_cum_ack = None
+        self._last_cum_ack_time = None
 
         # Transport MTU for receive (payload + header)
         self._max_packet_size = self._default_mtu + PACKET_HEADER_SIZE
@@ -354,6 +356,9 @@ class BaseTunnel(object):
                 'bytes': packet.encoded_size(),
             },
         )
+        if self._last_cum_ack is None or packet.ack != self._last_cum_ack:
+            self._last_cum_ack = packet.ack
+            self._last_cum_ack_time = now
 
         unacked_before = len(self._send_window._unacked)
         rtt_samples = self._send_window.process_ack(

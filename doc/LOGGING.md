@@ -121,6 +121,7 @@ Current structured events (non-exhaustive):
 - `tunnel.packet_decode_failed`
 - `tunnel.request_state_unexpected`
 - `tunnel.send_window_inconsistent`
+- `tunnel.send_window_full`
 - `tunnel.ack_send_failed`
 - `tunnel.timeout_packets`
 - `tunnel.tick_error`

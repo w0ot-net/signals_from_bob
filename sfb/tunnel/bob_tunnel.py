@@ -325,13 +325,13 @@ class BobTunnel(BaseTunnel):
             age = None
             if send_time is not None:
                 age = now - send_time
-            since_ack = None
-            if self._last_ack_progress_time is not None:
-                since_ack = now - self._last_ack_progress_time
+            since_cum_ack = None
+            if self._last_cum_ack_time is not None:
+                since_cum_ack = now - self._last_cum_ack_time
             skip_reason = None
             if age is not None and age < cooldown:
                 skip_reason = 'cooldown'
-            elif since_ack is not None and since_ack < cooldown:
+            elif since_cum_ack is not None and since_cum_ack < cooldown:
                 skip_reason = 'ack_progress'
             if skip_reason is not None:
                 log_event(
@@ -344,7 +344,9 @@ class BobTunnel(BaseTunnel):
                         'reason': skip_reason,
                         'age': round(age, 6) if age is not None else None,
                         'cooldown': cooldown,
-                        'since_ack': round(since_ack, 6) if since_ack is not None else None,
+                        'since_cum_ack': round(since_cum_ack, 6)
+                        if since_cum_ack is not None else None,
+                        'last_cum_ack': self._last_cum_ack,
                         'retransmit_count': retransmit_count,
                         'side': 'bob',
                     },
@@ -402,17 +404,31 @@ class BobTunnel(BaseTunnel):
         if not self._send_window.can_send:
             # Window full but no unacked? Shouldn't happen - log and send pong
             # to maintain request/response contract
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'tunnel.send_window_inconsistent',
-                'Send window full but no unacked packets',
-                {
-                    'unacked': self._send_window.unacked_count,
-                    'max_in_flight': self._send_window._max_in_flight,
-                    'side': 'bob',
-                },
-            )
+            unacked = self._send_window.unacked_count
+            if unacked == 0:
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'tunnel.send_window_inconsistent',
+                    'Send window full but no unacked packets',
+                    {
+                        'unacked': unacked,
+                        'max_in_flight': self._send_window._max_in_flight,
+                        'side': 'bob',
+                    },
+                )
+            else:
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.send_window_full',
+                    'Send window full',
+                    {
+                        'unacked': unacked,
+                        'max_in_flight': self._send_window._max_in_flight,
+                        'side': 'bob',
+                    },
+                )
             log_event(
                 self._logger,
                 logging.DEBUG,

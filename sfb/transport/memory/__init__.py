@@ -8,9 +8,9 @@ unit tests and simulations without any network I/O.
 
 from __future__ import absolute_import
 
-from .client import InMemoryTransport
-from .server import InMemoryServer
-from .link import _InMemoryLink
+from .memory_client import InMemoryTransport
+from .memory_server import InMemoryServer
+from .memory_link import _InMemoryLink
 
 
 def create_inmemory_transport_pair(config, send_mtu=None, recv_mtu=None,

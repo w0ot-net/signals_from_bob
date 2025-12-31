@@ -5,7 +5,7 @@ from __future__ import absolute_import
 
 import logging
 
-from .link import _InMemoryLink
+from .memory_link import _InMemoryLink
 from ..transport_base import Server, TransportError
 from ...compat import require_bytes
 from ...config import Config

@@ -52,6 +52,7 @@ SERVER_DB_LOG = os.path.join(LOG_DIR, 'icmp_server_log.db')
 CLIENT_DB_LOG = os.path.join(LOG_DIR, 'icmp_client_log.db')
 DEFAULT_HTTP_PORT = 8888
 DEFAULT_SOCKS_PORT = 1080
+DEFAULT_TEST_FILE = '10MB.bin'
 
 
 class RootedHTTPRequestHandler(SimpleHTTPRequestHandler):
@@ -148,8 +149,9 @@ def parse_args():
         help='SOCKS server listen port (default: %d)' % DEFAULT_SOCKS_PORT
     )
     parser.add_argument(
-        '--download-file', default='100MB.bin',
-        help='File name under test_download_files/ to fetch (default: 100MB.bin)'
+        '--download-file', default=DEFAULT_TEST_FILE,
+        help='File name under test_download_files/ to fetch (default: %s)' %
+             DEFAULT_TEST_FILE
     )
     parser.add_argument(
         '--timeout', type=float, default=300.0,

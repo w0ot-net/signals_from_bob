@@ -7,6 +7,38 @@ from __future__ import absolute_import
 
 
 LOG_PROFILES = {
+    # Focused ICMP retransmit troubleshooting (default during debug).
+    'icmp_retransmit_debug': {
+        'log_component_transport_icmp': True,
+        'log_component_tunnel': True,
+        'log_component_channel': True,
+        'log_event_whitelist': (
+            'cli.*',
+            'tunnel.packet_*',
+            'tunnel.ack',
+            'tunnel.retransmit*',
+            'tunnel.send_blocked',
+            'tunnel.recv_window',
+            'tunnel.deliver_segments',
+            'tunnel.state',
+            'tunnel.window_*',
+            'tunnel.mtu_*',
+            'tunnel.timeout_*',
+            'tunnel.handshake_*',
+            'tunnel.connected',
+            'tunnel.closed',
+            'tunnel.response_cap',
+            'tunnel.send_window_inconsistent',
+            'tunnel.request_state_unexpected',
+            'tunnel.tick_error',
+            'tunnel.bg_error',
+            'icmp.*',
+            'channel.send_buf_*',
+            'channel.pack',
+            'channel.drain',
+        ),
+        'log_event_blacklist': (),
+    },
     # Enable ICMP transport logs (keeps default event blacklist).
     'icmp_transport': {
         'log_component_transport_icmp': True,

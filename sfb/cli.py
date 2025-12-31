@@ -104,8 +104,9 @@ def add_common_args(parser, config, require_domain=True):
     )
     parser.add_argument(
         '--log-profile',
+        default=config.log_profile,
         choices=sorted(LOG_PROFILES.keys()),
-        help='Logging profile name (see sfb/log_profiles.py)'
+        help='Logging profile name (default: %s)' % config.log_profile
     )
 
 
@@ -274,6 +275,7 @@ def create_config(args):
     config_kwargs['db_log_path'] = getattr(args, 'db_log', None)
     config_kwargs['db_log_flush'] = getattr(args, 'db_log_flush', None)
     config_kwargs['db_log_queue'] = getattr(args, 'db_log_queue', None)
+    config_kwargs['log_profile'] = getattr(args, 'log_profile', None)
 
     config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
     return Config(**config_kwargs)

@@ -148,6 +148,8 @@ class Config:
     db_log_flush: float = 0.5
     # SQLite log queue max size (0 = unbounded)
     db_log_queue: int = 0
+    # Default logging profile name (None = no profile)
+    log_profile: Optional[str] = 'icmp_retransmit_debug'
     # Enable DNS transport logging (stdout + SQLite)
     log_component_transport_dns: bool = False
     # Enable ICMP transport logging (stdout + SQLite)

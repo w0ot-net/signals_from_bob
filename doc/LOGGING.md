@@ -44,6 +44,12 @@ Profiles live in `sfb/log_profiles.py`. You can add new profiles there to
 toggle `log_component_*` flags or override `log_event_whitelist` and
 `log_event_blacklist` settings.
 
+Available profiles (current):
+- `icmp_retransmit_debug` (default)
+- `icmp_transport`
+- `dns_transport`
+- `tunnel_verbose`
+
 ## Event Whitelist/Blacklist (structured events only)
 
 You can filter structured events (those emitted via `log_event`) by pattern:

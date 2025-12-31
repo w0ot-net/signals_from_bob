@@ -1,5 +1,7 @@
 ai_notes/
 __pycache__/
+*.db
+**/*.db
 *.py[cod]
 *.pyo
 *.pyd
@@ -20,7 +22,6 @@ pip-wheel-metadata/
 .nox/
 *.log
 *.sqlite3
-*.db
 venv/
 .venv/
 env/

@@ -726,6 +726,29 @@ class NegotiationTests(unittest.TestCase):
         self.assertTrue(tunnel._mtu_negotiated)
         self.assertEqual(tunnel._send_mtu, 150)
 
+    def test_mtu_negotiation_bob_downsizes_immediately(self):
+        """Verify Bob clamps send MTU on smaller requests without waiting for ack."""
+        from sfb.tunnel.base_tunnel import BaseTunnel
+
+        tunnel = BaseTunnel(make_test_config(), is_initiator=False)
+        tunnel._proposed_recv_mtu = 200  # Bob receive max
+        tunnel._proposed_send_mtu = 180  # Bob send max
+
+        # Alice requests a smaller Bob->Alice MTU
+        tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu', 'tx': 150, 'rx': 80})
+
+        # Bob should clamp send path immediately
+        self.assertEqual(tunnel._negotiated_recv_mtu, 150)
+        self.assertEqual(tunnel._send_mtu, 80)
+        self.assertEqual(tunnel._negotiated_send_mtu, 80)
+        self.assertIsNone(tunnel._pending_send_mtu)
+        self.assertFalse(tunnel._mtu_negotiated)
+
+        # mtu_ack should not change the already-reduced send MTU
+        tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu_ack'})
+        self.assertEqual(tunnel._send_mtu, 80)
+        self.assertTrue(tunnel._mtu_negotiated)
+
     def test_mtu_negotiation_alice_accepts(self):
         """Verify Alice accepts mtu_ok, updates MTU, and sends mtu_ack."""
         from sfb.tunnel.base_tunnel import BaseTunnel

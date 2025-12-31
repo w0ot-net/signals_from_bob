@@ -628,7 +628,7 @@ class BaseTunnel(object):
         Handle MTU negotiation request (Bob receives from Alice).
 
         Responds with mtu_ok containing per-direction MTUs.
-        Does NOT update _send_mtu yet - waits for mtu_ack from Alice.
+        Applies downsizes immediately; increases wait for mtu_ack from Alice.
         """
         requested_tx = msg.get('tx', self._default_mtu)
         requested_rx = msg.get('rx', self._default_mtu)
@@ -657,7 +657,14 @@ class BaseTunnel(object):
         self._negotiated_recv_mtu = agreed_recv
         self._recv_mtu = agreed_recv
         self._max_packet_size = agreed_recv + PACKET_HEADER_SIZE
-        self._pending_send_mtu = agreed_send
+
+        # Downsize immediately; only defer increases until mtu_ack arrives.
+        if agreed_send <= self._send_mtu:
+            self._send_mtu = agreed_send
+            self._negotiated_send_mtu = agreed_send
+            self._pending_send_mtu = None
+        else:
+            self._pending_send_mtu = agreed_send
 
         # Send confirmation (using small packets still)
         self.control.send_message(tun_mtu_ok(agreed_send, agreed_recv))
@@ -666,7 +673,11 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.mtu_ok',
             'MTU negotiate response',
-            {'recv': agreed_recv, 'send_pending': agreed_send},
+            {
+                'recv': agreed_recv,
+                'send_applied': self._send_mtu,
+                'send_pending': self._pending_send_mtu,
+            },
         )
 
     def _handle_mtu_ok(self, msg):

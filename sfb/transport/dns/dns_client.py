@@ -103,7 +103,13 @@ class DnsClient(Transport):
                 self._label_max_len,
                 self._edns_size,
             )
-            _LOG.debug('dns payload cap=%d', self._payload_cap)
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'dns.payload_cap',
+                'DNS payload cap',
+                {'payload_cap': self._payload_cap},
+            )
         self._recv_bufsize = max(self._edns_size, config.dns_recv_bufsize_min)
 
         # Pending query tracking
@@ -197,8 +203,6 @@ class DnsClient(Transport):
 
         # Send query
         try:
-            _LOG.debug('dns send corr=%d dns_id=%d resolver=%s',
-                       corr_id, dns_id, self._resolver)
             self._sock.sendto(query_pkt, self._resolver)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
@@ -308,7 +312,6 @@ class DnsClient(Transport):
         dns_id, qname, payload, rcode, reason = result
 
         if dns_id not in self._dns_to_corr:
-            _LOG.debug('dns stale response dns_id=%d', dns_id)
             log_event(
                 _LOG,
                 logging.DEBUG,
@@ -354,7 +357,6 @@ class DnsClient(Transport):
             return (None, None)
 
         if payload is None:
-            _LOG.debug('dns error response corr=%d dns_id=%d', corr_id, dns_id)
             log_event(
                 _LOG,
                 logging.DEBUG,
@@ -377,7 +379,6 @@ class DnsClient(Transport):
         self._pending.pop(corr_id)
         del self._dns_to_corr[dns_id]
 
-        _LOG.debug('dns recv corr=%d dns_id=%d len=%d', corr_id, dns_id, len(payload))
         log_event(
             _LOG,
             logging.DEBUG,
@@ -461,7 +462,6 @@ class DnsClient(Transport):
         # Check RCODE
         rcode = flags & codec.RCODE_MASK
         if rcode != codec.RCODE_NOERROR:
-            _LOG.debug('dns rcode=%d id=%d', rcode, query_id)
             return query_id, None, None, rcode, 'rcode'
 
         # Skip questions
@@ -512,11 +512,9 @@ class DnsClient(Transport):
                     data, offset, allow_compression=True
                 )
             except ValueError:
-                _LOG.debug('dns invalid cname id=%d', query_id)
                 return query_id, qname, None, rcode, 'cname_decode'
 
             if end_offset > offset + rdlength:
-                _LOG.debug('dns cname exceeds rdlength id=%d', query_id)
                 return query_id, qname, None, rcode, 'cname_rdlength'
 
             try:
@@ -524,7 +522,6 @@ class DnsClient(Transport):
                     cname, self._cname_suffix, self._label_max_len
                 )
             except ValueError:
-                _LOG.debug('dns invalid cname payload id=%d', query_id)
                 return query_id, qname, None, rcode, 'payload_decode'
 
             return query_id, qname, payload, rcode, 'ok'

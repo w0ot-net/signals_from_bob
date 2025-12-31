@@ -23,7 +23,9 @@ Example usage:
 
 from __future__ import absolute_import
 
-from ..logging_util import get_logger
+import logging
+
+from ..logging_util import get_logger, log_event
 
 from .constants import (
     DEFAULT_MAX_PACKET_SIZE,
@@ -247,4 +249,10 @@ def _log_control_segments(segments):
         for line in lines[:-1]:
             if not line:
                 continue
-            _LOG.info('control: %s', line.decode('ascii', 'replace'))
+            log_event(
+                _LOG,
+                logging.INFO,
+                'protocol.control',
+                'Control message line',
+                {'line': line.decode('ascii', 'replace')},
+            )

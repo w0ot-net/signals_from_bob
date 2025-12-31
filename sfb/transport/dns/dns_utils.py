@@ -3,11 +3,12 @@
 DNS utility functions for resolver detection.
 """
 
+import logging
 import os
 import re
 import subprocess
 
-from ...logging_util import get_logger
+from ...logging_util import get_logger, log_event
 
 _LOG = get_logger(__name__)
 
@@ -56,7 +57,13 @@ def _load_windows_resolvers():
         )
         output = result.stdout
     except (subprocess.SubprocessError, OSError) as e:
-        _LOG.debug('nslookup failed: %s', e)
+        log_event(
+            _LOG,
+            logging.DEBUG,
+            'dns.resolver_lookup_failed',
+            'nslookup failed',
+            {'error': str(e)},
+        )
         return []
 
     # Parse output like:
@@ -76,9 +83,20 @@ def _load_windows_resolvers():
                     match = ip_pattern.search(addr_line)
                     if match:
                         ip = match.group(1)
-                        _LOG.debug('Found system resolver: %s', ip)
+                        log_event(
+                            _LOG,
+                            logging.DEBUG,
+                            'dns.resolver_found',
+                            'Found system resolver',
+                            {'ip': ip},
+                        )
                         return [(ip, 53)]
             break
 
-    _LOG.debug('Could not parse resolver from nslookup output')
+    log_event(
+        _LOG,
+        logging.DEBUG,
+        'dns.resolver_parse_failed',
+        'Could not parse resolver from nslookup output',
+    )
     return []

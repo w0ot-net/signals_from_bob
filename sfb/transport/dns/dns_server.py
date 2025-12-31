@@ -109,10 +109,24 @@ class DnsServer(Server):
             )
             self._cname_a_addr_bytes = b'\x00\x00\x00\x00'
         if self._payload_cap is not None:
-            self._logger.debug('DnsServer payload cap=%d', self._payload_cap)
-        self._logger.debug(
-            'DnsServer MTU calc: base_domain=%r label_max=%d recv_mtu=%d send_mtu=%d',
-            self._base_domain, self._label_max_len, self._recv_mtu, self._send_mtu
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'dns.payload_cap',
+                'DNS payload cap',
+                {'payload_cap': self._payload_cap},
+            )
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'dns.mtu_calc',
+            'DNS MTU calc',
+            {
+                'base_domain': self._base_domain,
+                'label_max': self._label_max_len,
+                'recv_mtu': self._recv_mtu,
+                'send_mtu': self._send_mtu,
+            },
         )
 
     @property
@@ -177,7 +191,13 @@ class DnsServer(Server):
                 query_id, qname, qtype = self._parse_query(pkt_data)
             except (ValueError, TransportError) as e:
                 # Malformed query, ignore
-                self._logger.debug('dns invalid query: %s', e)
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'dns.invalid_query',
+                    'DNS invalid query',
+                    {'error': str(e)},
+                )
                 continue
 
             # Check if it's for our domain (subdomain or exact match)
@@ -319,7 +339,6 @@ class DnsServer(Server):
         response = header + question + answer + additional
 
         try:
-            self._logger.debug('dns response id=%d addr=%s', query_id, addr)
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
@@ -409,7 +428,6 @@ class DnsServer(Server):
         response = header + question + authority + additional
 
         try:
-            self._logger.debug('dns empty response id=%d addr=%s', query_id, addr)
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
@@ -463,7 +481,6 @@ class DnsServer(Server):
         response = header + question + answer + additional
 
         try:
-            self._logger.debug('dns cname followup id=%d addr=%s', query_id, addr)
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)

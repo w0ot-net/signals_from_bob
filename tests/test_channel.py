@@ -4,6 +4,7 @@ from __future__ import absolute_import
 import json
 import unittest
 
+import sfb.channel.channel_manager as channel_manager_module
 from sfb.channel.channel import (
     Channel,
     ChannelError,
@@ -259,6 +260,13 @@ class ChannelManagerTests(unittest.TestCase):
         msgs = self._drain_control_messages(mgr)
         self.assertEqual(msgs, [])
 
+    def test_handle_open_invalid_channel_id(self):
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
+        mgr.handle_control_message({'c': 'open', 'ch': 'bad'})
+        self.assertIsNone(mgr.get_channel('bad'))
+        msgs = self._drain_control_messages(mgr)
+        self.assertEqual(msgs, [])
+
     def test_handle_open_ok_and_fail(self):
         mgr = ChannelManager(is_alice=True, config=make_test_config())
         ch = Channel(1)
@@ -319,6 +327,43 @@ class ChannelManagerTests(unittest.TestCase):
         segments = mgr.collect_segments(64, keepalive_data=b'{"t":"tun","c":"ping"}\n')
         channels = [seg.channel for seg in segments]
         self.assertNotIn(CHANNEL_CONTROL, channels)
+
+    def test_collect_segments_keepalive_logging_matches_emission(self):
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
+        events = []
+
+        def fake_log_event(logger_arg, level, event, message, fields=None, **kwargs):
+            events.append(fields or {})
+
+        original_log_event = channel_manager_module.log_event
+        channel_manager_module.log_event = fake_log_event
+        try:
+            segments = mgr.collect_segments(64, keepalive_data=b'ping')
+        finally:
+            channel_manager_module.log_event = original_log_event
+
+        self.assertEqual(len(events), 1)
+        self.assertTrue(events[0].get('keepalive'))
+        self.assertEqual(len(segments), 1)
+        self.assertEqual(segments[0].channel, CHANNEL_CONTROL)
+
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
+        data_channel = Channel(1)
+        data_channel._set_state(STATE_OPEN)
+        data_channel.write(b'data')
+        mgr._channels[1] = data_channel
+        events = []
+
+        channel_manager_module.log_event = fake_log_event
+        try:
+            segments = mgr.collect_segments(64, keepalive_data=b'ping')
+        finally:
+            channel_manager_module.log_event = original_log_event
+
+        self.assertEqual(len(events), 1)
+        self.assertFalse(events[0].get('keepalive'))
+        self.assertTrue(any(seg.channel == 1 for seg in segments))
+        self.assertFalse(any(seg.channel == CHANNEL_CONTROL and seg.data == b'ping' for seg in segments))
 
     def test_collect_segments_minimum_space(self):
         mgr = ChannelManager(is_alice=True, config=make_test_config())

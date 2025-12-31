@@ -16,6 +16,11 @@ import logging
 import threading
 import time
 
+try:
+    integer_types = (int, long)
+except NameError:
+    integer_types = (int,)
+
 from .channel import (
     Channel,
     ChannelError,
@@ -321,9 +326,11 @@ class ChannelManager(object):
                         remaining -= SEGMENT_HEADER_SIZE + len(data)
 
         # Step 5: Keepalive suppression - only add keepalive if no other data
+        keepalive_sent = False
         if not segments and keepalive_data and remaining > SEGMENT_HEADER_SIZE:
             if len(keepalive_data) <= remaining - SEGMENT_HEADER_SIZE:
                 segments.append(Segment(CHANNEL_CONTROL, keepalive_data))
+                keepalive_sent = True
 
         if segments or keepalive_data:
             payload_bytes = 0
@@ -338,7 +345,7 @@ class ChannelManager(object):
                     'seg_count': len(segments),
                     'payload_bytes': payload_bytes,
                     'max_payload': max_payload,
-                    'keepalive': bool(keepalive_data),
+                    'keepalive': keepalive_sent,
                     'side': 'alice' if self._is_alice else 'bob',
                 },
             )
@@ -419,6 +426,20 @@ class ChannelManager(object):
         channel_id = msg.get('ch')
 
         if channel_id is None:
+            return
+
+        if (not isinstance(channel_id, integer_types) or
+                channel_id < 1 or channel_id > 255):
+            log_event(
+                logger,
+                logging.WARNING,
+                'channel.invalid_open',
+                'Invalid channel id in open request',
+                {
+                    'ch': channel_id,
+                    'side': 'alice' if self._is_alice else 'bob',
+                },
+            )
             return
 
         # Validate channel ID ownership

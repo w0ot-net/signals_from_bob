@@ -116,6 +116,8 @@ class ComponentFilter(logging.Filter):
         self._protocol_logger_prefixes = (
             'sfb.protocol.',
             'sfb.protocol',
+            'tunnel.sfb.protocol.',
+            'tunnel.sfb.protocol',
         )
         self._module_socks_enabled = bool(getattr(config, 'log_component_module_socks', True))
         self._module_socks_event_prefix = 'sock.'

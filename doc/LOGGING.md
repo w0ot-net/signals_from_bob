@@ -54,8 +54,11 @@ Default blacklist (to reduce high-volume debug events):
 - `tunnel.command`
 - `module.send`
 - `module.recv`
+- `sock.pump_stats`
+- `channel.drain`
 - `channel.pack`
 - `channel.send_buf_*`
+- `channel.write_wait`
 - `dns.send`
 - `dns.recv`
 - `icmp.send`

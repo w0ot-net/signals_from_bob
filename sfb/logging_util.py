@@ -135,6 +135,8 @@ class ComponentFilter(logging.Filter):
         )
 
     def filter(self, record):
+        if record.levelno >= logging.ERROR:
+            return True
         event = getattr(record, 'event', None)
         if event is not None:
             event_text = _coerce_text(event)

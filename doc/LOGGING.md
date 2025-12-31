@@ -60,6 +60,7 @@ Matching uses `fnmatch` wildcards (for example, `tunnel.mtu*`).
 If the whitelist is non-empty, only matching events are emitted.
 Blacklist is applied after whitelist.
 Plain logger messages without an `event` field are not affected.
+Records at ERROR or higher always pass filtering.
 
 Default blacklist (to reduce high-volume debug events):
 - `tunnel.packet_*`

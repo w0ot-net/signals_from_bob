@@ -32,3 +32,22 @@ quiet gaps between bursts and prints "stalled" even though bytes are still movin
 - Use `scp -q` to suppress the progress meter.
 - If the file size stops increasing for long periods, check for SOCKS channel
   starvation: doc/troubleshooting_socks_channel_starvation.md.
+
+## Findings and analysis (2025-12-31)
+- The tunnel is not idle; it is throughput-limited and bursty.
+- Alice repeatedly hit `tunnel.send_blocked` with `pending=32` (ICMP max_pending),
+  so new polls could not be sent until replies arrived. This bounds throughput by
+  polling cadence.
+- Alice also hit `tunnel.send_window_distance` with `distance=64` (max_in_flight),
+  which blocks new sends when `next_seq` runs ahead of the cumulative ACK.
+- Bob's SOCKS pump read far faster than the tunnel could drain: multi-MB/s in,
+  ~0.28-0.33 MB/s out. Channel 2 hit `channel.send_buf_full` thousands of times.
+- ICMP replies were mostly full-size (1200 bytes) and retransmits were low, so the
+  primary constraint is poll rate + backpressure, not packet loss.
+
+## Potential smoothing changes (not yet applied)
+- Read only what fits in the channel buffer in the SOCKS pump to avoid single
+  reads filling the send buffer.
+- Cap the SOCKS pump backoff to avoid long sleep gaps when the buffer drains.
+- Reduce `socks_relay_buffer_size` and increase `channel_max_send_buf` to favor
+  smaller writes and steadier pacing.

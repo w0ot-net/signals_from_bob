@@ -28,6 +28,11 @@ from .lossy import (
     extreme_conditions,
     chaos,
 )
+from .memory import (
+    InMemoryTransport,
+    InMemoryServer,
+    create_inmemory_transport_pair,
+)
 
 from .dns import DnsClient, DnsServer
 from .icmp import IcmpClient, IcmpServer
@@ -66,6 +71,10 @@ TRANSPORTS = {
         'client': IcmpClient,
         'server': IcmpServer,
     },
+    'memory': {
+        'client': InMemoryTransport,
+        'server': InMemoryServer,
+    },
 }
 
 
@@ -83,6 +92,9 @@ __all__ = [
     'burst_loss',
     'extreme_conditions',
     'chaos',
+    'InMemoryTransport',
+    'InMemoryServer',
+    'create_inmemory_transport_pair',
     'IcmpClient',
     'IcmpServer',
     'TRANSPORTS',

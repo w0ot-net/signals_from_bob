@@ -172,6 +172,7 @@ transport uses it internally to match responses:
 | DNS | Maps to DNS query ID (16-bit) |
 | ICMP | Maps to ICMP sequence number |
 | HTTP | Maps to request context |
+| In-memory | Incrementing integer per transport instance |
 
 The tunnel tracks `{corr_id: (seq, send_time, is_retransmit)}` for:
 - RTT calculation (only from first transmissions)
@@ -280,6 +281,16 @@ transport = DnsTransport(resolver, domain, max_pending=1)
 - Kernel echo replies must be disabled (net.ipv4.icmp_echo_ignore_all=1)
 - Some networks filter ICMP
 - Payload size varies, typically ~1200 bytes safe
+
+---
+
+## In-Memory Transport (Testing)
+
+- For local/unit testing with no network dependency
+- Backed by in-process queues; MTU defaults to `DEFAULT_MAX_PACKET_SIZE`
+- Max pending defaults to `tunnel_max_in_flight` unless overridden
+- Use `create_inmemory_transport_pair(Config())` to get a connected
+  `(Transport, Server)` pair for tests or simulations
 
 ---
 

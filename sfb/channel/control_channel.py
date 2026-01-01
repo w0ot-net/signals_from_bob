@@ -6,9 +6,13 @@ Control channel helpers (channel 0).
 from __future__ import absolute_import
 
 import json
+import logging
 import threading
 
 from .channel import Channel, ChannelError, CHANNEL_CONTROL
+from ..logging_util import get_logger, log_event
+
+logger = get_logger(__name__)
 
 CONTROL_MESSAGE_MAX_LENGTH = 0x1000
 
@@ -83,18 +87,40 @@ class ControlChannel(Channel):
                 offset += take
 
             if target_len is None:
-                first_chunk = self._send_buf[0]
-                first_chunk_len = len(first_chunk)
-                nl_pos = first_chunk.find(b'\n')
-                if nl_pos != -1 and nl_pos + 1 > max_size:
-                    raise ChannelError(
-                        'invalid',
-                        'Control message exceeds payload cap',
-                    )
-                if nl_pos == -1 and first_chunk_len > max_size:
-                    raise ChannelError(
-                        'invalid',
-                        'Control message exceeds payload cap without newline',
+                msg_len = None
+                scan_offset = 0
+                for chunk in self._send_buf:
+                    nl_pos = chunk.find(b'\n')
+                    if nl_pos != -1:
+                        msg_len = scan_offset + nl_pos + 1
+                        break
+                    scan_offset += len(chunk)
+                if msg_len is not None:
+                    if msg_len > max_size:
+                        log_event(
+                            logger,
+                            logging.DEBUG,
+                            'channel.control_send_cap',
+                            'Control message exceeds payload cap',
+                            lambda: {
+                                'cap': max_size,
+                                'needed': msg_len,
+                                'send_buf_size': self._send_buf_size,
+                            },
+                        )
+                    return b''
+                first_chunk_len = len(self._send_buf[0])
+                if first_chunk_len > max_size:
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        'channel.control_send_partial',
+                        'Control message missing newline',
+                        lambda: {
+                            'cap': max_size,
+                            'first_chunk_len': first_chunk_len,
+                            'send_buf_size': self._send_buf_size,
+                        },
                     )
                 return b''
 

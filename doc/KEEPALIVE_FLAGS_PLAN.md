@@ -16,6 +16,7 @@ This change is intentionally wire-incompatible with older clients.
 - Define a strict invariant:
   - If `FLAG_KEEPALIVE` is set, the packet MUST contain zero segments.
   - If any segments are present, `FLAG_KEEPALIVE` MUST be unset.
+  - Treat any violation as a protocol error and drop the packet.
 - Semantics:
   - Alice sending a keepalive poll uses `FLAG_KEEPALIVE`.
   - Bob responding with a keepalive uses `FLAG_KEEPALIVE`.
@@ -45,8 +46,8 @@ This change is intentionally wire-incompatible with older clients.
   - Skip channel delivery and control-message parsing.
   - Treat as "no real data" for pacing/poll decisions.
 - If `FLAG_KEEPALIVE` is set but segments are present:
-  - Log a warning and drop the packet (or ignore segments).
-  - Choose one behavior and document it in `doc/PROTOCOL.md`.
+  - Log a warning and drop the packet.
+  - Document this as a hard protocol violation in `doc/PROTOCOL.md`.
 
 ## Reliability and Retransmit
 
@@ -57,8 +58,8 @@ Plan:
 - Extend `SendWindow.send()` to accept packet flags and store them per
   unacked packet.
 - Update `_rebuild_packet()` to preserve the stored flags on retransmit.
-- Keep the existing behavior where keepalive packets can be retransmitted
-  (same as the current ping control-message behavior).
+- Keep the existing behavior where keepalive packets can be retransmitted and
+  they MUST retain `FLAG_KEEPALIVE` on retransmit.
 
 ## Logging and Metrics
 
@@ -95,4 +96,3 @@ Plan:
 3. Update Alice/Bob send paths to emit header-only keepalive packets.
 4. Update receive path to short-circuit keepalive-flag packets.
 5. Update docs and tests.
-

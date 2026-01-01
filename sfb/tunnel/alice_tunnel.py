@@ -340,6 +340,7 @@ class AliceTunnel(BaseTunnel):
             return False
 
         now = time.time()
+        packets_sent_before = self._packets_sent
 
         # 1. Receive all available responses
         received_any = False
@@ -433,6 +434,12 @@ class AliceTunnel(BaseTunnel):
         # 4. Opportunistically grow window after ACK progress or retry negotiation
         if self._window_growth_enabled:
             self._maybe_request_window(now)
+
+        if (not received_any and self._packets_sent == packets_sent_before and
+                not self._channel_manager.has_pending_data() and
+                not self._got_data and not self._has_pending_data_acks):
+            idle_sleep = max(self._config.tunnel_tick_sleep, 0.01)
+            time.sleep(idle_sleep)
 
         return True
 

@@ -1,6 +1,6 @@
 # -*- coding: ascii -*-
 """
-Run icmp_socks_diag with cProfile and store results under profile_results/.
+Run icmp_socks_diag with profiling and store results under profile_results/.
 """
 
 from __future__ import absolute_import, print_function
@@ -32,8 +32,10 @@ def main():
         os.path.join(ROOT_DIR, 'scripts', 'icmp_socks_diag.py'),
         '--clients', '2',
         '--icmp-target', '127.0.0.1',
+        '--profile-sfb-dir', RESULTS_DIR,
     ]
     sys.stdout.write('Writing profile to: %s\n' % profile_path)
+    sys.stdout.write('Writing Bob/Alice profiles to: %s\n' % RESULTS_DIR)
     return subprocess.call(cmd, cwd=ROOT_DIR)
 
 

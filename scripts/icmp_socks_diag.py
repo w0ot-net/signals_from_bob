@@ -206,6 +206,10 @@ def parse_args():
         '--non-blocking-poll-timeout', type=float, default=None,
         help='Override non_blocking_poll_timeout (seconds)'
     )
+    parser.add_argument(
+        '--profile-sfb-dir', default=None,
+        help='Write cProfile outputs for Bob/Alice to this directory'
+    )
     return parser.parse_args()
 
 
@@ -237,6 +241,19 @@ def ensure_logs(server_path, client_path):
             pass
 
 
+def ensure_dir(path):
+    if not os.path.isdir(path):
+        os.makedirs(path)
+
+
+def resolve_profile_dir(path):
+    if not path:
+        return None
+    if os.path.isabs(path):
+        return path
+    return os.path.join(ROOT_DIR, path)
+
+
 def wait_for_port(host, port, deadline, proc=None):
     """Wait until a TCP port is accepting connections."""
     while time.time() < deadline:
@@ -262,9 +279,22 @@ def start_http_server(root, port):
     return server, thread
 
 
+def wrap_profile(cmd, profile_dir, label):
+    if not profile_dir:
+        return cmd
+    ensure_dir(profile_dir)
+    timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
+    profile_path = os.path.join(
+        profile_dir,
+        '%s_%s_%s.pstats' % (label, timestamp, os.getpid())
+    )
+    return ['python3', '-m', 'cProfile', '-o', profile_path] + cmd[1:]
+
+
 def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
               socks_relay_buffer_size=None, channel_max_send_buf=None,
-              socks_pump_backoff_max=None, non_blocking_poll_timeout=None):
+              socks_pump_backoff_max=None, non_blocking_poll_timeout=None,
+              profile_dir=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'bob',
@@ -292,13 +322,14 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
         '--socks_host', '127.0.0.1',
         '--socks_port', str(socks_port),
     ])
+    cmd = wrap_profile(cmd, profile_dir, 'bob')
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 
 
 def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
                 log_profile=None, verbose=False, socks_relay_buffer_size=None,
                 channel_max_send_buf=None, socks_pump_backoff_max=None,
-                non_blocking_poll_timeout=None):
+                non_blocking_poll_timeout=None, profile_dir=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'alice',
@@ -325,6 +356,7 @@ def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
         cmd.extend(['--send_rate', str(send_rate)])
     if send_burst is not None:
         cmd.extend(['--send_burst', str(send_burst)])
+    cmd = wrap_profile(cmd, profile_dir, 'alice')
     return ManagedProcess('alice', cmd, cwd=ROOT_DIR)
 
 
@@ -810,6 +842,7 @@ def main():
 
     require_linux_root()
     ensure_logs(SERVER_DB_LOG, CLIENT_DB_LOG)
+    profile_dir = resolve_profile_dir(args.profile_sfb_dir)
 
     http_root = os.path.join(ROOT_DIR, 'test_download_files')
     download_path = os.path.join(http_root, args.download_file)
@@ -832,6 +865,7 @@ def main():
             channel_max_send_buf=args.channel_max_send_buf,
             socks_pump_backoff_max=args.socks_pump_backoff_max,
             non_blocking_poll_timeout=args.non_blocking_poll_timeout,
+            profile_dir=profile_dir,
         )
         alice = start_alice(
             args.icmp_target,
@@ -844,6 +878,7 @@ def main():
             channel_max_send_buf=args.channel_max_send_buf,
             socks_pump_backoff_max=args.socks_pump_backoff_max,
             non_blocking_poll_timeout=args.non_blocking_poll_timeout,
+            profile_dir=profile_dir,
         )
         bob.start()
         time.sleep(0.2)

@@ -100,6 +100,21 @@ class DnsServer(Server):
                 self._edns_size,
             )
         self._logger = get_logger(__name__)
+        log_event(
+            self._logger,
+            logging.INFO,
+            'dns.server_config',
+            'DNS server config',
+            {
+                'base_domain': self._base_domain,
+                'listen_addr': '%s:%d' % (self._listen_addr[0], self._listen_addr[1]),
+                'qtype': config.dns_query_type,
+                'rtype': config.dns_response_type,
+                'edns_size': self._edns_size,
+                'label_max_len': self._label_max_len,
+                'cname_suffix': self._cname_suffix,
+            },
+        )
         try:
             self._cname_a_addr_bytes = socket.inet_aton(self._cname_a_addr)
         except (socket.error, OSError):

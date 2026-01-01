@@ -90,6 +90,24 @@ class DnsClient(Transport):
                 raise TransportError('No system resolvers found')
             self._resolver = resolvers[0]
 
+        log_event(
+            _LOG,
+            logging.INFO,
+            'dns.client_config',
+            'DNS client config',
+            {
+                'base_domain': self._base_domain,
+                'resolver': '%s:%d' % (self._resolver[0], self._resolver[1]),
+                'qtype': config.dns_query_type,
+                'rtype': config.dns_response_type,
+                'edns_size': self._edns_size,
+                'max_pending': self._max_pending,
+                'pending_timeout': self._pending_timeout,
+                'label_max_len': self._label_max_len,
+                'cname_suffix': self._cname_suffix,
+            },
+        )
+
         # Create non-blocking UDP socket
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setblocking(False)

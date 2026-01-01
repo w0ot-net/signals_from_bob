@@ -37,6 +37,11 @@ Add a pacing helper (e.g., `sfb/tunnel/pacing.py`) that:
     where `rtt_sec = max(srtt_ms, rtt_floor_ms) / 1000.0`
 - Treat existing `tunnel_send_rate` as a hard ceiling (pacer can only reduce).
 
+### Reliability Updates (Support)
+- `RttEstimator`: add read-only `srtt_ms` to expose the EWMA in milliseconds.
+- `SendWindow.process_ack`: return acked packet/byte counts alongside RTT samples
+  so Phase 2 can compute ack-rate EWMA without re-walking internal state.
+
 ### Integration Points
 - `AliceTunnel._can_send_new()`:
   - Add `pacer.can_send(now, unacked_count)` check before send.
@@ -75,6 +80,7 @@ Expose via CLI overrides, similar to other tunnel knobs.
 
 ## Control Loop Enhancements (Phase 2)
 - Add ack-rate EWMA (bytes or packets per second).
+- Source acked packet/byte counts from `SendWindow.process_ack`.
 - Estimate pipe size: `pipe = ack_rate * rtt_sec`.
 - Set `target = clamp(pipe * inflight_gain, min_inflight, cap)`.
 - Adjust gain based on observed `tunnel.send_blocked` ratio.

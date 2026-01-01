@@ -29,3 +29,4 @@ env/
 .claude/
 private_tests/
 logs/
+profile_results/

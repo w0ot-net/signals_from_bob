@@ -159,7 +159,11 @@ class IcmpClient(Transport):
         except socket.error as e:
             raise TransportError('Receive failed: %s' % e)
 
-        result = parse_icmp_echo(packet, expect_type=ICMP_ECHO_REPLY)
+        result = parse_icmp_echo(
+            packet,
+            expect_type=ICMP_ECHO_REPLY,
+            expect_ident=self._icmp_id,
+        )
         if result is None:
             log_event(
                 _LOG,

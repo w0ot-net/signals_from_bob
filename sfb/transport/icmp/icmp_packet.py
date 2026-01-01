@@ -5,8 +5,10 @@ ICMP packet helpers for Echo Request/Reply.
 
 from __future__ import absolute_import
 
+import array
 import socket
 import struct
+import sys
 
 from ...compat import byte_at, require_bytes
 
@@ -21,11 +23,22 @@ def checksum(data):
     Compute ICMP checksum for bytes data.
     """
     data = require_bytes(data)
-    if len(data) % 2:
-        data = data + b'\x00'
     total = 0
-    for offset in range(0, len(data), 2):
-        total += (byte_at(data, offset) << 8) + byte_at(data, offset + 1)
+    length = len(data)
+    if length % 2:
+        total += byte_at(data, length - 1) << 8
+        data = data[:-1]
+        length -= 1
+    if length:
+        words = array.array('H')
+        try:
+            words.frombytes(data)
+        except AttributeError:
+            words.fromstring(data)
+        if sys.byteorder == 'little':
+            # Array uses native endianness; checksum needs network byte order.
+            words.byteswap()
+        total += sum(words)
     total = (total & 0xFFFF) + (total >> 16)
     total = (total & 0xFFFF) + (total >> 16)
     return (~total) & 0xFFFF
@@ -81,9 +94,13 @@ def _extract_icmp(data):
     return data
 
 
-def parse_icmp_echo(data, expect_type=None):
+def parse_icmp_echo(data, expect_type=None, expect_ident=None):
     """
     Parse an ICMP Echo Request/Reply packet.
+
+    Args:
+        expect_type: Optional ICMP type to match before checksum.
+        expect_ident: Optional ICMP id to match before checksum.
 
     Returns:
         tuple: (icmp_type, ident, seq, payload) or None on parse failure.
@@ -91,15 +108,16 @@ def parse_icmp_echo(data, expect_type=None):
     icmp = _extract_icmp(data)
     if icmp is None or len(icmp) < ICMP_HEADER_LEN:
         return None
-    if checksum(icmp) != 0:
-        return None
-
     icmp_type, code, _, ident, seq = struct.unpack(
         '>BBHHH', icmp[:ICMP_HEADER_LEN]
     )
     if code != ICMP_CODE:
         return None
     if expect_type is not None and icmp_type != expect_type:
+        return None
+    if expect_ident is not None and ident != expect_ident:
+        return None
+    if checksum(icmp) != 0:
         return None
     payload = icmp[ICMP_HEADER_LEN:]
     return icmp_type, ident, seq, payload

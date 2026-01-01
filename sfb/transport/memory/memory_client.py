@@ -7,7 +7,7 @@ import logging
 
 from .memory_link import _InMemoryLink
 from ..transport_base import Transport, TransportError
-from ...compat import require_bytes, queue
+from ...compat import queue, to_bytes
 from ...config import Config
 from ...protocol.constants import DEFAULT_MAX_PACKET_SIZE
 from ...logging_util import get_logger, log_event
@@ -52,7 +52,7 @@ class InMemoryTransport(Transport):
     def send(self, data):
         if self._link.is_closed():
             raise TransportError('In-memory transport closed')
-        data = require_bytes(data)
+        data = to_bytes(data)
         if len(data) > self._send_mtu:
             raise TransportError(
                 'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)

@@ -23,7 +23,7 @@ from ..transport_base import (
 )
 from . import codec
 from .dns_utils import load_system_resolvers
-from ...compat import require_bytes
+from ...compat import require_bytes_like
 from ...config import Config
 from ...logging_util import get_logger, log_event
 
@@ -184,7 +184,7 @@ class DnsClient(Transport):
                 },
             )
             raise TransportError('Too many pending queries')
-        data = require_bytes(data)
+        data = require_bytes_like(data)
         if len(data) > self._send_mtu:
             raise TransportError(
                 'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)

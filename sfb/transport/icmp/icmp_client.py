@@ -19,7 +19,7 @@ from ..transport_base import (
     prune_and_count,
 )
 from .icmp_packet import ICMP_ECHO_REPLY, build_echo_request, parse_icmp_echo
-from ...compat import require_bytes
+from ...compat import to_bytes
 from ...config import Config
 from ...logging_util import get_logger, log_event
 
@@ -95,7 +95,7 @@ class IcmpClient(Transport):
             )
             raise TransportError('Too many pending requests')
 
-        data = require_bytes(data)
+        data = to_bytes(data)
         if len(data) > self._send_mtu:
             raise TransportError(
                 'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)

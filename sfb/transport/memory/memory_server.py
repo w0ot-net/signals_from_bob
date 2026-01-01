@@ -7,7 +7,7 @@ import logging
 
 from .memory_link import _InMemoryLink
 from ..transport_base import Server, TransportError
-from ...compat import require_bytes, queue
+from ...compat import queue, to_bytes
 from ...config import Config
 from ...protocol.constants import DEFAULT_MAX_PACKET_SIZE
 
@@ -57,7 +57,7 @@ class InMemoryServer(Server):
         def responder(response_data):
             if self._link.is_closed():
                 return
-            response_data = require_bytes(response_data)
+            response_data = to_bytes(response_data)
             if len(response_data) > self._send_mtu:
                 raise TransportError(
                     'Response size %d exceeds send MTU %d' % (

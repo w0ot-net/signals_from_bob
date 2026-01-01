@@ -10,7 +10,7 @@ import socket
 import struct
 import sys
 
-from ...compat import array_frombytes, byte_at, require_bytes
+from ...compat import array_frombytes, byte_at, require_bytes_like, to_bytes
 
 ICMP_ECHO_REQUEST = 8
 ICMP_ECHO_REPLY = 0
@@ -22,7 +22,7 @@ def checksum(data):
     """
     Compute ICMP checksum for bytes data.
     """
-    data = require_bytes(data)
+    data = require_bytes_like(data)
     total = 0
     length = len(data)
     if length % 2:
@@ -45,7 +45,7 @@ def build_echo_packet(icmp_type, ident, seq, payload):
     """
     Build an ICMP Echo packet with the given type, id, seq, and payload.
     """
-    payload = require_bytes(payload)
+    payload = to_bytes(payload)
     header = struct.pack('>BBHHH', icmp_type, ICMP_CODE, 0, ident, seq)
     csum = checksum(header + payload)
     header = struct.pack('>BBHHH', icmp_type, ICMP_CODE, csum, ident, seq)
@@ -66,7 +66,7 @@ def _extract_icmp(data):
     """
     Extract ICMP bytes from a raw IP packet if present.
     """
-    data = require_bytes(data)
+    data = require_bytes_like(data)
     if len(data) < ICMP_HEADER_LEN:
         return None
 
@@ -118,5 +118,5 @@ def parse_icmp_echo(data, expect_type=None, expect_ident=None,
         return None
     if validate_checksum and checksum(icmp) != 0:
         return None
-    payload = icmp[ICMP_HEADER_LEN:]
+    payload = to_bytes(icmp[ICMP_HEADER_LEN:])
     return icmp_type, ident, seq, payload

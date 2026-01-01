@@ -15,7 +15,7 @@ import collections
 import logging
 import threading
 
-from ..compat import require_bytes, to_native_str
+from ..compat import require_bytes_like, to_native_str
 from ..logging_util import get_logger, log_event
 
 logger = get_logger(__name__)
@@ -114,7 +114,7 @@ class Channel(object):
         Raises:
             ChannelError: if channel is not open or buffer completely full
         """
-        data = require_bytes(data)
+        data = require_bytes_like(data)
         if not data:
             return 0
 
@@ -172,7 +172,7 @@ class Channel(object):
             ChannelError: if channel closes or timeout expires
         """
         import time
-        data = require_bytes(data)
+        data = require_bytes_like(data)
         if not data:
             return 0
 
@@ -329,7 +329,7 @@ class Channel(object):
         Raises:
             ChannelError: on timeout or close
         """
-        data = require_bytes(data)
+        data = require_bytes_like(data)
         if not data:
             return 0
         self.write_wait(data, timeout=timeout)
@@ -420,7 +420,7 @@ class Channel(object):
 
     def _deliver(self, data):
         """Deliver received data to channel (called by muxer)."""
-        data = require_bytes(data)
+        data = require_bytes_like(data)
         if not data:
             return
 

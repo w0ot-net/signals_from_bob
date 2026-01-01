@@ -19,6 +19,27 @@ if PY2:
         Load bytes into an array (Python 2 uses fromstring).
         """
         return arr.fromstring(data)
+
+    def require_bytes_like(data):
+        """
+        Require bytes-like input, rejecting text.
+        """
+        if isinstance(data, text_type):
+            raise TypeError('Expected bytes, got text')
+        if isinstance(data, bytes):
+            return data
+        if isinstance(data, bytearray):
+            return bytes(data)
+        try:
+            return bytes(bytearray(data))
+        except TypeError:
+            raise TypeError('Expected bytes-like object')
+
+    def to_bytes(data):
+        """
+        Coerce bytes-like input to bytes, rejecting text.
+        """
+        return require_bytes_like(data)
 else:
     text_type = str
     integer_types = (int,)
@@ -29,21 +50,46 @@ else:
         """
         return arr.frombytes(data)
 
+    def require_bytes_like(data):
+        """
+        Require bytes-like input, rejecting text.
+        """
+        if isinstance(data, text_type):
+            raise TypeError('Expected bytes, got text')
+        if isinstance(data, bytes):
+            return data
+        if isinstance(data, memoryview):
+            return data
+        if isinstance(data, bytearray):
+            return memoryview(data)
+        try:
+            return memoryview(data)
+        except TypeError:
+            raise TypeError('Expected bytes-like object')
+
+    def to_bytes(data):
+        """
+        Coerce bytes-like input to bytes, rejecting text.
+        """
+        if isinstance(data, text_type):
+            raise TypeError('Expected bytes, got text')
+        if isinstance(data, bytes):
+            return data
+        if isinstance(data, memoryview):
+            return data.tobytes()
+        if isinstance(data, bytearray):
+            return bytes(data)
+        try:
+            return bytes(bytearray(data))
+        except TypeError:
+            raise TypeError('Expected bytes-like object')
+
 
 def require_bytes(data):
     """
-    Require bytes-like input, rejecting text.
+    Require bytes input, rejecting text.
     """
-    if isinstance(data, text_type):
-        raise TypeError('Expected bytes, got text')
-    if isinstance(data, bytes):
-        return data
-    if isinstance(data, bytearray):
-        return bytes(data)
-    try:
-        return bytes(bytearray(data))
-    except TypeError:
-        raise TypeError('Expected bytes-like object')
+    return to_bytes(data)
 
 
 def byte_at(data, offset):
@@ -66,4 +112,3 @@ def to_native_str(value):
         return str(value)
     except Exception:
         return repr(value)
-

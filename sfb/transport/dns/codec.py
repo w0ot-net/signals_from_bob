@@ -11,7 +11,7 @@ from __future__ import absolute_import
 import base64
 import struct
 
-from ...compat import byte_at, require_bytes, text_type
+from ...compat import byte_at, require_bytes_like, text_type, to_bytes
 
 # DNS constants
 QTYPE_A = 1
@@ -55,7 +55,7 @@ RECORD_TYPES = {
 
 def base32_encode(data):
     """Encode bytes to base32 without padding, uppercase."""
-    data = require_bytes(data)
+    data = require_bytes_like(data)
     return base64.b32encode(data).rstrip(b'=').decode('ascii')
 
 
@@ -70,7 +70,7 @@ def base32_decode(s):
 
 def base64_encode(data):
     """Encode bytes to base64 without padding."""
-    data = require_bytes(data)
+    data = require_bytes_like(data)
     return base64.b64encode(data).rstrip(b'=').decode('ascii')
 
 
@@ -114,7 +114,7 @@ def decode_name(data, offset, allow_compression=True):
     Returns:
         tuple: (name_string, new_offset)
     """
-    data = require_bytes(data)
+    data = to_bytes(data)
     labels = []
     jumped = False
     end_offset = None
@@ -326,6 +326,7 @@ def decode_txt_rdata(rdata):
     Returns:
         bytes: decoded tunnel data
     """
+    rdata = to_bytes(rdata)
     strings = []
     offset = 0
     while offset < len(rdata):
@@ -344,6 +345,7 @@ def decode_txt_rdata(rdata):
 
 def encode_a_rdata(addr_bytes):
     """Encode IPv4 address bytes as A RDATA."""
+    addr_bytes = to_bytes(addr_bytes)
     if len(addr_bytes) != 4:
         raise ValueError('A RDATA requires 4 bytes')
     return addr_bytes

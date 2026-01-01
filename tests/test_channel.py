@@ -198,23 +198,23 @@ class ControlChannelTests(unittest.TestCase):
             ctrl.recv_message(timeout=0.1)
         self.assertEqual(ctx.exception.code, 'invalid')
 
-    def test_take_send_data_waits_for_newline(self):
+    def test_take_send_data_allows_chunking(self):
         ctrl = ControlChannel()
         ctrl._set_state(STATE_OPEN)
-        ctrl.write(b'partial')
+        ctrl.write(b'partial\n')
+        data = ctrl._take_send_data(4)
+        self.assertEqual(data, b'part')
         data = ctrl._take_send_data(10)
-        self.assertEqual(data, b'')
-        ctrl.write(b'\n')
-        data = ctrl._take_send_data(10)
-        self.assertEqual(data, b'partial\n')
+        self.assertEqual(data, b'ial\n')
 
-    def test_take_send_data_oversize_is_error(self):
+    def test_take_send_data_splits_large_message(self):
         ctrl = ControlChannel()
         ctrl._set_state(STATE_OPEN)
-        ctrl.write(b'a' * 6)
-        with self.assertRaises(ChannelError) as ctx:
-            ctrl._take_send_data(5)
-        self.assertEqual(ctx.exception.code, 'invalid')
+        ctrl.write(b'a' * 6 + b'\n')
+        data = ctrl._take_send_data(5)
+        self.assertEqual(data, b'aaaaa')
+        data = ctrl._take_send_data(5)
+        self.assertEqual(data, b'a\n')
 
 
 class ChannelManagerTests(unittest.TestCase):

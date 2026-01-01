@@ -32,14 +32,6 @@ def main():
         os.path.join(ROOT_DIR, 'scripts', 'icmp_socks_diag.py'),
         '--clients', '2',
         '--icmp-target', '127.0.0.1',
-        '--icmp-mtu', '1400',
-        '--send-rate', '0',
-        '--log-profile', 'socks_throughput_debug',
-        '--socks_relay_buffer_size', '32768',
-        '--channel_max_send_buf', '262144',
-        '--socks-pump-backoff-max', '0.0001',
-        '--non-blocking-poll-timeout', '0',
-        '--timeout', '900',
     ]
     sys.stdout.write('Writing profile to: %s\n' % profile_path)
     return subprocess.call(cmd, cwd=ROOT_DIR)

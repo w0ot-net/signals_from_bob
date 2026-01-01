@@ -24,25 +24,28 @@ This change is intentionally wire-incompatible with older clients.
   - Treat any violation as a fatal protocol error: log, drop the packet, and
     close the tunnel.
 - Semantics:
-  - Alice sending a keepalive poll uses `FLAG_KEEPALIVE`.
-  - Bob responding with a keepalive uses `FLAG_KEEPALIVE`.
-  - Ping vs pong is inferred from role (Alice initiates, Bob responds).
+  - Any poll-only packet (zero segments) uses `FLAG_KEEPALIVE`, not just
+    periodic keepalive.
+  - Alice initiates polls; Bob only responds (ping vs pong inferred by role).
+  - Legacy `{"t":"tun","c":"ping"}` / `"pong"` control messages are ignored.
 
 ## Sender Changes
 
 ### Alice
 
-- When keepalive is due and there is no pending data, build a packet with:
+- When polling and there is no pending data (keepalive interval or pong-grace),
+  build a packet with:
   - `FLAG_KEEPALIVE` set
   - No segments
   - Normal seq/ack/sack
 - Do not enqueue a `{"t":"tun","c":"ping"}` control message.
 - "No pending data" means no queued send data in any channel (including
-  control messages other than keepalive), not just "no segments after packing."
+  control/negotiation/close), not just "no segments after packing."
 
 ### Bob
 
-- When responding and there is no queued data to send, build a packet with:
+- When responding and there is no queued data to send in any channel
+  (including control/negotiation/close), build a packet with:
   - `FLAG_KEEPALIVE` set
   - No segments
   - Normal seq/ack/sack
@@ -50,8 +53,8 @@ This change is intentionally wire-incompatible with older clients.
 - If a response is required but the send window is full or the send-window
   distance cap is exceeded, send an empty ACK-only packet with no keepalive
   flag (since it is not recorded in the send window).
-- If data is queued but cannot fit the payload cap, do not send keepalive;
-  respond with an empty ACK-only packet.
+- If data is queued (including control) but cannot fit the payload cap, do not
+  send keepalive; respond with an empty ACK-only packet and leave data queued.
 
 ## Receiver Changes
 
@@ -63,6 +66,7 @@ This change is intentionally wire-incompatible with older clients.
 - If `FLAG_KEEPALIVE` is set but segments are present:
   - Log a fatal protocol violation, drop the packet, and close the tunnel.
   - Document this as a hard protocol violation in `doc/PROTOCOL.md`.
+- If legacy ping/pong control messages are received, ignore them (no reply).
 
 ## Reliability and Retransmit
 
@@ -107,6 +111,7 @@ Plan:
 - Alice: `has_real_data` is false for keepalive-flag responses without JSON
   parsing.
 - Bob: when idle, response uses keepalive flag and no control segment.
+- Legacy ping/pong control messages are ignored (no response).
 - Remove or rewrite tests that assert `{"t":"tun","c":"ping"}` / `"pong"` on
   the wire.
 

@@ -28,6 +28,8 @@ class Config:
     dns_base_domain: str = ""
     # Default transport for CLI
     transport_default: str = "dns"
+    # Active transport name (None = transport_default)
+    transport: Optional[str] = None
     # DNS resolver address for Alice (e.g., '1.1.1.1:53'), None = system default
     dns_resolver: Optional[str] = None
     # Listen address for Bob's DNS server
@@ -273,6 +275,16 @@ class Config:
             raise ValueError("crypto_mode must be 'none', 'xor', or 'rc4'")
         if self.crypto_mode != "none" and not self.crypto_psk:
             raise ValueError("crypto_psk required for %s mode" % self.crypto_mode)
+
+        # Transport-aware defaults
+        effective_transport = self.transport or self.transport_default
+        if effective_transport:
+            try:
+                transport_name = effective_transport.lower()
+            except AttributeError:
+                transport_name = effective_transport
+            if transport_name != "dns":
+                self.tunnel_max_in_flight = 64
 
         # Tunnel validation
         if self.tunnel_max_in_flight < 1 or self.tunnel_max_in_flight > 64:

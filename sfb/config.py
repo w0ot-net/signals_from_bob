@@ -39,7 +39,7 @@ class Config:
     # Minimum UDP recv buffer size for DNS responses/queries
     dns_recv_bufsize_min: int = 4096
     # Maximum concurrent DNS queries in flight
-    dns_max_pending: int = 32
+    dns_max_pending: int = 64
     # Timeout before considering a DNS query stale (seconds)
     dns_pending_timeout: float = 5.0
     # Query type for DNS tunneling (currently fixed to 'A')

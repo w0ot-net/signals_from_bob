@@ -112,7 +112,6 @@ LOG_PROFILES = {
             'channel.open*',
             'channel.close*',
             'channel.send_buf_*',
-            'channel.control_send_*',
             'channel.drain',
             'channel.pack',
             'channel.write_wait',

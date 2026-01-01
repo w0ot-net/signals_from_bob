@@ -292,6 +292,10 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
         '--socks_host', '127.0.0.1',
         '--socks_port', str(socks_port),
     ])
+    if socks_pump_backoff_max is not None:
+        cmd.extend(['--socks_pump_backoff_max', str(socks_pump_backoff_max)])
+    if non_blocking_poll_timeout is not None:
+        cmd.extend(['--non_blocking_poll_timeout', str(non_blocking_poll_timeout)])
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 
 

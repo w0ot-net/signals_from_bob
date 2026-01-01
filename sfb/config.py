@@ -167,7 +167,7 @@ class Config:
     # SQLite log path (None = disabled)
     db_log_path: Optional[str] = None
     # SQLite log flush interval (seconds)
-    db_log_flush: float = 0.5
+    db_log_flush: float = 2.0
     # SQLite log queue max size (0 = unbounded)
     db_log_queue: int = 0
     # Default logging profile name (None = no profile)

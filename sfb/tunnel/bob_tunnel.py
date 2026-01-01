@@ -12,13 +12,20 @@ import logging
 import time
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
-from .tunnel_control_messages import tun_pong, encode as encode_message
+from .tunnel_control_messages import (
+    tun_pong,
+    tun_cap_need,
+    tun_cap_clear,
+    encode as encode_message,
+)
 from ..logging_util import log_event
 from ..protocol import (
     Packet,
+    Segment,
     FLAG_SYN,
     FLAG_ACK,
     PACKET_HEADER_SIZE,
+    CHANNEL_CONTROL,
 )
 
 
@@ -85,6 +92,9 @@ class BobTunnel(BaseTunnel):
 
         # Handshake state
         self._handshake_complete = False
+        # Cap negotiation hints
+        self._cap_need_seq = None
+        self._cap_need_cap = None
 
     def serve_forever(self):
         """
@@ -310,11 +320,35 @@ class BobTunnel(BaseTunnel):
             if pending >= target:
                 break
 
+    def _send_cap_signal(self, responder, msg, log_type, log_fields):
+        """Send an ACK-only packet carrying a cap control message."""
+        ctrl_segment = Segment(CHANNEL_CONTROL, encode_message(msg))
+        packet, _ = self._build_packet(segments=[ctrl_segment])
+        response_data = self._encode_packet(packet)
+
+        self._packets_sent += 1
+        self._bytes_sent += len(response_data)
+        responder(response_data)
+        log_fields = dict(log_fields) if log_fields else {}
+        log_fields['side'] = 'bob'
+        log_fields['bytes'] = len(response_data)
+        log_event(
+            self._logger,
+            logging.INFO,
+            log_type,
+            'Cap control sent',
+            log_fields,
+        )
+
     def _send_response(self, responder, now):
         """Build and send response packet."""
         response_payload_cap = None
         if hasattr(responder, 'payload_cap'):
             response_payload_cap = responder.payload_cap
+        cap_clear_pending = (
+            self._cap_need_seq is not None and
+            self._cap_need_seq not in self._send_window._unacked
+        )
 
         # Opportunistic retransmit: if we have unacked packets, resend oldest
         # Rebuild with fresh ack/sack to ensure current ACK state is sent
@@ -369,36 +403,77 @@ class BobTunnel(BaseTunnel):
                             'side': 'bob',
                         },
                     )
-                else:
-                    self._send_window.mark_retransmit(seq, now=now)
-                    log_event(
-                        self._logger,
-                        logging.DEBUG,
-                        'tunnel.retransmit',
-                        'Retransmitting packet',
-                        {'seq': seq, 'seg_count': len(segments), 'side': 'bob'},
-                    )
-                    self._log_response_cap(responder, response_data)
-
-                    self._packets_sent += 1
-                    self._bytes_sent += len(response_data)
-                    responder(response_data)
-                    log_event(
-                        self._logger,
-                        logging.DEBUG,
-                        'tunnel.packet_send',
-                        'Packet sent',
+                    self._cap_need_seq = seq
+                    self._cap_need_cap = response_payload_cap
+                    self._send_cap_signal(
+                        responder,
+                        tun_cap_need(seq, len(response_data), response_payload_cap),
+                        'tunnel.cap_need',
                         {
-                            'seq': packet.seq,
-                            'ack': packet.ack,
-                            'sack': packet.sack,
-                            'flags': packet.flags,
-                            'seg_count': len(packet.segments),
+                            'seq': seq,
                             'bytes': len(response_data),
-                            'side': 'bob',
+                            'cap': response_payload_cap,
                         },
                     )
                     return
+                cap_need_for_seq = (self._cap_need_seq == seq)
+                cap_clear_needed = cap_need_for_seq or cap_clear_pending
+                send_segments = segments
+                packet = self._rebuild_packet(seq, send_segments)
+                if cap_clear_needed:
+                    cap_clear_segment = Segment(
+                        CHANNEL_CONTROL, encode_message(tun_cap_clear())
+                    )
+                    added = cap_clear_segment.encoded_size()
+                    if (response_payload_cap is None or
+                            packet.encoded_size() + added <= response_payload_cap):
+                        send_segments = list(segments)
+                        send_segments.append(cap_clear_segment)
+                        packet = self._rebuild_packet(seq, send_segments)
+                        cap_clear_pending = False
+                        self._cap_need_seq = None
+                        self._cap_need_cap = None
+                self._send_window.mark_retransmit(seq, now=now)
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.retransmit',
+                    'Retransmitting packet',
+                    {'seq': seq, 'seg_count': len(send_segments), 'side': 'bob'},
+                )
+                response_data = self._encode_packet(packet)
+                self._log_response_cap(responder, response_data)
+
+                self._packets_sent += 1
+                self._bytes_sent += len(response_data)
+                responder(response_data)
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.packet_send',
+                    'Packet sent',
+                    {
+                        'seq': packet.seq,
+                        'ack': packet.ack,
+                        'sack': packet.sack,
+                        'flags': packet.flags,
+                        'seg_count': len(packet.segments),
+                        'bytes': len(response_data),
+                        'side': 'bob',
+                    },
+                )
+                return
+
+        if oldest is None and cap_clear_pending:
+            self._send_cap_signal(
+                responder,
+                tun_cap_clear(),
+                'tunnel.cap_clear',
+                {'seq': self._cap_need_seq},
+            )
+            self._cap_need_seq = None
+            self._cap_need_cap = None
+            return
 
         # No retransmits needed - check window before sending new data
         if not self._send_window.can_send:

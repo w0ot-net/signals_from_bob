@@ -275,6 +275,7 @@ def create_config(args):
     """Create Config from parsed arguments."""
     config_kwargs = {
         'dns_base_domain': args.domain,
+        'transport': args.transport,
     }
 
     # DNS transport args

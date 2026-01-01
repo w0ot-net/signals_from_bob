@@ -591,6 +591,10 @@ class BaseTunnel(object):
         elif cmd == 'pong':
             # pong confirms peer is alive - nothing else to do
             pass
+        elif cmd == 'cap_need':
+            self._handle_cap_need(msg)
+        elif cmd == 'cap_clear':
+            self._handle_cap_clear(msg)
         elif cmd == 'mtu':
             self._handle_mtu(msg)
         elif cmd == 'mtu_ok':
@@ -622,6 +626,32 @@ class BaseTunnel(object):
         """Handle ping by queueing pong."""
         if not self._channel_manager.has_pending_data():
             self.control.send_message(tun_pong())
+
+    def _handle_cap_need(self, msg):
+        """Handle cap_need control message (override in Alice as needed)."""
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.cap_need_ignored',
+            'cap_need ignored on this side',
+            {
+                'msg': msg,
+                'side': 'alice' if self._is_initiator else 'bob',
+            },
+        )
+
+    def _handle_cap_clear(self, msg):
+        """Handle cap_clear control message (override in Alice as needed)."""
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.cap_clear_ignored',
+            'cap_clear ignored on this side',
+            {
+                'msg': msg,
+                'side': 'alice' if self._is_initiator else 'bob',
+            },
+        )
 
     def _handle_mtu(self, msg):
         """

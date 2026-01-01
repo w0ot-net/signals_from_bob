@@ -187,8 +187,16 @@ def parse_args():
         help='Override socks_relay_buffer_size (bytes)'
     )
     parser.add_argument(
+        '--socks_relay_buffer_size', dest='socks_relay_buffer_size',
+        type=int, default=None, help=argparse.SUPPRESS
+    )
+    parser.add_argument(
         '--channel-max-send-buf', type=int, default=None,
         help='Override channel_max_send_buf (bytes)'
+    )
+    parser.add_argument(
+        '--channel_max_send_buf', dest='channel_max_send_buf',
+        type=int, default=None, help=argparse.SUPPRESS
     )
     return parser.parse_args()
 

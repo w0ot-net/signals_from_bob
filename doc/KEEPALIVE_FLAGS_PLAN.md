@@ -1,0 +1,98 @@
+# Keepalive Flag Plan
+
+## Goal
+
+Replace keepalive ping/pong control messages on channel 0 with a packet header
+flag that marks "pure keepalive" packets. Keepalive packets will carry no
+segments and allow receivers to skip control-message parsing entirely.
+
+This change is intentionally wire-incompatible with older clients.
+
+## Protocol Changes
+
+- Add a new packet header flag bit: `FLAG_KEEPALIVE` (name TBD but consistent
+  with existing `FLAG_SYN`/`FLAG_ACK`).
+- Update the header validator to accept the new bit.
+- Define a strict invariant:
+  - If `FLAG_KEEPALIVE` is set, the packet MUST contain zero segments.
+  - If any segments are present, `FLAG_KEEPALIVE` MUST be unset.
+- Semantics:
+  - Alice sending a keepalive poll uses `FLAG_KEEPALIVE`.
+  - Bob responding with a keepalive uses `FLAG_KEEPALIVE`.
+  - Ping vs pong is inferred from role (Alice initiates, Bob responds).
+
+## Sender Changes
+
+### Alice
+
+- When keepalive is due and there is no pending data, build a packet with:
+  - `FLAG_KEEPALIVE` set
+  - No segments
+  - Normal seq/ack/sack
+- Do not enqueue a `{"t":"tun","c":"ping"}` control message.
+
+### Bob
+
+- When responding and there is no data to send, build a packet with:
+  - `FLAG_KEEPALIVE` set
+  - No segments
+  - Normal seq/ack/sack
+- Do not enqueue a `{"t":"tun","c":"pong"}` control message.
+
+## Receiver Changes
+
+- If `FLAG_KEEPALIVE` is set and there are zero segments:
+  - Skip channel delivery and control-message parsing.
+  - Treat as "no real data" for pacing/poll decisions.
+- If `FLAG_KEEPALIVE` is set but segments are present:
+  - Log a warning and drop the packet (or ignore segments).
+  - Choose one behavior and document it in `doc/PROTOCOL.md`.
+
+## Reliability and Retransmit
+
+Keepalive packets still consume sequence numbers and must be tracked by the
+send window so ACK/SACK processing remains consistent.
+
+Plan:
+- Extend `SendWindow.send()` to accept packet flags and store them per
+  unacked packet.
+- Update `_rebuild_packet()` to preserve the stored flags on retransmit.
+- Keep the existing behavior where keepalive packets can be retransmitted
+  (same as the current ping control-message behavior).
+
+## Logging and Metrics
+
+- Include the keepalive flag in `tunnel.packet_send` and `tunnel.packet_recv`
+  log fields (if not already exposed).
+- If control-message logging depends on parsing channel 0, it will no longer
+  log ping/pong; that is expected.
+
+## Docs to Update
+
+- `doc/PROTOCOL.md`: define the new flag and the keepalive-only packet format.
+- `doc/TUNNEL.md`: update the Keepalive section (header-only, no channel 0).
+- `doc/CONTROL_MESSAGES.md`: remove ping/pong from tunnel control messages or
+  mark as deprecated and unused.
+- `doc/RELIABILITY.md`: keepalive is a header flag, not a control message.
+- `doc/ASYMMETRY.md`: note that ping/pong is inferred by role, not message.
+
+## Tests to Update or Add
+
+- Packet header encode/decode accepts the new flag.
+- Keepalive-only packet has zero segments and is accepted.
+- A keepalive flag with segments is rejected (or segments ignored), matching
+  the chosen behavior.
+- Alice: `has_real_data` is false for keepalive-flag responses without JSON
+  parsing.
+- Bob: when idle, response uses keepalive flag and no control segment.
+- Remove or rewrite tests that assert `{"t":"tun","c":"ping"}` / `"pong"` on
+  the wire.
+
+## Implementation Order
+
+1. Add flag constant, PacketHeader property, and validator update.
+2. Extend send-window metadata to preserve flags on retransmit.
+3. Update Alice/Bob send paths to emit header-only keepalive packets.
+4. Update receive path to short-circuit keepalive-flag packets.
+5. Update docs and tests.
+

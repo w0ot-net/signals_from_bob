@@ -113,6 +113,7 @@ class AliceTunnel(BaseTunnel):
             config.tunnel_pace_max_inflight,
             config.tunnel_pace_rtt_floor_ms,
             fast_start=config.tunnel_pace_fast_start,
+            time_based=config.tunnel_pace_time_based,
         )
 
         # Enable module loader for handling Bob's module requests.

@@ -121,7 +121,7 @@ class Config:
     # Alice: adaptive pacing enabled
     tunnel_adaptive_pacing_enabled: bool = True
     # Alice: adaptive pacing target inflight ratio
-    tunnel_pace_target_inflight_ratio: float = 0.7
+    tunnel_pace_target_inflight_ratio: float = 1.0
     # Alice: adaptive pacing minimum inflight target
     tunnel_pace_min_inflight: int = 1
     # Alice: adaptive pacing maximum inflight target (None = cap)
@@ -130,6 +130,8 @@ class Config:
     tunnel_pace_fast_start: bool = True
     # Alice: adaptive pacing RTT floor in milliseconds
     tunnel_pace_rtt_floor_ms: float = 5.0
+    # Alice: adaptive pacing time-based spacing gate
+    tunnel_pace_time_based: bool = False
     # Bob: poll interval while waiting for connection (seconds)
     tunnel_connect_poll_interval: float = 0.1
     # Small timeout for "non-blocking" polls to prevent busy loops (seconds)

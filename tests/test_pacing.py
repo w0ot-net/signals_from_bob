@@ -31,7 +31,8 @@ class AdaptivePacerTests(unittest.TestCase):
     def test_pacing_interval(self):
         pacer = AdaptivePacer(
             True, target_inflight_ratio=1.0, min_inflight=1,
-            max_inflight=None, rtt_floor_ms=100.0, fast_start=False
+            max_inflight=None, rtt_floor_ms=100.0, fast_start=False,
+            time_based=True
         )
         cap = 4
         now = 0.0
@@ -43,7 +44,8 @@ class AdaptivePacerTests(unittest.TestCase):
     def test_fast_start_burst(self):
         pacer = AdaptivePacer(
             True, target_inflight_ratio=1.0, min_inflight=1,
-            max_inflight=None, rtt_floor_ms=100.0, fast_start=True
+            max_inflight=None, rtt_floor_ms=100.0, fast_start=True,
+            time_based=True
         )
         cap = 4
         pacer.on_send(0.0, 0, cap, srtt_ms=100.0)
@@ -57,6 +59,16 @@ class AdaptivePacerTests(unittest.TestCase):
         pacer.on_send(0.04, 3, cap, srtt_ms=100.0)
         self.assertFalse(pacer.fast_start_active)
         self.assertFalse(pacer.can_send(0.05, 3, cap, srtt_ms=100.0))
+
+    def test_no_time_based_gate(self):
+        pacer = AdaptivePacer(
+            True, target_inflight_ratio=1.0, min_inflight=1,
+            max_inflight=None, rtt_floor_ms=100.0, fast_start=False,
+            time_based=False
+        )
+        cap = 4
+        pacer.on_send(0.0, 0, cap, srtt_ms=100.0)
+        self.assertTrue(pacer.can_send(0.01, 0, cap, srtt_ms=100.0))
 
 
 if __name__ == '__main__':

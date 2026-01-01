@@ -12,13 +12,15 @@ class AdaptivePacer(object):
     """
 
     def __init__(self, enabled, target_inflight_ratio, min_inflight,
-                 max_inflight, rtt_floor_ms, fast_start=True):
+                 max_inflight, rtt_floor_ms, fast_start=True,
+                 time_based=False):
         self._enabled = bool(enabled)
         self._target_ratio = float(target_inflight_ratio)
         self._min_inflight = int(min_inflight)
         self._max_inflight = int(max_inflight) if max_inflight is not None else None
         self._rtt_floor_ms = float(rtt_floor_ms)
         self._fast_start_enabled = bool(fast_start)
+        self._time_based = bool(time_based)
         self._fast_start_active = False
         self._last_send_time = None
 
@@ -67,6 +69,8 @@ class AdaptivePacer(object):
         if unacked_count >= target:
             return False
         if self._fast_start_active and self._fast_start_enabled:
+            return True
+        if not self._time_based:
             return True
         if self._last_send_time is None:
             return True

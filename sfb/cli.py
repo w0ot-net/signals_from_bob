@@ -236,6 +236,16 @@ def add_client_pacing_args(parser, config):
         help='Adaptive pacing RTT floor in ms (default: %s)' %
              config.tunnel_pace_rtt_floor_ms
     )
+    parser.add_argument(
+        '--pace_time_based', dest='pace_time_based', action='store_true',
+        default=config.tunnel_pace_time_based,
+        help='Enable time-based spacing in adaptive pacing (default: %s)' %
+             config.tunnel_pace_time_based
+    )
+    parser.add_argument(
+        '--no_pace_time_based', dest='pace_time_based', action='store_false',
+        help='Disable time-based spacing in adaptive pacing'
+    )
 
 
 def add_module_args(parser):
@@ -353,6 +363,8 @@ def create_config(args):
             args, 'pace_fast_start', None)
         config_kwargs['tunnel_pace_rtt_floor_ms'] = getattr(
             args, 'pace_rtt_floor_ms', None)
+        config_kwargs['tunnel_pace_time_based'] = getattr(
+            args, 'pace_time_based', None)
 
     # Server-specific
     if args.role == 'server':

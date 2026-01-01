@@ -351,6 +351,23 @@ class Channel(object):
 
     def _consume_recv(self, size):
         """Consume up to size bytes from recv buffer. Must hold lock."""
+        if size <= 0 or not self._recv_buf:
+            return b''
+        chunk = self._recv_buf[0]
+        chunk_len = len(chunk)
+        if size <= chunk_len:
+            if size == chunk_len:
+                self._recv_buf.popleft()
+                self._recv_buf_size -= chunk_len
+                return chunk
+            self._recv_buf[0] = chunk[size:]
+            self._recv_buf_size -= size
+            return chunk[:size]
+        if len(self._recv_buf) == 1:
+            self._recv_buf.popleft()
+            self._recv_buf_size -= chunk_len
+            return chunk
+
         result = []
         remaining = size
 
@@ -441,7 +458,11 @@ class Channel(object):
         with self._lock:
             if self.state not in (STATE_OPEN, STATE_CLOSING):
                 return  # Discard data for non-open channels
-            self._recv_buf.append(bytes(data))
+            if isinstance(data, bytes):
+                chunk = data
+            else:
+                chunk = bytes(data)
+            self._recv_buf.append(chunk)
             self._recv_buf_size += len(data)
 
         self._recv_event.set()
@@ -461,31 +482,55 @@ class Channel(object):
             if not self._send_buf:
                 return b''
 
-            result = []
-            remaining = max_size
-
-            while remaining > 0 and self._send_buf:
-                chunk = self._send_buf[0]
-                if len(chunk) <= remaining:
-                    result.append(self._send_buf.popleft())
-                    self._send_buf_size -= len(chunk)
-                    remaining -= len(chunk)
+            if max_size <= 0:
+                return b''
+            chunk = self._send_buf[0]
+            chunk_len = len(chunk)
+            if max_size <= chunk_len:
+                if max_size == chunk_len:
+                    data = self._send_buf.popleft()
+                    self._send_buf_size -= chunk_len
                 else:
-                    result.append(chunk[:remaining])
-                    self._send_buf[0] = chunk[remaining:]
-                    self._send_buf_size -= remaining
-                    remaining = 0
+                    data = chunk[:max_size]
+                    self._send_buf[0] = chunk[max_size:]
+                    self._send_buf_size -= max_size
+                if self._send_buf_size == 0:
+                    self._send_state_seq += 1
+                    notify = (False, self._send_state_seq)
+                result_data = data
+            elif len(self._send_buf) == 1:
+                data = self._send_buf.popleft()
+                self._send_buf_size -= chunk_len
+                if self._send_buf_size == 0:
+                    self._send_state_seq += 1
+                    notify = (False, self._send_state_seq)
+                result_data = data
+            else:
+                result = []
+                remaining = max_size
 
-            if self._send_buf_size == 0:
-                self._send_state_seq += 1
-                notify = (False, self._send_state_seq)
-            data = b''.join(result)
+                while remaining > 0 and self._send_buf:
+                    chunk = self._send_buf[0]
+                    if len(chunk) <= remaining:
+                        result.append(self._send_buf.popleft())
+                        self._send_buf_size -= len(chunk)
+                        remaining -= len(chunk)
+                    else:
+                        result.append(chunk[:remaining])
+                        self._send_buf[0] = chunk[remaining:]
+                        self._send_buf_size -= remaining
+                        remaining = 0
+
+                if self._send_buf_size == 0:
+                    self._send_state_seq += 1
+                    notify = (False, self._send_state_seq)
+                result_data = b''.join(result)
 
         if notify is not None:
             callback = self._send_state_callback
             if callback is not None:
                 callback(self.id, notify[0], notify[1])
-        return data
+        return result_data
 
     def _has_send_data(self):
         """Check if channel has data to send."""

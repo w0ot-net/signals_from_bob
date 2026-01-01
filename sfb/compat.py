@@ -6,6 +6,7 @@ Small compatibility helpers for Python 2/3.
 from __future__ import absolute_import
 
 
+import array
 import sys
 
 try:
@@ -52,3 +53,17 @@ def to_native_str(value):
         return str(value)
     except Exception:
         return repr(value)
+
+
+if hasattr(array.array, 'frombytes'):
+    def array_frombytes(arr, data):
+        """
+        Load bytes into an array (Python 3 uses frombytes).
+        """
+        return arr.frombytes(data)
+else:
+    def array_frombytes(arr, data):
+        """
+        Load bytes into an array (Python 2 uses fromstring).
+        """
+        return arr.fromstring(data)

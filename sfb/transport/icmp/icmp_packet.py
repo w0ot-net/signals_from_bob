@@ -10,7 +10,7 @@ import socket
 import struct
 import sys
 
-from ...compat import byte_at, require_bytes
+from ...compat import array_frombytes, byte_at, require_bytes
 
 ICMP_ECHO_REQUEST = 8
 ICMP_ECHO_REPLY = 0
@@ -31,10 +31,7 @@ def checksum(data):
         length -= 1
     if length:
         words = array.array('H')
-        try:
-            words.frombytes(data)
-        except AttributeError:
-            words.fromstring(data)
+        array_frombytes(words, data)
         if sys.byteorder == 'little':
             # Array uses native endianness; checksum needs network byte order.
             words.byteswap()

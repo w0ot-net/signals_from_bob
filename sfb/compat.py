@@ -32,11 +32,7 @@ if PY2:
             return bytes(data)
         raise TypeError('Expected bytes-like object')
 
-    def to_bytes(data):
-        """
-        Coerce bytes-like input to bytes, rejecting text.
-        """
-        return require_bytes_like(data)
+    to_bytes = require_bytes_like
 else:
     text_type = str
     integer_types = (int,)

@@ -155,3 +155,20 @@ LOG_PROFILES['socks_throughput_debug'] = {
   - Adding clients did not increase aggregate throughput; it significantly reduced per-client throughput.
   - The run appears globally throttled (aggregate ~0.09 MB/s) rather than scaling with more clients.
   - The timeline "peak rate" is likely an artifact of the final flush (very small delta time).
+
+## Experiment Log: Multiple Clients (8x) with Near-Zero Backoff (Jan 1, 2026)
+- Command:
+  ```
+  python3 scripts/icmp_socks_diag.py --clients 8 --icmp-target 127.0.0.1 \
+    --icmp-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug \
+    --socks_relay_buffer_size 32768 --channel_max_send_buf 262144 \
+    --socks-pump-backoff-max 0.0001 --non-blocking-poll-timeout 0
+  ```
+- Outcome:
+  - SOCKS path: 8x2MB total in ~175-177s; per-client throughput ~0.011-0.012 MB/s; aggregate ~0.089 MB/s.
+  - TTFB per client ~0.21-0.81s.
+  - Direct HTTP baseline: ~0.022s (~91.9 MB/s).
+  - Logs: `logs/icmp_diag_client_log.db`, `logs/icmp_diag_server_log.db`.
+- Takeaways:
+  - Aggregate throughput remains ~0.09 MB/s regardless of client count; per-client rate halves when doubling clients.
+  - The system appears capped at a global throughput ceiling rather than per-client limits.

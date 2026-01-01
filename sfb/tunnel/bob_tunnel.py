@@ -153,7 +153,7 @@ class BobTunnel(BaseTunnel):
         self._update_poll_ewma(now)
 
         # Decode incoming packet
-        packet = self._decode_packet(data)
+        packet, packet_size = self._decode_packet(data, return_size=True)
         if packet is None:
             return
 
@@ -162,11 +162,11 @@ class BobTunnel(BaseTunnel):
 
         # Handle based on state
         if self._state == TunnelState.DISCONNECTED:
-            self._handle_handshake(packet, responder, now)
+            self._handle_handshake(packet, responder, now, packet_size=packet_size)
         elif self._state == TunnelState.CONNECTING:
-            self._handle_handshake(packet, responder, now)
+            self._handle_handshake(packet, responder, now, packet_size=packet_size)
         elif self._state == TunnelState.CONNECTED:
-            self._handle_data(packet, responder, now)
+            self._handle_data(packet, responder, now, packet_size=packet_size)
         else:
             log_event(
                 self._logger,
@@ -176,7 +176,7 @@ class BobTunnel(BaseTunnel):
                 lambda: {'state': self._state, 'side': 'bob'},
             )
 
-    def _handle_handshake(self, packet, responder, now):
+    def _handle_handshake(self, packet, responder, now, packet_size=None):
         """Handle handshake packets."""
         if packet.flags & FLAG_SYN:
             # SYN from Alice
@@ -234,7 +234,9 @@ class BobTunnel(BaseTunnel):
                 )
 
                 # Process any data in the ACK packet
-                self._process_incoming_packet(packet, now=now)
+                self._process_incoming_packet(
+                    packet, now=now, packet_size=packet_size
+                )
 
                 # Send response
                 self._send_response(responder, now)
@@ -257,13 +259,15 @@ class BobTunnel(BaseTunnel):
                 },
             )
 
-            self._process_incoming_packet(packet, now=now)
+            self._process_incoming_packet(
+                packet, now=now, packet_size=packet_size
+            )
             self._send_response(responder, now)
 
-    def _handle_data(self, packet, responder, now):
+    def _handle_data(self, packet, responder, now, packet_size=None):
         """Handle data packets."""
         # Process incoming
-        self._process_incoming_packet(packet, now=now)
+        self._process_incoming_packet(packet, now=now, packet_size=packet_size)
 
         # Send response
         self._send_response(responder, now)

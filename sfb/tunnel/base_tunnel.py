@@ -361,7 +361,7 @@ class BaseTunnel(object):
             )
         return True
 
-    def _decode_packet(self, data, max_size=None):
+    def _decode_packet(self, data, max_size=None, return_size=False):
         """
         Decrypt and decode a packet.
 
@@ -370,7 +370,8 @@ class BaseTunnel(object):
             max_size: Optional max packet size
 
         Returns:
-            Packet instance or None on error
+            Packet instance or None on error. If return_size is True, returns
+            (packet, size) or (None, None) on error.
         """
         if max_size is None:
             max_size = self._max_packet_size
@@ -378,7 +379,11 @@ class BaseTunnel(object):
             decrypted = self._decrypt(data)
             packet = Packet.decode(decrypted, max_size=max_size)
             if not self._validate_keepalive_packet(packet):
+                if return_size:
+                    return (None, None)
                 return None
+            if return_size:
+                return (packet, len(decrypted))
             return packet
         except (ValueError, TypeError) as e:
             def build_fields():
@@ -400,9 +405,11 @@ class BaseTunnel(object):
                 'Packet decode failed',
                 build_fields,
             )
+            if return_size:
+                return (None, None)
             return None
 
-    def _process_incoming_packet(self, packet, now=None):
+    def _process_incoming_packet(self, packet, now=None, packet_size=None):
         """
         Process an incoming packet.
 
@@ -414,6 +421,7 @@ class BaseTunnel(object):
         Args:
             packet: Decoded Packet instance
             now: Current time (default: time.time())
+            packet_size: Optional encoded packet size from decode
 
         Returns:
             tuple: (rtt_samples, acked_count)
@@ -433,7 +441,8 @@ class BaseTunnel(object):
                 'sack': packet.sack,
                 'flags': packet.flags,
                 'seg_count': len(packet.segments),
-                'bytes': packet.encoded_size(),
+                'bytes': packet_size
+                if packet_size is not None else packet.encoded_size(),
             },
         )
         if self._last_cum_ack is None or packet.ack != self._last_cum_ack:

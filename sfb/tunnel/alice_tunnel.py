@@ -730,7 +730,7 @@ class AliceTunnel(BaseTunnel):
 
     def _handle_response(self, data, now):
         """Handle a transport response."""
-        packet = self._decode_packet(data)
+        packet, packet_size = self._decode_packet(data, return_size=True)
         if packet is None:
             return (False, False)
 
@@ -765,7 +765,9 @@ class AliceTunnel(BaseTunnel):
         self._got_data = has_real_data
 
         prev_unacked = self._send_window.unacked_count
-        rtt_samples, acked_count = self._process_incoming_packet(packet, now=now)
+        rtt_samples, acked_count = self._process_incoming_packet(
+            packet, now=now, packet_size=packet_size
+        )
         new_unacked = self._send_window.unacked_count
         if rtt_samples or acked_count > 0:
             self._last_ack_progress_time = now

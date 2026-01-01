@@ -19,7 +19,7 @@ def _log_pump_error(logger, rid, ch, side, direction, msg, exc):
         logging.DEBUG,
         'sock.relay_error',
         msg,
-        {
+        lambda: {
             'rid': rid,
             'ch': ch,
             'direction': direction,
@@ -80,7 +80,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     logging.DEBUG,
                     'sock.relay_eof',
                     'Relay EOF',
-                    {'rid': rid, 'ch': ch, 'label': recv_label, 'side': side},
+                    lambda: {'rid': rid, 'ch': ch, 'label': recv_label, 'side': side},
                 )
                 break
 
@@ -123,7 +123,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     logging.DEBUG,
                     'sock.pump_stats',
                     'SOCKS pump stats',
-                    {
+                    lambda: {
                         'rid': rid,
                         'ch': ch,
                         'direction': direction,
@@ -179,7 +179,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     logging.DEBUG,
                     'sock.relay_eof',
                     'Channel EOF',
-                    {'rid': rid, 'ch': ch, 'side': side},
+                    lambda: {'rid': rid, 'ch': ch, 'side': side},
                 )
                 break
 
@@ -202,7 +202,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     logging.DEBUG,
                     'sock.pump_stats',
                     'SOCKS pump stats',
-                    {
+                    lambda: {
                         'rid': rid,
                         'ch': ch,
                         'direction': direction,

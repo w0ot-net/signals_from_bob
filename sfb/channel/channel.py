@@ -129,7 +129,7 @@ class Channel(object):
                     logging.DEBUG,
                     'channel.send_buf_full',
                     'Send buffer full',
-                    {'ch': self.id, 'size': current_size, 'max': self._max_send_buf},
+                    lambda: {'ch': self.id, 'size': current_size, 'max': self._max_send_buf},
                 )
                 raise ChannelError('buffer_full', 'Send buffer full')
 
@@ -144,7 +144,7 @@ class Channel(object):
                     logging.DEBUG,
                     'channel.send_buf_high',
                     'Send buffer near capacity',
-                    {
+                    lambda: {
                         'ch': self.id,
                         'queued': len(to_queue),
                         'attempted': len(data),
@@ -213,7 +213,7 @@ class Channel(object):
                             logging.DEBUG,
                             'channel.write_wait',
                             'Waiting for send buffer space',
-                            {
+                            lambda: {
                                 'ch': self.id,
                                 'size': current_size,
                                 'max': self._max_send_buf,

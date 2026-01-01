@@ -398,7 +398,7 @@ def create_crypto(args, logger):
             logging.INFO,
             'cli.crypto',
             'Encryption enabled',
-            {'mode': 'xor'},
+            lambda: {'mode': 'xor'},
         )
     else:
         crypto = Plain()
@@ -407,7 +407,7 @@ def create_crypto(args, logger):
             logging.INFO,
             'cli.crypto',
             'Encryption disabled',
-            {'mode': 'none'},
+            lambda: {'mode': 'none'},
         )
     return crypto
 
@@ -422,7 +422,7 @@ def run_server(args, config, crypto, logger):
             logging.ERROR,
             'cli.root_missing',
             'Root directory does not exist',
-            {'path': root},
+            lambda: {'path': root},
         )
         return 1
     os.chdir(root)
@@ -431,7 +431,7 @@ def run_server(args, config, crypto, logger):
         logging.INFO,
         'cli.working_dir',
         'Working directory',
-        {'path': root},
+        lambda: {'path': root},
     )
 
     # Create transport and tunnel
@@ -455,6 +455,7 @@ def run_server(args, config, crypto, logger):
             logging.INFO,
             'cli.shutdown',
             'Shutting down',
+            lambda: None,
         )
         tunnel.close()
 
@@ -477,7 +478,7 @@ def run_server_passive(args, tunnel, logger):
             logging.INFO,
             'cli.listen',
             'Listening (passive mode)',
-            {'transport': 'dns', 'host': host, 'port': port, 'domain': args.domain},
+            lambda: {'transport': 'dns', 'host': host, 'port': port, 'domain': args.domain},
         )
     elif args.transport == 'icmp':
         log_event(
@@ -485,7 +486,7 @@ def run_server_passive(args, tunnel, logger):
             logging.INFO,
             'cli.listen',
             'Listening (passive mode)',
-            {'transport': 'icmp'},
+            lambda: {'transport': 'icmp'},
         )
     try:
         tunnel.serve_forever()
@@ -495,14 +496,14 @@ def run_server_passive(args, tunnel, logger):
             logging.ERROR,
             'cli.serve_error',
             'Error in serve loop',
-            {'error': str(e)},
+            lambda: {'error': str(e)},
         )
         log_event(
             logger,
             logging.ERROR,
             'cli.traceback',
             'Serve loop traceback',
-            {'context': 'serve_loop'},
+            lambda: {'context': 'serve_loop'},
             exc_info=True,
         )
         return 1
@@ -513,6 +514,7 @@ def run_server_passive(args, tunnel, logger):
             logging.INFO,
             'cli.shutdown_complete',
             'Shutdown complete',
+            lambda: None,
         )
     return 0
 
@@ -533,7 +535,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
                 logging.INFO,
                 'cli.wait_client',
                 'Waiting for client',
-                {'transport': 'dns', 'host': host, 'port': port},
+                lambda: {'transport': 'dns', 'host': host, 'port': port},
             )
         elif args.transport == 'icmp':
             log_event(
@@ -541,7 +543,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
                 logging.INFO,
                 'cli.wait_client',
                 'Waiting for client',
-                {'transport': 'icmp'},
+                lambda: {'transport': 'icmp'},
             )
         while tunnel._state != TunnelState.CONNECTED:
             if shutdown_requested[0]:
@@ -553,6 +555,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
             logging.INFO,
             'cli.client_connected',
             'Client connected',
+            lambda: None,
         )
 
         module_name = args.module
@@ -564,7 +567,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
             logging.INFO,
             'cli.module_load',
             'Loading module on peer',
-            {'module': remote_module},
+            lambda: {'module': remote_module},
         )
         module_loader.load_remote(remote_module)
         log_event(
@@ -572,7 +575,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
             logging.INFO,
             'cli.module_loaded',
             'Module loaded',
-            {'module': remote_module},
+            lambda: {'module': remote_module},
         )
 
         # Allow module message type
@@ -588,7 +591,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
                     logging.ERROR,
                     'cli.module_command_required',
                     'Module requires a command',
-                    {'module': module_name},
+                    lambda: {'module': module_name},
                 )
                 return 1
 
@@ -601,7 +604,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
             logging.ERROR,
             'cli.error',
             'Error',
-            {'error': str(e)},
+            lambda: {'error': str(e)},
         )
         if args.verbose:
             log_event(
@@ -609,7 +612,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
                 logging.ERROR,
                 'cli.traceback',
                 'Full traceback',
-                {'context': 'server_command'},
+                lambda: {'context': 'server_command'},
                 exc_info=True,
             )
         return 1
@@ -621,6 +624,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
             logging.INFO,
             'cli.shutdown_complete',
             'Shutdown complete',
+            lambda: None,
         )
 
 
@@ -647,6 +651,7 @@ def run_client(args, config, crypto, logger):
             logging.INFO,
             'cli.shutdown',
             'Shutting down',
+            lambda: None,
         )
         tunnel.close()
 
@@ -662,7 +667,7 @@ def run_client(args, config, crypto, logger):
                 logging.INFO,
                 'cli.connect',
                 'Connecting',
-                {'transport': 'dns', 'domain': args.domain, 'resolver': resolver_desc},
+                lambda: {'transport': 'dns', 'domain': args.domain, 'resolver': resolver_desc},
             )
         elif args.transport == 'icmp':
             target = getattr(args, 'icmp_target', None)
@@ -671,7 +676,7 @@ def run_client(args, config, crypto, logger):
                 logging.INFO,
                 'cli.connect',
                 'Connecting',
-                {'transport': 'icmp', 'target': target},
+                lambda: {'transport': 'icmp', 'target': target},
             )
         tunnel.connect()
         log_event(
@@ -679,6 +684,7 @@ def run_client(args, config, crypto, logger):
             logging.INFO,
             'cli.connected',
             'Connected',
+            lambda: None,
         )
 
         # Start background tick loop
@@ -689,6 +695,7 @@ def run_client(args, config, crypto, logger):
             logging.INFO,
             'cli.wait_commands',
             'Waiting for commands',
+            lambda: None,
         )
 
         # Run until connection closes or signal received
@@ -703,7 +710,7 @@ def run_client(args, config, crypto, logger):
             logging.ERROR,
             'cli.error',
             'Error',
-            {'error': str(e)},
+            lambda: {'error': str(e)},
         )
         if args.verbose:
             log_event(
@@ -711,7 +718,7 @@ def run_client(args, config, crypto, logger):
                 logging.ERROR,
                 'cli.traceback',
                 'Full traceback',
-                {'context': 'client'},
+                lambda: {'context': 'client'},
                 exc_info=True,
             )
         return 1
@@ -723,6 +730,7 @@ def run_client(args, config, crypto, logger):
             logging.INFO,
             'cli.shutdown_complete',
             'Shutdown complete',
+            lambda: None,
         )
 
 

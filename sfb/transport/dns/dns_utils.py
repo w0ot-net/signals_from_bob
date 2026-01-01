@@ -62,7 +62,7 @@ def _load_windows_resolvers():
             logging.DEBUG,
             'dns.resolver_lookup_failed',
             'nslookup failed',
-            {'error': str(e)},
+            lambda: {'error': str(e)},
         )
         return []
 
@@ -88,7 +88,7 @@ def _load_windows_resolvers():
                             logging.DEBUG,
                             'dns.resolver_found',
                             'Found system resolver',
-                            {'ip': ip},
+                            lambda: {'ip': ip},
                         )
                         return [(ip, 53)]
             break
@@ -98,5 +98,6 @@ def _load_windows_resolvers():
         logging.DEBUG,
         'dns.resolver_parse_failed',
         'Could not parse resolver from nslookup output',
+        lambda: None,
     )
     return []

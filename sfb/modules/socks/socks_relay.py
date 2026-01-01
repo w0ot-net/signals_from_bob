@@ -40,6 +40,7 @@ class SocksRelayModule(BaseModule):
             logging.INFO,
             'sock.relay_ready',
             'SOCKS relay ready',
+            lambda: None,
         )
         try:
             # Wait for tunnel to close
@@ -87,7 +88,7 @@ class SocksRelayModule(BaseModule):
                 logging.WARNING,
                 'sock.connect_invalid',
                 'Invalid connect request',
-                {'msg': msg},
+                lambda: {'msg': msg},
             )
             return
 
@@ -96,7 +97,7 @@ class SocksRelayModule(BaseModule):
             logging.INFO,
             'sock.connect',
             'SOCKS connect request received',
-            {'rid': rid, 'ch': ch, 'host': host, 'port': port, 'side': 'alice'},
+            lambda: {'rid': rid, 'ch': ch, 'host': host, 'port': port, 'side': 'alice'},
         )
 
         # Get channel
@@ -107,7 +108,7 @@ class SocksRelayModule(BaseModule):
                 logging.WARNING,
                 'sock.connect_channel_missing',
                 'Channel not found for connect request',
-                {'ch': ch},
+                lambda: {'ch': ch},
             )
             self.send_message(sock_err(rid, ch, 'general', 'channel not found'))
             return
@@ -134,7 +135,7 @@ class SocksRelayModule(BaseModule):
                 logging.DEBUG,
                 'sock.connect_duplicate',
                 'Duplicate connect, reusing session',
-                {'ch': ch},
+                lambda: {'ch': ch},
             )
             self.send_message(sock_connect_ok(rid, ch, bind_host, bind_port))
             return
@@ -144,7 +145,7 @@ class SocksRelayModule(BaseModule):
                 logging.DEBUG,
                 'sock.connect_duplicate',
                 'Duplicate connect while pending',
-                {'ch': ch},
+                lambda: {'ch': ch},
             )
             return
 
@@ -155,7 +156,7 @@ class SocksRelayModule(BaseModule):
                 logging.WARNING,
                 'sock.connect_channel_failed',
                 'Channel failed to open',
-                {'ch': ch},
+                lambda: {'ch': ch},
             )
             self.send_message(sock_err(rid, ch, 'general', 'channel open failed'))
             channel.close()
@@ -173,7 +174,7 @@ class SocksRelayModule(BaseModule):
                 logging.INFO,
                 'sock.connect_err',
                 'SOCKS connect error',
-                {'rid': rid, 'ch': ch, 'code': 'unreachable_host', 'reason': str(e), 'side': 'alice'},
+                lambda: {'rid': rid, 'ch': ch, 'code': 'unreachable_host', 'reason': str(e), 'side': 'alice'},
             )
             self.send_message(sock_err(rid, ch, 'unreachable_host', str(e)))
             channel.close()
@@ -186,7 +187,7 @@ class SocksRelayModule(BaseModule):
                 logging.INFO,
                 'sock.connect_err',
                 'SOCKS connect error',
-                {'rid': rid, 'ch': ch, 'code': 'timeout', 'reason': 'connection timeout', 'side': 'alice'},
+                lambda: {'rid': rid, 'ch': ch, 'code': 'timeout', 'reason': 'connection timeout', 'side': 'alice'},
             )
             self.send_message(sock_err(rid, ch, 'timeout', 'connection timeout'))
             channel.close()
@@ -200,7 +201,7 @@ class SocksRelayModule(BaseModule):
                     logging.INFO,
                     'sock.connect_err',
                     'SOCKS connect error',
-                    {'rid': rid, 'ch': ch, 'code': 'refused', 'reason': 'connection refused', 'side': 'alice'},
+                    lambda: {'rid': rid, 'ch': ch, 'code': 'refused', 'reason': 'connection refused', 'side': 'alice'},
                 )
                 self.send_message(sock_err(rid, ch, 'refused', 'connection refused'))
             elif e.errno == errno.ENETUNREACH:
@@ -209,7 +210,7 @@ class SocksRelayModule(BaseModule):
                     logging.INFO,
                     'sock.connect_err',
                     'SOCKS connect error',
-                    {'rid': rid, 'ch': ch, 'code': 'unreachable_net', 'reason': str(e), 'side': 'alice'},
+                    lambda: {'rid': rid, 'ch': ch, 'code': 'unreachable_net', 'reason': str(e), 'side': 'alice'},
                 )
                 self.send_message(sock_err(rid, ch, 'unreachable_net', str(e)))
             elif e.errno == errno.EHOSTUNREACH:
@@ -218,7 +219,7 @@ class SocksRelayModule(BaseModule):
                     logging.INFO,
                     'sock.connect_err',
                     'SOCKS connect error',
-                    {'rid': rid, 'ch': ch, 'code': 'unreachable_host', 'reason': str(e), 'side': 'alice'},
+                    lambda: {'rid': rid, 'ch': ch, 'code': 'unreachable_host', 'reason': str(e), 'side': 'alice'},
                 )
                 self.send_message(sock_err(rid, ch, 'unreachable_host', str(e)))
             else:
@@ -227,7 +228,7 @@ class SocksRelayModule(BaseModule):
                     logging.INFO,
                     'sock.connect_err',
                     'SOCKS connect error',
-                    {'rid': rid, 'ch': ch, 'code': 'general', 'reason': str(e), 'side': 'alice'},
+                    lambda: {'rid': rid, 'ch': ch, 'code': 'general', 'reason': str(e), 'side': 'alice'},
                 )
                 self.send_message(sock_err(rid, ch, 'general', str(e)))
             channel.close()
@@ -240,7 +241,7 @@ class SocksRelayModule(BaseModule):
                 logging.ERROR,
                 'sock.connect_err',
                 'Unexpected SOCKS connect error',
-                {
+                lambda: {
                     'rid': rid,
                     'ch': ch,
                     'code': 'general',
@@ -269,7 +270,7 @@ class SocksRelayModule(BaseModule):
             logging.INFO,
             'sock.connect_ok',
             'SOCKS connect ok',
-            {'rid': rid, 'ch': ch, 'bhost': bind_host, 'bport': bind_port, 'side': 'alice'},
+            lambda: {'rid': rid, 'ch': ch, 'bhost': bind_host, 'bport': bind_port, 'side': 'alice'},
         )
 
         # Create and register connection
@@ -326,7 +327,7 @@ class SocksRelayModule(BaseModule):
             logging.DEBUG,
             'sock.cleanup',
             'Cleaned up connection',
-            {'ch': ch},
+            lambda: {'ch': ch},
         )
 
 

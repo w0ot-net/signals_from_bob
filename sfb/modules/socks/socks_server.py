@@ -182,7 +182,7 @@ class SocksServerModule(BaseModule):
             logging.INFO,
             'sock.server_listen',
             'SOCKS5 server listening',
-            {'host': listen_addr, 'port': listen_port},
+            lambda: {'host': listen_addr, 'port': listen_port},
         )
 
     def stop(self):
@@ -212,6 +212,7 @@ class SocksServerModule(BaseModule):
             logging.INFO,
             'sock.server_stop',
             'SOCKS5 server stopped',
+            lambda: None,
         )
 
     def shutdown(self):
@@ -245,7 +246,7 @@ class SocksServerModule(BaseModule):
                     logging.DEBUG,
                     'sock.server_accept',
                     'Accepted connection',
-                    {'host': addr[0], 'port': addr[1]},
+                    lambda: {'host': addr[0], 'port': addr[1]},
                 )
 
                 # Spawn handler thread
@@ -264,7 +265,7 @@ class SocksServerModule(BaseModule):
                         logging.ERROR,
                         'sock.server_accept_error',
                         'Accept error',
-                        {'error': str(e)},
+                        lambda: {'error': str(e)},
                         exc_info=True,
                     )
                     time.sleep(backoff)
@@ -287,7 +288,7 @@ class SocksServerModule(BaseModule):
                 logging.INFO,
                 'sock.server_connect',
                 'SOCKS connect requested',
-                {'host': host, 'port': port, 'client_host': addr[0],
+                lambda: {'host': host, 'port': port, 'client_host': addr[0],
                  'client_port': addr[1], 'rid': rid},
             )
 
@@ -299,7 +300,7 @@ class SocksServerModule(BaseModule):
                     logging.WARNING,
                     'sock.server_channel_failed',
                     'Channel open failed',
-                    {'rid': rid},
+                    lambda: {'rid': rid},
                 )
                 self._socks5_send_reply(sock, SOCKS5_REP_GENERAL_FAILURE)
                 channel.close()
@@ -321,7 +322,7 @@ class SocksServerModule(BaseModule):
                 logging.INFO,
                 'sock.connect',
                 'SOCKS connect requested',
-                {'rid': rid, 'ch': channel.id, 'host': host, 'port': port, 'side': 'bob'},
+                lambda: {'rid': rid, 'ch': channel.id, 'host': host, 'port': port, 'side': 'bob'},
             )
             self.send_message(sock_connect(rid, channel.id, host, port))
 
@@ -332,7 +333,7 @@ class SocksServerModule(BaseModule):
                     logging.WARNING,
                     'sock.server_connect_timeout',
                     'Connect timeout',
-                    {'rid': rid},
+                    lambda: {'rid': rid},
                 )
                 self._socks5_send_reply(sock, SOCKS5_REP_TTL_EXPIRED)
                 return
@@ -344,7 +345,7 @@ class SocksServerModule(BaseModule):
                     logging.INFO,
                     'sock.server_connect_failed',
                     'Connect failed',
-                    {'rid': rid, 'error': pending.error},
+                    lambda: {'rid': rid, 'error': pending.error},
                 )
                 self._socks5_send_reply(sock, error_code)
                 return
@@ -359,7 +360,7 @@ class SocksServerModule(BaseModule):
                 logging.INFO,
                 'sock.server_connected',
                 'Connected',
-                {'host': host, 'port': port, 'rid': rid},
+                lambda: {'host': host, 'port': port, 'rid': rid},
             )
 
             # Start relay and wait for completion
@@ -372,7 +373,7 @@ class SocksServerModule(BaseModule):
                 logging.WARNING,
                 'sock.server_error',
                 'SOCKS5 error',
-                {'rid': rid, 'error': str(e)},
+                lambda: {'rid': rid, 'error': str(e)},
             )
         except Exception as e:
             log_event(
@@ -380,7 +381,7 @@ class SocksServerModule(BaseModule):
                 logging.ERROR,
                 'sock.server_client_error',
                 'Client handler error',
-                {'rid': rid, 'error': str(e)},
+                lambda: {'rid': rid, 'error': str(e)},
                 exc_info=True,
             )
         finally:
@@ -403,7 +404,7 @@ class SocksServerModule(BaseModule):
                 logging.DEBUG,
                 'sock.server_cleanup',
                 'Cleaned up connection',
-                {'rid': rid},
+                lambda: {'rid': rid},
             )
 
     # --- SOCKS5 Protocol Implementation ---
@@ -524,7 +525,7 @@ class SocksServerModule(BaseModule):
                 logging.INFO,
                 'sock.connect_ok',
                 'SOCKS connect ok',
-                {'rid': rid, 'ch': msg.get('ch'), 'side': 'bob'},
+                lambda: {'rid': rid, 'ch': msg.get('ch'), 'side': 'bob'},
             )
 
     def handle_err(self, msg):
@@ -544,7 +545,7 @@ class SocksServerModule(BaseModule):
                 logging.INFO,
                 'sock.connect_err',
                 'SOCKS connect error',
-                {
+                lambda: {
                     'rid': rid,
                     'ch': msg.get('ch'),
                     'code': msg.get('code'),

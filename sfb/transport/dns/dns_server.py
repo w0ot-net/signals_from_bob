@@ -105,7 +105,7 @@ class DnsServer(Server):
             logging.INFO,
             'dns.server_config',
             'DNS server config',
-            {
+            lambda: {
                 'base_domain': self._base_domain,
                 'listen_addr': '%s:%d' % (self._listen_addr[0], self._listen_addr[1]),
                 'qtype': config.dns_query_type,
@@ -123,7 +123,7 @@ class DnsServer(Server):
                 logging.WARNING,
                 'dns.cname_invalid_addr',
                 'Invalid cname_a_addr, using 0.0.0.0',
-                {'addr': self._cname_a_addr},
+                lambda: {'addr': self._cname_a_addr},
             )
             self._cname_a_addr_bytes = b'\x00\x00\x00\x00'
         if self._payload_cap is not None:
@@ -132,14 +132,14 @@ class DnsServer(Server):
                 logging.DEBUG,
                 'dns.payload_cap',
                 'DNS payload cap',
-                {'payload_cap': self._payload_cap},
+                lambda: {'payload_cap': self._payload_cap},
             )
         log_event(
             self._logger,
             logging.DEBUG,
             'dns.mtu_calc',
             'DNS MTU calc',
-            {
+            lambda: {
                 'base_domain': self._base_domain,
                 'label_max': self._label_max_len,
                 'recv_mtu': self._recv_mtu,
@@ -214,7 +214,7 @@ class DnsServer(Server):
                     logging.DEBUG,
                     'dns.invalid_query',
                     'DNS invalid query',
-                    {'error': str(e)},
+                    lambda: {'error': str(e)},
                 )
                 continue
 
@@ -262,7 +262,7 @@ class DnsServer(Server):
                 logging.DEBUG,
                 'dns.recv',
                 'DNS query received',
-                {
+                lambda: {
                     'dns_id': query_id,
                     'addr': '%s:%d' % (client_addr[0], client_addr[1]),
                     'bytes': len(data),
@@ -365,7 +365,7 @@ class DnsServer(Server):
             logging.DEBUG,
             'dns.send',
             'DNS response sent',
-            {
+            lambda: {
                 'dns_id': query_id,
                 'addr': '%s:%d' % (addr[0], addr[1]),
                 'bytes': len(response),
@@ -454,7 +454,7 @@ class DnsServer(Server):
             logging.DEBUG,
             'dns.send_empty',
             'DNS empty response sent',
-            {
+            lambda: {
                 'dns_id': query_id,
                 'addr': '%s:%d' % (addr[0], addr[1]),
                 'bytes': len(response),
@@ -507,7 +507,7 @@ class DnsServer(Server):
             logging.DEBUG,
             'dns.cname_followup',
             'DNS CNAME followup sent',
-            {
+            lambda: {
                 'dns_id': query_id,
                 'addr': '%s:%d' % (addr[0], addr[1]),
                 'bytes': len(response),

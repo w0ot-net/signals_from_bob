@@ -155,7 +155,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                     logging.INFO,
                     'file.download',
                     'Downloading file',
-                    {'remote': args.remote, 'local': local_path},
+                    lambda: {'remote': args.remote, 'local': local_path},
                 )
                 module.get(args.remote, local_path, timeout=timeout)
                 stats = module.last_stats
@@ -164,7 +164,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                     logging.INFO,
                     'file.download_complete',
                     'Download complete',
-                    {'local': local_path, 'stats': stats},
+                    lambda: {'local': local_path, 'stats': stats},
                 )
 
             elif args.command == 'put':
@@ -174,7 +174,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                         logging.ERROR,
                         'file.local_missing',
                         'Local file not found',
-                        {'local': args.local},
+                        lambda: {'local': args.local},
                     )
                     return 1
                 size = os.path.getsize(args.local)
@@ -183,7 +183,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                     logging.INFO,
                     'file.upload',
                     'Uploading file',
-                    {'local': args.local, 'bytes': size, 'remote': args.remote},
+                    lambda: {'local': args.local, 'bytes': size, 'remote': args.remote},
                 )
                 module.put(args.local, args.remote, timeout=timeout)
                 stats = module.last_stats
@@ -192,7 +192,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                     logging.INFO,
                     'file.upload_complete',
                     'Upload complete',
-                    {'remote': args.remote, 'stats': stats},
+                    lambda: {'remote': args.remote, 'stats': stats},
                 )
 
             else:
@@ -201,7 +201,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                     logging.ERROR,
                     'file.command_unknown',
                     'Unknown command',
-                    {'command': args.command},
+                    lambda: {'command': args.command},
                 )
                 return 1
 

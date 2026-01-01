@@ -350,7 +350,9 @@ class ChannelManagerTests(unittest.TestCase):
         mgr = ChannelManager(is_alice=True, config=make_test_config())
         events = []
 
-        def fake_log_event(logger_arg, level, event, message, fields=None, **kwargs):
+        def fake_log_event(logger_arg, level, event, message, fields, **kwargs):
+            if callable(fields):
+                fields = fields()
             events.append(fields or {})
 
         original_log_event = channel_manager_module.log_event

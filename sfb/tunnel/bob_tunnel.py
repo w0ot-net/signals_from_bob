@@ -71,7 +71,7 @@ class BobTunnel(BaseTunnel):
             logging.DEBUG,
             'tunnel.init',
             'Tunnel init',
-            {
+            lambda: {
                 'transport_recv_mtu': transport.recv_mtu,
                 'recv_payload': recv_payload,
                 'max_packet_size': self._max_packet_size,
@@ -95,7 +95,7 @@ class BobTunnel(BaseTunnel):
             logging.INFO,
             'tunnel.wait',
             'Waiting for connections',
-            {'side': 'bob'},
+            lambda: {'side': 'bob'},
         )
 
         while self._state != TunnelState.CLOSED:
@@ -119,7 +119,7 @@ class BobTunnel(BaseTunnel):
                     logging.WARNING,
                     'tunnel.serve_error',
                     'Serve loop error',
-                    {
+                    lambda: {
                         'error': str(e),
                         'loop': 'serve_forever',
                         'side': 'bob',
@@ -143,7 +143,7 @@ class BobTunnel(BaseTunnel):
                         logging.WARNING,
                         'tunnel.serve_error',
                         'Serve loop error',
-                        {
+                        lambda: {
                             'error': str(e),
                             'loop': 'background',
                             'side': 'bob',
@@ -183,7 +183,7 @@ class BobTunnel(BaseTunnel):
                 logging.WARNING,
                 'tunnel.request_state_unexpected',
                 'Request in unexpected state',
-                {'state': self._state, 'side': 'bob'},
+                lambda: {'state': self._state, 'side': 'bob'},
             )
 
     def _handle_handshake(self, packet, responder, now):
@@ -217,7 +217,7 @@ class BobTunnel(BaseTunnel):
                 logging.DEBUG,
                 'tunnel.handshake_synack_sent',
                 'Sent SYN+ACK',
-                {
+                lambda: {
                     'local_isn': self._local_isn,
                     'remote_isn': self._remote_isn,
                     'side': 'bob',
@@ -235,7 +235,7 @@ class BobTunnel(BaseTunnel):
                     logging.INFO,
                     'tunnel.connected',
                     'Connected',
-                    {
+                    lambda: {
                         'local_isn': self._local_isn,
                         'remote_isn': self._remote_isn,
                         'mode': 'syn_ack',
@@ -259,7 +259,7 @@ class BobTunnel(BaseTunnel):
                 logging.INFO,
                 'tunnel.connected',
                 'Connected',
-                {
+                lambda: {
                     'local_isn': self._local_isn,
                     'remote_isn': self._remote_isn,
                     'mode': 'implicit_ack',
@@ -339,7 +339,7 @@ class BobTunnel(BaseTunnel):
                     logging.DEBUG,
                     'tunnel.retransmit_skip',
                     'Retransmit skipped',
-                    {
+                    lambda: {
                         'seq': seq,
                         'reason': skip_reason,
                         'age': round(age, 6) if age is not None else None,
@@ -361,7 +361,7 @@ class BobTunnel(BaseTunnel):
                         logging.DEBUG,
                         'tunnel.retransmit_skip',
                         'Retransmit exceeds per-request cap',
-                        {
+                        lambda: {
                             'seq': seq,
                             'reason': 'cap',
                             'bytes': len(response_data),
@@ -374,7 +374,7 @@ class BobTunnel(BaseTunnel):
                         logging.ERROR,
                         'tunnel.retransmit_cap_fatal',
                         'Retransmit exceeds per-request cap; closing',
-                        {
+                        lambda: {
                             'seq': seq,
                             'bytes': len(response_data),
                             'cap': response_payload_cap,
@@ -389,7 +389,7 @@ class BobTunnel(BaseTunnel):
                     logging.DEBUG,
                     'tunnel.retransmit',
                     'Retransmitting packet',
-                    {'seq': seq, 'seg_count': len(segments), 'side': 'bob'},
+                    lambda: {'seq': seq, 'seg_count': len(segments), 'side': 'bob'},
                 )
                 self._log_response_cap(responder, response_data)
 
@@ -401,7 +401,7 @@ class BobTunnel(BaseTunnel):
                     logging.DEBUG,
                     'tunnel.packet_send',
                     'Packet sent',
-                    {
+                    lambda: {
                         'seq': packet.seq,
                         'ack': packet.ack,
                         'sack': packet.sack,
@@ -424,7 +424,7 @@ class BobTunnel(BaseTunnel):
                     logging.ERROR,
                     'tunnel.send_window_inconsistent',
                     'Send window full but no unacked packets',
-                    {
+                    lambda: {
                         'unacked': unacked,
                         'max_in_flight': self._send_window._max_in_flight,
                         'side': 'bob',
@@ -436,7 +436,7 @@ class BobTunnel(BaseTunnel):
                     logging.DEBUG,
                     'tunnel.send_window_full',
                     'Send window full',
-                    {
+                    lambda: {
                         'unacked': unacked,
                         'max_in_flight': self._send_window._max_in_flight,
                         'side': 'bob',
@@ -447,7 +447,7 @@ class BobTunnel(BaseTunnel):
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Send window full',
-                {
+                lambda: {
                     'unacked': self._send_window.unacked_count,
                     'max_in_flight': self._send_window._max_in_flight,
                     'side': 'bob',
@@ -459,25 +459,35 @@ class BobTunnel(BaseTunnel):
             self._bytes_sent += len(response_data)
             responder(response_data)
             return
-        exceeded, fields = self._send_window_distance_exceeded()
+        exceeded, distance_info = self._send_window_distance_exceeded()
         if exceeded:
-            fields = dict(fields)
-            fields['side'] = 'bob'
+            distance, max_in_flight, last_cum_ack, next_seq = distance_info
             log_event(
                 self._logger,
                 logging.DEBUG,
                 'tunnel.send_window_distance',
                 'Send window distance exceeded',
-                fields,
+                lambda: {
+                    'distance': distance,
+                    'max_in_flight': max_in_flight,
+                    'last_cum_ack': last_cum_ack,
+                    'next_seq': next_seq,
+                    'side': 'bob',
+                },
             )
-            blocked_fields = dict(fields)
-            blocked_fields['reason'] = 'window_distance'
             log_event(
                 self._logger,
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Send window distance exceeded',
-                blocked_fields,
+                lambda: {
+                    'distance': distance,
+                    'max_in_flight': max_in_flight,
+                    'last_cum_ack': last_cum_ack,
+                    'next_seq': next_seq,
+                    'side': 'bob',
+                    'reason': 'window_distance',
+                },
             )
             packet, _ = self._build_packet(segments=[])
             response_data = self._encode_packet(packet)
@@ -520,7 +530,7 @@ class BobTunnel(BaseTunnel):
                 logging.DEBUG,
                 'tunnel.packet_send',
                 'Packet sent',
-                {
+                lambda: {
                     'seq': packet.seq,
                     'ack': packet.ack,
                     'sack': packet.sack,
@@ -549,7 +559,7 @@ class BobTunnel(BaseTunnel):
             logging.DEBUG,
             'tunnel.packet_send',
             'Packet sent',
-            {
+            lambda: {
                 'seq': packet.seq,
                 'ack': packet.ack,
                 'sack': packet.sack,
@@ -573,7 +583,7 @@ class BobTunnel(BaseTunnel):
             logging.DEBUG,
             'tunnel.response_cap',
             'DNS response cap detail',
-            {
+            lambda: {
                 'payload_cap': response_payload_cap,
                 'qname_wire_len': qname_wire_len,
                 'max_packet_size': max_packet_size,
@@ -599,7 +609,7 @@ class BobTunnel(BaseTunnel):
                     logging.WARNING,
                     'tunnel.handshake_timeout',
                     'Handshake timeout',
-                    {'elapsed': round(elapsed, 1), 'side': 'bob'},
+                    lambda: {'elapsed': round(elapsed, 1), 'side': 'bob'},
                 )
             else:
                 log_event(
@@ -607,7 +617,7 @@ class BobTunnel(BaseTunnel):
                     logging.WARNING,
                     'tunnel.idle_timeout',
                     'Idle timeout',
-                    {'elapsed': round(elapsed, 1), 'side': 'bob'},
+                    lambda: {'elapsed': round(elapsed, 1), 'side': 'bob'},
                 )
             self._set_state(TunnelState.CLOSED)
             return True
@@ -655,7 +665,7 @@ class BobTunnel(BaseTunnel):
             logging.DEBUG,
             'tunnel.message_type_allowed',
             'Allowed message type',
-            {'msg_type': msg_type, 'side': 'bob'},
+            lambda: {'msg_type': msg_type, 'side': 'bob'},
         )
 
     def enable_module_loader(self, logger=None):
@@ -678,7 +688,7 @@ class BobTunnel(BaseTunnel):
                 logging.WARNING,
                 'tunnel.message_type_rejected',
                 'Rejected message type from Alice',
-                {'msg_type': msg_type, 'side': 'bob'},
+                lambda: {'msg_type': msg_type, 'side': 'bob'},
             )
             return
 

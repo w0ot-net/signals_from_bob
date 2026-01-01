@@ -143,7 +143,7 @@ class ChannelManager(object):
             logging.DEBUG,
             'channel.open',
             'Channel open requested',
-            {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+            lambda: {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
         )
 
         return channel
@@ -184,7 +184,7 @@ class ChannelManager(object):
             logging.DEBUG,
             'channel.close',
             'Channel close requested',
-            {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+            lambda: {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
         )
 
     def deliver_segment(self, segment):
@@ -205,7 +205,7 @@ class ChannelManager(object):
                 logging.WARNING,
                 'channel.unknown_segment',
                 'Segment for unknown channel',
-                {
+                lambda: {
                     'ch': channel_id,
                     'side': 'alice' if self._is_alice else 'bob',
                 },
@@ -338,7 +338,7 @@ class ChannelManager(object):
                 logging.DEBUG,
                 'channel.pack',
                 'Packed segments',
-                {
+                lambda: {
                     'seg_count': len(segments),
                     'payload_bytes': payload_bytes,
                     'max_payload': max_payload,
@@ -374,7 +374,7 @@ class ChannelManager(object):
                     logging.DEBUG,
                     'channel.drain',
                     'Channel drain stats',
-                    {
+                    lambda: {
                         'interval': self._stats_interval,
                         'bytes_total': total,
                         'bytes_by_channel': stats,
@@ -432,7 +432,7 @@ class ChannelManager(object):
                 logging.WARNING,
                 'channel.invalid_open',
                 'Invalid channel id in open request',
-                {
+                lambda: {
                     'ch': channel_id,
                     'side': 'alice' if self._is_alice else 'bob',
                 },
@@ -468,7 +468,7 @@ class ChannelManager(object):
             logging.DEBUG,
             'channel.open_in',
             'Channel open received',
-            {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+            lambda: {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
         )
 
     def _handle_open_ok(self, msg):
@@ -490,7 +490,7 @@ class ChannelManager(object):
                 logging.DEBUG,
                 'channel.open_ok',
                 'Channel open ok',
-                {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+                lambda: {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
             )
 
     def _handle_open_fail(self, msg):
@@ -513,7 +513,7 @@ class ChannelManager(object):
                     logging.DEBUG,
                     'channel.open_fail',
                     'Channel open failed',
-                    {'ch': channel_id, 'reason': reason, 'side': 'alice' if self._is_alice else 'bob'},
+                    lambda: {'ch': channel_id, 'reason': reason, 'side': 'alice' if self._is_alice else 'bob'},
                 )
 
     def _handle_close(self, msg):
@@ -536,7 +536,7 @@ class ChannelManager(object):
             logging.DEBUG,
             'channel.close_in',
             'Channel close received',
-            {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+            lambda: {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
         )
 
     def _handle_close_ok(self, msg):
@@ -557,5 +557,5 @@ class ChannelManager(object):
                     logging.DEBUG,
                     'channel.close_ok',
                     'Channel close ok',
-                    {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+                    lambda: {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
                 )

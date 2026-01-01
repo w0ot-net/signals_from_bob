@@ -264,5 +264,5 @@ def _log_control_segments(segments):
                 logging.INFO,
                 'protocol.control',
                 'Control message line',
-                {'line': line.decode('ascii', 'replace')},
+                lambda: {'line': line.decode('ascii', 'replace')},
             )

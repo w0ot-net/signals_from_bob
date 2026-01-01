@@ -214,7 +214,7 @@ class BaseTunnel(object):
             logging.DEBUG,
             'tunnel.state',
             'Tunnel state change',
-            {'from': old_state, 'to': new_state},
+            lambda: {'from': old_state, 'to': new_state},
         )
 
     def _generate_isn(self):
@@ -256,7 +256,7 @@ class BaseTunnel(object):
         Check if next_seq is too far ahead of peer's cumulative ACK.
 
         Returns:
-            tuple: (exceeded, fields) where fields is a dict or None.
+            tuple: (exceeded, fields) where fields is a tuple or None.
         """
         if self._last_cum_ack is None:
             return (False, None)
@@ -268,12 +268,12 @@ class BaseTunnel(object):
         distance = diff
         if distance < max_in_flight:
             return (False, None)
-        return (True, {
-            'distance': distance,
-            'max_in_flight': max_in_flight,
-            'last_cum_ack': self._last_cum_ack,
-            'next_seq': next_seq,
-        })
+        return (True, (
+            distance,
+            max_in_flight,
+            self._last_cum_ack,
+            next_seq,
+        ))
 
     def _rebuild_packet(self, seq, segments, flags=0):
         """
@@ -305,25 +305,27 @@ class BaseTunnel(object):
         return self._encrypt(raw)
 
     def _close_protocol_violation(self, reason, packet=None):
-        fields = {
-            'reason': reason,
-            'state': self._state,
-            'side': 'alice' if self._is_initiator else 'bob',
-        }
-        if packet is not None:
-            fields.update({
-                'seq': packet.seq,
-                'ack': packet.ack,
-                'sack': packet.sack,
-                'flags': packet.flags,
-                'seg_count': len(packet.segments),
-            })
+        def build_fields():
+            fields = {
+                'reason': reason,
+                'state': self._state,
+                'side': 'alice' if self._is_initiator else 'bob',
+            }
+            if packet is not None:
+                fields.update({
+                    'seq': packet.seq,
+                    'ack': packet.ack,
+                    'sack': packet.sack,
+                    'flags': packet.flags,
+                    'seg_count': len(packet.segments),
+                })
+            return fields
         log_event(
             self._logger,
             logging.ERROR,
             'tunnel.protocol_violation',
             'Protocol violation',
-            fields,
+            build_fields,
         )
         self.close()
         return False
@@ -365,22 +367,24 @@ class BaseTunnel(object):
                 return None
             return packet
         except (ValueError, TypeError) as e:
-            fields = {
-                'error': str(e),
-                'side': 'alice' if self._is_initiator else 'bob',
-            }
-            if max_size is not None:
-                fields['max_size'] = max_size
-            try:
-                fields['bytes'] = len(data)
-            except Exception:
-                pass
+            def build_fields():
+                fields = {
+                    'error': str(e),
+                    'side': 'alice' if self._is_initiator else 'bob',
+                }
+                if max_size is not None:
+                    fields['max_size'] = max_size
+                try:
+                    fields['bytes'] = len(data)
+                except Exception:
+                    pass
+                return fields
             log_event(
                 self._logger,
                 logging.WARNING,
                 'tunnel.packet_decode_failed',
                 'Packet decode failed',
-                fields,
+                build_fields,
             )
             return None
 
@@ -409,7 +413,7 @@ class BaseTunnel(object):
             logging.DEBUG,
             'tunnel.packet_recv',
             'Packet received',
-            {
+            lambda: {
                 'seq': packet.seq,
                 'ack': packet.ack,
                 'sack': packet.sack,
@@ -435,7 +439,7 @@ class BaseTunnel(object):
                 logging.DEBUG,
                 'tunnel.ack',
                 'ACK processed',
-                {
+                lambda: {
                     'ack': packet.ack,
                     'sack': packet.sack,
                     'unacked_before': unacked_before,
@@ -451,7 +455,7 @@ class BaseTunnel(object):
             logging.DEBUG,
             'tunnel.recv_window',
             'recv_window ready packets',
-            {'seq': packet.seq, 'ready': len(ready_packets)},
+            lambda: {'seq': packet.seq, 'ready': len(ready_packets)},
         )
 
         # Deliver segments from in-order packets only
@@ -464,7 +468,7 @@ class BaseTunnel(object):
                 logging.DEBUG,
                 'tunnel.deliver_segments',
                 'Delivering segments',
-                {'seq': seq, 'segments': len(ready_packet.segments)},
+                lambda: {'seq': seq, 'segments': len(ready_packet.segments)},
             )
             for segment in ready_packet.segments:
                 self._channel_manager.deliver_segment(segment)
@@ -493,7 +497,7 @@ class BaseTunnel(object):
                     logging.DEBUG,
                     'tunnel.control_dispatch',
                     'Dispatching control message',
-                    {'t': msg.get('t'), 'c': msg.get('c')},
+                    lambda: {'t': msg.get('t'), 'c': msg.get('c')},
                 )
                 self._dispatch_control_message(msg)
             except ChannelError as e:
@@ -503,7 +507,7 @@ class BaseTunnel(object):
                     logging.WARNING,
                     'tunnel.control_invalid',
                     'Invalid control message',
-                    {'error': str(e)},
+                    lambda: {'error': str(e)},
                 )
                 break
         if count > 0:
@@ -512,7 +516,7 @@ class BaseTunnel(object):
                 logging.DEBUG,
                 'tunnel.control_processed',
                 'Processed control messages',
-                {'count': count},
+                lambda: {'count': count},
             )
 
     def register_module(self, type_code, handler):
@@ -536,7 +540,7 @@ class BaseTunnel(object):
             logging.DEBUG,
             'tunnel.module_register',
             'Registered module handler',
-            {'type': type_code},
+            lambda: {'type': type_code},
         )
 
     def unregister_module(self, type_code):
@@ -556,7 +560,7 @@ class BaseTunnel(object):
                 logging.DEBUG,
                 'tunnel.module_unregister',
                 'Unregistered module handler',
-                {'type': type_code},
+                lambda: {'type': type_code},
             )
             return True
         return False
@@ -587,7 +591,7 @@ class BaseTunnel(object):
                 logging.DEBUG,
                 'tunnel.control_invalid',
                 'Invalid control message',
-                {'reason': 'missing t or c'},
+                lambda: {'reason': 'missing t or c'},
             )
             return
 
@@ -604,7 +608,7 @@ class BaseTunnel(object):
                     logging.WARNING,
                     'tunnel.module_error',
                     'Module handler error',
-                    {'type': msg_type, 'error': str(e)},
+                    lambda: {'type': msg_type, 'error': str(e)},
                 )
         else:
             log_event(
@@ -612,7 +616,7 @@ class BaseTunnel(object):
                 logging.DEBUG,
                 'tunnel.control_unknown',
                 'Unknown message type',
-                {'type': msg_type},
+                lambda: {'type': msg_type},
             )
 
     def _handle_tunnel_message(self, cmd, msg):
@@ -626,7 +630,7 @@ class BaseTunnel(object):
             logging.DEBUG,
             'tunnel.command',
             'Tunnel command received',
-            {'cmd': cmd},
+            lambda: {'cmd': cmd},
         )
         if cmd in ('ping', 'pong'):
             return
@@ -646,7 +650,7 @@ class BaseTunnel(object):
                 logging.DEBUG,
                 'tunnel.command_unknown',
                 'Unknown tunnel command',
-                {'cmd': cmd},
+                lambda: {'cmd': cmd},
             )
 
     def _handle_channel_message(self, cmd, msg):
@@ -677,7 +681,7 @@ class BaseTunnel(object):
                 logging.WARNING,
                 'tunnel.mtu_invalid',
                 'Invalid MTU request',
-                {'msg': msg},
+                lambda: {'msg': msg},
             )
             return
         log_event(
@@ -685,7 +689,7 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.mtu_propose',
             'MTU request received',
-            {'tx': requested_tx, 'rx': requested_rx},
+            lambda: {'tx': requested_tx, 'rx': requested_rx},
         )
 
         # Negotiate each direction independently.
@@ -711,7 +715,7 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.mtu_ok',
             'MTU negotiate response',
-            {
+            lambda: {
                 'recv': agreed_recv,
                 'send_applied': self._send_mtu,
                 'send_pending': self._pending_send_mtu,
@@ -733,7 +737,7 @@ class BaseTunnel(object):
                 logging.WARNING,
                 'tunnel.mtu_invalid',
                 'Invalid MTU response',
-                {'msg': msg},
+                lambda: {'msg': msg},
             )
             return
 
@@ -755,7 +759,7 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.mtu_ok',
             'MTU negotiated',
-            {'send': agreed_send, 'recv': agreed_recv},
+            lambda: {'send': agreed_send, 'recv': agreed_recv},
         )
 
     def _handle_mtu_ack(self, msg):
@@ -774,7 +778,7 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.mtu_ack',
             'MTU ack applied',
-            {'send': self._send_mtu, 'recv': self._recv_mtu},
+            lambda: {'send': self._send_mtu, 'recv': self._recv_mtu},
         )
 
     def _handle_window(self, msg):
@@ -790,7 +794,7 @@ class BaseTunnel(object):
                 logging.WARNING,
                 'tunnel.window_invalid',
                 'Invalid window request',
-                {'size': requested},
+                lambda: {'size': requested},
             )
             return
         log_event(
@@ -798,7 +802,7 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.window_propose',
             'Window request received',
-            {'size': requested},
+            lambda: {'size': requested},
         )
 
         # Negotiate: use minimum of requested, our proposed, and max (64)
@@ -816,7 +820,7 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.window_ok',
             'Window negotiated',
-            {'requested': requested, 'agreed': agreed},
+            lambda: {'requested': requested, 'agreed': agreed},
         )
 
     def _handle_window_ok(self, msg):
@@ -832,7 +836,7 @@ class BaseTunnel(object):
                 logging.WARNING,
                 'tunnel.window_invalid',
                 'Invalid window response',
-                {'size': agreed},
+                lambda: {'size': agreed},
             )
             return
 
@@ -846,7 +850,7 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.window_ok',
             'Window updated',
-            {'agreed': agreed},
+            lambda: {'agreed': agreed},
         )
 
     def _collect_segments(self, max_payload, keepalive_data=None):
@@ -910,7 +914,7 @@ class BaseTunnel(object):
                     logging.ERROR,
                     'tunnel.bg_error',
                     'Background loop error',
-                    {
+                    lambda: {
                         'error': str(e),
                         'side': 'alice' if self._is_initiator else 'bob',
                     },
@@ -940,7 +944,7 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.closed',
             'Tunnel closed',
-            {'side': 'alice' if self._is_initiator else 'bob'},
+            lambda: {'side': 'alice' if self._is_initiator else 'bob'},
         )
 
     def enable_module_loader(self, logger=None):

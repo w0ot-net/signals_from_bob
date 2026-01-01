@@ -88,7 +88,7 @@ class IcmpClient(Transport):
                 logging.DEBUG,
                 'icmp.send_blocked',
                 'ICMP send blocked',
-                {
+                lambda: {
                     'pending': pending_before,
                     'max_pending': self._max_pending,
                 },
@@ -116,7 +116,7 @@ class IcmpClient(Transport):
             logging.DEBUG,
             'icmp.send',
             'ICMP echo request sent',
-            {
+            lambda: {
                 'corr_id': seq,
                 'target': self._target_ip,
                 'bytes': len(packet),
@@ -178,7 +178,7 @@ class IcmpClient(Transport):
                 logging.DEBUG,
                 'icmp.malformed_response',
                 'ICMP response malformed',
-                {
+                lambda: {
                     'bytes': len(packet),
                     'addr': '%s:%d' % (addr[0], addr[1]),
                 },
@@ -200,7 +200,7 @@ class IcmpClient(Transport):
             logging.DEBUG,
             'icmp.recv',
             'ICMP echo reply received',
-            {
+            lambda: {
                 'corr_id': seq,
                 'bytes': len(payload),
             },
@@ -217,7 +217,7 @@ class IcmpClient(Transport):
                 logging.DEBUG,
                 'icmp.prune_stale',
                 'Pruned stale ICMP requests',
-                {'count': len(stale)},
+                lambda: {'count': len(stale)},
             )
         return stale
 

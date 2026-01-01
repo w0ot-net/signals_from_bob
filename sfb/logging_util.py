@@ -36,13 +36,20 @@ def configure_logging(level='INFO', to_stdout=True, log_file=None):
         _ensure_handler(logger, logging.FileHandler, formatter, log_file)
 
 
-def log_event(logger, level, event, message, fields=None, **kwargs):
+def log_event(logger, level, event, message, fields, **kwargs):
     """
     Emit a structured log event.
+
+    Args:
+        fields: callable returning a dict or None
     """
+    if not logger.isEnabledFor(level):
+        return
+    if not callable(fields):
+        raise TypeError('fields must be callable')
     extra = {
         'event': event,
-        'fields': fields,
+        'fields': fields(),
     }
     logger.log(level, message, extra=extra, **kwargs)
 

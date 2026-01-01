@@ -95,7 +95,7 @@ class DnsClient(Transport):
             logging.INFO,
             'dns.client_config',
             'DNS client config',
-            {
+            lambda: {
                 'base_domain': self._base_domain,
                 'resolver': '%s:%d' % (self._resolver[0], self._resolver[1]),
                 'qtype': config.dns_query_type,
@@ -131,7 +131,7 @@ class DnsClient(Transport):
                 logging.DEBUG,
                 'dns.payload_cap',
                 'DNS payload cap',
-                {'payload_cap': self._payload_cap},
+                lambda: {'payload_cap': self._payload_cap},
             )
         self._recv_bufsize = max(self._edns_size, config.dns_recv_bufsize_min)
 
@@ -196,7 +196,7 @@ class DnsClient(Transport):
                 logging.DEBUG,
                 'dns.send_blocked',
                 'DNS send blocked',
-                {
+                lambda: {
                     'pending': pending_before,
                     'max_pending': self._max_pending,
                 },
@@ -233,7 +233,7 @@ class DnsClient(Transport):
             logging.DEBUG,
             'dns.send',
             'DNS query sent',
-            {
+            lambda: {
                 'corr_id': corr_id,
                 'dns_id': dns_id,
                 'resolver': '%s:%d' % (self._resolver[0], self._resolver[1]),
@@ -316,7 +316,7 @@ class DnsClient(Transport):
                 logging.DEBUG,
                 'dns.malformed_response',
                 'DNS response malformed',
-                {
+                lambda: {
                     'bytes': len(resp_data),
                     'addr': '%s:%d' % (addr[0], addr[1]),
                 },
@@ -331,7 +331,7 @@ class DnsClient(Transport):
                 logging.DEBUG,
                 'dns.stale_response',
                 'DNS response stale',
-                {
+                lambda: {
                     'dns_id': dns_id,
                     'pending': len(self._pending),
                     'addr': '%s:%d' % (addr[0], addr[1]),
@@ -347,7 +347,7 @@ class DnsClient(Transport):
                 logging.DEBUG,
                 'dns.missing_pending',
                 'DNS response missing pending entry',
-                {
+                lambda: {
                     'corr_id': corr_id,
                     'dns_id': dns_id,
                     'addr': '%s:%d' % (addr[0], addr[1]),
@@ -360,7 +360,7 @@ class DnsClient(Transport):
                 logging.DEBUG,
                 'dns.error_response',
                 'DNS error response',
-                {
+                lambda: {
                     'corr_id': corr_id,
                     'dns_id': dns_id,
                     'rcode': rcode,
@@ -378,7 +378,7 @@ class DnsClient(Transport):
                 logging.DEBUG,
                 'dns.mismatched_response',
                 'DNS response qname mismatch',
-                {
+                lambda: {
                     'dns_id': dns_id,
                     'corr_id': corr_id,
                     'expected': pending.qname,
@@ -394,7 +394,7 @@ class DnsClient(Transport):
                 logging.DEBUG,
                 'dns.error_response',
                 'DNS error response',
-                {
+                lambda: {
                     'corr_id': corr_id,
                     'dns_id': dns_id,
                     'rcode': rcode,
@@ -416,7 +416,7 @@ class DnsClient(Transport):
             logging.DEBUG,
             'dns.recv',
             'DNS response received',
-            {'corr_id': corr_id, 'dns_id': dns_id, 'bytes': len(payload)},
+            lambda: {'corr_id': corr_id, 'dns_id': dns_id, 'bytes': len(payload)},
         )
         return (corr_id, payload)
 
@@ -435,7 +435,7 @@ class DnsClient(Transport):
                 logging.DEBUG,
                 'dns.prune_stale',
                 'Pruned stale DNS queries',
-                {'count': len(stale)},
+                lambda: {'count': len(stale)},
             )
         return stale
 

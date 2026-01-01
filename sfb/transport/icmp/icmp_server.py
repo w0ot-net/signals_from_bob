@@ -94,7 +94,7 @@ class IcmpServer(Server):
                 logging.DEBUG,
                 'icmp.recv',
                 'ICMP echo request received',
-                {
+                lambda: {
                     'addr': '%s:%d' % (addr[0], addr[1]),
                     'bytes': len(payload),
                 },
@@ -118,7 +118,7 @@ class IcmpServer(Server):
                 logging.DEBUG,
                 'icmp.send',
                 'ICMP echo reply sent',
-                {
+                lambda: {
                     'addr': '%s:%d' % (addr[0], addr[1]),
                     'bytes': len(packet),
                     'payload_bytes': len(data),

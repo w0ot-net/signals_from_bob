@@ -66,7 +66,7 @@ class ModuleLoader(object):
                 logging.DEBUG,
                 'module_loader.command_unknown',
                 'Unknown module loader command',
-                {'cmd': cmd},
+                lambda: {'cmd': cmd},
             )
 
     def _handle_load(self, msg):
@@ -85,7 +85,7 @@ class ModuleLoader(object):
                 logging.DEBUG,
                 'module_loader.already_loaded',
                 'Module already loaded',
-                {'module': name},
+                lambda: {'module': name},
             )
             self._send(mod_load_ok(name))
             return
@@ -97,7 +97,7 @@ class ModuleLoader(object):
                 logging.WARNING,
                 'module_loader.unknown',
                 'Unknown module',
-                {'module': name},
+                lambda: {'module': name},
             )
             self._send(mod_load_err(name, 'unknown module'))
             return
@@ -111,7 +111,7 @@ class ModuleLoader(object):
                 logging.INFO,
                 'module_loader.loaded',
                 'Loaded module',
-                {'module': name},
+                lambda: {'module': name},
             )
             self._send(mod_load_ok(name))
         except Exception as e:
@@ -120,7 +120,7 @@ class ModuleLoader(object):
                 logging.ERROR,
                 'module_loader.load_failed',
                 'Failed to load module',
-                {'module': name, 'error': to_native_str(e)},
+                lambda: {'module': name, 'error': to_native_str(e)},
                 exc_info=True,
             )
             self._send(mod_load_err(name, to_native_str(e)))
@@ -133,7 +133,7 @@ class ModuleLoader(object):
             logging.DEBUG,
             'module_loader.remote_loaded',
             'Module loaded on remote',
-            {'module': name},
+            lambda: {'module': name},
         )
         self._signal_pending(name, success=True)
 
@@ -146,7 +146,7 @@ class ModuleLoader(object):
             logging.ERROR,
             'module_loader.remote_failed',
             'Failed to load module on remote',
-            {'module': name, 'reason': reason},
+            lambda: {'module': name, 'reason': reason},
         )
         self._signal_pending(name, success=False, reason=reason)
 
@@ -195,7 +195,7 @@ class ModuleLoader(object):
                     logging.DEBUG,
                     'module_loader.send_load',
                     'Sent module load request',
-                    {'module': name},
+                    lambda: {'module': name},
                 )
 
             # Wait for response
@@ -231,7 +231,7 @@ class ModuleLoader(object):
                     logging.ERROR,
                     'module_loader.shutdown_error',
                     'Error shutting down module',
-                    {'module': name},
+                    lambda: {'module': name},
                     exc_info=True,
                 )
         self._loaded_modules.clear()

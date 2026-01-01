@@ -158,7 +158,7 @@ class AliceTunnel(BaseTunnel):
                 logging.DEBUG,
                 'tunnel.handshake_attempt',
                 'Handshake attempt',
-                {'attempt': attempt, 'side': 'alice'},
+                lambda: {'attempt': attempt, 'side': 'alice'},
             )
 
             # Build SYN packet
@@ -218,7 +218,7 @@ class AliceTunnel(BaseTunnel):
                     logging.WARNING,
                     'tunnel.handshake_error',
                     'Handshake error',
-                    {'error': str(e), 'side': 'alice'},
+                    lambda: {'error': str(e), 'side': 'alice'},
                 )
                 self._rtt.backoff()
 
@@ -277,7 +277,7 @@ class AliceTunnel(BaseTunnel):
                 logging.INFO,
                 'tunnel.connected',
                 'Connected',
-                {
+                lambda: {
                     'local_isn': self._local_isn,
                     'remote_isn': self._remote_isn,
                     'mode': 'syn_ack',
@@ -294,7 +294,7 @@ class AliceTunnel(BaseTunnel):
                 logging.WARNING,
                 'tunnel.ack_send_failed',
                 'Failed to send ACK',
-                {'error': str(e), 'side': 'alice'},
+                lambda: {'error': str(e), 'side': 'alice'},
             )
             # Still mark as connected - Bob will accept data as implicit ACK
             self._set_state(TunnelState.CONNECTED)
@@ -312,7 +312,7 @@ class AliceTunnel(BaseTunnel):
             logging.INFO,
             'tunnel.mtu_propose',
             'MTU request',
-            {'tx': self._proposed_send_mtu, 'rx': self._proposed_recv_mtu},
+            lambda: {'tx': self._proposed_send_mtu, 'rx': self._proposed_recv_mtu},
         )
 
         # Queue window request
@@ -322,7 +322,7 @@ class AliceTunnel(BaseTunnel):
             logging.INFO,
             'tunnel.window_propose',
             'Window request',
-            {'size': self._proposed_max_in_flight},
+            lambda: {'size': self._proposed_max_in_flight},
         )
 
     def tick(self):
@@ -389,7 +389,7 @@ class AliceTunnel(BaseTunnel):
                 logging.ERROR,
                 'tunnel.timeout_packets',
                 'Connection timeout after packets without response',
-                {
+                lambda: {
                     'count': self._max_packets_without_response,
                     'side': 'alice',
                 },
@@ -459,32 +459,42 @@ class AliceTunnel(BaseTunnel):
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Send window full',
-                {
+                lambda: {
                     'unacked': self._send_window.unacked_count,
                     'max_in_flight': self._send_window._max_in_flight,
                     'side': 'alice',
                 },
             )
             return False
-        exceeded, fields = self._send_window_distance_exceeded()
+        exceeded, distance_info = self._send_window_distance_exceeded()
         if exceeded:
-            fields = dict(fields)
-            fields['side'] = 'alice'
+            distance, max_in_flight, last_cum_ack, next_seq = distance_info
             log_event(
                 self._logger,
                 logging.DEBUG,
                 'tunnel.send_window_distance',
                 'Send window distance exceeded',
-                fields,
+                lambda: {
+                    'distance': distance,
+                    'max_in_flight': max_in_flight,
+                    'last_cum_ack': last_cum_ack,
+                    'next_seq': next_seq,
+                    'side': 'alice',
+                },
             )
-            blocked_fields = dict(fields)
-            blocked_fields['reason'] = 'window_distance'
             log_event(
                 self._logger,
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Send window distance exceeded',
-                blocked_fields,
+                lambda: {
+                    'distance': distance,
+                    'max_in_flight': max_in_flight,
+                    'last_cum_ack': last_cum_ack,
+                    'next_seq': next_seq,
+                    'side': 'alice',
+                    'reason': 'window_distance',
+                },
             )
             return False
         if self._send_limiter is not None and not self._send_limiter.can_send(now=now):
@@ -493,7 +503,7 @@ class AliceTunnel(BaseTunnel):
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Send rate limited',
-                {
+                lambda: {
                     'side': 'alice',
                     'rate': self._config.tunnel_send_rate,
                     'burst': self._config.tunnel_send_burst,
@@ -511,7 +521,7 @@ class AliceTunnel(BaseTunnel):
                     logging.DEBUG,
                     'tunnel.send_blocked',
                     'Send pacing blocked',
-                    {
+                    lambda: {
                         'side': 'alice',
                         'reason': 'pacer',
                         'unacked': unacked,
@@ -521,20 +531,22 @@ class AliceTunnel(BaseTunnel):
                 return False
         can_send = self._transport.can_send()
         if not can_send:
-            fields = {'side': 'alice'}
-            if hasattr(self._transport, 'pending_count'):
-                try:
-                    fields['pending'] = self._transport.pending_count()
-                except Exception:
-                    pass
-            if hasattr(self._transport, 'max_pending'):
-                fields['max_pending'] = self._transport.max_pending
+            def build_fields():
+                fields = {'side': 'alice'}
+                if hasattr(self._transport, 'pending_count'):
+                    try:
+                        fields['pending'] = self._transport.pending_count()
+                    except Exception:
+                        pass
+                if hasattr(self._transport, 'max_pending'):
+                    fields['max_pending'] = self._transport.max_pending
+                return fields
             log_event(
                 self._logger,
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Transport cannot send',
-                fields,
+                build_fields,
             )
         return can_send
 
@@ -546,7 +558,7 @@ class AliceTunnel(BaseTunnel):
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Retransmit rate limited',
-                {
+                lambda: {
                     'side': 'alice',
                     'rate': self._config.tunnel_send_rate,
                     'burst': self._config.tunnel_send_burst,
@@ -555,20 +567,22 @@ class AliceTunnel(BaseTunnel):
             return False
         can_send = self._transport.can_send()
         if not can_send:
-            fields = {'side': 'alice'}
-            if hasattr(self._transport, 'pending_count'):
-                try:
-                    fields['pending'] = self._transport.pending_count()
-                except Exception:
-                    pass
-            if hasattr(self._transport, 'max_pending'):
-                fields['max_pending'] = self._transport.max_pending
+            def build_fields():
+                fields = {'side': 'alice'}
+                if hasattr(self._transport, 'pending_count'):
+                    try:
+                        fields['pending'] = self._transport.pending_count()
+                    except Exception:
+                        pass
+                if hasattr(self._transport, 'max_pending'):
+                    fields['max_pending'] = self._transport.max_pending
+                return fields
             log_event(
                 self._logger,
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Transport cannot send',
-                fields,
+                build_fields,
             )
         return can_send
 
@@ -587,21 +601,23 @@ class AliceTunnel(BaseTunnel):
     def _log_pacer_state(self, cap, unacked_count, action=None):
         if not self._pacer.enabled:
             return
-        fields = self._pacer.state_fields(
-            unacked_count,
-            cap,
-            srtt_ms=self._rtt.srtt_ms,
-            rate_limit=self._config.tunnel_send_rate,
-        )
-        fields['side'] = 'alice'
-        if action is not None:
-            fields['action'] = action
+        def build_fields():
+            fields = self._pacer.state_fields(
+                unacked_count,
+                cap,
+                srtt_ms=self._rtt.srtt_ms,
+                rate_limit=self._config.tunnel_send_rate,
+            )
+            fields['side'] = 'alice'
+            if action is not None:
+                fields['action'] = action
+            return fields
         log_event(
             self._logger,
             logging.DEBUG,
             'tunnel.pacer_state',
             'Pacer state',
-            fields,
+            build_fields,
         )
 
     def _poll_decision(self, now):
@@ -632,7 +648,7 @@ class AliceTunnel(BaseTunnel):
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Send rate limited before transmit',
-                {
+                lambda: {
                     'side': 'alice',
                     'rate': self._config.tunnel_send_rate,
                     'burst': self._config.tunnel_send_burst,
@@ -663,7 +679,7 @@ class AliceTunnel(BaseTunnel):
             logging.DEBUG,
             'tunnel.packet_send',
             'Packet sent',
-            {
+            lambda: {
                 'seq': packet.seq,
                 'ack': packet.ack,
                 'sack': packet.sack,
@@ -685,7 +701,7 @@ class AliceTunnel(BaseTunnel):
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Retransmit rate limited before transmit',
-                {
+                lambda: {
                     'side': 'alice',
                     'rate': self._config.tunnel_send_rate,
                     'burst': self._config.tunnel_send_burst,
@@ -706,14 +722,14 @@ class AliceTunnel(BaseTunnel):
             logging.DEBUG,
             'tunnel.retransmit',
             'Retransmitting packet',
-            {'seq': seq, 'seg_count': len(segments), 'side': 'alice'},
+            lambda: {'seq': seq, 'seg_count': len(segments), 'side': 'alice'},
         )
         log_event(
             self._logger,
             logging.DEBUG,
             'tunnel.packet_send',
             'Packet sent',
-            {
+            lambda: {
                 'seq': packet.seq,
                 'ack': packet.ack,
                 'sack': packet.sack,
@@ -831,7 +847,7 @@ class AliceTunnel(BaseTunnel):
                     logging.WARNING,
                     'tunnel.tick_error',
                     'Tick error',
-                    {'error': str(e), 'side': 'alice'},
+                    lambda: {'error': str(e), 'side': 'alice'},
                     exc_info=True,
                 )
             time.sleep(self._config.tunnel_tick_sleep)

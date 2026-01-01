@@ -63,7 +63,7 @@ class InMemoryTransport(Transport):
                 logging.DEBUG,
                 'memory.send_blocked',
                 'In-memory transport send blocked',
-                {
+                lambda: {
                     'pending': self.pending_count(),
                     'max_pending': self._max_pending,
                 },

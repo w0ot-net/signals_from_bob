@@ -115,7 +115,7 @@ class BaseModule(object):
             logging.WARNING,
             'module.command_missing',
             'Module does not implement run_command',
-            {'module': cls.__name__},
+            lambda: {'module': cls.__name__},
         )
         return 1
 
@@ -154,7 +154,7 @@ class BaseModule(object):
                 logging.ERROR,
                 'module.unregister_failed',
                 'Failed to unregister module',
-                {'type': self.TYPE},
+                lambda: {'type': self.TYPE},
                 exc_info=True,
             )
         with self._threads_lock:
@@ -179,7 +179,7 @@ class BaseModule(object):
             logging.DEBUG,
             'module.send',
             'Module send',
-            {'type': self.TYPE, 'msg': msg},
+            lambda: {'type': self.TYPE, 'msg': msg},
         )
         self._tunnel.control.send_message(msg)
 
@@ -196,7 +196,7 @@ class BaseModule(object):
             logging.DEBUG,
             'module.recv',
             'Module recv',
-            {'type': self.TYPE, 'msg': msg},
+            lambda: {'type': self.TYPE, 'msg': msg},
         )
         cmd = msg.get('c')
         if not cmd:
@@ -212,7 +212,7 @@ class BaseModule(object):
                 logging.DEBUG,
                 'module.command_unknown',
                 'No handler for command',
-                {'type': self.TYPE, 'cmd': cmd},
+                lambda: {'type': self.TYPE, 'cmd': cmd},
             )
             return
 
@@ -253,7 +253,7 @@ class BaseModule(object):
                 logging.ERROR,
                 'module.handler_error',
                 'Handler error',
-                {'type': self.TYPE, 'error': str(e)},
+                lambda: {'type': self.TYPE, 'error': str(e)},
                 exc_info=True,
             )
 

@@ -100,10 +100,6 @@ class Config:
     tunnel_bob_poll_interval: float = 1.0
     # Bob: poll timeout for background loop (seconds)
     tunnel_bob_poll_interval_bg: float = 0.1
-    # Bob: coalesce small responses to fill MTU (seconds, 0 disables)
-    tunnel_bob_coalesce_delay: float = 0.0
-    # Bob: minimum queued data bytes to target before responding (0 disables)
-    tunnel_bob_coalesce_min_bytes: int = 0
     # Bob: min seconds between retransmits of the oldest unacked packet
     tunnel_bob_retransmit_min_interval: float = 0.05
     # Bob: max seconds between retransmits of the oldest unacked packet
@@ -317,10 +313,6 @@ class Config:
             raise ValueError("tunnel_window_growth_step must be >= 1")
         if self.tunnel_window_growth_interval <= 0:
             raise ValueError("tunnel_window_growth_interval must be > 0")
-        if self.tunnel_bob_coalesce_delay < 0:
-            raise ValueError("tunnel_bob_coalesce_delay must be >= 0")
-        if self.tunnel_bob_coalesce_min_bytes < 0:
-            raise ValueError("tunnel_bob_coalesce_min_bytes must be >= 0")
         if self.tunnel_bg_stop_timeout <= 0:
             raise ValueError("tunnel_bg_stop_timeout must be > 0")
         if self.tunnel_bob_poll_interval <= 0:

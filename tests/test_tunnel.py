@@ -808,10 +808,7 @@ class KeepaliveFlagTests(unittest.TestCase):
         from sfb.protocol import Packet, FLAG_KEEPALIVE
 
         server = MockServer()
-        config = make_test_config(
-            tunnel_bob_coalesce_delay=0,
-            tunnel_bob_coalesce_min_bytes=0,
-        )
+        config = make_test_config()
         bob = BobTunnel(server, config, crypto=Plain())
         bob._set_state(TunnelState.CONNECTED)
         bob._local_isn = 100

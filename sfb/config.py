@@ -214,7 +214,7 @@ class Config:
     # Target connect timeout for SOCKS relay (seconds)
     socks_connect_target_timeout: float = 30.0
     # SOCKS relay socket timeout (seconds)
-    socks_relay_socket_timeout: float = 2.0
+    socks_relay_socket_timeout: float = 5.0
     # SOCKS relay channel read timeout (seconds)
     socks_relay_channel_timeout: float = 0.5
     # SOCKS relay channel write timeout (seconds)

@@ -47,7 +47,6 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
         backoff = config.non_blocking_poll_timeout
         max_backoff = max(config.socks_pump_backoff_max, backoff)
         last_stats = time.time()
-        fatal_error = False
         while not stop_event.is_set():
             try:
                 if not pending:
@@ -66,7 +65,6 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 time.sleep(config.non_blocking_poll_timeout)
                 continue
             except Exception as exc:
-                fatal_error = True
                 if not stop_event.is_set():
                     _log_pump_error(
                         logger, rid, ch, side, direction,
@@ -100,7 +98,6 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     time.sleep(backoff)
                     backoff = min(backoff * 2.0, max_backoff)
                     continue
-                fatal_error = True
                 if not stop_event.is_set():
                     _log_pump_error(
                         logger, rid, ch, side, direction,
@@ -108,7 +105,6 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     )
                 break
             except Exception as exc:
-                fatal_error = True
                 if not stop_event.is_set():
                     _log_pump_error(
                         logger, rid, ch, side, direction,
@@ -132,17 +128,16 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         'buffer_full': buffer_full_count,
                         'sleep_time': round(sleep_time, 3),
                         'send_buf_size': channel.send_buf_size,
-                    'side': side,
-                },
-            )
-            bytes_recv = 0
-            bytes_written = 0
-            buffer_full_count = 0
-            sleep_time = 0.0
-            last_stats = now
+                        'side': side,
+                    },
+                )
+                bytes_recv = 0
+                bytes_written = 0
+                buffer_full_count = 0
+                sleep_time = 0.0
+                last_stats = now
     finally:
-        if fatal_error:
-            stop_event.set()
+        stop_event.set()
 
 
 def pump_channel_to_socket(channel, sock, config, logger, stop_event,

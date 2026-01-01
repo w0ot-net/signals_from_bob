@@ -277,6 +277,7 @@ class SocksServerModule(BaseModule):
         conn = None
 
         try:
+            sock.settimeout(self._config.socks_relay_socket_timeout)
             # SOCKS5 handshake
             self._socks5_negotiate_method(sock)
             host, port = self._socks5_read_connect(sock)

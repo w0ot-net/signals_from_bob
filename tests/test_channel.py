@@ -332,7 +332,7 @@ class ChannelManagerTests(unittest.TestCase):
         ch._set_state(STATE_OPEN)
         ch.write(b'abc')
         mgr._channels[1] = ch
-        segments = mgr.collect_segments(128)
+        segments = mgr.collect_segments(64)
         self.assertTrue(segments)
         self.assertEqual(segments[0].channel, CHANNEL_CONTROL)
 

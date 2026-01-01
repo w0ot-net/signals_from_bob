@@ -6,25 +6,28 @@ Small compatibility helpers for Python 2/3.
 from __future__ import absolute_import
 
 
-import array
 import sys
-
-try:
-    text_type = unicode
-except NameError:
-    text_type = str
 
 PY2 = sys.version_info[0] == 2
 
-try:
+if PY2:
+    text_type = unicode
     integer_types = (int, long)
-except NameError:
-    integer_types = (int,)
-
-try:
     import Queue as queue
-except ImportError:
+    def array_frombytes(arr, data):
+        """
+        Load bytes into an array (Python 2 uses fromstring).
+        """
+        return arr.fromstring(data)
+else:
+    text_type = str
+    integer_types = (int,)
     import queue
+    def array_frombytes(arr, data):
+        """
+        Load bytes into an array (Python 3 uses frombytes).
+        """
+        return arr.frombytes(data)
 
 
 def require_bytes(data):
@@ -64,16 +67,3 @@ def to_native_str(value):
     except Exception:
         return repr(value)
 
-
-if hasattr(array.array, 'frombytes'):
-    def array_frombytes(arr, data):
-        """
-        Load bytes into an array (Python 3 uses frombytes).
-        """
-        return arr.frombytes(data)
-else:
-    def array_frombytes(arr, data):
-        """
-        Load bytes into an array (Python 2 uses fromstring).
-        """
-        return arr.fromstring(data)

@@ -134,6 +134,18 @@ LOG_PROFILES = {
         ),
         'log_event_blacklist': (),
     },
+    # Disable all component logging (errors still pass).
+    'no_logging': {
+        'log_component_transport_dns': False,
+        'log_component_transport_icmp': False,
+        'log_component_tunnel': False,
+        'log_component_channel': False,
+        'log_component_protocol': False,
+        'log_component_module_socks': False,
+        'log_component_module_file_transfer': False,
+        'log_event_whitelist': (),
+        'log_event_blacklist': ('*',),
+    },
     # Adaptive pacing state tracing (minimal noise).
     'tunnel_pacing': {
         'log_component_tunnel': True,

@@ -63,9 +63,12 @@ class RootedHTTPRequestHandler(SimpleHTTPRequestHandler):
 
     def __init__(self, *args, **kwargs):
         self._root = kwargs.pop('root')
+        self._quiet = bool(kwargs.pop('quiet', False))
         SimpleHTTPRequestHandler.__init__(self, *args, **kwargs)
 
     def log_message(self, fmt, *args):
+        if self._quiet:
+            return
         sys.stdout.write("HTTP %s - - [%s] %s\n" % (
             self.address_string(),
             self.log_date_time_string(),
@@ -161,6 +164,10 @@ def parse_args():
     parser.add_argument(
         '--db-log-flush', type=float, default=2.0,
         help='SQLite log flush interval for bob/alice (default: 2.0)'
+    )
+    parser.add_argument(
+        '--no-logging', action='store_true',
+        help='Disable SFB logging and HTTP request logs'
     )
     parser.add_argument(
         '--no-baseline', action='store_true',
@@ -272,9 +279,9 @@ def wait_for_port(host, port, deadline, proc=None):
     return False
 
 
-def start_http_server(root, port):
+def start_http_server(root, port, quiet=False):
     handler = lambda *args, **kwargs: RootedHTTPRequestHandler(  # noqa: E731
-        *args, root=root, **kwargs
+        *args, root=root, quiet=quiet, **kwargs
     )
     server = ReusableTCPServer(('127.0.0.1', port), handler)
     thread = threading.Thread(target=server.serve_forever)
@@ -298,7 +305,7 @@ def wrap_profile(cmd, profile_dir, label):
 def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
               socks_relay_buffer_size=None, channel_max_send_buf=None,
               socks_pump_backoff_max=None, non_blocking_poll_timeout=None,
-              db_log_flush=None, profile_dir=None):
+              db_log_path=SERVER_DB_LOG, db_log_flush=None, profile_dir=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'bob',
@@ -306,11 +313,10 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
     ]
     if verbose:
         cmd.append('-v')
-    cmd.extend([
-        '--db-log', SERVER_DB_LOG,
-        '--log-profile', log_profile or 'scp_stalled_icmp_socks',
-    ])
-    if db_log_flush is not None:
+    if db_log_path:
+        cmd.extend(['--db-log', db_log_path])
+    cmd.extend(['--log-profile', log_profile or 'scp_stalled_icmp_socks'])
+    if db_log_path and db_log_flush is not None:
         cmd.extend(['--db-log-flush', str(db_log_flush)])
     if socks_relay_buffer_size is not None:
         cmd.extend(['--socks_relay_buffer_size', str(socks_relay_buffer_size)])
@@ -335,7 +341,8 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
 def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
                 log_profile=None, verbose=False, socks_relay_buffer_size=None,
                 channel_max_send_buf=None, socks_pump_backoff_max=None,
-                non_blocking_poll_timeout=None, db_log_flush=None,
+                non_blocking_poll_timeout=None, db_log_path=CLIENT_DB_LOG,
+                db_log_flush=None,
                 profile_dir=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
@@ -344,12 +351,11 @@ def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
     ]
     if verbose:
         cmd.append('-v')
-    cmd.extend([
-        '--icmp_target', icmp_target,
-        '--db-log', CLIENT_DB_LOG,
-        '--log-profile', log_profile or 'scp_stalled_icmp_socks',
-    ])
-    if db_log_flush is not None:
+    cmd.extend(['--icmp_target', icmp_target])
+    if db_log_path:
+        cmd.extend(['--db-log', db_log_path])
+    cmd.extend(['--log-profile', log_profile or 'scp_stalled_icmp_socks'])
+    if db_log_path and db_log_flush is not None:
         cmd.extend(['--db-log-flush', str(db_log_flush)])
     if socks_relay_buffer_size is not None:
         cmd.extend(['--socks_relay_buffer_size', str(socks_relay_buffer_size)])
@@ -850,7 +856,17 @@ def main():
         raise SystemExit('At least one client is required')
 
     require_linux_root()
-    ensure_logs(SERVER_DB_LOG, CLIENT_DB_LOG)
+    quiet_http = False
+    log_profile = args.log_profile
+    server_db_log = SERVER_DB_LOG
+    client_db_log = CLIENT_DB_LOG
+    if args.no_logging:
+        quiet_http = True
+        log_profile = 'no_logging'
+        server_db_log = None
+        client_db_log = None
+    else:
+        ensure_logs(SERVER_DB_LOG, CLIENT_DB_LOG)
     profile_dir = resolve_profile_dir(args.profile_sfb_dir)
 
     http_root = os.path.join(ROOT_DIR, 'test_download_files')
@@ -863,17 +879,18 @@ def main():
     bob = None
     alice = None
     try:
-        http_server, _ = start_http_server(http_root, args.http_port)
+        http_server, _ = start_http_server(http_root, args.http_port, quiet=quiet_http)
 
         bob = start_bob(
             args.socks_port,
             icmp_mtu=args.icmp_mtu,
-            log_profile=args.log_profile,
+            log_profile=log_profile,
             verbose=args.verbose_cli,
             socks_relay_buffer_size=args.socks_relay_buffer_size,
             channel_max_send_buf=args.channel_max_send_buf,
             socks_pump_backoff_max=args.socks_pump_backoff_max,
             non_blocking_poll_timeout=args.non_blocking_poll_timeout,
+            db_log_path=server_db_log,
             db_log_flush=args.db_log_flush,
             profile_dir=profile_dir,
         )
@@ -882,12 +899,13 @@ def main():
             icmp_mtu=args.icmp_mtu,
             send_rate=args.send_rate,
             send_burst=args.send_burst,
-            log_profile=args.log_profile,
+            log_profile=log_profile,
             verbose=args.verbose_cli,
             socks_relay_buffer_size=args.socks_relay_buffer_size,
             channel_max_send_buf=args.channel_max_send_buf,
             socks_pump_backoff_max=args.socks_pump_backoff_max,
             non_blocking_poll_timeout=args.non_blocking_poll_timeout,
+            db_log_path=client_db_log,
             db_log_flush=args.db_log_flush,
             profile_dir=profile_dir,
         )

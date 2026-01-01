@@ -115,6 +115,18 @@ def add_common_args(parser, config, require_domain=True):
              config.channel_max_send_buf
     )
     parser.add_argument(
+        '--socks_pump_backoff_max', type=float,
+        default=config.socks_pump_backoff_max,
+        help='SOCKS pump backoff max in seconds (default: %s)' %
+             config.socks_pump_backoff_max
+    )
+    parser.add_argument(
+        '--non_blocking_poll_timeout', type=float,
+        default=config.non_blocking_poll_timeout,
+        help='Non-blocking poll timeout in seconds (default: %s)' %
+             config.non_blocking_poll_timeout
+    )
+    parser.add_argument(
         '--log-profile',
         default=config.log_profile,
         choices=sorted(LOG_PROFILES.keys()),
@@ -299,6 +311,10 @@ def create_config(args):
         args, 'socks_relay_buffer_size', None)
     config_kwargs['channel_max_send_buf'] = getattr(
         args, 'channel_max_send_buf', None)
+    config_kwargs['socks_pump_backoff_max'] = getattr(
+        args, 'socks_pump_backoff_max', None)
+    config_kwargs['non_blocking_poll_timeout'] = getattr(
+        args, 'non_blocking_poll_timeout', None)
 
     config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
     return Config(**config_kwargs)

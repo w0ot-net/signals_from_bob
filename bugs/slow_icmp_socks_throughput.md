@@ -137,3 +137,21 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Takeaways:
   - Eliminating backoff/poll delay slightly improved per-client throughput (~0.68 MB/s vs ~0.65 MB/s) but increased buffer_full count dramatically, suggesting we are spinning while stuck on the same backpressure.
   - The in-flight/window ceiling and channel backpressure remain the primary bottlenecks; further gains likely need reducing channel saturation or relaxing the 64 packet limit (while keeping MTU <= 1400).
+
+## Experiment Log: Multiple Clients (4x) with Near-Zero Backoff (Jan 1, 2026)
+- Command:
+  ```
+  python3 scripts/icmp_socks_diag.py --clients 4 --icmp-target 127.0.0.1 \
+    --icmp-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug \
+    --socks_relay_buffer_size 32768 --channel_max_send_buf 262144 \
+    --socks-pump-backoff-max 0.0001 --non-blocking-poll-timeout 0
+  ```
+- Outcome:
+  - SOCKS path: 4x2MB total in ~86s; per-client throughput ~0.023 MB/s; aggregate ~0.089 MB/s.
+  - TTFB per client ~0.50-0.87s; durations ~85-86s.
+  - Direct HTTP baseline: ~0.026s (~76.8 MB/s).
+  - Logs: `logs/icmp_diag_client_log.db`, `logs/icmp_diag_server_log.db`.
+- Takeaways:
+  - Adding clients did not increase aggregate throughput; it significantly reduced per-client throughput.
+  - The run appears globally throttled (aggregate ~0.09 MB/s) rather than scaling with more clients.
+  - The timeline "peak rate" is likely an artifact of the final flush (very small delta time).

@@ -30,10 +30,7 @@ if PY2:
             return data
         if isinstance(data, bytearray):
             return bytes(data)
-        try:
-            return bytes(bytearray(data))
-        except TypeError:
-            raise TypeError('Expected bytes-like object')
+        raise TypeError('Expected bytes-like object')
 
     def to_bytes(data):
         """
@@ -80,7 +77,7 @@ else:
         if isinstance(data, bytearray):
             return bytes(data)
         try:
-            return bytes(bytearray(data))
+            return memoryview(data).tobytes()
         except TypeError:
             raise TypeError('Expected bytes-like object')
 

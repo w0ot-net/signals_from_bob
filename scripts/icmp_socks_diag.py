@@ -258,10 +258,6 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
     cmd.extend([
         '--db-log', SERVER_DB_LOG,
         '--log-profile', log_profile or 'scp_stalled_icmp_socks',
-        '--module', 'socks_server',
-        'start',
-        '--socks_host', '127.0.0.1',
-        '--socks_port', str(socks_port),
     ])
     if socks_relay_buffer_size is not None:
         cmd.extend(['--socks_relay_buffer_size', str(socks_relay_buffer_size)])
@@ -269,6 +265,12 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
         cmd.extend(['--channel_max_send_buf', str(channel_max_send_buf)])
     if icmp_mtu:
         cmd.extend(['--icmp_mtu', str(icmp_mtu)])
+    cmd.extend([
+        '--module', 'socks_server',
+        'start',
+        '--socks_host', '127.0.0.1',
+        '--socks_port', str(socks_port),
+    ])
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 
 

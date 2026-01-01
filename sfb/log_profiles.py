@@ -107,6 +107,8 @@ LOG_PROFILES = {
             'tunnel.request_state_unexpected',
             'tunnel.response_cap',
             'tunnel.send_window_*',
+            'tunnel.serve_error',
+            'tunnel.responder_error',
             'channel.open*',
             'channel.close*',
             'channel.send_buf_*',

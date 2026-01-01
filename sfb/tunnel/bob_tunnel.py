@@ -207,7 +207,7 @@ class BobTunnel(BaseTunnel):
                 flags=FLAG_SYN | FLAG_ACK,
             )
             response_data = self._encode_packet(syn_ack)
-            responder(response_data)
+            self._respond(responder, response_data, 'handshake_synack', syn_ack)
 
             self._packets_sent += 1
             self._bytes_sent += len(response_data)
@@ -395,7 +395,7 @@ class BobTunnel(BaseTunnel):
 
                 self._packets_sent += 1
                 self._bytes_sent += len(response_data)
-                responder(response_data)
+                self._respond(responder, response_data, 'retransmit', packet)
                 log_event(
                     self._logger,
                     logging.DEBUG,
@@ -457,7 +457,7 @@ class BobTunnel(BaseTunnel):
             response_data = self._encode_packet(packet)
             self._packets_sent += 1
             self._bytes_sent += len(response_data)
-            responder(response_data)
+            self._respond(responder, response_data, 'window_full', packet)
             return
         exceeded, distance_info = self._send_window_distance_exceeded()
         if exceeded:
@@ -493,7 +493,7 @@ class BobTunnel(BaseTunnel):
             response_data = self._encode_packet(packet)
             self._packets_sent += 1
             self._bytes_sent += len(response_data)
-            responder(response_data)
+            self._respond(responder, response_data, 'window_distance', packet)
             return
 
         # Collect new segments - use send MTU
@@ -513,7 +513,7 @@ class BobTunnel(BaseTunnel):
                 response_data = self._encode_packet(packet)
                 self._packets_sent += 1
                 self._bytes_sent += len(response_data)
-                responder(response_data)
+                self._respond(responder, response_data, 'pending_no_segments', packet)
                 return
             packet, seq = self._build_packet(
                 flags=FLAG_KEEPALIVE,
@@ -524,7 +524,7 @@ class BobTunnel(BaseTunnel):
             self._packets_sent += 1
             self._bytes_sent += len(response_data)
             self._log_response_cap(responder, response_data)
-            responder(response_data)
+            self._respond(responder, response_data, 'keepalive', packet)
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -553,7 +553,7 @@ class BobTunnel(BaseTunnel):
 
         # Send response
         self._log_response_cap(responder, response_data)
-        responder(response_data)
+        self._respond(responder, response_data, 'segments', packet)
         log_event(
             self._logger,
             logging.DEBUG,
@@ -591,6 +591,40 @@ class BobTunnel(BaseTunnel):
                 'side': 'bob',
             },
         )
+
+    def _respond(self, responder, response_data, context, packet=None):
+        try:
+            responder(response_data)
+            return
+        except Exception as exc:
+            def build_fields():
+                fields = {
+                    'context': context,
+                    'error': str(exc),
+                    'side': 'bob',
+                }
+                try:
+                    fields['bytes'] = len(response_data)
+                except Exception:
+                    pass
+                if packet is not None:
+                    fields.update({
+                        'seq': packet.seq,
+                        'ack': packet.ack,
+                        'sack': packet.sack,
+                        'flags': packet.flags,
+                        'seg_count': len(packet.segments),
+                    })
+                return fields
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'tunnel.responder_error',
+                'Responder send failed',
+                build_fields,
+                exc_info=True,
+            )
+            raise
 
     def _check_idle_timeout(self):
         """Check if connection has timed out (including stalled handshake)."""

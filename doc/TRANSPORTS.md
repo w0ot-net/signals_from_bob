@@ -280,7 +280,7 @@ transport = DnsTransport(resolver, domain, max_pending=1)
 - Requires raw sockets (root on Linux)
 - Kernel echo replies must be disabled (net.ipv4.icmp_echo_ignore_all=1)
 - Some networks filter ICMP
-- Payload size varies, typically ~1250 bytes safe on 1500 MTU links
+- Payload size varies, typically ~1300 bytes safe on 1500 MTU links
 
 ---
 

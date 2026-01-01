@@ -68,25 +68,8 @@ else:
         """
         Coerce bytes-like input to bytes, rejecting text.
         """
-        if isinstance(data, text_type):
-            raise TypeError('Expected bytes, got text')
-        if isinstance(data, bytes):
-            return data
-        if isinstance(data, memoryview):
-            return data.tobytes()
-        if isinstance(data, bytearray):
-            return bytes(data)
-        try:
-            return memoryview(data).tobytes()
-        except TypeError:
-            raise TypeError('Expected bytes-like object')
-
-
-def require_bytes(data):
-    """
-    Require bytes input, rejecting text.
-    """
-    return to_bytes(data)
+        data = require_bytes_like(data)
+        return data if isinstance(data, bytes) else data.tobytes()
 
 
 def byte_at(data, offset):

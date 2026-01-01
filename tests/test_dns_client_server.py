@@ -5,8 +5,18 @@ import struct
 import unittest
 
 from sfb.transport.dns import codec
-from sfb.transport.dns.dns_client import DnsClient
+from sfb.transport.dns.dns_client import DnsClient, _PendingQuery
 from sfb.transport.dns.dns_server import DnsServer
+from sfb.transport.transport_base import PendingTracker
+
+
+class DummySock(object):
+    def __init__(self):
+        self.sent = []
+
+    def sendto(self, data, addr):
+        self.sent.append((data, addr))
+        return len(data)
 
 
 class DnsClientTests(unittest.TestCase):
@@ -18,6 +28,20 @@ class DnsClientTests(unittest.TestCase):
         client._edns_size = edns_size
         client._cname_suffix = 'c.example.com'
         client._label_max_len = 50
+        return client
+
+    def _make_send_client(self):
+        client = DnsClient.__new__(DnsClient)
+        client._max_pending = 5
+        client._send_mtu = 1024
+        client._pending = PendingTracker(1.0)
+        client._dns_to_corr = {}
+        client._next_corr_id = 0
+        client._resolver = ('127.0.0.1', 53)
+        client._sock = DummySock()
+        client._encode_query = lambda data: 'q.example.com'
+        client._build_query = lambda dns_id, name: b'packet'
+        client._next_query_id = lambda: 1
         return client
 
     def _build_response(self, query_id, qname, rtype, payload,
@@ -223,6 +247,34 @@ class DnsClientTests(unittest.TestCase):
             hosts,
             ['8.8.8.8', '8.8.4.4', '1.1.1.1', '9.9.9.9']
         )
+
+    def test_send_prunes_once(self):
+        client = self._make_send_client()
+        orig_prune = PendingTracker.prune
+        calls = []
+
+        def counting_prune(self, now=None):
+            calls.append(now)
+            return orig_prune(self, now=now)
+
+        PendingTracker.prune = counting_prune
+        try:
+            client.send(b'test')
+        finally:
+            PendingTracker.prune = orig_prune
+
+        self.assertEqual(len(calls), 1)
+
+    def test_pending_count_prunes_stale(self):
+        client = DnsClient.__new__(DnsClient)
+        client._pending = PendingTracker(1.0)
+        client._dns_to_corr = {}
+        pending = _PendingQuery(100, b'packet', 'q.example.com')
+        client._pending.add(1, pending, now=0)
+        client._dns_to_corr[100] = 1
+        count = client.pending_count(now=2)
+        self.assertEqual(count, 0)
+        self.assertEqual(client._dns_to_corr, {})
 
 
 class DnsServerTests(unittest.TestCase):

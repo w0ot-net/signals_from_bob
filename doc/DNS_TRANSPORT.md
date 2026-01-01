@@ -483,7 +483,8 @@ if corr_id in in_flight:
 The transport does not retry - that's the reliability layer's job. Stale
 pending entries are automatically pruned when no response arrives to free
 in-flight capacity. Pruning runs on every `pending_count()`, `send()`, and
-`recv()` call:
+`recv()` call, but each send performs a single prune and reuses the result
+to avoid redundant O(n) work:
 
 ```python
 def _prune_stale(self):

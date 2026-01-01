@@ -12,7 +12,12 @@ import select
 import socket
 import time
 
-from ..transport_base import Transport, TransportError, PendingTracker
+from ..transport_base import (
+    Transport,
+    TransportError,
+    PendingTracker,
+    prune_and_count,
+)
 from .icmp_packet import ICMP_ECHO_REPLY, build_echo_request, parse_icmp_echo
 from ...compat import require_bytes
 from ...config import Config
@@ -64,9 +69,8 @@ class IcmpClient(Transport):
     def max_pending(self):
         return self._max_pending
 
-    def pending_count(self):
-        self._prune_stale()
-        return len(self._pending)
+    def pending_count(self, now=None):
+        return prune_and_count(self._pending, self._prune_stale, now=now)
 
     def can_send(self):
         if self.pending_count() >= self._max_pending:
@@ -74,14 +78,18 @@ class IcmpClient(Transport):
         return True
 
     def send(self, data):
-        if not self.can_send():
+        now = time.time()
+        pending_before = prune_and_count(
+            self._pending, self._prune_stale, now=now
+        )
+        if pending_before >= self._max_pending:
             log_event(
                 _LOG,
                 logging.DEBUG,
                 'icmp.send_blocked',
                 'ICMP send blocked',
                 {
-                    'pending': self.pending_count(),
+                    'pending': pending_before,
                     'max_pending': self._max_pending,
                 },
             )
@@ -93,7 +101,6 @@ class IcmpClient(Transport):
                 'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
             )
 
-        self._prune_stale()
         seq = self._next_sequence()
         packet = build_echo_request(self._icmp_id, seq, data)
 
@@ -114,7 +121,7 @@ class IcmpClient(Transport):
                 'target': self._target_ip,
                 'bytes': len(packet),
                 'payload_bytes': len(data),
-                'pending': self.pending_count(),
+                'pending': pending_before + 1,
             },
         )
         return seq
@@ -212,6 +219,7 @@ class IcmpClient(Transport):
                 'Pruned stale ICMP requests',
                 {'count': len(stale)},
             )
+        return stale
 
     def _next_sequence(self):
         for _ in range(0x10000):

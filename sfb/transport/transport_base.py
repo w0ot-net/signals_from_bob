@@ -266,6 +266,29 @@ class RateLimiter(object):
         return self._bucket.take(amount, now=now)
 
 
+def prune_and_count(pending, prune_fn, now=None, on_prune=None):
+    """
+    Prune pending entries via prune_fn and return the post-prune count.
+
+    Args:
+        pending: PendingTracker instance
+        prune_fn: callable that accepts now and returns stale entries
+        now: optional timestamp to reuse
+        on_prune: optional callback(stale) for extra cleanup
+
+    Returns:
+        int: count after pruning
+    """
+    if now is None:
+        now = time.time()
+    stale = prune_fn(now=now)
+    if stale is None:
+        stale = []
+    if on_prune is not None and stale:
+        on_prune(stale)
+    return len(pending)
+
+
 class PendingTracker(object):
     """
     Tracks pending requests with timeouts.

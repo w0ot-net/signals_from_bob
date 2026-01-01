@@ -15,7 +15,12 @@ import socket
 import struct
 import time
 
-from ..transport_base import Transport, TransportError, PendingTracker
+from ..transport_base import (
+    Transport,
+    TransportError,
+    PendingTracker,
+    prune_and_count,
+)
 from . import codec
 from .dns_utils import load_system_resolvers
 from ...compat import require_bytes
@@ -133,10 +138,11 @@ class DnsClient(Transport):
     def max_pending(self):
         return self._max_pending
 
-    def pending_count(self):
+    def pending_count(self, now=None):
         """Return number of queries awaiting response."""
-        self._prune_stale()
-        return len(self._pending)
+        return prune_and_count(
+            self._pending, self._prune_stale, now=now, on_prune=self._on_prune
+        )
 
     def can_send(self):
         """
@@ -162,14 +168,18 @@ class DnsClient(Transport):
         Raises:
             TransportError: on I/O failure or MTU exceeded
         """
-        if not self.can_send():
+        now = time.time()
+        pending_before = prune_and_count(
+            self._pending, self._prune_stale, now=now, on_prune=self._on_prune
+        )
+        if pending_before >= self._max_pending:
             log_event(
                 _LOG,
                 logging.DEBUG,
                 'dns.send_blocked',
                 'DNS send blocked',
                 {
-                    'pending': self.pending_count(),
+                    'pending': pending_before,
                     'max_pending': self._max_pending,
                 },
             )
@@ -179,9 +189,6 @@ class DnsClient(Transport):
             raise TransportError(
                 'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
             )
-
-        # Prune stale pending queries before sending
-        self._prune_stale()
 
         # Generate IDs
         corr_id = self._next_corr_id
@@ -214,7 +221,7 @@ class DnsClient(Transport):
                 'resolver': '%s:%d' % (self._resolver[0], self._resolver[1]),
                 'bytes': len(query_pkt),
                 'payload_bytes': len(data),
-                'pending': self.pending_count(),
+                'pending': pending_before + 1,
             },
         )
         return corr_id
@@ -235,7 +242,9 @@ class DnsClient(Transport):
         Raises:
             TransportError: on I/O failure
         """
-        self._prune_stale()
+        prune_and_count(
+            self._pending, self._prune_stale, on_prune=self._on_prune
+        )
         if timeout == 0:
             # Non-blocking poll
             try:
@@ -375,6 +384,10 @@ class DnsClient(Transport):
         )
         return (corr_id, payload)
 
+    def _on_prune(self, stale):
+        for _, pending in stale:
+            self._dns_to_corr.pop(pending.dns_id, None)
+
     def _prune_stale(self, now=None):
         """Remove stale pending queries to free capacity."""
         if now is None:
@@ -388,9 +401,7 @@ class DnsClient(Transport):
                 'Pruned stale DNS queries',
                 {'count': len(stale)},
             )
-        for cid, pending in stale:
-            dns_id = pending.dns_id
-            self._dns_to_corr.pop(dns_id, None)
+        return stale
 
     def _encode_query(self, data):
         """Encode data into DNS query name with nonce."""

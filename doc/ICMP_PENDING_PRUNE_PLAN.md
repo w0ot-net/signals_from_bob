@@ -37,9 +37,9 @@ while preserving observable behavior (limits, logging, and timeouts).
 ### Option C: Shared helper/mixin under sfb/transport (recommended)
 
 - Add a helper module (or mixin in `transport_base`) that:
-  - Prunes with a supplied `PendingTracker`.
+  - Calls a provided `prune_fn(now)` so transports keep their existing logging.
   - Accepts an optional `on_prune(stale)` callback for extra cleanup.
-  - Returns the post-prune count and allows reusing one `now`.
+  - Returns the post-prune count and allows reusing one `now` for pruning.
 - Update ICMP and DNS to use the helper in `pending_count()` and `send()`.
 - Keep the public `Transport` interface unchanged.
 
@@ -51,12 +51,13 @@ consistent and avoiding redundant O(n) work.
 ### Implementation Sketch
 
 1. Add helper:
-   - `prune_and_count(pending, now=None, on_prune=None)` -> count
+   - `prune_and_count(pending, prune_fn, now=None, on_prune=None)` -> count
    - or a small `PendingPruner` class with `count(now)` and `prune(now)`
 2. ICMP client:
-   - `pending_count()` calls helper (prunes once).
+   - `pending_count()` calls helper (prunes once via `_prune_stale`).
    - `send()` captures `now`, gets `pending_before`, enforces `max_pending`,
-     adds pending with the same `now`, logs `pending_before + 1`.
+     adds pending using the current time (default `PendingTracker.add` or a
+     `now_add` after `sendto`), logs `pending_before + 1`.
 3. DNS client:
    - Same pattern, with `on_prune` callback to clear `_dns_to_corr`.
 4. Docs:
@@ -64,16 +65,17 @@ consistent and avoiding redundant O(n) work.
      shared within a single send when a cached `now` is used.
    - If interface changes are chosen, update `doc/TRANSPORTS.md`.
 5. Tests:
-   - Add unit tests for ICMP and DNS that stub `PendingTracker.prune` to assert
-     one prune per `send()`.
+   - Add unit tests for ICMP and DNS that stub `PendingTracker.prune` (wrapping
+     and restoring the original) to assert one prune per `send()`.
    - Verify `pending_count()` still removes stale entries.
 
 ## Tests
 
-- Add unit tests for ICMP and DNS that stub `PendingTracker.prune` to assert
-  one prune per `send()`.
+- Add unit tests for ICMP and DNS that stub `PendingTracker.prune` (wrapping
+  and restoring the original) to assert one prune per `send()`.
 - Verify `pending_count()` still removes stale entries.
-- Avoid raw ICMP sockets by stubbing `_sock.sendto` and `build_echo_request`.
+- Avoid raw ICMP sockets by stubbing `_sock.sendto` and `build_echo_request`,
+  reusing the existing test setup that bypasses raw socket privilege checks.
 
 ## Notes
 

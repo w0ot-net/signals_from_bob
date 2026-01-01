@@ -336,6 +336,24 @@ class DnsClient(Transport):
                 },
             )
             return (None, None)
+        if qname is None:
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'dns.error_response',
+                'DNS error response',
+                {
+                    'corr_id': corr_id,
+                    'dns_id': dns_id,
+                    'rcode': rcode,
+                    'reason': reason,
+                    'addr': '%s:%d' % (addr[0], addr[1]),
+                },
+            )
+            # Clean up tracking to avoid pending exhaustion
+            self._pending.pop(corr_id)
+            del self._dns_to_corr[dns_id]
+            return (None, None)
         if pending is not None and pending.qname != qname:
             log_event(
                 _LOG,

@@ -76,7 +76,11 @@ class IcmpServer(Server):
             except socket.error as e:
                 raise TransportError('Receive failed: %s' % e)
 
-            result = parse_icmp_echo(packet, expect_type=ICMP_ECHO_REQUEST)
+            result = parse_icmp_echo(
+                packet,
+                expect_type=ICMP_ECHO_REQUEST,
+                validate_checksum=False,
+            )
             if result is None:
                 continue
 

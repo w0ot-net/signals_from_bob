@@ -67,11 +67,17 @@ class IcmpPacketTests(unittest.TestCase):
         self.assertEqual(parsed_seq, seq)
         self.assertEqual(parsed_payload, payload)
 
-    def test_parse_rejects_bad_checksum(self):
+    def test_parse_bad_checksum_optional(self):
         packet = build_echo_request(0x1, 0x2, b'data')
         bad = bytearray(packet)
         bad[-1] ^= 0xFF
         result = parse_icmp_echo(bytes(bad), expect_type=ICMP_ECHO_REQUEST)
+        self.assertIsNotNone(result)
+        result = parse_icmp_echo(
+            bytes(bad),
+            expect_type=ICMP_ECHO_REQUEST,
+            validate_checksum=True,
+        )
         self.assertIsNone(result)
 
     def test_parse_rejects_wrong_type(self):

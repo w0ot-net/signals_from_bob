@@ -13,8 +13,9 @@ All code must remain Python 2.7/3 compatible and use only the standard library.
 - Preserve tunnel asymmetry rules (Alice initiates, Bob responds to polls).
 - Preserve per-direction MTU negotiation (independent send/recv MTUs).
 - Keep transport stateless: Bob accepts ICMP Echo Requests with valid
-  ICMP framing and checksum, passes the payload to the tunnel unchanged,
-  and responds to the source address of that poll.
+  ICMP framing, passes the payload to the tunnel unchanged, and responds
+  to the source address of that poll. ICMP checksums are set for wire
+  compatibility but are not used for integrity.
 
 ## Non-Goals (for initial implementation)
 
@@ -122,9 +123,10 @@ Correlation IDs:
 ## Polling Semantics
 
 - Alice sends packets via `send()`, which emits an ICMP Echo Request.
-- Bob receives via `recv()`, validates ICMP framing and checksum, and returns
-  a responder that sends an Echo Reply to the same source address with the
-  same id/seq. The payload is passed to the tunnel unchanged.
+- Bob receives via `recv()`, validates ICMP framing/type, and returns a
+  responder that sends an Echo Reply to the same source address with the
+  same id/seq. The payload is passed to the tunnel unchanged. Checksum
+  validation is optional and disabled by default.
 - Alice polls via `recv(timeout=non_blocking_poll_timeout)` in its loop.
 - Bob should use timeouts consistent with the tunnel poll intervals; when
   no packet is received, it returns `(None, None)` without busy looping.
@@ -159,11 +161,11 @@ CLI:
    - checksum implementation
    - pending tracker (similar to DNS client)
    - `send()` constructs Echo Request with SFB payload
-   - `recv()` reads replies, validates checksum/type, returns `(corr_id, data)`
+   - `recv()` reads replies, validates type/framing, returns `(corr_id, data)`
 3. Add `sfb/transport/icmp/icmp_server.py`:
    - raw ICMP socket
-  - `recv()` reads Echo Requests, validates ICMP header/checksum
-  - responder sends Echo Reply to request source address
+   - `recv()` reads Echo Requests, validates ICMP header/type
+   - responder sends Echo Reply to request source address
 4. Wire into `sfb/transport/__init__.py` and CLI transport selection.
 5. Add config defaults and validation in `sfb/config.py`.
 6. Add unit tests:

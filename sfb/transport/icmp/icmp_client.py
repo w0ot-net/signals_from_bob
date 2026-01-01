@@ -163,6 +163,7 @@ class IcmpClient(Transport):
             packet,
             expect_type=ICMP_ECHO_REPLY,
             expect_ident=self._icmp_id,
+            validate_checksum=False,
         )
         if result is None:
             log_event(

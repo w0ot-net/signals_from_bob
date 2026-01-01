@@ -94,13 +94,15 @@ def _extract_icmp(data):
     return data
 
 
-def parse_icmp_echo(data, expect_type=None, expect_ident=None):
+def parse_icmp_echo(data, expect_type=None, expect_ident=None,
+                    validate_checksum=False):
     """
     Parse an ICMP Echo Request/Reply packet.
 
     Args:
         expect_type: Optional ICMP type to match before checksum.
         expect_ident: Optional ICMP id to match before checksum.
+        validate_checksum: True to reject packets with bad ICMP checksums.
 
     Returns:
         tuple: (icmp_type, ident, seq, payload) or None on parse failure.
@@ -117,7 +119,7 @@ def parse_icmp_echo(data, expect_type=None, expect_ident=None):
         return None
     if expect_ident is not None and ident != expect_ident:
         return None
-    if checksum(icmp) != 0:
+    if validate_checksum and checksum(icmp) != 0:
         return None
     payload = icmp[ICMP_HEADER_LEN:]
     return icmp_type, ident, seq, payload

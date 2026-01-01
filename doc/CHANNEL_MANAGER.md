@@ -103,5 +103,7 @@ If a channel has more data than fits:
 ## Concurrency
 
 Channel registration and lookup are protected by a lock. Segment collection
-reads channel state under the lock and then accesses channel queues outside
-the lock, matching the current implementation.
+reads the active-channel list under the lock and then accesses channel queues
+outside the lock, matching the current implementation. Channels notify the
+manager when their send buffers transition between empty and non-empty to
+avoid scanning all channels on every tick.

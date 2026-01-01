@@ -61,6 +61,9 @@ class ChannelManager(object):
         self._config = config
         self._channels = {}  # channel_id -> Channel
         self._lock = threading.Lock()
+        self._active_channels = []
+        self._active_set = set()
+        self._send_state_seq = {}
 
         # Channel ID allocation
         # Alice uses odd IDs (1, 3, 5...), Bob uses even (2, 4, 6...)
@@ -74,7 +77,7 @@ class ChannelManager(object):
             write_backoff_max=config.channel_write_backoff_max,
         )
         self._control._set_state(STATE_OPEN)
-        self._channels[CHANNEL_CONTROL] = self._control
+        self._register_channel(self._control)
 
         # Round-robin index for segment packing (see CHANNEL_MANAGER.md)
         self._rr_index = 0
@@ -97,8 +100,10 @@ class ChannelManager(object):
 
     def has_pending_data(self):
         """Return True if any channel has queued send data."""
+        if self._control.send_event.is_set():
+            return True
         with self._lock:
-            return any(ch._has_send_data() for ch in self._channels.values())
+            return bool(self._active_channels)
 
     def pending_send_bytes(self, include_control=True):
         """Return total queued send bytes across channels."""
@@ -110,6 +115,66 @@ class ChannelManager(object):
                 continue
             total += channel.send_buf_size
         return total
+
+    def _register_channel(self, channel):
+        with self._lock:
+            self._register_channel_locked(channel)
+
+    def _register_channel_locked(self, channel):
+        channel._close_callback = self._on_channel_close
+        channel._set_send_state_callback(self._on_channel_send_state)
+        self._channels[channel.id] = channel
+        if channel.id == CHANNEL_CONTROL:
+            return
+        has_data, seq = channel._get_send_state()
+        self._send_state_seq[channel.id] = seq
+        if has_data and channel.id not in self._active_set:
+            self._active_set.add(channel.id)
+            self._active_channels.append(channel.id)
+
+    def _unregister_channel_locked(self, channel_id):
+        channel = self._channels.pop(channel_id, None)
+        if channel is None:
+            return None
+        channel._set_send_state_callback(None)
+        self._send_state_seq.pop(channel_id, None)
+        if channel_id in self._active_set:
+            self._active_set.remove(channel_id)
+            self._remove_active_channel_locked(channel_id)
+        return channel
+
+    def _remove_active_channel_locked(self, channel_id):
+        try:
+            idx = self._active_channels.index(channel_id)
+        except ValueError:
+            return
+        del self._active_channels[idx]
+        if not self._active_channels:
+            self._rr_index = 0
+            return
+        if self._rr_index > idx:
+            self._rr_index -= 1
+        elif self._rr_index >= len(self._active_channels):
+            self._rr_index = 0
+
+    def _on_channel_send_state(self, channel_id, has_data, seq):
+        if channel_id == CHANNEL_CONTROL:
+            return
+        with self._lock:
+            if channel_id not in self._channels:
+                return
+            last_seq = self._send_state_seq.get(channel_id, 0)
+            if seq <= last_seq:
+                return
+            self._send_state_seq[channel_id] = seq
+            if has_data:
+                if channel_id not in self._active_set:
+                    self._active_set.add(channel_id)
+                    self._active_channels.append(channel_id)
+            else:
+                if channel_id in self._active_set:
+                    self._active_set.remove(channel_id)
+                    self._remove_active_channel_locked(channel_id)
 
     def open_channel(self):
         """
@@ -132,9 +197,8 @@ class ChannelManager(object):
                 write_backoff_initial=self._config.channel_write_backoff_initial,
                 write_backoff_max=self._config.channel_write_backoff_max,
             )
-            channel._close_callback = self._on_channel_close
             channel._set_state(STATE_OPENING)
-            self._channels[channel_id] = channel
+            self._register_channel_locked(channel)
 
         # Send OPEN control message
         self._control.send_message(ch_open(channel_id))
@@ -267,18 +331,32 @@ class ChannelManager(object):
                 segments.append(Segment(CHANNEL_CONTROL, ctrl_data))
                 remaining -= SEGMENT_HEADER_SIZE + len(ctrl_data)
 
-        # Step 2: Get snapshot of data channels and filter to those with data
+        # Step 2: Snapshot active data channels and filter to those with data
         with self._lock:
-            channel_snapshot = {
-                cid: ch for cid, ch in self._channels.items()
-                if cid != CHANNEL_CONTROL
-            }
+            active_ids = list(self._active_channels)
             rr_index = self._rr_index
+            channel_snapshot = dict(
+                (cid, self._channels.get(cid)) for cid in active_ids
+            )
 
-        active_channels = [
-            cid for cid, ch in channel_snapshot.items()
-            if ch._has_send_data()
-        ]
+        active_channels = []
+        inactive_ids = []
+        for cid in active_ids:
+            channel = channel_snapshot.get(cid)
+            if channel is None:
+                inactive_ids.append(cid)
+                continue
+            if channel._has_send_data():
+                active_channels.append(cid)
+            else:
+                inactive_ids.append(cid)
+
+        if inactive_ids:
+            with self._lock:
+                for cid in inactive_ids:
+                    if cid in self._active_set:
+                        self._active_set.remove(cid)
+                        self._remove_active_channel_locked(cid)
 
         # Step 3: Primary channel fill (round-robin selection)
         if active_channels and remaining > SEGMENT_HEADER_SIZE:
@@ -312,7 +390,7 @@ class ChannelManager(object):
                         continue
 
                     channel = channel_snapshot.get(cid)
-                    if channel is None or not channel._has_send_data():
+                    if channel is None:
                         continue
 
                     data = channel._take_send_data(
@@ -458,9 +536,8 @@ class ChannelManager(object):
                 write_backoff_initial=self._config.channel_write_backoff_initial,
                 write_backoff_max=self._config.channel_write_backoff_max,
             )
-            channel._close_callback = self._on_channel_close
             channel._set_state(STATE_OPEN)
-            self._channels[channel_id] = channel
+            self._register_channel_locked(channel)
 
         self._control.send_message(ch_open_ok(channel_id))
         log_event(
@@ -507,7 +584,7 @@ class ChannelManager(object):
                 return
             if channel.state == STATE_OPENING:
                 channel._set_state(STATE_CLOSED, error=reason)
-                self._channels.pop(channel_id, None)
+                self._unregister_channel_locked(channel_id)
                 log_event(
                     logger,
                     logging.DEBUG,
@@ -527,7 +604,7 @@ class ChannelManager(object):
             if channel is None:
                 return
             channel._set_state(STATE_CLOSED)
-            self._channels.pop(channel_id, None)
+            self._unregister_channel_locked(channel_id)
 
         # Send CLOSE_OK (outside lock to avoid blocking)
         self._control.send_message(ch_close_ok(channel_id))
@@ -551,7 +628,7 @@ class ChannelManager(object):
                 return
             if channel.state == STATE_CLOSING:
                 channel._set_state(STATE_CLOSED)
-                self._channels.pop(channel_id, None)
+                self._unregister_channel_locked(channel_id)
                 log_event(
                     logger,
                     logging.DEBUG,

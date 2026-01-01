@@ -240,7 +240,7 @@ class ChannelManagerTests(unittest.TestCase):
         mgr = ChannelManager(is_alice=True, config=make_test_config())
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
-        mgr._channels[1] = ch
+        mgr._register_channel(ch)
         mgr.close_channel(1)
         self.assertEqual(ch.state, STATE_CLOSING)
         msgs = self._drain_control_messages(mgr)
@@ -289,12 +289,12 @@ class ChannelManagerTests(unittest.TestCase):
         mgr = ChannelManager(is_alice=True, config=make_test_config())
         ch = Channel(1)
         ch._set_state(STATE_OPENING)
-        mgr._channels[1] = ch
+        mgr._register_channel(ch)
         mgr.handle_control_message({'c': 'open_ok', 'ch': 1})
         self.assertEqual(ch.state, STATE_OPEN)
         ch_fail = Channel(3)
         ch_fail._set_state(STATE_OPENING)
-        mgr._channels[3] = ch_fail
+        mgr._register_channel(ch_fail)
         mgr.handle_control_message({'c': 'open_fail', 'ch': 3,
                                     'reason': 'nope'})
         self.assertIsNone(mgr.get_channel(3))
@@ -303,7 +303,7 @@ class ChannelManagerTests(unittest.TestCase):
         mgr = ChannelManager(is_alice=True, config=make_test_config())
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
-        mgr._channels[1] = ch
+        mgr._register_channel(ch)
         mgr.handle_control_message({'c': 'close', 'ch': 1})
         self.assertIsNone(mgr.get_channel(1))
         msgs = self._drain_control_messages(mgr)
@@ -311,7 +311,7 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertEqual(msgs[0]['c'], 'close_ok')
         ch = Channel(3)
         ch._set_state(STATE_CLOSING)
-        mgr._channels[3] = ch
+        mgr._register_channel(ch)
         mgr.handle_control_message({'c': 'close_ok', 'ch': 3})
         self.assertIsNone(mgr.get_channel(3))
 
@@ -319,7 +319,7 @@ class ChannelManagerTests(unittest.TestCase):
         mgr = ChannelManager(is_alice=True, config=make_test_config())
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
-        mgr._channels[1] = ch
+        mgr._register_channel(ch)
         mgr.deliver_segment(Segment(1, b'hi'))
         self.assertEqual(ch.read(2, timeout=0.1), b'hi')
 
@@ -331,7 +331,7 @@ class ChannelManagerTests(unittest.TestCase):
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
         ch.write(b'abc')
-        mgr._channels[1] = ch
+        mgr._register_channel(ch)
         segments = mgr.collect_segments(128)
         self.assertTrue(segments)
         self.assertEqual(segments[0].channel, CHANNEL_CONTROL)
@@ -341,7 +341,7 @@ class ChannelManagerTests(unittest.TestCase):
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
         ch.write(b'abc')
-        mgr._channels[1] = ch
+        mgr._register_channel(ch)
         segments = mgr.collect_segments(64, keepalive_data=b'keepalive')
         channels = [seg.channel for seg in segments]
         self.assertNotIn(CHANNEL_CONTROL, channels)
@@ -371,7 +371,7 @@ class ChannelManagerTests(unittest.TestCase):
         data_channel = Channel(1)
         data_channel._set_state(STATE_OPEN)
         data_channel.write(b'data')
-        mgr._channels[1] = data_channel
+        mgr._register_channel(data_channel)
         events = []
 
         channel_manager_module.log_event = fake_log_event
@@ -390,7 +390,7 @@ class ChannelManagerTests(unittest.TestCase):
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
         ch.write(b'abc')
-        mgr._channels[1] = ch
+        mgr._register_channel(ch)
         segments = mgr.collect_segments(SEGMENT_HEADER_SIZE)
         self.assertEqual(segments, [])
 

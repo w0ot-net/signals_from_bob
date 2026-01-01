@@ -63,6 +63,7 @@ class ControlChannel(Channel):
         This preserves JSON integrity so downstream decoders never see
         truncated messages.
         """
+        notify = None
         with self._lock:
             if not self._send_buf or max_size <= 0:
                 return b''
@@ -113,7 +114,15 @@ class ControlChannel(Channel):
 
             if self._send_buf_size == 0:
                 self._send_event.clear()
-            return b''.join(parts)
+                self._send_state_seq += 1
+                notify = (False, self._send_state_seq)
+            data = b''.join(parts)
+
+        if notify is not None:
+            callback = self._send_state_callback
+            if callback is not None:
+                callback(self.id, notify[0], notify[1])
+        return data
 
     def recv_message(self, timeout=None):
         while True:

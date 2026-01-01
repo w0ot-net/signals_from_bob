@@ -45,6 +45,7 @@ class Channel(object):
         '_recv_event', '_closed_event', '_open_event', '_error', '_max_send_buf',
         '_send_buf_size', '_recv_buf_size',
         '_write_backoff_initial', '_write_backoff_max', '_close_callback',
+        '_send_state_callback', '_send_state_seq',
     )
 
     def __init__(self, channel_id, max_send_buf=65536,
@@ -73,6 +74,8 @@ class Channel(object):
         self._write_backoff_initial = write_backoff_initial
         self._write_backoff_max = write_backoff_max
         self._close_callback = None
+        self._send_state_callback = None
+        self._send_state_seq = 0
 
     @property
     def is_open(self):
@@ -118,6 +121,7 @@ class Channel(object):
         if not data:
             return 0
 
+        notify = None
         with self._lock:
             if self.state != STATE_OPEN:
                 raise ChannelError('not_open', 'Channel not open')
@@ -134,10 +138,14 @@ class Channel(object):
                 raise ChannelError('buffer_full', 'Send buffer full')
 
             # Limit to available space
+            was_empty = (current_size == 0)
             available = self._max_send_buf - current_size
             to_queue = data[:available]
             self._send_buf.append(bytes(to_queue))
             self._send_buf_size += len(to_queue)
+            if was_empty and self._send_buf_size > 0:
+                self._send_state_seq += 1
+                notify = (True, self._send_state_seq)
             if len(to_queue) < len(data):
                 log_event(
                     logger,
@@ -152,7 +160,13 @@ class Channel(object):
                         'max': self._max_send_buf,
                     },
                 )
-            return len(to_queue)
+            written = len(to_queue)
+
+        if notify is not None:
+            callback = self._send_state_callback
+            if callback is not None:
+                callback(self.id, notify[0], notify[1])
+        return written
 
     def write_wait(self, data, timeout=None):
         """
@@ -442,6 +456,7 @@ class Channel(object):
         Returns:
             bytes: data to send (may be empty)
         """
+        notify = None
         with self._lock:
             if not self._send_buf:
                 return b''
@@ -461,12 +476,30 @@ class Channel(object):
                     self._send_buf_size -= remaining
                     remaining = 0
 
-            return b''.join(result)
+            if self._send_buf_size == 0:
+                self._send_state_seq += 1
+                notify = (False, self._send_state_seq)
+            data = b''.join(result)
+
+        if notify is not None:
+            callback = self._send_state_callback
+            if callback is not None:
+                callback(self.id, notify[0], notify[1])
+        return data
 
     def _has_send_data(self):
         """Check if channel has data to send."""
         with self._lock:
             return bool(self._send_buf)
+
+    def _get_send_state(self):
+        """Return (has_data, seq) for send buffer state."""
+        with self._lock:
+            return bool(self._send_buf), self._send_state_seq
+
+    def _set_send_state_callback(self, callback):
+        """Set send buffer state callback (called on empty/non-empty transitions)."""
+        self._send_state_callback = callback
 
 
 class ChannelError(Exception):

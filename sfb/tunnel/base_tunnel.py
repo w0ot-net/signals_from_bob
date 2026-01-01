@@ -361,7 +361,7 @@ class BaseTunnel(object):
             now: Current time (default: time.time())
 
         Returns:
-            list: RTT samples from ACKed packets
+            tuple: (rtt_samples, acked_count)
         """
         if now is None:
             now = time.time()
@@ -385,11 +385,11 @@ class BaseTunnel(object):
             self._last_cum_ack = packet.ack
             self._last_cum_ack_time = now
 
-        unacked_before = len(self._send_window._unacked)
-        rtt_samples = self._send_window.process_ack(
+        unacked_before = self._send_window.unacked_count
+        rtt_samples, acked_count = self._send_window.process_ack(
             packet.ack, packet.sack, now=now
         )
-        unacked_after = len(self._send_window._unacked)
+        unacked_after = self._send_window.unacked_count
         if unacked_after < unacked_before:
             self._last_ack_progress_time = now
         if unacked_before != unacked_after or unacked_after > 0:
@@ -434,7 +434,7 @@ class BaseTunnel(object):
 
         self._packets_received += 1
 
-        return rtt_samples
+        return (rtt_samples, acked_count)
 
     def _process_control_messages(self):
         """Process pending control messages from channel 0."""

@@ -41,6 +41,11 @@ class RttEstimator(object):
         """Current RTO in seconds."""
         return self._rto / 1000.0
 
+    @property
+    def srtt_ms(self):
+        """Smoothed RTT (EWMA) in milliseconds, or None if unset."""
+        return self._srtt
+
     def add_sample(self, rtt_ms):
         """
         Add an RTT sample and update RTO.

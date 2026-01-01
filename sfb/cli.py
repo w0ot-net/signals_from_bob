@@ -192,6 +192,50 @@ def add_client_pacing_args(parser, config):
              (config.tunnel_send_burst if config.tunnel_send_burst is not None else
               'same as send_rate')
     )
+    parser.add_argument(
+        '--adaptive_pacing', dest='adaptive_pacing', action='store_true',
+        default=config.tunnel_adaptive_pacing_enabled,
+        help='Enable adaptive pacing (default: %s)' %
+             config.tunnel_adaptive_pacing_enabled
+    )
+    parser.add_argument(
+        '--no_adaptive_pacing', dest='adaptive_pacing', action='store_false',
+        help='Disable adaptive pacing'
+    )
+    parser.add_argument(
+        '--pace_target_inflight_ratio', type=float,
+        default=config.tunnel_pace_target_inflight_ratio,
+        help='Adaptive pacing target inflight ratio (default: %s)' %
+             config.tunnel_pace_target_inflight_ratio
+    )
+    parser.add_argument(
+        '--pace_min_inflight', type=int,
+        default=config.tunnel_pace_min_inflight,
+        help='Adaptive pacing minimum inflight (default: %s)' %
+             config.tunnel_pace_min_inflight
+    )
+    parser.add_argument(
+        '--pace_max_inflight', type=int,
+        default=config.tunnel_pace_max_inflight,
+        help='Adaptive pacing maximum inflight (default: %s)' %
+             config.tunnel_pace_max_inflight
+    )
+    parser.add_argument(
+        '--pace_fast_start', dest='pace_fast_start', action='store_true',
+        default=config.tunnel_pace_fast_start,
+        help='Enable adaptive pacing fast-start (default: %s)' %
+             config.tunnel_pace_fast_start
+    )
+    parser.add_argument(
+        '--no_pace_fast_start', dest='pace_fast_start', action='store_false',
+        help='Disable adaptive pacing fast-start'
+    )
+    parser.add_argument(
+        '--pace_rtt_floor_ms', type=float,
+        default=config.tunnel_pace_rtt_floor_ms,
+        help='Adaptive pacing RTT floor in ms (default: %s)' %
+             config.tunnel_pace_rtt_floor_ms
+    )
 
 
 def add_module_args(parser):
@@ -297,6 +341,18 @@ def create_config(args):
     if args.role == 'client':
         config_kwargs['tunnel_send_rate'] = getattr(args, 'send_rate', None)
         config_kwargs['tunnel_send_burst'] = getattr(args, 'send_burst', None)
+        config_kwargs['tunnel_adaptive_pacing_enabled'] = getattr(
+            args, 'adaptive_pacing', None)
+        config_kwargs['tunnel_pace_target_inflight_ratio'] = getattr(
+            args, 'pace_target_inflight_ratio', None)
+        config_kwargs['tunnel_pace_min_inflight'] = getattr(
+            args, 'pace_min_inflight', None)
+        config_kwargs['tunnel_pace_max_inflight'] = getattr(
+            args, 'pace_max_inflight', None)
+        config_kwargs['tunnel_pace_fast_start'] = getattr(
+            args, 'pace_fast_start', None)
+        config_kwargs['tunnel_pace_rtt_floor_ms'] = getattr(
+            args, 'pace_rtt_floor_ms', None)
 
     # Server-specific
     if args.role == 'server':

@@ -19,6 +19,7 @@ from .tunnel_control_messages import (
     tun_window,
     encode as encode_message,
 )
+from .pacing import AdaptivePacer
 from ..protocol import (
     Packet,
     FLAG_SYN,
@@ -103,6 +104,15 @@ class AliceTunnel(BaseTunnel):
         self._send_limiter = RateLimiter(
             config.tunnel_send_rate,
             burst=config.tunnel_send_burst,
+        )
+        # Adaptive pacing (Alice only)
+        self._pacer = AdaptivePacer(
+            config.tunnel_adaptive_pacing_enabled,
+            config.tunnel_pace_target_inflight_ratio,
+            config.tunnel_pace_min_inflight,
+            config.tunnel_pace_max_inflight,
+            config.tunnel_pace_rtt_floor_ms,
+            fast_start=config.tunnel_pace_fast_start,
         )
 
         # Enable module loader for handling Bob's module requests.
@@ -395,34 +405,30 @@ class AliceTunnel(BaseTunnel):
             self._send_retransmit(seq, segments, now)
 
         # 3. Send new packets if we can
-        while self._can_send_new():
-            segments = self._collect_segments(self._send_mtu)
-            is_real_data = bool(segments)
-            if not segments:
-                # No data to send - decide whether to poll Bob
-                # If Bob's last response was pong-only, he has nothing to send,
-                # so respect keepalive interval even if we have pending ACKs.
-                # Poll immediately only if Bob sent real data (more might be coming).
-                if self._last_was_pong_only:
-                    if self._pong_grace_remaining > 0:
-                        should_poll = True
-                        self._pong_grace_remaining -= 1
-                    else:
-                        should_poll = now - self._last_send_time >= self._keepalive_interval
-                else:
-                    should_poll = self._got_data or self._has_pending_data_acks or (
-                        now - self._last_send_time >= self._keepalive_interval
-                    )
-                if should_poll:
-                    segments = self._collect_segments(
-                        self._send_mtu,
-                        keepalive_data=encode_message(tun_ping())
-                    )
-                if not segments:
+        while True:
+            if self._channel_manager.has_pending_data():
+                if not self._can_send_new(now=now, keepalive_only=False):
                     break
-            if is_real_data:
-                self._has_pending_data_acks = True
-            self._send_new_packet(segments, now)
+                segments = self._collect_segments(self._send_mtu)
+                if segments:
+                    self._has_pending_data_acks = True
+                    self._send_new_packet(segments, now, is_keepalive=False)
+                    continue
+
+            should_poll, keepalive_only, consume_pong_grace = self._poll_decision(now)
+            if not should_poll:
+                break
+            if not self._can_send_new(now=now, keepalive_only=keepalive_only):
+                break
+            segments = self._collect_segments(
+                self._send_mtu,
+                keepalive_data=encode_message(tun_ping())
+            )
+            if not segments:
+                break
+            self._send_new_packet(segments, now, is_keepalive=True)
+            if consume_pong_grace and self._pong_grace_remaining > 0:
+                self._pong_grace_remaining -= 1
 
         # 4. Opportunistically grow window after ACK progress or retry negotiation
         if self._window_growth_enabled:
@@ -430,8 +436,10 @@ class AliceTunnel(BaseTunnel):
 
         return True
 
-    def _can_send_new(self):
+    def _can_send_new(self, now=None, keepalive_only=False):
         """Check if we can send a new packet."""
+        if now is None:
+            now = time.time()
         if not self._send_window.can_send:
             log_event(
                 self._logger,
@@ -466,7 +474,7 @@ class AliceTunnel(BaseTunnel):
                 blocked_fields,
             )
             return False
-        if self._send_limiter is not None and not self._send_limiter.can_send(now=time.time()):
+        if self._send_limiter is not None and not self._send_limiter.can_send(now=now):
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -479,6 +487,25 @@ class AliceTunnel(BaseTunnel):
                 },
             )
             return False
+        if self._pacer.enabled and not keepalive_only:
+            cap = self._pacer_cap()
+            unacked = self._send_window.unacked_count
+            srtt_ms = self._rtt.srtt_ms
+            if not self._pacer.can_send(now, unacked, cap, srtt_ms=srtt_ms):
+                self._log_pacer_state(cap, unacked, action='blocked')
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.send_blocked',
+                    'Send pacing blocked',
+                    {
+                        'side': 'alice',
+                        'reason': 'pacer',
+                        'unacked': unacked,
+                        'cap': cap,
+                    },
+                )
+                return False
         can_send = self._transport.can_send()
         if not can_send:
             fields = {'side': 'alice'}
@@ -532,12 +559,61 @@ class AliceTunnel(BaseTunnel):
             )
         return can_send
 
-    def _send_new_packet(self, segments, now):
+    def _pacer_cap(self):
+        cap = self._send_window._max_in_flight
+        try:
+            transport_cap = self._transport.max_pending
+        except Exception:
+            transport_cap = None
+        if transport_cap is not None:
+            cap = min(cap, transport_cap)
+        if cap < 1:
+            cap = 1
+        return cap
+
+    def _log_pacer_state(self, cap, unacked_count, action=None):
+        if not self._pacer.enabled:
+            return
+        fields = self._pacer.state_fields(
+            unacked_count,
+            cap,
+            srtt_ms=self._rtt.srtt_ms,
+            rate_limit=self._config.tunnel_send_rate,
+        )
+        fields['side'] = 'alice'
+        if action is not None:
+            fields['action'] = action
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.pacer_state',
+            'Pacer state',
+            fields,
+        )
+
+    def _poll_decision(self, now):
+        if self._last_was_pong_only:
+            if self._pong_grace_remaining > 0:
+                return True, True, True
+            return (
+                now - self._last_send_time >= self._keepalive_interval,
+                True,
+                False,
+            )
+        if self._got_data or self._has_pending_data_acks:
+            return True, False, False
+        return (
+            now - self._last_send_time >= self._keepalive_interval,
+            True,
+            False,
+        )
+
+    def _send_new_packet(self, segments, now, is_keepalive=False):
         """Send a new packet with given segments."""
         packet, seq = self._build_packet(segments=segments)
         packet_data = self._encode_packet(packet)
 
-        if self._send_limiter is not None and not self._send_limiter.consume(now=time.time()):
+        if self._send_limiter is not None and not self._send_limiter.consume(now=now):
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -551,8 +627,19 @@ class AliceTunnel(BaseTunnel):
             )
             return
 
+        unacked_before = self._send_window.unacked_count
         self._send_window.send(segments, now=now)
         self._transport.send(packet_data)
+        if self._pacer.enabled:
+            cap = self._pacer_cap()
+            self._pacer.on_send(
+                now,
+                unacked_before,
+                cap,
+                srtt_ms=self._rtt.srtt_ms,
+                is_keepalive=is_keepalive,
+            )
+            self._log_pacer_state(cap, self._send_window.unacked_count, action='send')
 
         self._last_send_time = now
         self._packets_sent += 1
@@ -659,14 +746,16 @@ class AliceTunnel(BaseTunnel):
         self._got_data = has_real_data
 
         prev_unacked = self._send_window.unacked_count
-        rtt_samples = self._process_incoming_packet(packet, now=now)
+        rtt_samples, acked_count = self._process_incoming_packet(packet, now=now)
         new_unacked = self._send_window.unacked_count
-        if rtt_samples or new_unacked < prev_unacked:
+        if rtt_samples or acked_count > 0:
             self._last_ack_progress_time = now
             self._ack_progressed = True
 
         for sample in rtt_samples:
             self._rtt.add_sample(sample)
+        if self._pacer.enabled:
+            self._pacer.on_response(has_real_data)
         return (True, has_real_data)
 
     def _maybe_request_window(self, now):

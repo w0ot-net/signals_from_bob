@@ -134,6 +134,14 @@ LOG_PROFILES = {
         ),
         'log_event_blacklist': (),
     },
+    # Adaptive pacing state tracing (minimal noise).
+    'tunnel_pacing': {
+        'log_component_tunnel': True,
+        'log_event_whitelist': (
+            'tunnel.pacer_state',
+        ),
+        'log_event_blacklist': (),
+    },
 }
 
 

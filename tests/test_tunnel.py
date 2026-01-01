@@ -311,6 +311,7 @@ class AliceRateLimitTest(unittest.TestCase):
         config = make_test_config(
             tunnel_send_rate=1.0,
             tunnel_send_burst=1.0,
+            tunnel_adaptive_pacing_enabled=True,
         )
         transport = MockTransport()
         alice = AliceTunnel(transport, config, crypto=Plain())
@@ -325,6 +326,21 @@ class AliceRateLimitTest(unittest.TestCase):
         limiter._bucket._tokens = 0.0
         limiter._bucket._last_refill = time.time() - 2.0
         self.assertTrue(alice._can_send_new())
+
+
+class AliceAdaptivePacingTests(unittest.TestCase):
+    def test_pacer_blocks_at_target(self):
+        config = make_test_config(
+            tunnel_adaptive_pacing_enabled=True,
+            tunnel_pace_target_inflight_ratio=0.5,
+            tunnel_pace_min_inflight=1,
+        )
+        transport = MockTransport(max_pending=4)
+        alice = AliceTunnel(transport, config, crypto=Plain())
+        alice._state = TunnelState.CONNECTED
+
+        alice._send_window._unacked = {0: None, 1: None}
+        self.assertFalse(alice._can_send_new(now=0.0))
 
 
 class BaseTunnelTests(unittest.TestCase):
@@ -535,7 +551,7 @@ class BobRetransmitTests(unittest.TestCase):
         from sfb.protocol import Packet, Segment, PACKET_HEADER_SIZE
         segments = bob._collect_segments(200 - PACKET_HEADER_SIZE)
         packet, seq = bob._build_packet(segments=segments)
-        bob._send_window.send(segments)
+        bob._send_window.send(segments, now=time.time() - 1.0)
 
         # Now verify there's an unacked packet with segments
         oldest = bob._send_window.get_oldest_unacked()

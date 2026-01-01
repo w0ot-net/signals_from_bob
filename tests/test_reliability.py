@@ -44,8 +44,9 @@ class SendWindowTests(unittest.TestCase):
         win.send(b'a', now=1.0)
         win.send(b'b', now=2.0)
         win.send(b'c', now=3.0)
-        samples = win.process_ack(ack=2, sack=0, now=5.0)
+        samples, acked = win.process_ack(ack=2, sack=0, now=5.0)
         self.assertEqual(len(samples), 2)
+        self.assertEqual(acked, 2)
         self.assertEqual(win.unacked_count, 1)
         oldest = win.get_oldest_unacked()
         self.assertEqual(oldest[1], b'c')
@@ -56,8 +57,9 @@ class SendWindowTests(unittest.TestCase):
         win.send(b'b', now=2.0)  # seq 1
         win.send(b'c', now=3.0)  # seq 2
         sack = 1 << 0  # ack+1 (seq 1)
-        samples = win.process_ack(ack=1, sack=sack, now=5.0)
+        samples, acked = win.process_ack(ack=1, sack=sack, now=5.0)
         self.assertEqual(len(samples), 2)
+        self.assertEqual(acked, 2)
         self.assertEqual(win.unacked_count, 1)
 
     def test_oldest_unacked_skips_acked(self):
@@ -87,8 +89,9 @@ class SendWindowTests(unittest.TestCase):
         win = SendWindow(max_in_flight=1)
         seq = win.send(b'a', now=1.0)
         win.mark_retransmit(seq, now=2.0)
-        samples = win.process_ack(ack=1, sack=0, now=3.0)
+        samples, acked = win.process_ack(ack=1, sack=0, now=3.0)
         self.assertEqual(samples, [])
+        self.assertEqual(acked, 1)
 
     def test_max_in_flight_cap(self):
         self.assertRaises(ValueError, SendWindow, max_in_flight=MAX_IN_FLIGHT + 1)

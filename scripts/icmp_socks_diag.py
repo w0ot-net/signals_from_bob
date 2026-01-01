@@ -198,6 +198,14 @@ def parse_args():
         '--channel_max_send_buf', dest='channel_max_send_buf',
         type=int, default=None, help=argparse.SUPPRESS
     )
+    parser.add_argument(
+        '--socks-pump-backoff-max', type=float, default=None,
+        help='Override socks_pump_backoff_max (seconds)'
+    )
+    parser.add_argument(
+        '--non-blocking-poll-timeout', type=float, default=None,
+        help='Override non_blocking_poll_timeout (seconds)'
+    )
     return parser.parse_args()
 
 
@@ -255,7 +263,8 @@ def start_http_server(root, port):
 
 
 def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
-              socks_relay_buffer_size=None, channel_max_send_buf=None):
+              socks_relay_buffer_size=None, channel_max_send_buf=None,
+              socks_pump_backoff_max=None, non_blocking_poll_timeout=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'bob',
@@ -271,6 +280,10 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
         cmd.extend(['--socks_relay_buffer_size', str(socks_relay_buffer_size)])
     if channel_max_send_buf is not None:
         cmd.extend(['--channel_max_send_buf', str(channel_max_send_buf)])
+    if socks_pump_backoff_max is not None:
+        cmd.extend(['--socks_pump_backoff_max', str(socks_pump_backoff_max)])
+    if non_blocking_poll_timeout is not None:
+        cmd.extend(['--non_blocking_poll_timeout', str(non_blocking_poll_timeout)])
     if icmp_mtu:
         cmd.extend(['--icmp_mtu', str(icmp_mtu)])
     cmd.extend([
@@ -284,7 +297,8 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
 
 def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
                 log_profile=None, verbose=False, socks_relay_buffer_size=None,
-                channel_max_send_buf=None):
+                channel_max_send_buf=None, socks_pump_backoff_max=None,
+                non_blocking_poll_timeout=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'alice',
@@ -301,6 +315,10 @@ def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
         cmd.extend(['--socks_relay_buffer_size', str(socks_relay_buffer_size)])
     if channel_max_send_buf is not None:
         cmd.extend(['--channel_max_send_buf', str(channel_max_send_buf)])
+    if socks_pump_backoff_max is not None:
+        cmd.extend(['--socks_pump_backoff_max', str(socks_pump_backoff_max)])
+    if non_blocking_poll_timeout is not None:
+        cmd.extend(['--non_blocking_poll_timeout', str(non_blocking_poll_timeout)])
     if icmp_mtu:
         cmd.extend(['--icmp_mtu', str(icmp_mtu)])
     if send_rate is not None:
@@ -812,6 +830,8 @@ def main():
             verbose=args.verbose_cli,
             socks_relay_buffer_size=args.socks_relay_buffer_size,
             channel_max_send_buf=args.channel_max_send_buf,
+            socks_pump_backoff_max=args.socks_pump_backoff_max,
+            non_blocking_poll_timeout=args.non_blocking_poll_timeout,
         )
         alice = start_alice(
             args.icmp_target,
@@ -822,6 +842,8 @@ def main():
             verbose=args.verbose_cli,
             socks_relay_buffer_size=args.socks_relay_buffer_size,
             channel_max_send_buf=args.channel_max_send_buf,
+            socks_pump_backoff_max=args.socks_pump_backoff_max,
+            non_blocking_poll_timeout=args.non_blocking_poll_timeout,
         )
         bob.start()
         time.sleep(0.2)

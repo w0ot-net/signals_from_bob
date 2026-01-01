@@ -57,7 +57,7 @@ class Config:
     # Max SFB packet size to send/receive in ICMP payload
     icmp_payload_mtu: int = 1200
     # Maximum concurrent ICMP requests in flight
-    icmp_max_pending: int = 32
+    icmp_max_pending: int = 64
     # Timeout before considering an ICMP request stale (seconds)
     icmp_pending_timeout: float = 1.0
 
@@ -214,7 +214,7 @@ class Config:
     # Target connect timeout for SOCKS relay (seconds)
     socks_connect_target_timeout: float = 30.0
     # SOCKS relay socket timeout (seconds)
-    socks_relay_socket_timeout: float = 0.5
+    socks_relay_socket_timeout: float = 2.0
     # SOCKS relay channel read timeout (seconds)
     socks_relay_channel_timeout: float = 0.5
     # SOCKS relay channel write timeout (seconds)

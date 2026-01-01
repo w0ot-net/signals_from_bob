@@ -159,6 +159,10 @@ def parse_args():
         help='Max seconds to wait for setup and downloads (default: 300)'
     )
     parser.add_argument(
+        '--db-log-flush', type=float, default=2.0,
+        help='SQLite log flush interval for bob/alice (default: 2.0)'
+    )
+    parser.add_argument(
         '--no-baseline', action='store_true',
         help='Skip direct HTTP baseline comparison'
     )
@@ -294,7 +298,7 @@ def wrap_profile(cmd, profile_dir, label):
 def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
               socks_relay_buffer_size=None, channel_max_send_buf=None,
               socks_pump_backoff_max=None, non_blocking_poll_timeout=None,
-              profile_dir=None):
+              db_log_flush=None, profile_dir=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'bob',
@@ -306,6 +310,8 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
         '--db-log', SERVER_DB_LOG,
         '--log-profile', log_profile or 'scp_stalled_icmp_socks',
     ])
+    if db_log_flush is not None:
+        cmd.extend(['--db-log-flush', str(db_log_flush)])
     if socks_relay_buffer_size is not None:
         cmd.extend(['--socks_relay_buffer_size', str(socks_relay_buffer_size)])
     if channel_max_send_buf is not None:
@@ -329,7 +335,8 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
 def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
                 log_profile=None, verbose=False, socks_relay_buffer_size=None,
                 channel_max_send_buf=None, socks_pump_backoff_max=None,
-                non_blocking_poll_timeout=None, profile_dir=None):
+                non_blocking_poll_timeout=None, db_log_flush=None,
+                profile_dir=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'alice',
@@ -342,6 +349,8 @@ def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
         '--db-log', CLIENT_DB_LOG,
         '--log-profile', log_profile or 'scp_stalled_icmp_socks',
     ])
+    if db_log_flush is not None:
+        cmd.extend(['--db-log-flush', str(db_log_flush)])
     if socks_relay_buffer_size is not None:
         cmd.extend(['--socks_relay_buffer_size', str(socks_relay_buffer_size)])
     if channel_max_send_buf is not None:
@@ -865,6 +874,7 @@ def main():
             channel_max_send_buf=args.channel_max_send_buf,
             socks_pump_backoff_max=args.socks_pump_backoff_max,
             non_blocking_poll_timeout=args.non_blocking_poll_timeout,
+            db_log_flush=args.db_log_flush,
             profile_dir=profile_dir,
         )
         alice = start_alice(
@@ -878,6 +888,7 @@ def main():
             channel_max_send_buf=args.channel_max_send_buf,
             socks_pump_backoff_max=args.socks_pump_backoff_max,
             non_blocking_poll_timeout=args.non_blocking_poll_timeout,
+            db_log_flush=args.db_log_flush,
             profile_dir=profile_dir,
         )
         bob.start()

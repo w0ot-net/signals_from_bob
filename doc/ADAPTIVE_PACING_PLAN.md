@@ -46,7 +46,6 @@ Add a pacing helper (e.g., `sfb/tunnel/pacing.py`) that:
 - `AliceTunnel._can_send_new()`:
   - Add `pacer.can_send(now, unacked_count)` check before send.
   - Keep existing transport and window checks.
-  - Bypass pacer gating for cap-need minimal polls (`_cap_need_active`).
 - `AliceTunnel._handle_response()`:
   - Feed RTT samples into pacer for EWMA and pacing updates.
   - Detect real data (`has_real_data` / `_got_data`) to trigger fast-start.
@@ -101,7 +100,6 @@ Create a log profile that enables these events with minimal noise.
 - Alice tunnel tests:
   - pacer gating is honored (no send when at target)
   - RTT updates feed into pacer state
-  - cap-need polls bypass pacing gate
 
 ## Rollout Steps
 1) Add config fields, defaults, and CLI plumbing (off by default).

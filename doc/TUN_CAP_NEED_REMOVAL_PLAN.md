@@ -14,13 +14,11 @@
 - sfb/tunnel/bob_tunnel.py (_cap_need_seq/_cap_need_cap and cap_need/cap_clear
   response logic)
 - tests/dns_cap_need_sim.py and scripts/dns_cap_need_sim.py
-- doc/cap_clear_delivery.md and doc/ADAPTIVE_PACING_PLAN.md
-- Any additional hits from: rg -n "cap_need|cap_clear" -S .
+- NOT doc/cap_clear_delivery.md and doc/ADAPTIVE_PACING_PLAN.md
+- NOT Any additional hits from: rg -n "cap_need|cap_clear" -S .
 
 ## Behavior decisions to lock in
-- When Bob cannot retransmit under the current response cap, he should respond
-  with an ACK-only packet (no tun_pong) and wait for a larger poll instead of
-  emitting cap_need.
+- When Bob cannot retransmit under the current response cap the tunnel should just fail loudly
 - Since cap_need is removed, cap_clear becomes unused and should be removed too
   unless there is a new, independent use case.
 - Keep logging of retransmit skips (reason=cap) for visibility.
@@ -41,7 +39,7 @@
 3) Bob behavior
    - Remove _cap_need_seq/_cap_need_cap state.
    - In _send_response, when a retransmit exceeds response_payload_cap:
-     log the skip, send an ACK-only packet, and return without any tun_pong.
+     log the skip, emit an error, close the tunnel, and return.
    - Remove cap_clear send paths and any cap_need state cleanup.
 
 4) Tests and scripts
@@ -59,7 +57,3 @@
 
 7) Commit and push
    - Commit the changes and push (per project rule).
-
-## Open questions
-- Do you want to keep any explicit "cap pressure" signal after removing
-  tun_cap_need, or should Bob silently wait for larger polls?

@@ -99,10 +99,6 @@ class AliceTunnel(BaseTunnel):
         self._last_window_request_time = 0
         self._last_ack_progress_time = 0
         self._ack_progressed = False
-        # Cap negotiation assistance (Bob-triggered)
-        self._cap_need_active = False
-        self._cap_need_info = None
-
         # Transport-agnostic send rate limiter
         self._send_limiter = RateLimiter(
             config.tunnel_send_rate,
@@ -400,11 +396,6 @@ class AliceTunnel(BaseTunnel):
 
         # 3. Send new packets if we can
         while self._can_send_new():
-            if self._cap_need_active:
-                # Send the smallest possible poll (header only) to maximize Bob's cap.
-                self._send_new_packet([], now)
-                break
-
             segments = self._collect_segments(self._send_mtu)
             is_real_data = bool(segments)
             if not segments:
@@ -677,50 +668,6 @@ class AliceTunnel(BaseTunnel):
         for sample in rtt_samples:
             self._rtt.add_sample(sample)
         return (True, has_real_data)
-
-    def _handle_cap_need(self, msg):
-        """Bob requested a higher-capacity poll; pause data sends and send minimal polls."""
-        seq = msg.get('seq')
-        bytes_needed = msg.get('bytes')
-        cap_now = msg.get('cap')
-        self._cap_need_active = True
-        self._cap_need_info = {
-            'seq': seq,
-            'bytes': bytes_needed,
-            'cap': cap_now,
-        }
-        log_event(
-            self._logger,
-            logging.INFO,
-            'tunnel.cap_need',
-            'Bob requested higher-capacity poll',
-            {
-                'seq': seq,
-                'bytes': bytes_needed,
-                'cap': cap_now,
-            },
-        )
-
-    def _handle_cap_clear(self, msg):
-        """Bob indicated cap pressure is cleared."""
-        if not self._cap_need_active:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.cap_clear_ignored',
-                'cap_clear with no active request',
-                {},
-            )
-            return
-        log_event(
-            self._logger,
-            logging.INFO,
-            'tunnel.cap_clear',
-            'Bob cleared cap constraint',
-            self._cap_need_info or {},
-        )
-        self._cap_need_active = False
-        self._cap_need_info = None
 
     def _maybe_request_window(self, now):
         """Request a larger window if conditions allow."""

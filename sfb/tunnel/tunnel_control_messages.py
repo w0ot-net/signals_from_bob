@@ -81,29 +81,6 @@ def tun_window_ok(size):
     return ControlMessage(T_TUNNEL, 'window_ok', size=size)
 
 
-def tun_cap_need(seq, bytes_needed, cap_now):
-    """
-    Notify Alice that Bob cannot retransmit a packet under the current cap.
-
-    Args:
-        seq: Sequence number of the blocked packet
-        bytes_needed: Encoded packet size that exceeded the cap
-        cap_now: Current per-response payload cap in bytes
-    """
-    return ControlMessage(
-        T_TUNNEL,
-        'cap_need',
-        seq=seq,
-        bytes=bytes_needed,
-        cap=cap_now,
-    )
-
-
-def tun_cap_clear():
-    """Notify Alice that the cap constraint has cleared."""
-    return ControlMessage(T_TUNNEL, 'cap_clear')
-
-
 # =============================================================================
 # Channel Messages (t="ch")
 # =============================================================================

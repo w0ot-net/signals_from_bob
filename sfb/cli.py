@@ -749,6 +749,15 @@ def main(args=None):
     )
     if parsed.db_log:
         db_dir = os.path.dirname(parsed.db_log)
+        if os.path.exists(parsed.db_log):
+            if os.path.isfile(parsed.db_log):
+                try:
+                    os.remove(parsed.db_log)
+                except OSError as e:
+                    if e.errno != errno.ENOENT:
+                        raise
+            else:
+                raise OSError(errno.EEXIST, 'db log path is not a file', parsed.db_log)
         if db_dir:
             try:
                 os.makedirs(db_dir)

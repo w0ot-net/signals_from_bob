@@ -16,10 +16,7 @@ import logging
 import threading
 import time
 
-try:
-    integer_types = (int, long)
-except NameError:
-    integer_types = (int,)
+from ..compat import integer_types
 
 from .channel import (
     Channel,

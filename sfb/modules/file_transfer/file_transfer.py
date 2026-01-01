@@ -12,7 +12,7 @@ import threading
 import time
 
 from ...channel import ChannelError
-from ...compat import to_native_str
+from ...compat import integer_types, to_native_str
 from ...logging_util import log_event
 from ..base_module import BaseModule, RequestResponseMixin, ModuleError, blocking
 from .file_transfer_control_messages import (
@@ -26,12 +26,6 @@ from .file_transfer_control_messages import (
     file_hash,
     file_hash_ok,
 )
-
-try:
-    integer_types = (int, long)
-except NameError:
-    integer_types = (int,)
-
 
 class FileTransferError(ModuleError):
     """File transfer error."""

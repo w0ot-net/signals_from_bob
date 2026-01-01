@@ -7,15 +7,9 @@ import logging
 
 from .memory_link import _InMemoryLink
 from ..transport_base import Server, TransportError
-from ...compat import require_bytes
+from ...compat import require_bytes, queue
 from ...config import Config
 from ...protocol.constants import DEFAULT_MAX_PACKET_SIZE
-
-try:
-    import Queue as queue
-except ImportError:
-    import queue
-
 
 class InMemoryServer(Server):
     """Server-side in-memory transport (Bob)."""

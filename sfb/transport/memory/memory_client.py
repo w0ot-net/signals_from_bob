@@ -7,15 +7,10 @@ import logging
 
 from .memory_link import _InMemoryLink
 from ..transport_base import Transport, TransportError
-from ...compat import require_bytes
+from ...compat import require_bytes, queue
 from ...config import Config
 from ...protocol.constants import DEFAULT_MAX_PACKET_SIZE
 from ...logging_util import get_logger, log_event
-
-try:
-    import Queue as queue
-except ImportError:
-    import queue
 
 _LOG = get_logger(__name__)
 

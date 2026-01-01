@@ -16,6 +16,16 @@ except NameError:
 
 PY2 = sys.version_info[0] == 2
 
+try:
+    integer_types = (int, long)
+except NameError:
+    integer_types = (int,)
+
+try:
+    import Queue as queue
+except ImportError:
+    import queue
+
 
 def require_bytes(data):
     """

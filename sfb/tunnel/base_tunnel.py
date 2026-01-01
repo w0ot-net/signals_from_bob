@@ -17,6 +17,7 @@ import threading
 import time
 
 from ..channel import ChannelManager, ChannelError
+from ..compat import integer_types
 from ..config import Config
 from ..crypto import Plain
 from .tunnel_control_messages import (
@@ -37,13 +38,6 @@ from ..protocol import (
 )
 from ..reliability import SendWindow, RecvWindow, ReliabilityStats, NoopReliabilityStats
 from ..logging_util import get_logger, log_event
-
-
-try:
-    integer_types = (int, long)
-except NameError:
-    integer_types = (int,)
-
 
 class TunnelState(object):
     """Tunnel connection states."""

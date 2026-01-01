@@ -5,10 +5,7 @@ from __future__ import absolute_import
 
 import threading
 
-try:
-    import Queue as queue
-except ImportError:
-    import queue
+from ...compat import queue
 
 from ...protocol.constants import DEFAULT_MAX_PACKET_SIZE
 from ...config import Config

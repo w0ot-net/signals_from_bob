@@ -13,10 +13,7 @@ import time
 import sqlite3
 import json
 
-try:
-    import Queue as queue
-except ImportError:
-    import queue
+from .compat import queue
 
 from .compat import text_type
 

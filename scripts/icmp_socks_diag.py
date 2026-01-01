@@ -178,6 +178,10 @@ def parse_args():
         '--log-profile', default='socks_throughput_debug',
         help='Log profile to use for Bob/Alice (default: socks_throughput_debug)'
     )
+    parser.add_argument(
+        '--verbose-cli', action='store_true',
+        help='Pass -v to sfb CLI for debug-level logs'
+    )
     return parser.parse_args()
 
 
@@ -234,7 +238,7 @@ def start_http_server(root, port):
     return server, thread
 
 
-def start_bob(socks_port, icmp_mtu=None, log_profile=None):
+def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'bob',
@@ -246,13 +250,15 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None):
         '--socks_host', '127.0.0.1',
         '--socks_port', str(socks_port),
     ]
+    if verbose:
+        cmd.append('-v')
     if icmp_mtu:
         cmd.extend(['--icmp_mtu', str(icmp_mtu)])
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 
 
 def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
-                log_profile=None):
+                log_profile=None, verbose=False):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'alice',
@@ -261,6 +267,8 @@ def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
         '--db-log', CLIENT_DB_LOG,
         '--log-profile', log_profile or 'scp_stalled_icmp_socks',
     ]
+    if verbose:
+        cmd.append('-v')
     if icmp_mtu:
         cmd.extend(['--icmp_mtu', str(icmp_mtu)])
     if send_rate is not None:
@@ -766,13 +774,14 @@ def main():
         http_server, _ = start_http_server(http_root, args.http_port)
 
         bob = start_bob(args.socks_port, icmp_mtu=args.icmp_mtu,
-                        log_profile=args.log_profile)
+                        log_profile=args.log_profile, verbose=args.verbose_cli)
         alice = start_alice(
             args.icmp_target,
             icmp_mtu=args.icmp_mtu,
             send_rate=args.send_rate,
             send_burst=args.send_burst,
             log_profile=args.log_profile,
+            verbose=args.verbose_cli,
         )
         bob.start()
         time.sleep(0.2)

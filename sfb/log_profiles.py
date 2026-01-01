@@ -114,6 +114,26 @@ LOG_PROFILES = {
         'log_component_protocol': True,
         'log_event_blacklist': (),
     },
+    # Focused SOCKS+ICMP throughput debugging.
+    'socks_throughput_debug': {
+        'log_component_transport_icmp': True,
+        'log_component_tunnel': True,
+        'log_component_module_socks': True,
+        'log_event_whitelist': (
+            'sock.pump_stats',
+            'sock.relay_*',
+            'channel.send_buf_*',
+            'channel.drain',
+            'channel.write_wait',
+            'icmp.send',
+            'icmp.recv',
+            'icmp.send_blocked',
+            'tunnel.window_*',
+            'tunnel.send_blocked',
+            'tunnel.packet_*',
+        ),
+        'log_event_blacklist': (),
+    },
 }
 
 

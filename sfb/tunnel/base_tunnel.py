@@ -854,16 +854,19 @@ class BaseTunnel(object):
             lambda: {'agreed': agreed},
         )
 
-    def _collect_segments(self, max_payload, keepalive_data=None):
+    def _collect_segments(self, max_payload, keepalive_data=None,
+                          return_pending=False):
         """
         Collect segments from channels for transmission.
 
         Args:
             max_payload: Max bytes for segments
             keepalive_data: Optional keepalive bytes if no data (legacy)
+            return_pending: If True, return (segments, pending_data)
 
         Returns:
-            list: List of Segment instances
+            list: List of Segment instances if return_pending is False
+            tuple: (segments, pending_data) if return_pending is True
         """
         if self._payload_cap is not None:
             cap_payload = self._payload_cap - PACKET_HEADER_SIZE
@@ -872,7 +875,9 @@ class BaseTunnel(object):
             if max_payload > cap_payload:
                 max_payload = cap_payload
         return self._channel_manager.collect_segments(
-            max_payload, keepalive_data=keepalive_data
+            max_payload,
+            keepalive_data=keepalive_data,
+            return_pending=return_pending,
         )
 
     def start_background(self):

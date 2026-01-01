@@ -505,10 +505,13 @@ class BobTunnel(BaseTunnel):
             if cap_payload < max_payload:
                 max_payload = cap_payload
         self._maybe_coalesce_response(max_payload)
-        segments = self._collect_segments(max_payload)
+        segments, pending_data = self._collect_segments(
+            max_payload,
+            return_pending=True,
+        )
 
         if not segments:
-            if self._channel_manager.has_pending_data():
+            if pending_data:
                 packet, _ = self._build_packet(segments=[])
                 response_data = self._encode_packet(packet)
                 self._packets_sent += 1

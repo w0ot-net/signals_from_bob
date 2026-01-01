@@ -301,7 +301,8 @@ class ChannelManager(object):
             self._handle_close_ok(msg)
         # Tunnel messages handled by tunnel
 
-    def collect_segments(self, max_payload, keepalive_data=None):
+    def collect_segments(self, max_payload, keepalive_data=None,
+                         return_pending=False):
         """
         Collect segments from channels for transmission.
 
@@ -315,14 +316,19 @@ class ChannelManager(object):
             max_payload: Max total segment bytes to collect
             keepalive_data: Optional keepalive bytes to include only if
                            no other data is being sent (legacy)
+            return_pending: If True, return (segments, pending_data)
 
         Returns:
-            list: List of Segment instances
+            list: List of Segment instances if return_pending is False
+            tuple: (segments, pending_data) if return_pending is True
         """
         segments = []
         remaining = max_payload
+        pending_data = False
 
         # Step 1: Channel 0 data first (priority)
+        if self._control.send_event.is_set():
+            pending_data = True
         if remaining > SEGMENT_HEADER_SIZE:
             ctrl_data = self._control._take_send_data(
                 remaining - SEGMENT_HEADER_SIZE
@@ -348,6 +354,7 @@ class ChannelManager(object):
                 continue
             if channel._has_send_data():
                 active_channels.append(cid)
+                pending_data = True
             else:
                 inactive_ids.append(cid)
 
@@ -426,6 +433,8 @@ class ChannelManager(object):
             )
 
         self._record_drain_stats(segments)
+        if return_pending:
+            return (segments, pending_data)
         return segments
 
     def _record_drain_stats(self, segments):

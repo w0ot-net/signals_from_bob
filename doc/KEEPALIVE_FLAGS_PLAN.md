@@ -70,7 +70,8 @@ Plan:
 
 ## Docs to Update
 
-- `doc/PROTOCOL.md`: define the new flag and the keepalive-only packet format.
+- `doc/PROTOCOL.md`: define the new flag and the keepalive-only packet format,
+  including the hard drop rule for violations.
 - `doc/TUNNEL.md`: update the Keepalive section (header-only, no channel 0).
 - `doc/CONTROL_MESSAGES.md`: remove ping/pong from tunnel control messages or
   mark as deprecated and unused.

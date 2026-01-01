@@ -243,15 +243,17 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False):
         'python3', '-m', 'sfb.cli',
         '--role', 'bob',
         '--transport', 'icmp',
+    ]
+    if verbose:
+        cmd.append('-v')
+    cmd.extend([
         '--db-log', SERVER_DB_LOG,
         '--log-profile', log_profile or 'scp_stalled_icmp_socks',
         '--module', 'socks_server',
         'start',
         '--socks_host', '127.0.0.1',
         '--socks_port', str(socks_port),
-    ]
-    if verbose:
-        cmd.append('-v')
+    ])
     if icmp_mtu:
         cmd.extend(['--icmp_mtu', str(icmp_mtu)])
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
@@ -263,12 +265,14 @@ def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
         'python3', '-m', 'sfb.cli',
         '--role', 'alice',
         '--transport', 'icmp',
-        '--icmp_target', icmp_target,
-        '--db-log', CLIENT_DB_LOG,
-        '--log-profile', log_profile or 'scp_stalled_icmp_socks',
     ]
     if verbose:
         cmd.append('-v')
+    cmd.extend([
+        '--icmp_target', icmp_target,
+        '--db-log', CLIENT_DB_LOG,
+        '--log-profile', log_profile or 'scp_stalled_icmp_socks',
+    ])
     if icmp_mtu:
         cmd.extend(['--icmp_mtu', str(icmp_mtu)])
     if send_rate is not None:

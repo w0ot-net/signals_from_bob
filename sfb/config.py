@@ -119,7 +119,7 @@ class Config:
     # Alice: burst capacity for send rate (packets, None=rate)
     tunnel_send_burst: Optional[float] = None
     # Alice: adaptive pacing enabled
-    tunnel_adaptive_pacing_enabled: bool = False
+    tunnel_adaptive_pacing_enabled: bool = True
     # Alice: adaptive pacing target inflight ratio
     tunnel_pace_target_inflight_ratio: float = 0.7
     # Alice: adaptive pacing minimum inflight target

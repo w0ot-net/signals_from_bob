@@ -103,6 +103,18 @@ def add_common_args(parser, config, require_domain=True):
         help='SQLite log queue max size (default: 0=unbounded)'
     )
     parser.add_argument(
+        '--socks_relay_buffer_size', type=int,
+        default=config.socks_relay_buffer_size,
+        help='SOCKS relay buffer size in bytes (default: %s)' %
+             config.socks_relay_buffer_size
+    )
+    parser.add_argument(
+        '--channel_max_send_buf', type=int,
+        default=config.channel_max_send_buf,
+        help='Channel max send buffer in bytes (default: %s)' %
+             config.channel_max_send_buf
+    )
+    parser.add_argument(
         '--log-profile',
         default=config.log_profile,
         choices=sorted(LOG_PROFILES.keys()),
@@ -283,6 +295,10 @@ def create_config(args):
     config_kwargs['db_log_flush'] = getattr(args, 'db_log_flush', None)
     config_kwargs['db_log_queue'] = getattr(args, 'db_log_queue', None)
     config_kwargs['log_profile'] = getattr(args, 'log_profile', None)
+    config_kwargs['socks_relay_buffer_size'] = getattr(
+        args, 'socks_relay_buffer_size', None)
+    config_kwargs['channel_max_send_buf'] = getattr(
+        args, 'channel_max_send_buf', None)
 
     config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
     return Config(**config_kwargs)

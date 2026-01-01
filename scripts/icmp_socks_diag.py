@@ -182,6 +182,14 @@ def parse_args():
         '--verbose-cli', action='store_true',
         help='Pass -v to sfb CLI for debug-level logs'
     )
+    parser.add_argument(
+        '--socks-relay-buffer-size', type=int, default=None,
+        help='Override socks_relay_buffer_size (bytes)'
+    )
+    parser.add_argument(
+        '--channel-max-send-buf', type=int, default=None,
+        help='Override channel_max_send_buf (bytes)'
+    )
     return parser.parse_args()
 
 
@@ -238,7 +246,8 @@ def start_http_server(root, port):
     return server, thread
 
 
-def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False):
+def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
+              socks_relay_buffer_size=None, channel_max_send_buf=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'bob',
@@ -254,13 +263,18 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False):
         '--socks_host', '127.0.0.1',
         '--socks_port', str(socks_port),
     ])
+    if socks_relay_buffer_size is not None:
+        cmd.extend(['--socks_relay_buffer_size', str(socks_relay_buffer_size)])
+    if channel_max_send_buf is not None:
+        cmd.extend(['--channel_max_send_buf', str(channel_max_send_buf)])
     if icmp_mtu:
         cmd.extend(['--icmp_mtu', str(icmp_mtu)])
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 
 
 def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
-                log_profile=None, verbose=False):
+                log_profile=None, verbose=False, socks_relay_buffer_size=None,
+                channel_max_send_buf=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'alice',
@@ -273,6 +287,10 @@ def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
         '--db-log', CLIENT_DB_LOG,
         '--log-profile', log_profile or 'scp_stalled_icmp_socks',
     ])
+    if socks_relay_buffer_size is not None:
+        cmd.extend(['--socks_relay_buffer_size', str(socks_relay_buffer_size)])
+    if channel_max_send_buf is not None:
+        cmd.extend(['--channel_max_send_buf', str(channel_max_send_buf)])
     if icmp_mtu:
         cmd.extend(['--icmp_mtu', str(icmp_mtu)])
     if send_rate is not None:
@@ -777,8 +795,14 @@ def main():
     try:
         http_server, _ = start_http_server(http_root, args.http_port)
 
-        bob = start_bob(args.socks_port, icmp_mtu=args.icmp_mtu,
-                        log_profile=args.log_profile, verbose=args.verbose_cli)
+        bob = start_bob(
+            args.socks_port,
+            icmp_mtu=args.icmp_mtu,
+            log_profile=args.log_profile,
+            verbose=args.verbose_cli,
+            socks_relay_buffer_size=args.socks_relay_buffer_size,
+            channel_max_send_buf=args.channel_max_send_buf,
+        )
         alice = start_alice(
             args.icmp_target,
             icmp_mtu=args.icmp_mtu,
@@ -786,6 +810,8 @@ def main():
             send_burst=args.send_burst,
             log_profile=args.log_profile,
             verbose=args.verbose_cli,
+            socks_relay_buffer_size=args.socks_relay_buffer_size,
+            channel_max_send_buf=args.channel_max_send_buf,
         )
         bob.start()
         time.sleep(0.2)

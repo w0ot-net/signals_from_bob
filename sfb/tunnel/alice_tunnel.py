@@ -86,6 +86,7 @@ class AliceTunnel(BaseTunnel):
 
         # Adaptive polling: poll immediately when Bob sends real data
         self._got_data = False
+        # Track keepalive-only responses (legacy "pong" terminology)
         self._last_was_pong_only = False
         self._pong_grace_polls = config.tunnel_pong_grace_polls
         self._pong_grace_remaining = self._pong_grace_polls
@@ -750,7 +751,7 @@ class AliceTunnel(BaseTunnel):
         self._last_recv_time = now
 
         # Check if packet contains real data.
-        # Real data = any data segment, or control messages other than pong.
+        # Real data = any data segment, or control messages other than legacy pong.
         # Keepalive-flag packets have no segments and are not real data.
         # Control segments carry one JSON message per line, not multiple.
         has_real_data = False
@@ -760,7 +761,7 @@ class AliceTunnel(BaseTunnel):
                     # Data segment - definitely real data
                     has_real_data = True
                 else:
-                    # Control segment - check if it's not just pong
+                    # Control segment - check if it's not just legacy pong
                     # Control data is newline-delimited JSON
                     lines = seg.data.split(b'\n')
                     for line in lines:

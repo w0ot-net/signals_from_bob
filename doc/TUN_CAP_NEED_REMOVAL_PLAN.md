@@ -34,7 +34,7 @@
    - Remove _cap_need_active and _cap_need_info state in __init__.
    - Remove _handle_cap_need and _handle_cap_clear overrides.
    - Remove the "send minimal poll" branch in the send loop and ensure normal
-     polling/keepalive logic still respects "no pong when data pending".
+     polling/keepalive logic still respects "no keepalive-only response when data pending".
 
 3) Bob behavior
    - Remove _cap_need_seq/_cap_need_cap state.

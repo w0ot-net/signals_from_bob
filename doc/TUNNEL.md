@@ -183,7 +183,8 @@ Keepalive is a header-only packet with:
 Any poll-only packet (zero segments) uses the keepalive flag. Bob responds
 with a keepalive-flag packet when idle, or with queued data if available.
 If either side has actual data to send, the packet itself serves as
-keepalive—no channel 0 ping/pong needed.
+keepalive—no channel 0 ping/pong messages are sent (legacy ping/pong are
+ignored if received).
 
 Keepalive interval is configurable (default: 5 seconds).
 

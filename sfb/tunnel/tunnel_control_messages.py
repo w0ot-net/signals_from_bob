@@ -20,12 +20,12 @@ T_CHANNEL = 'ch'
 # =============================================================================
 
 def tun_ping():
-    """Legacy keepalive request (ignored)."""
+    """Legacy keepalive request (not emitted; ignored if received)."""
     return ControlMessage(T_TUNNEL, 'ping')
 
 
 def tun_pong():
-    """Legacy keepalive response (ignored)."""
+    """Legacy keepalive response (not emitted; ignored if received)."""
     return ControlMessage(T_TUNNEL, 'pong')
 
 

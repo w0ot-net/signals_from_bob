@@ -624,6 +624,7 @@ class BaseTunnel(object):
         Handle tunnel-level control messages (t="tun").
 
         Commands: mtu, mtu_ok, mtu_ack, window, window_ok
+        Legacy ping/pong control messages are ignored; keepalive uses header flag.
         """
         log_event(
             self._logger,
@@ -662,7 +663,7 @@ class BaseTunnel(object):
         self._channel_manager.handle_control_message(msg)
 
     def _handle_ping(self, msg):
-        """Legacy ping handler (ignored)."""
+        """Legacy ping/pong handler (ignored)."""
         return
 
     def _handle_mtu(self, msg):

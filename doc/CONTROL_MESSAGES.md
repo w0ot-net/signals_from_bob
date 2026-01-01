@@ -97,7 +97,8 @@ When a control message is received:
 
 1. Parse JSON and extract `t` field
 2. Dispatch based on type:
-   - `tun`: Tunnel handles internally (negotiation; ping/pong ignored)
+   - `tun`: Tunnel handles internally (negotiation; keepalive is a header flag;
+     legacy ping/pong ignored)
    - `ch`: Channel manager handles (open/close)
    - Other: Dispatch to registered module handler
 3. Unknown types are logged and dropped
@@ -134,7 +135,8 @@ as a packet header flag (see `doc/PROTOCOL.md`).
 
 ### Legacy ping / pong (ignored)
 
-Older clients may send `ping`/`pong` control messages. These are ignored.
+Older clients may send `ping`/`pong` control messages. These are ignored, and
+the current tunnel implementation does not emit them.
 
 ### mtu / mtu_ok
 

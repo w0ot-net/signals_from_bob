@@ -1,8 +1,11 @@
 # Keepalive Flag Plan
 
+Status: implemented. Keepalive uses the header flag; legacy ping/pong control
+messages are ignored and not emitted by current code.
+
 ## Goal
 
-Replace keepalive ping/pong control messages on channel 0 with a packet header
+Replace legacy keepalive ping/pong control messages on channel 0 with a packet header
 flag that marks "pure keepalive" packets. Keepalive packets will carry no
 segments and allow receivers to skip control-message parsing entirely.
 
@@ -26,14 +29,14 @@ This change is intentionally wire-incompatible with older clients.
 - Semantics:
   - Any poll-only packet (zero segments) uses `FLAG_KEEPALIVE`, not just
     periodic keepalive.
-  - Alice initiates polls; Bob only responds (ping vs pong inferred by role).
+  - Alice initiates polls; Bob only responds (poll/response inferred by role).
   - Legacy `{"t":"tun","c":"ping"}` / `"pong"` control messages are ignored.
 
 ## Sender Changes
 
 ### Alice
 
-- When polling and there is no pending data (keepalive interval or pong-grace),
+- When polling and there is no pending data (keepalive interval or keepalive-only grace),
   build a packet with:
   - `FLAG_KEEPALIVE` set
   - No segments

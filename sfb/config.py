@@ -72,7 +72,7 @@ class Config:
     # --- Tunnel ---
     # Alice: seconds between keepalive packets
     tunnel_keepalive_interval: float = 1.0
-    # Alice: immediate poll attempts after pong-only responses
+    # Alice: immediate poll attempts after keepalive-only responses (legacy "pong")
     tunnel_pong_grace_polls: int = 5
     # Bob: seconds of inactivity before considering connection dead
     tunnel_idle_timeout: float = 60.0

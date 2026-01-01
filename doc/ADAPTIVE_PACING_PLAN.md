@@ -16,7 +16,7 @@ This plan applies to Alice only. Bob remains opportunistic, per
 - Python 2.7/3 compatible; standard library only.
 - Must support Linux and Windows (ICMP remains Linux-only).
 - Preserve asymmetric MTU negotiation; use the configured MTU per transport.
-- Keepalive pongs are suppressed when any channel has pending data.
+- Keepalive-only responses are suppressed when any channel has pending data.
 - Alice initiates; Bob responds to polls only.
 
 ## Current Behavior (Problem Statement)

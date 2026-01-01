@@ -138,6 +138,16 @@ LOG_PROFILES = {
     'tunnel_pacing': {
         'log_component_tunnel': True,
         'log_event_whitelist': (
+            'cli.*',
+            'tunnel.state',
+            'tunnel.wait',
+            'tunnel.handshake_*',
+            'tunnel.ack_send_failed',
+            'tunnel.mtu_*',
+            'tunnel.window_*',
+            'tunnel.timeout_*',
+            'tunnel.connected',
+            'tunnel.closed',
             'tunnel.pacer_state',
         ),
         'log_event_blacklist': (),

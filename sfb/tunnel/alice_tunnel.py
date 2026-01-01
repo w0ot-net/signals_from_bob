@@ -415,10 +415,10 @@ class AliceTunnel(BaseTunnel):
                     self._send_new_packet(segments, now, is_keepalive=False)
                     continue
 
-            should_poll, keepalive_only, consume_pong_grace = self._poll_decision(now)
+            should_poll, keepalive_due, consume_pong_grace = self._poll_decision(now)
             if not should_poll:
                 break
-            if not self._can_send_new(now=now, keepalive_only=keepalive_only):
+            if not self._can_send_new(now=now, keepalive_only=keepalive_due):
                 break
             segments = self._collect_segments(
                 self._send_mtu,
@@ -426,7 +426,7 @@ class AliceTunnel(BaseTunnel):
             )
             if not segments:
                 break
-            self._send_new_packet(segments, now, is_keepalive=True)
+            self._send_new_packet(segments, now, is_keepalive=keepalive_due)
             if consume_pong_grace and self._pong_grace_remaining > 0:
                 self._pong_grace_remaining -= 1
 
@@ -594,7 +594,7 @@ class AliceTunnel(BaseTunnel):
     def _poll_decision(self, now):
         if self._last_was_pong_only:
             if self._pong_grace_remaining > 0:
-                return True, True, True
+                return True, False, True
             return (
                 now - self._last_send_time >= self._keepalive_interval,
                 True,

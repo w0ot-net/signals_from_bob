@@ -171,7 +171,7 @@ class Config:
     # SQLite log queue max size (0 = unbounded)
     db_log_queue: int = 0
     # Default logging profile name (None = no profile)
-    log_profile: Optional[str] = 'scp_stalled_icmp_socks'
+    log_profile: Optional[str] = 'tunnel_pacing'
     # Enable DNS transport logging (stdout + SQLite)
     log_component_transport_dns: bool = False
     # Enable ICMP transport logging (stdout + SQLite)

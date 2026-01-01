@@ -6,7 +6,7 @@ algorithm that:
 - Uses RTT EWMA to pace Alice's sends
 - Targets a configurable inflight ratio
 - Clamps to min(transport.max_pending, negotiated send window)
-- Preserves "poll immediately after real data" behavior
+- Preserves "poll immediately after real data" via pacer fast-start
 
 This plan applies to Alice only. Bob remains opportunistic, per
 `doc/ASYMMETRY.md`.
@@ -30,16 +30,16 @@ Add a pacing helper (e.g., `sfb/tunnel/pacing.py`) that:
 - Tracks RTT EWMA (use existing `RttEstimator`, add a read-only `srtt_ms` in ms).
 - Computes a target inflight count:
   - `cap = min(transport.max_pending, send_window._max_in_flight)`
-  - `target = clamp(cap * target_inflight_ratio, min_inflight, cap)`
+  - `target = clamp(int(cap * target_inflight_ratio), min_inflight, max_inflight or cap)`
 - Enforces pacing by gating new sends when:
   - `send_window.unacked_count >= target`
   - or time since last send is below `rtt_sec / target` (optional fine-grain)
-    where `rtt_sec = max(srtt_ms, rtt_floor_ms) / 1000.0`
+    where `rtt_sec = max(srtt_ms or 0, rtt_floor_ms) / 1000.0`
 - Treat existing `tunnel_send_rate` as a hard ceiling (pacer can only reduce).
 
 ### Reliability Updates (Support)
 - `RttEstimator`: add read-only `srtt_ms` to expose the EWMA in milliseconds.
-- `SendWindow.process_ack`: return acked packet/byte counts alongside RTT samples
+- `SendWindow.process_ack`: return acked packet count alongside RTT samples
   so Phase 2 can compute ack-rate EWMA without re-walking internal state.
 
 ### Integration Points
@@ -49,12 +49,13 @@ Add a pacing helper (e.g., `sfb/tunnel/pacing.py`) that:
   - Bypass pacer gating for cap-need minimal polls (`_cap_need_active`).
 - `AliceTunnel._handle_response()`:
   - Feed RTT samples into pacer for EWMA and pacing updates.
-  - Detect real data (`has_real_data` / `_got_data`) to allow "fast refill".
+  - Detect real data (`has_real_data` / `_got_data`) to trigger fast-start.
 - `AliceTunnel._send_new_packet()`:
   - Inform pacer on actual sends (for pacing interval calculations).
+- Retransmits do not update pacer timing state.
 
 ### Preserve "Poll Immediately After Real Data"
-- If Bob sends real data, allow a short burst to refill toward target inflight.
+- If Bob sends real data, fast-start allows immediate polls to refill toward target inflight.
 - After the burst, revert to pacing based on RTT EWMA.
 - Do not accelerate keepalive-only traffic; keep keepalive interval behavior.
 
@@ -63,7 +64,7 @@ Add config fields (names TBD, defaults conservative):
 - `tunnel_adaptive_pacing_enabled` (bool, default False)
 - `tunnel_pace_target_inflight_ratio` (float, default 0.7)
 - `tunnel_pace_min_inflight` (int, default 1)
-- `tunnel_pace_max_inflight` (int, default None => use cap)
+- `tunnel_pace_max_inflight` (int, default None => use cap, validated 1-64 when set)
 - `tunnel_pace_fast_start` (bool, default True)
 - `tunnel_pace_rtt_floor_ms` (float, default 5.0) to avoid divide by zero
 - `tunnel_send_rate` remains a hard ceiling when adaptive pacing is enabled.
@@ -76,11 +77,11 @@ Expose via CLI overrides, similar to other tunnel knobs.
   - `unacked_count < target`
   - and `now - last_send >= rtt_sec / target` (optional if we want spacing)
 - Update RTT EWMA from `RttEstimator` samples (first TX only).
-- Use `srtt_ms` with `rtt_floor_ms` to derive `rtt_sec`.
+- Use `srtt_ms` with `rtt_floor_ms` to derive `rtt_sec` (fallback to floor if `srtt_ms` is unset).
 
 ## Control Loop Enhancements (Phase 2)
-- Add ack-rate EWMA (bytes or packets per second).
-- Source acked packet/byte counts from `SendWindow.process_ack`.
+- Add ack-rate EWMA (packets per second).
+- Source acked packet counts from `SendWindow.process_ack`.
 - Estimate pipe size: `pipe = ack_rate * rtt_sec`.
 - Set `target = clamp(pipe * inflight_gain, min_inflight, cap)`.
 - Adjust gain based on observed `tunnel.send_blocked` ratio.

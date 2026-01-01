@@ -72,3 +72,28 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Define and apply the `socks_throughput_debug` profile for targeted logs.
 - Capture timeline + log snippets for baseline vs tuned runs.
 - Inspect logs for gaps between pump stats and ICMP sends to find stalls.
+
+## Experiment Log: Higher MTU + Larger Buffers (Dec 31, 2025)
+- Command:
+  ```
+  python3 scripts/icmp_socks_diag.py --clients 1 --icmp-target 127.0.0.1 --timeout 120 \
+    --log-profile socks_throughput_debug --verbose-cli \
+    --socks_relay_buffer_size 8192 --channel_max_send_buf 65536 \
+    --icmp-mtu 1400 --send-rate 0
+  ```
+- Outcome:
+  - SOCKS path: 2MB in ~3.06s; throughput ~0.654 MB/s per client, aggregate ~0.395 MB/s; TTFB ~20 ms; peak ~0.728 MB/s.
+  - Direct HTTP baseline: ~0.025s (~79 MB/s).
+  - Logs: `logs/icmp_diag_client_log.db`, `logs/icmp_diag_server_log.db`.
+- Log highlights:
+  - `tunnel.send_blocked`: 1,156 events at `unacked=64`/`max_in_flight=64` (plus 2 at unacked=1), indicating the in-flight/window limit is hit frequently.
+  - SOCKS pump stats (Alice target->channel) still show heavy backpressure even with 64 KB buffer:
+    - `buffer_full` ~1700–1800 per interval, `send_buf_size` ~65536, `sleep_time` ~0.7s.
+  - Bob pump stats (channel->client) are steady (~0.64–0.75 MB per interval) with no buffer_full issues.
+- Takeaways:
+  - Raising MTU and buffers improved throughput to ~0.65 MB/s but the main bottleneck remains Alice-side in-flight limits and channel backpressure.
+  - ICMP pending/window saturation (unacked=64) is the dominant limiter; channel send buffer remains full much of the time.
+- Next experiments:
+  - Increase buffers further (e.g., `--socks_relay_buffer_size 16384`, `--channel_max_send_buf 131072`).
+  - Increase ICMP concurrency/window (consider bumping `icmp_max_pending` beyond 64) and ensure send window can grow; keep `--send-rate 0` and omit `--send-burst` to allow defaults.
+  - Optionally reduce pump backoff (`non_blocking_poll_timeout`, `socks_pump_backoff_max`) if we add config overrides for them.

@@ -57,7 +57,7 @@ class Config:
     # Target host/IP for Alice
     icmp_target: Optional[str] = None
     # Max SFB packet size to send/receive in ICMP payload
-    icmp_payload_mtu: int = 1400
+    icmp_payload_mtu: int = 1200
     # Maximum concurrent ICMP requests in flight
     icmp_max_pending: int = 64
     # Timeout before considering an ICMP request stale (seconds)

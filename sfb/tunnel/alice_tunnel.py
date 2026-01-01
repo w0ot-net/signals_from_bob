@@ -23,7 +23,6 @@ from ..protocol import (
     FLAG_SYN,
     FLAG_ACK,
     FLAG_KEEPALIVE,
-    PACKET_HEADER_SIZE,
 )
 from ..reliability import RttEstimator
 from ..transport.transport_base import RateLimiter
@@ -56,18 +55,7 @@ class AliceTunnel(BaseTunnel):
         )
         self._transport = transport
         self._keepalive_interval = config.tunnel_keepalive_interval
-        self._payload_cap = getattr(transport, 'payload_cap', None)
-
-        # Set proposed MTU from transport (for negotiation, asymmetric)
-        send_payload = max(1, transport.send_mtu - PACKET_HEADER_SIZE)
-        recv_payload = max(1, transport.recv_mtu - PACKET_HEADER_SIZE)
-        self._proposed_send_mtu = send_payload
-        self._proposed_recv_mtu = recv_payload
-
-        # Use transport's actual limits before negotiation completes
-        self._send_mtu = send_payload
-        self._recv_mtu = recv_payload
-        self._max_packet_size = recv_payload + PACKET_HEADER_SIZE
+        self._init_transport_limits(transport)
 
         # RTT estimation (Alice only)
         self._rtt = RttEstimator(
@@ -98,7 +86,6 @@ class AliceTunnel(BaseTunnel):
         self._window_growth_step = config.tunnel_window_growth_step
         self._window_growth_interval = config.tunnel_window_growth_interval
         self._last_window_request_time = 0
-        self._last_ack_progress_time = 0
         self._ack_progressed = False
         # Transport-agnostic send rate limiter
         self._send_limiter = RateLimiter(

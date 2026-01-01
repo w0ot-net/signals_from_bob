@@ -148,6 +148,20 @@ class BaseTunnel(object):
         self._bg_thread = None
         self._bg_stop = False
 
+    def _init_transport_limits(self, transport):
+        """
+        Initialize transport-derived payload/MTU limits.
+        """
+        self._payload_cap = getattr(transport, 'payload_cap', None)
+        send_payload = max(1, transport.send_mtu - PACKET_HEADER_SIZE)
+        recv_payload = max(1, transport.recv_mtu - PACKET_HEADER_SIZE)
+        self._proposed_send_mtu = send_payload
+        self._proposed_recv_mtu = recv_payload
+        self._send_mtu = send_payload
+        self._recv_mtu = recv_payload
+        self._max_packet_size = recv_payload + PACKET_HEADER_SIZE
+        return send_payload, recv_payload
+
     @property
     def state(self):
         """Current tunnel state."""

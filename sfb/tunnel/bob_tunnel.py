@@ -51,21 +51,11 @@ class BobTunnel(BaseTunnel):
         )
         self._transport = transport
         self._idle_timeout = config.tunnel_idle_timeout
-        self._payload_cap = getattr(transport, 'payload_cap', None)
 
         # Security: only accept these message types from Alice by default
         self._allowed_message_types = {'tun', 'ch'}
 
-        # Set proposed MTU from transport (for negotiation, asymmetric)
-        send_payload = max(1, transport.send_mtu - PACKET_HEADER_SIZE)
-        recv_payload = max(1, transport.recv_mtu - PACKET_HEADER_SIZE)
-        self._proposed_send_mtu = send_payload
-        self._proposed_recv_mtu = recv_payload
-
-        # Use transport's actual limits before negotiation completes
-        self._send_mtu = send_payload
-        self._recv_mtu = recv_payload
-        self._max_packet_size = recv_payload + PACKET_HEADER_SIZE
+        _send_payload, recv_payload = self._init_transport_limits(transport)
         log_event(
             self._logger,
             logging.DEBUG,

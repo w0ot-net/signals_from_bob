@@ -321,8 +321,7 @@ class DnsServer(Server):
         return query_id, qname, qtype
 
     def _send_response(self, query_id, qname, qtype, data, addr,
-                       payload_cap=None, qname_wire_len=None,
-                       max_packet_size=None):
+                       payload_cap, qname_wire_len, max_packet_size):
         """Build and send DNS response."""
         # Include OPT record for EDNS0 if enabled
         if self._edns_size > 512:
@@ -385,14 +384,8 @@ class DnsServer(Server):
         response = header + question + answer + additional
         response_len = len(response)
         oversize = False
-        if self._logger.isEnabledFor(logging.DEBUG):
-            if (payload_cap is None or qname_wire_len is None or
-                    max_packet_size is None):
-                payload_cap, qname_wire_len, max_packet_size = (
-                    self._response_payload_cap(qname)
-                )
-            if max_packet_size is not None:
-                oversize = response_len > max_packet_size
+        if max_packet_size is not None:
+            oversize = response_len > max_packet_size
 
         try:
             self._sock.sendto(response, addr)

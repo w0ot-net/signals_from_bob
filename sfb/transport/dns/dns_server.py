@@ -71,6 +71,7 @@ class DnsServer(Server):
             config.dns_cname_label.strip('.'),
             self._base_domain
         )
+        self._cname_suffix_lower = self._cname_suffix.lower()
         self._cname_a_addr = config.dns_cname_a_addr
         self._payload_cap = None
 
@@ -91,6 +92,18 @@ class DnsServer(Server):
             self._sock.close()
             self._sock = None
             raise
+
+        # Cache EDNS0 OPT record, recv buffer size, and SOA record.
+        if self._edns_size > 512:
+            self._opt_record = codec.build_opt_record(self._edns_size)
+            self._opt_arcount = 1
+        else:
+            self._opt_record = b''
+            self._opt_arcount = 0
+        self._opt_record_len = len(self._opt_record)
+        self._recv_bufsize = max(self._edns_size,
+                                 self._config.dns_recv_bufsize_min)
+        self._soa_record = self._build_soa_record()
 
         # Calculate MTUs
         self._recv_mtu = codec.calc_query_mtu(self._base_domain,
@@ -204,9 +217,7 @@ class DnsServer(Server):
                 ready, _, _ = select.select([self._sock], [], [], wait)
                 if not ready:
                     return None, None
-                pkt_data, client_addr = self._sock.recvfrom(
-                    max(self._edns_size, self._config.dns_recv_bufsize_min)
-                )
+                pkt_data, client_addr = self._sock.recvfrom(self._recv_bufsize)
             except select.error as e:
                 raise TransportError('Select failed: %s' % e)
             except socket.error as e:
@@ -240,9 +251,8 @@ class DnsServer(Server):
                                           reason='qtype_mismatch')
                 continue
 
-            cname_suffix = self._cname_suffix.lower()
-            if (qname_lower == cname_suffix or
-                    qname_lower.endswith('.' + cname_suffix)):
+            if (qname_lower == self._cname_suffix_lower or
+                    qname_lower.endswith('.' + self._cname_suffix_lower)):
                 self._send_cname_followup(query_id, qname, qtype, client_addr)
                 continue
 
@@ -323,14 +333,6 @@ class DnsServer(Server):
     def _send_response(self, query_id, qname, qtype, data, addr,
                        payload_cap, qname_wire_len, max_packet_size):
         """Build and send DNS response."""
-        # Include OPT record for EDNS0 if enabled
-        if self._edns_size > 512:
-            arcount = 1
-            additional = codec.build_opt_record(self._edns_size)
-        else:
-            arcount = 0
-            additional = b''
-
         # Header
         flags = codec.FLAG_QR | codec.FLAG_AA  # Response + Authoritative
         header = struct.pack('>HHHHHH',
@@ -339,7 +341,7 @@ class DnsServer(Server):
             1,  # QDCOUNT
             1,  # ANCOUNT
             0,  # NSCOUNT
-            arcount
+            self._opt_arcount
         )
 
         # Question (echo back)
@@ -381,7 +383,7 @@ class DnsServer(Server):
         )
         answer += rdata
 
-        response = header + question + answer + additional
+        response = header + question + answer + self._opt_record
         response_len = len(response)
         oversize = False
         if max_packet_size is not None:
@@ -425,7 +427,7 @@ class DnsServer(Server):
         answer_fixed_len = 10
         additional_len = 0
         if self._edns_size > DNS_STANDARD_SIZE:
-            additional_len = len(codec.build_opt_record(self._edns_size))
+            additional_len = self._opt_record_len
         fixed_len = (12 + question_len + answer_name_len +
                      answer_fixed_len + additional_len)
         if fixed_len >= max_packet_size:
@@ -459,13 +461,6 @@ class DnsServer(Server):
 
     def _send_empty_response(self, query_id, qname, qtype, addr, reason=None):
         """Send NOERROR response with no answers (NODATA) and SOA in authority."""
-        if self._edns_size > 512:
-            arcount = 1
-            additional = codec.build_opt_record(self._edns_size)
-        else:
-            arcount = 0
-            additional = b''
-
         flags = codec.FLAG_QR | codec.FLAG_AA
         header = struct.pack('>HHHHHH',
             query_id,
@@ -473,16 +468,14 @@ class DnsServer(Server):
             1,  # QDCOUNT
             0,  # ANCOUNT
             1,  # NSCOUNT - SOA record for negative caching
-            arcount
+            self._opt_arcount
         )
 
         question = codec.encode_name(qname)
         question += struct.pack('>HH', qtype, codec.QCLASS_IN)
 
         # SOA record in authority section with TTL=0 to prevent negative caching
-        authority = self._build_soa_record()
-
-        response = header + question + authority + additional
+        response = header + question + self._soa_record + self._opt_record
 
         try:
             self._sock.sendto(response, addr)
@@ -505,13 +498,6 @@ class DnsServer(Server):
 
     def _send_cname_followup(self, query_id, qname, qtype, addr):
         """Respond to resolver follow-up queries for CNAME targets."""
-        if self._edns_size > 512:
-            arcount = 1
-            additional = codec.build_opt_record(self._edns_size)
-        else:
-            arcount = 0
-            additional = b''
-
         flags = codec.FLAG_QR | codec.FLAG_AA
         header = struct.pack('>HHHHHH',
             query_id,
@@ -519,7 +505,7 @@ class DnsServer(Server):
             1,  # QDCOUNT
             1,  # ANCOUNT
             0,  # NSCOUNT
-            arcount
+            self._opt_arcount
         )
 
         question = codec.encode_name(qname)
@@ -537,7 +523,7 @@ class DnsServer(Server):
         )
         answer += rdata
 
-        response = header + question + answer + additional
+        response = header + question + answer + self._opt_record
 
         try:
             self._sock.sendto(response, addr)

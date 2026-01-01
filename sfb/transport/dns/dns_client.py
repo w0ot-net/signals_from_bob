@@ -33,11 +33,10 @@ _LOG = get_logger(__name__)
 class _PendingQuery(object):
     """Tracks an in-flight DNS query."""
 
-    __slots__ = ('dns_id', 'query_pkt', 'qname')
+    __slots__ = ('dns_id', 'qname')
 
-    def __init__(self, dns_id, query_pkt, qname):
+    def __init__(self, dns_id, qname):
         self.dns_id = dns_id
-        self.query_pkt = query_pkt
         self.qname = qname
 
 
@@ -111,6 +110,14 @@ class DnsClient(Transport):
         # Create non-blocking UDP socket
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setblocking(False)
+
+        # Cache EDNS0 OPT record for queries.
+        if self._edns_size > 512:
+            self._opt_record = codec.build_opt_record(self._edns_size)
+            self._opt_arcount = 1
+        else:
+            self._opt_record = b''
+            self._opt_arcount = 0
 
         # Calculate MTUs
         self._send_mtu = codec.calc_query_mtu(self._base_domain,
@@ -224,7 +231,7 @@ class DnsClient(Transport):
             raise TransportError('Send failed: %s' % e)
 
         # Track pending
-        pending = _PendingQuery(dns_id, query_pkt, query_name.lower())
+        pending = _PendingQuery(dns_id, query_name.lower())
         self._pending.add(corr_id, pending)
         self._dns_to_corr[dns_id] = corr_id
 
@@ -458,25 +465,17 @@ class DnsClient(Transport):
 
     def _build_query(self, query_id, name):
         """Build DNS query packet."""
-        # Include OPT record for EDNS0 if enabled
-        if self._edns_size > 512:
-            arcount = 1
-            additional = codec.build_opt_record(self._edns_size)
-        else:
-            arcount = 0
-            additional = b''
-
         header = struct.pack('>HHHHHH',
             query_id,
             codec.FLAG_RD,
             1,  # QDCOUNT
             0,  # ANCOUNT
             0,  # NSCOUNT
-            arcount
+            self._opt_arcount
         )
         qname = codec.encode_name(name)
         question = qname + struct.pack('>HH', self._qtype, codec.QCLASS_IN)
-        return header + question + additional
+        return header + question + self._opt_record
 
     def _parse_response(self, data):
         """

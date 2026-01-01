@@ -70,6 +70,8 @@ LOG_PROFILES = {
             'channel.pack',
             'channel.drain',
             'sock.connect*',
+            'sock.server_*',
+            'sock.relay_*',
         ),
         'log_event_blacklist': (),
     },

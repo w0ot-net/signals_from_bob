@@ -1,45 +1,82 @@
-# ICMP Pending Prune Plan
+# Pending Prune Consistency Plan
 
 ## Goal
 
-Reduce redundant O(n) pending pruning on the ICMP send path while preserving
-observable behavior (limits, logging, and timeouts).
+Reduce redundant O(n) pending pruning on transport send paths and make pruning
+behavior consistent across transports that use PendingTracker (ICMP, DNS),
+while preserving observable behavior (limits, logging, and timeouts).
 
 ## Current Behavior
 
-- `send()` calls `can_send()` which calls `pending_count()` which calls
+- ICMP `send()` calls `can_send()` which calls `pending_count()` which calls
   `_prune_stale()`.
-- `send()` then calls `_prune_stale()` again before sending.
-- `send()` logs with `pending_count()` which prunes a third time.
+- ICMP `send()` then calls `_prune_stale()` again before sending.
+- ICMP `send()` logs with `pending_count()` which prunes a third time.
+- DNS mirrors the same pattern (plus `_dns_to_corr` cleanup on prune).
 - Each prune iterates the full pending set and allocates a list of entries.
+- `pending_count()` is used by tunnel logic, so it must still prune stale
+  entries to avoid pending exhaustion.
 
 ## Plan
 
-1. Add a helper that prunes once and returns the post-prune count, accepting an
-   optional `now` so a single timestamp can be reused.
-2. Update `pending_count()` to accept an optional `now` and delegate to the
-   helper, keeping the default behavior of pruning when called externally.
-3. Refactor `send()` to:
-   - Capture `now = time.time()` once.
-   - Prune once and store `pending_before`.
-   - Enforce `max_pending` with `pending_before`.
-   - Add the pending entry using the same `now`.
-   - Log using the cached count (`pending_before + 1`).
-4. Keep `can_send()` semantics for external callers (e.g., tunnel) by using
-   `pending_count()` with pruning. Avoid calling `can_send()` from `send()` so
-   the send path only prunes once.
+### Option A: Change the Transport interface (base class)
+
+- Add optional `now` to `pending_count()`/`can_send()` and add a default
+  `can_send()` in `Transport`.
+- Pros: consistent interface, allows a single timestamp per tick.
+- Cons: wide changes across transports, tests, and docs; base class still does
+  not own pending state; send paths still need refactors to pass `now`.
+
+### Option B: Extend PendingTracker
+
+- Add `prune_and_count(now)` or cached count inside `PendingTracker`.
+- Pros: central helper with minimal per-transport code.
+- Cons: cannot handle transport-specific cleanup (DNS) without callbacks; any
+  caching in the tracker changes semantics for all users.
+
+### Option C: Shared helper/mixin under sfb/transport (recommended)
+
+- Add a helper module (or mixin in `transport_base`) that:
+  - Prunes with a supplied `PendingTracker`.
+  - Accepts an optional `on_prune(stale)` callback for extra cleanup.
+  - Returns the post-prune count and allows reusing one `now`.
+- Update ICMP and DNS to use the helper in `pending_count()` and `send()`.
+- Keep the public `Transport` interface unchanged.
+
+### Recommendation
+
+Use Option C to keep the interface stable while making ICMP and DNS behavior
+consistent and avoiding redundant O(n) work.
+
+### Implementation Sketch
+
+1. Add helper:
+   - `prune_and_count(pending, now=None, on_prune=None)` -> count
+   - or a small `PendingPruner` class with `count(now)` and `prune(now)`
+2. ICMP client:
+   - `pending_count()` calls helper (prunes once).
+   - `send()` captures `now`, gets `pending_before`, enforces `max_pending`,
+     adds pending with the same `now`, logs `pending_before + 1`.
+3. DNS client:
+   - Same pattern, with `on_prune` callback to clear `_dns_to_corr`.
+4. Docs:
+   - Update `doc/DNS_TRANSPORT.md` pruning description to note that pruning is
+     shared within a single send when a cached `now` is used.
+   - If interface changes are chosen, update `doc/TRANSPORTS.md`.
+5. Tests:
+   - Add unit tests for ICMP and DNS that stub `PendingTracker.prune` to assert
+     one prune per `send()`.
+   - Verify `pending_count()` still removes stale entries.
 
 ## Tests
 
-- Add a unit test that stubs `PendingTracker.prune` to count calls and asserts
-  `send()` only triggers one prune per invocation.
-- Add a unit test that verifies `pending_count()` still prunes stale entries.
-- Avoid raw ICMP sockets by stubbing `_sock.sendto` and `build_echo_request`
-  in the test fixture.
+- Add unit tests for ICMP and DNS that stub `PendingTracker.prune` to assert
+  one prune per `send()`.
+- Verify `pending_count()` still removes stale entries.
+- Avoid raw ICMP sockets by stubbing `_sock.sendto` and `build_echo_request`.
 
 ## Notes
 
 - No wire format changes.
 - Keep Linux-only ICMP constraints intact.
-- Consider applying the same pattern to DNS later for consistency, but keep the
-  initial change scoped to ICMP.
+- Keep the Transport interface stable unless Option A is explicitly chosen.

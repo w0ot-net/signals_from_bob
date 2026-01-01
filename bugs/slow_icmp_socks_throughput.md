@@ -97,3 +97,23 @@ LOG_PROFILES['socks_throughput_debug'] = {
   - Increase buffers further (e.g., `--socks_relay_buffer_size 16384`, `--channel_max_send_buf 131072`).
   - Increase ICMP concurrency/window (consider bumping `icmp_max_pending` beyond 64) and ensure send window can grow; keep `--send-rate 0` and omit `--send-burst` to allow defaults.
   - Optionally reduce pump backoff (`non_blocking_poll_timeout`, `socks_pump_backoff_max`) if we add config overrides for them.
+
+## Experiment Log: Smaller Backoff + Larger Buffers (Dec 31, 2025)
+- Command:
+  ```
+  python3 scripts/icmp_socks_diag.py --clients 1 --icmp-target 127.0.0.1 \
+    --icmp-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug --verbose-cli \
+    --socks_relay_buffer_size 32768 --channel_max_send_buf 262144 \
+    --socks-pump-backoff-max 0.002 --non-blocking-poll-timeout 0.00002
+  ```
+- Outcome:
+  - SOCKS path: 2MB in 3.06s; throughput ~0.654 MB/s (client), aggregate ~0.394 MB/s; TTFB ~43 ms; peak ~0.729 MB/s.
+  - Direct HTTP baseline: ~0.029s (~69 MB/s).
+  - Logs: `logs/icmp_diag_client_log.db`, `logs/icmp_diag_server_log.db`.
+- Log highlights:
+  - `tunnel.send_blocked`: 1,270 events (1,266 at `unacked=64`, 4 at `unacked=1`), so the 64 in-flight cap is still the dominant limiter.
+  - Alice pump stats (target->channel): `buffer_full` ~2.6k per interval despite 256 KB send buffer; `sleep_time` ~0.6s.
+  - Bob pump stats (channel->client) remain steady (~0.63–0.74 MB per interval) with no buffer_full.
+- Takeaways:
+  - Tightening pump backoff/poll intervals and enlarging buffers to 32 KB / 256 KB did not materially improve throughput (~0.65 MB/s persists).
+  - The channel remains backpressured and Alice keeps hitting the 64 packet in-flight limit; further gains likely require reducing backpressure or allowing more in-flight packets without exceeding MTU 1400.

@@ -264,8 +264,14 @@ class DnsServer(Server):
                 'DNS query received',
                 lambda: {
                     'dns_id': query_id,
+                    'qname': qname,
+                    'qtype': qtype,
                     'addr': '%s:%d' % (client_addr[0], client_addr[1]),
+                    'query_bytes': len(pkt_data),
                     'bytes': len(data),
+                    'payload_cap': payload_cap,
+                    'qname_wire_len': qname_wire_len,
+                    'max_packet_size': max_packet_size,
                 },
             )
             return data, responder
@@ -342,6 +348,19 @@ class DnsServer(Server):
                 data, self._cname_suffix, self._label_max_len
             )
         except ValueError as exc:
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'dns.encode_error',
+                'DNS response encode failed',
+                lambda: {
+                    'dns_id': query_id,
+                    'qname': qname,
+                    'qtype': qtype,
+                    'payload_bytes': len(data),
+                    'error': str(exc),
+                },
+            )
             raise TransportError('Invalid response data: %s' % exc)
 
         rdata = codec.encode_name(cname_target)
@@ -355,6 +374,13 @@ class DnsServer(Server):
         answer += rdata
 
         response = header + question + answer + additional
+        payload_cap, qname_wire_len, max_packet_size = (
+            self._response_payload_cap(qname)
+        )
+        response_len = len(response)
+        oversize = False
+        if max_packet_size is not None:
+            oversize = response_len > max_packet_size
 
         try:
             self._sock.sendto(response, addr)
@@ -367,9 +393,17 @@ class DnsServer(Server):
             'DNS response sent',
             lambda: {
                 'dns_id': query_id,
+                'qname': qname,
+                'qtype': qtype,
+                'rtype': self._rtype,
                 'addr': '%s:%d' % (addr[0], addr[1]),
-                'bytes': len(response),
+                'bytes': response_len,
                 'payload_bytes': len(data),
+                'payload_cap': payload_cap,
+                'qname_wire_len': qname_wire_len,
+                'rdata_len': len(rdata),
+                'max_packet_size': max_packet_size,
+                'oversize': oversize,
             },
         )
 
@@ -456,6 +490,8 @@ class DnsServer(Server):
             'DNS empty response sent',
             lambda: {
                 'dns_id': query_id,
+                'qname': qname,
+                'qtype': qtype,
                 'addr': '%s:%d' % (addr[0], addr[1]),
                 'bytes': len(response),
                 'reason': reason,
@@ -509,6 +545,8 @@ class DnsServer(Server):
             'DNS CNAME followup sent',
             lambda: {
                 'dns_id': query_id,
+                'qname': qname,
+                'qtype': qtype,
                 'addr': '%s:%d' % (addr[0], addr[1]),
                 'bytes': len(response),
             },

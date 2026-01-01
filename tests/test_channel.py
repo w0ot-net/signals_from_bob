@@ -198,6 +198,24 @@ class ControlChannelTests(unittest.TestCase):
             ctrl.recv_message(timeout=0.1)
         self.assertEqual(ctx.exception.code, 'invalid')
 
+    def test_take_send_data_waits_for_newline(self):
+        ctrl = ControlChannel()
+        ctrl._set_state(STATE_OPEN)
+        ctrl.write(b'partial')
+        data = ctrl._take_send_data(10)
+        self.assertEqual(data, b'')
+        ctrl.write(b'\n')
+        data = ctrl._take_send_data(10)
+        self.assertEqual(data, b'partial\n')
+
+    def test_take_send_data_oversize_is_error(self):
+        ctrl = ControlChannel()
+        ctrl._set_state(STATE_OPEN)
+        ctrl.write(b'a' * 6)
+        with self.assertRaises(ChannelError) as ctx:
+            ctrl._take_send_data(5)
+        self.assertEqual(ctx.exception.code, 'invalid')
+
 
 class ChannelManagerTests(unittest.TestCase):
     def _drain_control_messages(self, manager):
@@ -314,7 +332,7 @@ class ChannelManagerTests(unittest.TestCase):
         ch._set_state(STATE_OPEN)
         ch.write(b'abc')
         mgr._channels[1] = ch
-        segments = mgr.collect_segments(64)
+        segments = mgr.collect_segments(128)
         self.assertTrue(segments)
         self.assertEqual(segments[0].channel, CHANNEL_CONTROL)
 

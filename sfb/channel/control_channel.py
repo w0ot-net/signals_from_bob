@@ -50,10 +50,70 @@ class ControlChannel(Channel):
         return written
 
     def _take_send_data(self, max_size):
-        data = Channel._take_send_data(self, max_size)
-        if self.send_buf_size == 0:
-            self._send_event.clear()
-        return data
+        """
+        Take data without splitting control messages across packets.
+
+        Control messages are newline-delimited JSON. To avoid truncating a JSON
+        line when the transport payload cap is small, only return data through
+        the last newline that fits within max_size. If there is no newline
+        within the allowed window, send nothing; never emit partial control
+        lines. If the first queued chunk is already larger than max_size and
+        contains no newline (should not happen), raise a fatal ChannelError so
+        the caller knows the control message cannot be transmitted safely.
+        This preserves JSON integrity so downstream decoders never see
+        truncated messages.
+        """
+        with self._lock:
+            if not self._send_buf or max_size <= 0:
+                return b''
+
+            # Find the last newline within the allowed window.
+            target_len = None
+            offset = 0
+            for chunk in self._send_buf:
+                if offset >= max_size:
+                    break
+                take = min(len(chunk), max_size - offset)
+                view = chunk[:take]
+                nl_idx = view.rfind(b'\n')
+                if nl_idx != -1:
+                    target_len = offset + nl_idx + 1
+                    break
+                offset += take
+
+            if target_len is None:
+                first_chunk = self._send_buf[0]
+                first_chunk_len = len(first_chunk)
+                nl_pos = first_chunk.find(b'\n')
+                if nl_pos != -1 and nl_pos + 1 > max_size:
+                    raise ChannelError(
+                        'invalid',
+                        'Control message exceeds payload cap',
+                    )
+                if nl_pos == -1 and first_chunk_len > max_size:
+                    raise ChannelError(
+                        'invalid',
+                        'Control message exceeds payload cap without newline',
+                    )
+                return b''
+
+            remaining = target_len
+            parts = []
+            while remaining > 0 and self._send_buf:
+                chunk = self._send_buf[0]
+                if len(chunk) <= remaining:
+                    parts.append(self._send_buf.popleft())
+                    self._send_buf_size -= len(chunk)
+                    remaining -= len(chunk)
+                else:
+                    parts.append(chunk[:remaining])
+                    self._send_buf[0] = chunk[remaining:]
+                    self._send_buf_size -= remaining
+                    remaining = 0
+
+            if self._send_buf_size == 0:
+                self._send_event.clear()
+            return b''.join(parts)
 
     def recv_message(self, timeout=None):
         while True:

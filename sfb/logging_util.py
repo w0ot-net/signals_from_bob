@@ -270,11 +270,22 @@ class SQLiteLogHandler(logging.Handler):
 
             batch = []
             last_flush = time.time()
+            flush_interval = self._flush_interval
+            if flush_interval < 0:
+                flush_interval = 0.0
 
             while not self._stop.is_set():
-                timeout = max(0.0, self._flush_interval - (time.time() - last_flush))
+                if batch:
+                    timeout = flush_interval - (time.time() - last_flush)
+                    if timeout < 0:
+                        timeout = 0.0
+                else:
+                    timeout = flush_interval if flush_interval > 0 else None
                 try:
-                    item = self._queue.get(timeout=timeout)
+                    if timeout is None:
+                        item = self._queue.get()
+                    else:
+                        item = self._queue.get(timeout=timeout)
                 except queue.Empty:
                     item = None
 

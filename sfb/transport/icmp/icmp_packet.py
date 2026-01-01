@@ -41,13 +41,44 @@ def checksum(data):
     return (~total) & 0xFFFF
 
 
+def _checksum_parts(parts):
+    total = 0
+    odd_byte = None
+    for part in parts:
+        if not part:
+            continue
+        if odd_byte is not None:
+            total += (odd_byte << 8) + byte_at(part, 0)
+            part = part[1:]
+            odd_byte = None
+            if not part:
+                continue
+        length = len(part)
+        if length % 2:
+            odd_byte = byte_at(part, length - 1)
+            part = part[:-1]
+            length -= 1
+        if length:
+            words = array.array('H')
+            array_frombytes(words, part)
+            if sys.byteorder == 'little':
+                # Array uses native endianness; checksum needs network byte order.
+                words.byteswap()
+            total += sum(words)
+    if odd_byte is not None:
+        total += odd_byte << 8
+    total = (total & 0xFFFF) + (total >> 16)
+    total = (total & 0xFFFF) + (total >> 16)
+    return (~total) & 0xFFFF
+
+
 def build_echo_packet(icmp_type, ident, seq, payload):
     """
     Build an ICMP Echo packet with the given type, id, seq, and payload.
     """
     payload = to_bytes(payload)
     header = struct.pack('>BBHHH', icmp_type, ICMP_CODE, 0, ident, seq)
-    csum = checksum(header + payload)
+    csum = _checksum_parts((header, payload))
     header = struct.pack('>BBHHH', icmp_type, ICMP_CODE, csum, ident, seq)
     return header + payload
 

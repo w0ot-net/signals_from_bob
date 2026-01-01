@@ -13,7 +13,7 @@ import time
 
 from ..transport_base import Server, TransportError
 from .icmp_packet import ICMP_ECHO_REQUEST, build_echo_reply, parse_icmp_echo
-from ...compat import to_bytes
+from ...compat import require_bytes_like
 from ...config import Config
 from ...logging_util import get_logger, log_event
 
@@ -103,7 +103,7 @@ class IcmpServer(Server):
 
     def _make_responder(self, addr, ident, seq):
         def responder(data):
-            data = to_bytes(data)
+            data = require_bytes_like(data)
             if len(data) > self._send_mtu:
                 raise TransportError(
                     'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)

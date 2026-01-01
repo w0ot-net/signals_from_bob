@@ -88,7 +88,7 @@ send/recv MTUs per side. The ICMP transport should:
 
 Proposed approach:
 - Add a config field (name TBD) for ICMP payload size limits, with a conservative
-  default (for example 1200 bytes of ICMP payload to avoid fragmentation on 1500 MTU links).
+  default (for example 1250 bytes of ICMP payload to avoid fragmentation on 1500 MTU links).
 - `send_mtu`/`recv_mtu` should reflect the SFB packet size carried in the ICMP
   data payload, not including ICMP headers. The tunnel already subtracts
   `PACKET_HEADER_SIZE`.

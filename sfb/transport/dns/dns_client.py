@@ -363,6 +363,8 @@ class DnsClient(Transport):
                 lambda: {
                     'corr_id': corr_id,
                     'dns_id': dns_id,
+                    'expected_qname': pending.qname,
+                    'actual_qname': qname,
                     'rcode': rcode,
                     'reason': reason,
                     'addr': '%s:%d' % (addr[0], addr[1]),
@@ -397,6 +399,8 @@ class DnsClient(Transport):
                 lambda: {
                     'corr_id': corr_id,
                     'dns_id': dns_id,
+                    'expected_qname': pending.qname,
+                    'actual_qname': qname,
                     'rcode': rcode,
                     'reason': reason,
                     'addr': '%s:%d' % (addr[0], addr[1]),

@@ -23,6 +23,7 @@ from .constants import (
     PACKET_HEADER_SIZE,
     FLAG_SYN,
     FLAG_ACK,
+    FLAG_KEEPALIVE,
     SEQ_MAX,
     SEQ_HALF,
     SACK_MAX,
@@ -38,14 +39,14 @@ class PacketHeader(object):
         seq: Sequence number of this packet (0-65535)
         ack: Next expected sequence number from peer (0-65535)
         sack: Bitmap of 64 packets received beyond ack
-        flags: Packet flags (SYN, ACK)
+        flags: Packet flags (SYN, ACK, KEEPALIVE)
     """
 
     __slots__ = ('seq', 'ack', 'sack', 'flags')
 
     # Struct format: big-endian, 2 unsigned shorts, 1 unsigned 64-bit, 2 unsigned bytes
     _STRUCT = struct.Struct('>HHQBB')
-    _VALID_FLAGS = FLAG_SYN | FLAG_ACK
+    _VALID_FLAGS = FLAG_SYN | FLAG_ACK | FLAG_KEEPALIVE
 
     def __init__(self, seq=0, ack=0, sack=0, flags=0):
         self.seq = seq & SEQ_MAX
@@ -76,6 +77,18 @@ class PacketHeader(object):
             self.flags |= FLAG_ACK
         else:
             self.flags &= ~FLAG_ACK
+
+    @property
+    def keepalive_flag(self):
+        """True if KEEPALIVE flag is set."""
+        return bool(self.flags & FLAG_KEEPALIVE)
+
+    @keepalive_flag.setter
+    def keepalive_flag(self, value):
+        if value:
+            self.flags |= FLAG_KEEPALIVE
+        else:
+            self.flags &= ~FLAG_KEEPALIVE
 
     def encode(self):
         """
@@ -153,6 +166,8 @@ class PacketHeader(object):
             flags_str.append('SYN')
         if self.ack_flag:
             flags_str.append('ACK')
+        if self.keepalive_flag:
+            flags_str.append('KEEPALIVE')
         flags_repr = '|'.join(flags_str) if flags_str else '0'
         return 'PacketHeader(seq=%d, ack=%d, sack=0x%016x, flags=%s)' % (
             self.seq, self.ack, self.sack, flags_repr

@@ -116,10 +116,10 @@ and the sender naturally pauses.
 
 ## Keepalives
 
-Keepalives (`ping` and `pong`) are control messages on channel 0, not special
-packet types. They are normal packets that participate in seq/ack like any
-other. Alice sends `ping` only when no channel has data to transmit; Bob sends
-`pong` only when no channel has data to transmit.
+Keepalives are header-only packets marked with `FLAG_KEEPALIVE` and zero
+segments. They are normal packets that participate in seq/ack like any other.
+Alice sends keepalive polls only when no channel has data to transmit; Bob
+responds with keepalive only when no channel has data to transmit.
 
 ---
 

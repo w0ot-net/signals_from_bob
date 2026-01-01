@@ -32,8 +32,8 @@ Channel 0 is created at initialization and is always open. It carries control
 messages encoded as JSON lines (see `doc/PROTOCOL.md`).
 
 Channel 0 handling is special in segment packing:
-- Non-keepalive control data is always prioritized.
-- Keepalives are suppressed if any other data is sent.
+- Control data is always prioritized.
+- Keepalive traffic is handled at the packet header level.
 
 ---
 
@@ -81,13 +81,11 @@ If less than 4 bytes remain (header + 1 byte payload), packing stops.
 
 ### Packing Rules
 
-1. **Channel 0 priority**: If channel 0 has non-keepalive data, emit it first.
+1. **Channel 0 priority**: If channel 0 has data, emit it first.
 2. **Primary channel fill**: Choose a primary non-zero channel in round-robin
    order and give it as much remaining space as possible.
 3. **Round-robin fill**: If space remains, take at most one segment from each
    other active channel, starting after the primary, until full.
-4. **Keepalive suppression**: Only emit keepalive data if no other segments
-   were added to the packet.
 
 ### Round-Robin Pointer
 

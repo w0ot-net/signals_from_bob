@@ -238,22 +238,22 @@ class ChannelManager(object):
             self._handle_close(msg)
         elif cmd == 'close_ok':
             self._handle_close_ok(msg)
-        # ping/pong and other messages handled by tunnel
+        # Tunnel messages handled by tunnel
 
     def collect_segments(self, max_payload, keepalive_data=None):
         """
         Collect segments from channels for transmission.
 
         Implements the packing rules from CHANNEL_MANAGER.md:
-        1. Channel 0 priority (non-keepalive data first)
-        2. Keepalive suppression (no ping/pong if other data exists)
-        3. Primary channel fill (round-robin selection)
-        4. Round-robin fill for remaining space
+        1. Channel 0 priority (control data first)
+        2. Primary channel fill (round-robin selection)
+        3. Round-robin fill for remaining space
+        4. Optional keepalive_data only when no other segments were added
 
         Args:
             max_payload: Max total segment bytes to collect
-            keepalive_data: Optional keepalive bytes (ping/pong) to include
-                           only if no other data is being sent
+            keepalive_data: Optional keepalive bytes to include only if
+                           no other data is being sent (legacy)
 
         Returns:
             list: List of Segment instances
@@ -261,7 +261,7 @@ class ChannelManager(object):
         segments = []
         remaining = max_payload
 
-        # Step 1: Channel 0 non-keepalive data first (priority)
+        # Step 1: Channel 0 data first (priority)
         if remaining > SEGMENT_HEADER_SIZE:
             ctrl_data = self._control._take_send_data(
                 remaining - SEGMENT_HEADER_SIZE
@@ -325,7 +325,7 @@ class ChannelManager(object):
                         segments.append(Segment(cid, data))
                         remaining -= SEGMENT_HEADER_SIZE + len(data)
 
-        # Step 5: Keepalive suppression - only add keepalive if no other data
+        # Step 5: Optional keepalive_data if no other segments were added
         keepalive_sent = False
         if not segments and keepalive_data and remaining > SEGMENT_HEADER_SIZE:
             if len(keepalive_data) <= remaining - SEGMENT_HEADER_SIZE:

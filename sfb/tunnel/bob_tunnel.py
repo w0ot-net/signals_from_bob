@@ -12,15 +12,12 @@ import logging
 import time
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
-from .tunnel_control_messages import (
-    tun_pong,
-    encode as encode_message,
-)
 from ..logging_util import log_event
 from ..protocol import (
     Packet,
     FLAG_SYN,
     FLAG_ACK,
+    FLAG_KEEPALIVE,
     PACKET_HEADER_SIZE,
 )
 
@@ -323,7 +320,7 @@ class BobTunnel(BaseTunnel):
         # Rebuild with fresh ack/sack to ensure current ACK state is sent
         oldest = self._send_window.get_oldest_unacked_info()
         if oldest is not None:
-            seq, segments, send_time, retransmit_count = oldest
+            seq, segments, flags, send_time, retransmit_count = oldest
             cooldown = self._retransmit_cooldown()
             age = None
             if send_time is not None:
@@ -355,7 +352,7 @@ class BobTunnel(BaseTunnel):
                     },
                 )
             else:
-                packet = self._rebuild_packet(seq, segments)
+                packet = self._rebuild_packet(seq, segments, flags=flags)
                 response_data = self._encode_packet(packet)
                 if (response_payload_cap is not None and
                         len(response_data) > response_payload_cap):
@@ -418,7 +415,7 @@ class BobTunnel(BaseTunnel):
 
         # No retransmits needed - check window before sending new data
         if not self._send_window.can_send:
-            # Window full but no unacked? Shouldn't happen - log and send pong
+            # Window full but no unacked? Shouldn't happen - log and send ACK-only
             # to maintain request/response contract
             unacked = self._send_window.unacked_count
             if unacked == 0:
@@ -500,19 +497,47 @@ class BobTunnel(BaseTunnel):
         self._maybe_coalesce_response(max_payload)
         segments = self._collect_segments(max_payload)
 
-        # If no data, send pong
         if not segments:
-            segments = self._collect_segments(
-                max_payload,
-                keepalive_data=encode_message(tun_pong())
+            if self._channel_manager.has_pending_data():
+                packet, _ = self._build_packet(segments=[])
+                response_data = self._encode_packet(packet)
+                self._packets_sent += 1
+                self._bytes_sent += len(response_data)
+                responder(response_data)
+                return
+            packet, seq = self._build_packet(
+                flags=FLAG_KEEPALIVE,
+                segments=[],
             )
+            response_data = self._encode_packet(packet)
+            self._send_window.send([], flags=FLAG_KEEPALIVE, now=now)
+            self._packets_sent += 1
+            self._bytes_sent += len(response_data)
+            self._log_response_cap(responder, response_data)
+            responder(response_data)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.packet_send',
+                'Packet sent',
+                {
+                    'seq': packet.seq,
+                    'ack': packet.ack,
+                    'sack': packet.sack,
+                    'flags': packet.flags,
+                    'seg_count': len(packet.segments),
+                    'bytes': len(response_data),
+                    'side': 'bob',
+                },
+            )
+            return
 
         # Build packet
         packet, seq = self._build_packet(segments=segments)
         response_data = self._encode_packet(packet)
 
         # Record send (store segments for retransmit with fresh ack/sack)
-        self._send_window.send(segments, now=now)
+        self._send_window.send(segments, flags=packet.flags, now=now)
         self._packets_sent += 1
         self._bytes_sent += len(response_data)
 

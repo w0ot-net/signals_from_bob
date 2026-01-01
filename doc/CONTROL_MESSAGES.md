@@ -52,7 +52,6 @@ required `t` and `c` fields.
 ### Example Messages
 
 ```json
-{"t":"tun","c":"ping"}
 {"t":"tun","c":"mtu","tx":500,"rx":150}
 {"t":"ch","c":"open","ch":2}
 {"t":"ch","c":"close","ch":2}
@@ -73,7 +72,7 @@ These types are built-in and cannot be overridden by modules.
 
 | Type | Layer | Description |
 |------|-------|-------------|
-| `tun` | Tunnel | Keepalive, MTU/window negotiation |
+| `tun` | Tunnel | MTU/window negotiation (keepalive is a header flag) |
 | `ch` | Channel | Channel open/close lifecycle |
 
 ### Module Types
@@ -98,7 +97,7 @@ When a control message is received:
 
 1. Parse JSON and extract `t` field
 2. Dispatch based on type:
-   - `tun`: Tunnel handles internally (ping/pong, negotiation)
+   - `tun`: Tunnel handles internally (negotiation; ping/pong ignored)
    - `ch`: Channel manager handles (open/close)
    - Other: Dispatch to registered module handler
 3. Unknown types are logged and dropped
@@ -130,19 +129,12 @@ When a control message is received:
 
 ## Tunnel Messages (t="tun")
 
-Tunnel-level messages handle keepalive and parameter negotiation.
+Tunnel-level messages handle parameter negotiation. Keepalive is encoded
+as a packet header flag (see `doc/PROTOCOL.md`).
 
-### ping / pong
+### Legacy ping / pong (ignored)
 
-Keepalive messages. Alice sends `ping` when idle; Bob responds with `pong`.
-
-```json
-{"t":"tun","c":"ping"}
-{"t":"tun","c":"pong"}
-```
-
-If either side has actual data to send, the packet itself serves as keepalive.
-Ping/pong are only sent when no other data is pending.
+Older clients may send `ping`/`pong` control messages. These are ignored.
 
 ### mtu / mtu_ok
 

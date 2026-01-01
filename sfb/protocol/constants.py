@@ -28,6 +28,7 @@ RESERVED_SIZE = 1
 # Flags (bit positions)
 FLAG_SYN = 0x01
 FLAG_ACK = 0x02
+FLAG_KEEPALIVE = 0x04
 
 # Sequence number space
 SEQ_MAX = 0xFFFF

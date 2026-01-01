@@ -659,10 +659,11 @@ Bob queues outbound packets. When Alice polls:
 2. Pass to reliability/muxer layers
 3. Check outbound queue for response data
 4. If data: encode and send
-5. If no channel data is queued: send packet with `{"t":"tun","c":"pong"}` on channel 0
+5. If no channel data is queued: send keepalive-only packet (FLAG_KEEPALIVE,
+   zero segments)
 
 The response always contains a valid tunnel packet (with seq/ack headers). When
-no data is queued, the payload may be a pong control message.
+no data is queued, the packet carries no segments and sets FLAG_KEEPALIVE.
 
 ---
 

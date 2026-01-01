@@ -54,12 +54,13 @@ class SendWindow(object):
         """Number of unacked packets."""
         return len(self._unacked)
 
-    def send(self, segments, now=None):
+    def send(self, segments, flags=0, now=None):
         """
         Record a packet being sent.
 
         Args:
             segments: List of Segment instances to store for retransmit
+            flags: Packet flags to preserve for retransmit
 
         Returns:
             int: Sequence number assigned to this packet
@@ -76,6 +77,7 @@ class SendWindow(object):
         self._unacked[seq] = _UnackedPacket(
             seq=seq,
             segments=segments,
+            flags=flags,
             send_time=now,
             retransmit_count=0,
         )
@@ -110,7 +112,7 @@ class SendWindow(object):
         Returns in send order (oldest first) for consistent behavior.
 
         Returns:
-            list: List of (seq, segments) to retransmit
+            list: List of (seq, segments, flags) to retransmit
         """
         if now is None:
             now = time.time()
@@ -119,7 +121,7 @@ class SendWindow(object):
         for seq in self._send_order:
             pkt = self._unacked.get(seq)
             if pkt is not None and now - pkt.send_time >= rto_sec:
-                retransmits.append((seq, pkt.segments))
+                retransmits.append((seq, pkt.segments, pkt.flags))
 
         return retransmits
 
@@ -128,7 +130,7 @@ class SendWindow(object):
         Get oldest unacked packet for retransmission (Bob, opportunity-driven).
 
         Returns:
-            tuple: (seq, segments) or None if no unacked packets
+            tuple: (seq, segments, flags) or None if no unacked packets
         """
         if not self._unacked:
             return None
@@ -137,7 +139,7 @@ class SendWindow(object):
             seq = self._send_order[0]
             pkt = self._unacked.get(seq)
             if pkt is not None:
-                return (seq, pkt.segments)
+                return (seq, pkt.segments, pkt.flags)
             self._send_order.popleft()
         return None
 
@@ -146,7 +148,7 @@ class SendWindow(object):
         Get oldest unacked packet with timing info (Bob, opportunity-driven).
 
         Returns:
-            tuple: (seq, segments, send_time, retransmit_count) or None
+            tuple: (seq, segments, flags, send_time, retransmit_count) or None
         """
         if not self._unacked:
             return None
@@ -155,7 +157,13 @@ class SendWindow(object):
             seq = self._send_order[0]
             pkt = self._unacked.get(seq)
             if pkt is not None:
-                return (seq, pkt.segments, pkt.send_time, pkt.retransmit_count)
+                return (
+                    seq,
+                    pkt.segments,
+                    pkt.flags,
+                    pkt.send_time,
+                    pkt.retransmit_count,
+                )
             self._send_order.popleft()
         return None
 
@@ -211,10 +219,11 @@ class SendWindow(object):
 class _UnackedPacket(object):
     """Tracking data for an unacked packet."""
 
-    __slots__ = ('seq', 'segments', 'send_time', 'retransmit_count')
+    __slots__ = ('seq', 'segments', 'flags', 'send_time', 'retransmit_count')
 
-    def __init__(self, seq, segments, send_time, retransmit_count):
+    def __init__(self, seq, segments, flags, send_time, retransmit_count):
         self.seq = seq
         self.segments = segments
+        self.flags = flags
         self.send_time = send_time
         self.retransmit_count = retransmit_count

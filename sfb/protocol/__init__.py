@@ -10,7 +10,7 @@ Example usage:
 
     # Create a packet with segments
     packet = Packet(seq=1, ack=0)
-    packet.add_segment(Segment(0, b'{"cmd":"ping"}\\n'))
+    packet.add_segment(Segment(0, b'{"cmd":"hello"}\\n'))
 
     # Encode to bytes
     data = packet.encode()
@@ -34,6 +34,7 @@ from .constants import (
     SEGMENT_HEADER_SIZE,
     FLAG_SYN,
     FLAG_ACK,
+    FLAG_KEEPALIVE,
     SEQ_MAX,
     SACK_BITS,
     MAX_IN_FLIGHT,
@@ -136,6 +137,14 @@ class Packet(object):
     def ack_flag(self, value):
         self.header.ack_flag = value
 
+    @property
+    def keepalive_flag(self):
+        return self.header.keepalive_flag
+
+    @keepalive_flag.setter
+    def keepalive_flag(self, value):
+        self.header.keepalive_flag = value
+
     def add_segment(self, segment):
         """
         Add a segment to this packet.
@@ -209,6 +218,7 @@ __all__ = [
     'SEGMENT_HEADER_SIZE',
     'FLAG_SYN',
     'FLAG_ACK',
+    'FLAG_KEEPALIVE',
     'SEQ_MAX',
     'SACK_BITS',
     'MAX_IN_FLIGHT',

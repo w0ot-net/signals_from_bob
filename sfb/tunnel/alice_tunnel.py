@@ -14,16 +14,15 @@ import time
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
 from .tunnel_control_messages import (
-    tun_ping,
     tun_mtu,
     tun_window,
-    encode as encode_message,
 )
 from .pacing import AdaptivePacer
 from ..protocol import (
     Packet,
     FLAG_SYN,
     FLAG_ACK,
+    FLAG_KEEPALIVE,
     PACKET_HEADER_SIZE,
 )
 from ..reliability import RttEstimator
@@ -401,10 +400,10 @@ class AliceTunnel(BaseTunnel):
         retransmits = self._send_window.get_retransmits(
             self._rtt.rto_sec, now=now
         )
-        for seq, segments in retransmits:
+        for seq, segments, flags in retransmits:
             if not self._can_send_retransmit():
                 break
-            self._send_retransmit(seq, segments, now)
+            self._send_retransmit(seq, segments, flags, now)
 
         # 3. Send new packets if we can
         while True:
@@ -416,19 +415,25 @@ class AliceTunnel(BaseTunnel):
                     self._has_pending_data_acks = True
                     self._send_new_packet(segments, now, is_keepalive=False)
                     continue
+                break
 
             should_poll, keepalive_due, consume_pong_grace = self._poll_decision(now)
             if not should_poll:
                 break
             if not self._can_send_new(now=now, keepalive_only=keepalive_due):
                 break
-            segments = self._collect_segments(
-                self._send_mtu,
-                keepalive_data=encode_message(tun_ping())
-            )
-            if not segments:
+            segments = self._collect_segments(self._send_mtu)
+            if segments:
+                self._send_new_packet(segments, now, is_keepalive=False)
+                continue
+            if self._channel_manager.has_pending_data():
                 break
-            self._send_new_packet(segments, now, is_keepalive=keepalive_due)
+            self._send_new_packet(
+                [],
+                now,
+                is_keepalive=keepalive_due,
+                flags=FLAG_KEEPALIVE,
+            )
             if consume_pong_grace and self._pong_grace_remaining > 0:
                 self._pong_grace_remaining -= 1
 
@@ -616,9 +621,9 @@ class AliceTunnel(BaseTunnel):
             False,
         )
 
-    def _send_new_packet(self, segments, now, is_keepalive=False):
+    def _send_new_packet(self, segments, now, is_keepalive=False, flags=0):
         """Send a new packet with given segments."""
-        packet, seq = self._build_packet(segments=segments)
+        packet, seq = self._build_packet(flags=flags, segments=segments)
         packet_data = self._encode_packet(packet)
 
         if self._send_limiter is not None and not self._send_limiter.consume(now=now):
@@ -636,7 +641,7 @@ class AliceTunnel(BaseTunnel):
             return
 
         unacked_before = self._send_window.unacked_count
-        self._send_window.send(segments, now=now)
+        self._send_window.send(segments, flags=flags, now=now)
         self._transport.send(packet_data)
         if self._pacer.enabled:
             cap = self._pacer_cap()
@@ -669,9 +674,9 @@ class AliceTunnel(BaseTunnel):
             },
         )
 
-    def _send_retransmit(self, seq, segments, now):
+    def _send_retransmit(self, seq, segments, flags, now):
         """Retransmit a packet."""
-        packet = self._rebuild_packet(seq, segments)
+        packet = self._rebuild_packet(seq, segments, flags=flags)
         packet_data = self._encode_packet(packet)
 
         if self._send_limiter is not None and not self._send_limiter.consume(now=time.time()):
@@ -728,29 +733,31 @@ class AliceTunnel(BaseTunnel):
         self._bytes_received += len(data)
         self._last_recv_time = now
 
-        # Check if packet contains real data (not just pong)
+        # Check if packet contains real data.
         # Real data = any data segment, or control messages other than pong.
+        # Keepalive-flag packets have no segments and are not real data.
         # Control segments carry one JSON message per line, not multiple.
         has_real_data = False
-        for seg in packet.segments:
-            if not seg.is_control:
-                # Data segment - definitely real data
-                has_real_data = True
-            else:
-                # Control segment - check if it's not just pong
-                # Control data is newline-delimited JSON
-                lines = seg.data.split(b'\n')
-                for line in lines:
-                    if not line:
-                        continue
-                    try:
-                        msg = json.loads(line.decode('ascii'))
-                    except (ValueError, TypeError):
-                        has_real_data = True
-                        break
-                    if msg.get('t') != 'tun' or msg.get('c') != 'pong':
-                        has_real_data = True
-                        break
+        if not (packet.flags & FLAG_KEEPALIVE):
+            for seg in packet.segments:
+                if not seg.is_control:
+                    # Data segment - definitely real data
+                    has_real_data = True
+                else:
+                    # Control segment - check if it's not just pong
+                    # Control data is newline-delimited JSON
+                    lines = seg.data.split(b'\n')
+                    for line in lines:
+                        if not line:
+                            continue
+                        try:
+                            msg = json.loads(line.decode('ascii'))
+                        except (ValueError, TypeError):
+                            has_real_data = True
+                            break
+                        if msg.get('t') != 'tun' or msg.get('c') != 'pong':
+                            has_real_data = True
+                            break
         self._got_data = has_real_data
 
         prev_unacked = self._send_window.unacked_count

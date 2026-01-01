@@ -143,9 +143,10 @@ packets in-flight (awaiting ACKs in Alice's subsequent queries).
 **Bob-initiated operations:** Network RTT + polling interval.
 
 When idle (1-5s polling), Bob-initiated operations have significant latency.
-When Bob sends real data (not pong), Alice polls again immediately with zero
-delay. This ensures that when Bob has data queued, Alice drains it as fast as
-the network allows. After a pong, Alice returns to the idle polling interval.
+When Bob sends real data (not keepalive-only), Alice polls again immediately
+with zero delay. This ensures that when Bob has data queued, Alice drains it
+as fast as the network allows. After a keepalive-only response, Alice returns
+to the idle polling interval.
 
 ---
 

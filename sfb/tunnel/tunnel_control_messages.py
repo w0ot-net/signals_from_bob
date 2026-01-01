@@ -20,12 +20,12 @@ T_CHANNEL = 'ch'
 # =============================================================================
 
 def tun_ping():
-    """Keepalive request from Alice."""
+    """Legacy keepalive request (ignored)."""
     return ControlMessage(T_TUNNEL, 'ping')
 
 
 def tun_pong():
-    """Keepalive response from Bob."""
+    """Legacy keepalive response (ignored)."""
     return ControlMessage(T_TUNNEL, 'pong')
 
 

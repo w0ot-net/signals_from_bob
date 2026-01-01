@@ -167,11 +167,11 @@ class ControlChannelTests(unittest.TestCase):
     def test_send_recv_message_roundtrip(self):
         ctrl = ControlChannel()
         ctrl._set_state(STATE_OPEN)
-        ctrl.send_message({'t': 'tun', 'c': 'ping'})
+        ctrl.send_message({'t': 'tun', 'c': 'noop'})
         data = ctrl._take_send_data(1024)
         ctrl._deliver(data)
         msg = ctrl.recv_message(timeout=0.1)
-        self.assertEqual(msg, {'t': 'tun', 'c': 'ping'})
+        self.assertEqual(msg, {'t': 'tun', 'c': 'noop'})
 
     def test_recv_message_invalid_json(self):
         ctrl = ControlChannel()
@@ -184,7 +184,7 @@ class ControlChannelTests(unittest.TestCase):
     def test_recv_message_partial_on_close(self):
         ctrl = ControlChannel()
         ctrl._set_state(STATE_OPEN)
-        ctrl._deliver(b'{"t":"tun","c":"ping"')
+        ctrl._deliver(b'{"t":"tun","c":"noop"')
         ctrl._set_state(STATE_CLOSED)
         with self.assertRaises(ChannelError) as ctx:
             ctrl.recv_message(timeout=0.1)
@@ -342,7 +342,7 @@ class ChannelManagerTests(unittest.TestCase):
         ch._set_state(STATE_OPEN)
         ch.write(b'abc')
         mgr._channels[1] = ch
-        segments = mgr.collect_segments(64, keepalive_data=b'{"t":"tun","c":"ping"}\n')
+        segments = mgr.collect_segments(64, keepalive_data=b'keepalive')
         channels = [seg.channel for seg in segments]
         self.assertNotIn(CHANNEL_CONTROL, channels)
 
@@ -356,7 +356,7 @@ class ChannelManagerTests(unittest.TestCase):
         original_log_event = channel_manager_module.log_event
         channel_manager_module.log_event = fake_log_event
         try:
-            segments = mgr.collect_segments(64, keepalive_data=b'ping')
+            segments = mgr.collect_segments(64, keepalive_data=b'keepalive')
         finally:
             channel_manager_module.log_event = original_log_event
 
@@ -374,14 +374,14 @@ class ChannelManagerTests(unittest.TestCase):
 
         channel_manager_module.log_event = fake_log_event
         try:
-            segments = mgr.collect_segments(64, keepalive_data=b'ping')
+            segments = mgr.collect_segments(64, keepalive_data=b'keepalive')
         finally:
             channel_manager_module.log_event = original_log_event
 
         self.assertEqual(len(events), 1)
         self.assertFalse(events[0].get('keepalive'))
         self.assertTrue(any(seg.channel == 1 for seg in segments))
-        self.assertFalse(any(seg.channel == CHANNEL_CONTROL and seg.data == b'ping' for seg in segments))
+        self.assertFalse(any(seg.channel == CHANNEL_CONTROL and seg.data == b'keepalive' for seg in segments))
 
     def test_collect_segments_minimum_space(self):
         mgr = ChannelManager(is_alice=True, config=make_test_config())

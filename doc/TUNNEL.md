@@ -175,17 +175,19 @@ When no data is pending, Alice sends periodic keepalive packets to:
 2. Give Bob an opportunity to send data
 3. Prevent NAT/firewall timeouts
 
-Keepalive is a packet with:
+Keepalive is a header-only packet with:
 - Valid seq/ack/sack
-- A `{"t":"tun","c":"ping"}` control message on channel 0
+- `FLAG_KEEPALIVE` set
+- Zero segments
 
-Bob responds with `{"t":"tun","c":"pong"}` (or his pending data if he has any).
+Any poll-only packet (zero segments) uses the keepalive flag. Bob responds
+with a keepalive-flag packet when idle, or with queued data if available.
 If either side has actual data to send, the packet itself serves as
-keepalive—no explicit ping/pong needed.
+keepalive—no channel 0 ping/pong needed.
 
 Keepalive interval is configurable (default: 5 seconds).
 
-Pong responses are suppressed when any channel data is queued; real data
+Keepalive responses are suppressed when any channel data is queued; real data
 replaces the keepalive.
 
 ---
@@ -203,7 +205,7 @@ field. See `doc/CONTROL_MESSAGES.md` for the message format specification.
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │              Core Handlers (built-in)                  │  │
 │  │  t="tun" ──▶ _handle_tunnel_message()                 │  │
-│  │              (ping, pong, mtu, window)                │  │
+│  │              (mtu, window)                            │  │
 │  │  t="ch"  ──▶ channel_manager.handle_control_message() │  │
 │  │              (open, close)                            │  │
 │  └───────────────────────────────────────────────────────┘  │
@@ -222,7 +224,7 @@ The tunnel owns two reserved message types that cannot be overridden:
 
 | Type | Handler | Messages |
 |------|---------|----------|
-| `tun` | Tunnel | ping, pong, mtu, mtu_ok, window, window_ok |
+| `tun` | Tunnel | mtu, mtu_ok, mtu_ack, window, window_ok |
 | `ch` | ChannelManager | open, open_ok, open_fail, close, close_ok |
 
 ### Module Registration

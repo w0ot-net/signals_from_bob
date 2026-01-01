@@ -453,7 +453,7 @@ class EndToEndTests(unittest.TestCase):
             alice.connect(timeout=2.0)
             self.assertEqual(alice.state, TunnelState.CONNECTED)
 
-            # Tick a few times - ping/pong are handled internally
+            # Tick a few times - keepalives are handled internally
             initial_sent = alice._packets_sent
             for _ in range(3):
                 alice.tick()
@@ -551,14 +551,19 @@ class BobRetransmitTests(unittest.TestCase):
         from sfb.protocol import Packet, Segment, PACKET_HEADER_SIZE
         segments = bob._collect_segments(200 - PACKET_HEADER_SIZE)
         packet, seq = bob._build_packet(segments=segments)
-        bob._send_window.send(segments, now=time.time() - 1.0)
+        bob._send_window.send(
+            segments,
+            flags=packet.flags,
+            now=time.time() - 1.0,
+        )
 
         # Now verify there's an unacked packet with segments
         oldest = bob._send_window.get_oldest_unacked()
         self.assertIsNotNone(oldest)
-        stored_seq, stored_segments = oldest
+        stored_seq, stored_segments, stored_flags = oldest
         self.assertEqual(stored_seq, 101)
         self.assertEqual(stored_segments, segments)
+        self.assertEqual(stored_flags, packet.flags)
 
         # Simulate receiving a packet (to change ack state)
         bob._recv_window.set_initial_seq(202)  # Simulate ack advancement
@@ -578,6 +583,34 @@ class BobRetransmitTests(unittest.TestCase):
         response_packet = Packet.decode(sent_responses[0])
         self.assertEqual(response_packet.seq, 101)  # Same seq as original
         self.assertEqual(response_packet.ack, 202)  # Fresh ack value
+
+    def test_retransmit_preserves_flags(self):
+        """Verify retransmits preserve packet flags."""
+        from sfb.protocol import Packet, FLAG_KEEPALIVE
+        server = MockServer()
+        bob = BobTunnel(server, make_test_config(), crypto=Plain())
+
+        # Simulate connected state
+        bob._set_state(TunnelState.CONNECTED)
+        bob._local_isn = 100
+        bob._remote_isn = 200
+        bob._recv_window.set_initial_seq(201)
+        bob._send_window._next_seq = 101
+
+        # Record a keepalive-only packet as unacked
+        bob._send_window.send([], flags=FLAG_KEEPALIVE, now=time.time() - 5.0)
+
+        sent_responses = []
+
+        def mock_responder(data):
+            sent_responses.append(data)
+
+        bob._send_response(mock_responder, time.time())
+
+        self.assertEqual(len(sent_responses), 1)
+        response_packet = Packet.decode(sent_responses[0])
+        self.assertEqual(response_packet.flags, FLAG_KEEPALIVE)
+        self.assertEqual(len(response_packet.segments), 0)
 
 
 class WindowEnforcementTests(unittest.TestCase):
@@ -667,8 +700,8 @@ class IdleTimeoutTests(unittest.TestCase):
 class ControlMessageTests(unittest.TestCase):
     """Tests for control message handling."""
 
-    def test_ping_triggers_pong(self):
-        """Verify ping message causes pong to be queued for sending."""
+    def test_ping_ignored(self):
+        """Verify legacy ping is ignored."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
         tunnel = BaseTunnel(make_test_config())
@@ -676,15 +709,11 @@ class ControlMessageTests(unittest.TestCase):
         # Initially no data queued
         self.assertEqual(tunnel.control.send_buf_size, 0)
 
-        # Handle a ping message (new format)
+        # Handle a ping message (legacy)
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'ping'})
 
-        # Pong should be queued in control channel's send buffer
-        self.assertGreater(tunnel.control.send_buf_size, 0)
-        # Check the actual content
-        send_data = b''.join(tunnel.control._send_buf)
-        self.assertIn(b'"t":"tun"', send_data)
-        self.assertIn(b'"c":"pong"', send_data)
+        # Pong should not be queued in control channel's send buffer
+        self.assertEqual(tunnel.control.send_buf_size, 0)
 
     def test_missing_t_field_dropped(self):
         """Verify messages without t field are dropped."""
@@ -695,7 +724,7 @@ class ControlMessageTests(unittest.TestCase):
         # Message without t field should be dropped
         tunnel._dispatch_control_message({'c': 'ping'})
 
-        # No pong should be queued (message was invalid)
+        # No response should be queued (message was invalid)
         self.assertEqual(tunnel.control.send_buf_size, 0)
 
     def test_unknown_messages_logged_not_error(self):
@@ -708,6 +737,99 @@ class ControlMessageTests(unittest.TestCase):
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'unknown_cmd'})
         tunnel._dispatch_control_message({'t': 'unknown_type', 'c': 'foo'})
         tunnel._dispatch_control_message({'foo': 'bar'})
+
+
+class KeepaliveFlagTests(unittest.TestCase):
+    """Tests for keepalive flag behavior."""
+
+    def test_keepalive_before_connected_closes(self):
+        from sfb.protocol import Packet, FLAG_KEEPALIVE
+
+        tunnel = BaseTunnel(make_test_config())
+        packet = Packet(seq=1, ack=0, sack=0, flags=FLAG_KEEPALIVE)
+        data = tunnel._encode_packet(packet)
+        decoded = tunnel._decode_packet(data)
+        self.assertIsNone(decoded)
+        self.assertEqual(tunnel.state, TunnelState.CLOSED)
+
+    def test_keepalive_with_segments_closes(self):
+        from sfb.protocol import Packet, Segment, FLAG_KEEPALIVE
+
+        tunnel = BaseTunnel(make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._recv_window.set_initial_seq(1)
+        packet = Packet(seq=1, ack=0, sack=0, flags=FLAG_KEEPALIVE)
+        packet.add_segment(Segment(0, b'data'))
+        data = tunnel._encode_packet(packet)
+        decoded = tunnel._decode_packet(data)
+        self.assertIsNone(decoded)
+        self.assertEqual(tunnel.state, TunnelState.CLOSED)
+
+    def test_keepalive_with_syn_closes(self):
+        from sfb.protocol import Packet, FLAG_KEEPALIVE, FLAG_SYN
+
+        tunnel = BaseTunnel(make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        packet = Packet(seq=1, ack=0, sack=0, flags=FLAG_KEEPALIVE | FLAG_SYN)
+        data = tunnel._encode_packet(packet)
+        decoded = tunnel._decode_packet(data)
+        self.assertIsNone(decoded)
+        self.assertEqual(tunnel.state, TunnelState.CLOSED)
+
+    def test_keepalive_only_packet_accepted(self):
+        from sfb.protocol import Packet, FLAG_KEEPALIVE
+
+        tunnel = BaseTunnel(make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._recv_window.set_initial_seq(1)
+        packet = Packet(seq=1, ack=0, sack=0, flags=FLAG_KEEPALIVE)
+        data = tunnel._encode_packet(packet)
+        decoded = tunnel._decode_packet(data)
+        self.assertIsNotNone(decoded)
+        tunnel._process_incoming_packet(decoded, now=time.time())
+        self.assertEqual(tunnel.control._recv_buf_size, 0)
+        self.assertEqual(tunnel.state, TunnelState.CONNECTED)
+
+    def test_alice_keepalive_flag_not_real_data(self):
+        from sfb.protocol import Packet, FLAG_KEEPALIVE
+
+        transport = MockTransport()
+        alice = AliceTunnel(transport, make_test_config(), crypto=Plain())
+        alice._set_state(TunnelState.CONNECTED)
+        alice._recv_window.set_initial_seq(1)
+        packet = Packet(seq=1, ack=0, sack=0, flags=FLAG_KEEPALIVE)
+        data = alice._encode_packet(packet)
+        valid, has_real_data = alice._handle_response(data, now=time.time())
+        self.assertTrue(valid)
+        self.assertFalse(has_real_data)
+        self.assertFalse(alice._got_data)
+
+    def test_bob_idle_response_uses_keepalive_flag(self):
+        from sfb.protocol import Packet, FLAG_KEEPALIVE
+
+        server = MockServer()
+        config = make_test_config(
+            tunnel_bob_coalesce_delay=0,
+            tunnel_bob_coalesce_min_bytes=0,
+        )
+        bob = BobTunnel(server, config, crypto=Plain())
+        bob._set_state(TunnelState.CONNECTED)
+        bob._local_isn = 100
+        bob._remote_isn = 200
+        bob._recv_window.set_initial_seq(201)
+        bob._send_window._next_seq = 101
+
+        sent_responses = []
+
+        def responder(data):
+            sent_responses.append(data)
+
+        bob._send_response(responder, time.time())
+
+        self.assertEqual(len(sent_responses), 1)
+        response_packet = Packet.decode(sent_responses[0])
+        self.assertEqual(response_packet.flags, FLAG_KEEPALIVE)
+        self.assertEqual(len(response_packet.segments), 0)
 
 
 class NegotiationTests(unittest.TestCase):
@@ -931,20 +1053,6 @@ class ModuleRegistrationTests(unittest.TestCase):
 class MessageFactoryTests(unittest.TestCase):
     """Tests for message factory functions."""
 
-    def test_tun_ping(self):
-        """Verify tun_ping creates correct message."""
-        from sfb.tunnel.tunnel_control_messages import tun_ping
-        msg = tun_ping().to_dict()
-        self.assertEqual(msg['t'], 'tun')
-        self.assertEqual(msg['c'], 'ping')
-
-    def test_tun_pong(self):
-        """Verify tun_pong creates correct message."""
-        from sfb.tunnel.tunnel_control_messages import tun_pong
-        msg = tun_pong().to_dict()
-        self.assertEqual(msg['t'], 'tun')
-        self.assertEqual(msg['c'], 'pong')
-
     def test_tun_mtu(self):
         """Verify tun_mtu creates correct message."""
         from sfb.tunnel.tunnel_control_messages import tun_mtu
@@ -1023,8 +1131,8 @@ class MessageFactoryTests(unittest.TestCase):
 
     def test_encode(self):
         """Verify encode produces valid JSON bytes."""
-        from sfb.tunnel.tunnel_control_messages import encode, tun_ping
-        msg = tun_ping()
+        from sfb.tunnel.tunnel_control_messages import encode, tun_mtu
+        msg = tun_mtu(500, 300)
         encoded = encode(msg)
         self.assertIsInstance(encoded, bytes)
         self.assertTrue(encoded.endswith(b'\n'))

@@ -94,7 +94,9 @@ class ReliabilitySim(object):
             now = tick * self._tick_sec
 
             rto_sec = self._rtt.rto_sec
-            for seq, data in self._send_win.get_retransmits(rto_sec, now=now):
+            for seq, data, _ in self._send_win.get_retransmits(
+                    rto_sec, now=now
+            ):
                 self._send_win.mark_retransmit(seq, now=now)
                 self._a_to_b.send((seq, data), now, self._tick_sec)
 

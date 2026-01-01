@@ -20,20 +20,18 @@ from ..channel import ChannelManager, ChannelError
 from ..config import Config
 from ..crypto import Plain
 from .tunnel_control_messages import (
-    tun_pong,
     tun_mtu,
     tun_mtu_ok,
     tun_mtu_ack,
     tun_window,
     tun_window_ok,
-    encode as encode_message,
 )
 from ..protocol import (
     Packet,
-    PacketHeader,
     Segment,
     FLAG_SYN,
     FLAG_ACK,
+    FLAG_KEEPALIVE,
     PACKET_HEADER_SIZE,
     seq_diff,
 )
@@ -242,7 +240,7 @@ class BaseTunnel(object):
         Build a packet with current seq/ack state.
 
         Args:
-            flags: Packet flags (FLAG_SYN, FLAG_ACK)
+            flags: Packet flags (FLAG_SYN, FLAG_ACK, FLAG_KEEPALIVE)
             segments: List of Segment instances
 
         Returns:
@@ -283,7 +281,7 @@ class BaseTunnel(object):
             'next_seq': next_seq,
         })
 
-    def _rebuild_packet(self, seq, segments):
+    def _rebuild_packet(self, seq, segments, flags=0):
         """
         Rebuild a packet with specific seq and fresh ack/sack.
 
@@ -292,6 +290,7 @@ class BaseTunnel(object):
         Args:
             seq: Sequence number to use (from original send)
             segments: List of Segment instances (from original send)
+            flags: Packet flags (from original send)
 
         Returns:
             Packet: Rebuilt packet with fresh ack/sack
@@ -299,7 +298,7 @@ class BaseTunnel(object):
         ack = self._recv_window.ack
         sack = self._recv_window.sack
 
-        packet = Packet(seq=seq, ack=ack, sack=sack, flags=0)
+        packet = Packet(seq=seq, ack=ack, sack=sack, flags=flags)
         if segments:
             for seg in segments:
                 packet.add_segment(seg)
@@ -310,6 +309,47 @@ class BaseTunnel(object):
         """Encode and encrypt a packet."""
         raw = packet.encode()
         return self._encrypt(raw)
+
+    def _close_protocol_violation(self, reason, packet=None):
+        fields = {
+            'reason': reason,
+            'state': self._state,
+            'side': 'alice' if self._is_initiator else 'bob',
+        }
+        if packet is not None:
+            fields.update({
+                'seq': packet.seq,
+                'ack': packet.ack,
+                'sack': packet.sack,
+                'flags': packet.flags,
+                'seg_count': len(packet.segments),
+            })
+        log_event(
+            self._logger,
+            logging.ERROR,
+            'tunnel.protocol_violation',
+            'Protocol violation',
+            fields,
+        )
+        self.close()
+        return False
+
+    def _validate_keepalive_packet(self, packet):
+        if not (packet.flags & FLAG_KEEPALIVE):
+            return True
+        if packet.flags & (FLAG_SYN | FLAG_ACK):
+            return self._close_protocol_violation(
+                'keepalive_with_syn_ack', packet
+            )
+        if self._state != TunnelState.CONNECTED:
+            return self._close_protocol_violation(
+                'keepalive_before_connected', packet
+            )
+        if packet.segments:
+            return self._close_protocol_violation(
+                'keepalive_with_segments', packet
+            )
+        return True
 
     def _decode_packet(self, data, max_size=None):
         """
@@ -326,7 +366,10 @@ class BaseTunnel(object):
             max_size = self._max_packet_size
         try:
             decrypted = self._decrypt(data)
-            return Packet.decode(decrypted, max_size=max_size)
+            packet = Packet.decode(decrypted, max_size=max_size)
+            if not self._validate_keepalive_packet(packet):
+                return None
+            return packet
         except (ValueError, TypeError) as e:
             fields = {
                 'error': str(e),
@@ -418,7 +461,10 @@ class BaseTunnel(object):
         )
 
         # Deliver segments from in-order packets only
+        delivered_segments = False
         for seq, ready_packet in ready_packets:
+            if ready_packet.flags & FLAG_KEEPALIVE:
+                continue
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -428,9 +474,11 @@ class BaseTunnel(object):
             )
             for segment in ready_packet.segments:
                 self._channel_manager.deliver_segment(segment)
+                delivered_segments = True
 
         # Process control messages
-        self._process_control_messages()
+        if delivered_segments:
+            self._process_control_messages()
 
         self._packets_received += 1
 
@@ -528,7 +576,7 @@ class BaseTunnel(object):
         - c: Command within that type
 
         Dispatch order:
-        1. t="tun" -> tunnel handles (ping/pong, negotiation)
+        1. t="tun" -> tunnel handles (negotiation)
         2. t="ch"  -> channel_manager handles (open/close)
         3. t=other -> registered module handler
         4. Unknown -> log and drop
@@ -577,7 +625,7 @@ class BaseTunnel(object):
         """
         Handle tunnel-level control messages (t="tun").
 
-        Commands: ping, pong, mtu, mtu_ok, window, window_ok
+        Commands: mtu, mtu_ok, mtu_ack, window, window_ok
         """
         log_event(
             self._logger,
@@ -586,12 +634,9 @@ class BaseTunnel(object):
             'Tunnel command received',
             {'cmd': cmd},
         )
-        if cmd == 'ping':
-            self._handle_ping(msg)
-        elif cmd == 'pong':
-            # pong confirms peer is alive - nothing else to do
-            pass
-        elif cmd == 'mtu':
+        if cmd in ('ping', 'pong'):
+            return
+        if cmd == 'mtu':
             self._handle_mtu(msg)
         elif cmd == 'mtu_ok':
             self._handle_mtu_ok(msg)
@@ -619,9 +664,8 @@ class BaseTunnel(object):
         self._channel_manager.handle_control_message(msg)
 
     def _handle_ping(self, msg):
-        """Handle ping by queueing pong."""
-        if not self._channel_manager.has_pending_data():
-            self.control.send_message(tun_pong())
+        """Legacy ping handler (ignored)."""
+        return
 
     def _handle_mtu(self, msg):
         """
@@ -817,7 +861,7 @@ class BaseTunnel(object):
 
         Args:
             max_payload: Max bytes for segments
-            keepalive_data: Optional keepalive bytes if no data
+            keepalive_data: Optional keepalive bytes if no data (legacy)
 
         Returns:
             list: List of Segment instances

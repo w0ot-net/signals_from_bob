@@ -9,6 +9,7 @@ from sfb.protocol import (
     Segment,
     FLAG_SYN,
     FLAG_ACK,
+    FLAG_KEEPALIVE,
 )
 
 
@@ -29,20 +30,26 @@ class PacketHeaderTests(unittest.TestCase):
         self.assertRaises(ValueError, PacketHeader.decode, bytes(data))
 
     def test_rejects_invalid_flags(self):
-        self.assertRaises(ValueError, PacketHeader, flags=0x04)
+        self.assertRaises(ValueError, PacketHeader, flags=0x08)
+
+    def test_keepalive_flag_roundtrip(self):
+        header = PacketHeader(seq=10, ack=20, sack=0, flags=FLAG_KEEPALIVE)
+        data = header.encode()
+        decoded = PacketHeader.decode(data)
+        self.assertEqual(decoded.flags, FLAG_KEEPALIVE)
 
 
 class PacketTests(unittest.TestCase):
     def test_packet_roundtrip(self):
         packet = Packet(seq=5, ack=7)
-        packet.add_segment(Segment(0, b'{"cmd":"ping"}\n'))
+        packet.add_segment(Segment(0, b'{"cmd":"hello"}\n'))
         data = packet.encode()
         decoded = Packet.decode(data)
         self.assertEqual(decoded.seq, 5)
         self.assertEqual(decoded.ack, 7)
         self.assertEqual(len(decoded.segments), 1)
         self.assertEqual(decoded.segments[0].channel, 0)
-        self.assertEqual(decoded.segments[0].data, b'{"cmd":"ping"}\n')
+        self.assertEqual(decoded.segments[0].data, b'{"cmd":"hello"}\n')
 
     def test_decode_enforces_max_size(self):
         packet = Packet(seq=1, ack=1)

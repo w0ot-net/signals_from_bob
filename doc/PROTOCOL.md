@@ -54,11 +54,18 @@ and consuming len bytes of payload, repeating until the packet is exhausted.
 ```
 Bit 0 (0x01): SYN - Handshake initiation
 Bit 1 (0x02): ACK - Handshake acknowledgment
-Bits 2-7:     Reserved (must be 0)
+Bit 2 (0x04): KEEPALIVE - Header-only keepalive packet (no segments)
+Bits 3-7:     Reserved (must be 0)
 ```
 
 SYN and ACK are only used during the handshake. After connection establishment,
-flags is 0 for all data packets.
+flags is 0 for all data packets except KEEPALIVE.
+
+KEEPALIVE constraints:
+- Only valid after the tunnel reaches CONNECTED state
+- MUST NOT be combined with SYN or ACK
+- MUST contain zero segments
+- Any violation is a fatal protocol error (log, drop, close)
 
 ---
 
@@ -121,17 +128,18 @@ for the complete control message specification including:
 All messages use the format `{"t":"<type>","c":"<command>",...}`:
 
 ```json
-{"t":"tun","c":"ping"}
 {"t":"tun","c":"mtu","tx":500,"rx":150}
 {"t":"ch","c":"open","ch":2,"atype":"ipv4","addr":"192.168.1.1","port":8080}
 {"t":"ch","c":"close","ch":2}
 ```
 
+Keepalive is a header flag with zero segments, not a channel 0 message.
+
 ### Message Types
 
 | Type | Description |
 |------|-------------|
-| `tun` | Tunnel: ping/pong, mtu, window negotiation |
+| `tun` | Tunnel: mtu/window negotiation (keepalive is a header flag) |
 | `ch` | Channel: open/close lifecycle |
 | `file` | File transfer module |
 | `sock` | SOCKS proxy module |
@@ -172,7 +180,8 @@ is active at a time; Bob ignores any traffic he does not understand.
 
 For polling transports, the handshake completes in 2 round-trips:
 - Round 1: Alice sends SYN (query), Bob responds SYN+ACK (response)
-- Round 2: Alice sends ACK (query), Bob responds with data or PONG (response)
+- Round 2: Alice sends ACK (query), Bob responds with data or keepalive-only
+  (KEEPALIVE flag, no segments)
 
 ---
 

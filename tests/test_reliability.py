@@ -83,7 +83,7 @@ class SendWindowTests(unittest.TestCase):
         retransmits = win.get_retransmits(rto_sec=0.5, now=1.4)
         self.assertEqual(retransmits, [])
         retransmits = win.get_retransmits(rto_sec=0.5, now=1.6)
-        self.assertEqual(retransmits, [(0, b'a')])
+        self.assertEqual(retransmits, [(0, b'a', 0)])
 
     def test_ack_retransmit_has_no_rtt_sample(self):
         win = SendWindow(max_in_flight=1)

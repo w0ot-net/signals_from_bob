@@ -7,6 +7,7 @@ algorithm that:
 - Targets a configurable inflight ratio
 - Clamps to min(transport.max_pending, negotiated send window)
 - Preserves "poll immediately after real data" via pacer fast-start
+- Keepalive polls are not delayed by pacing when due
 
 This plan applies to Alice only. Bob remains opportunistic, per
 `doc/ASYMMETRY.md`.
@@ -39,24 +40,28 @@ Add a pacing helper (e.g., `sfb/tunnel/pacing.py`) that:
 
 ### Reliability Updates (Support)
 - `RttEstimator`: add read-only `srtt_ms` to expose the EWMA in milliseconds.
-- `SendWindow.process_ack`: return acked packet count alongside RTT samples
-  so Phase 2 can compute ack-rate EWMA without re-walking internal state.
+- `SendWindow.process_ack`: return acked packet count alongside RTT samples,
+  counting all newly acked packets (including retransmits) so Phase 2 can
+  compute ack-rate EWMA without re-walking internal state.
 
 ### Integration Points
 - `AliceTunnel._can_send_new()`:
   - Add `pacer.can_send(now, unacked_count)` check before send.
   - Keep existing transport and window checks.
+  - Bypass pacing for keepalive-only polls once the keepalive interval is due.
 - `AliceTunnel._handle_response()`:
   - Feed RTT samples into pacer for EWMA and pacing updates.
-  - Detect real data (`has_real_data` / `_got_data`) to trigger fast-start.
+  - Track if any response in the tick had real data and trigger fast-start.
 - `AliceTunnel._send_new_packet()`:
   - Inform pacer on actual sends (for pacing interval calculations).
+  - Do not update pacer timing for keepalive-only polls.
 - Retransmits do not update pacer timing state.
 
 ### Preserve "Poll Immediately After Real Data"
 - If Bob sends real data, fast-start allows immediate polls to refill toward target inflight.
 - After the burst, revert to pacing based on RTT EWMA.
 - Do not accelerate keepalive-only traffic; keep keepalive interval behavior.
+- Keepalive polls are sent on schedule even if pacing would otherwise block.
 
 ## Configuration Additions (Alice)
 Add config fields (names TBD, defaults conservative):
@@ -77,10 +82,14 @@ Expose via CLI overrides, similar to other tunnel knobs.
   - and `now - last_send >= rtt_sec / target` (optional if we want spacing)
 - Update RTT EWMA from `RttEstimator` samples (first TX only).
 - Use `srtt_ms` with `rtt_floor_ms` to derive `rtt_sec` (fallback to floor if `srtt_ms` is unset).
+- Treat keepalive-only polls as exempt from pacing gates once the keepalive
+  interval has elapsed; pacing still applies to real data sends.
 
 ## Control Loop Enhancements (Phase 2)
 - Add ack-rate EWMA (packets per second).
-- Source acked packet counts from `SendWindow.process_ack`.
+- Source acked packet counts from `SendWindow.process_ack` (count any newly
+  acked packet, including those acking retransmits; still only use first-TX
+  acks for RTT samples).
 - Estimate pipe size: `pipe = ack_rate * rtt_sec`.
 - Set `target = clamp(pipe * inflight_gain, min_inflight, cap)`.
 - Adjust gain based on observed `tunnel.send_blocked` ratio.

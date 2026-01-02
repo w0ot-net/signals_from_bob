@@ -12,21 +12,23 @@ while preserving Python 2.7/3 compatibility and current external behavior.
 - ASCII only for code and scripts.
 
 ## Current Behavior (Problem Statement)
-- `to_bytes()` always copies for `memoryview`/`bytearray` via `.tobytes()`.
+- In Py3, `to_bytes()` always copies for `memoryview`/`bytearray` via
+  `.tobytes()`.
+- In Py2, `to_bytes()` is an alias of `require_bytes_like()` and rejects
+  `memoryview`.
 - `require_bytes_like()` uses `try/except TypeError` for the buffer protocol;
   invalid inputs pay exception cost.
 - `buffer_view()` always creates a view and may slice even when the length is
   unchanged, creating extra objects in tight loops.
 - Some call sites require real `bytes` for concatenation, text decoding, or
   immutable queueing (segment encoding, DNS name parsing, DNS A/TXT RDATA,
-  in-memory transport queues, ICMP parse payload).
+  in-memory transport queues, ICMP parse payload, Plain cipher return value).
 
 ## Performance Opportunities
 - Avoid unnecessary `to_bytes()` calls where bytes-like objects are sufficient.
-- Reduce wrapper churn by returning `bytearray` unchanged when allowed.
-- Avoid exception-as-control-flow if invalid inputs are common in hot paths.
-- Avoid extra view objects when the requested length already matches.
-- Make bytes-only boundaries explicit to avoid implicit copies.
+- Make bytes-only boundaries explicit and documented to avoid implicit copies.
+- Prefer bytes-like storage/processing internally, and convert to bytes at the
+  last possible boundary where required.
 
 ## Options
 
@@ -38,18 +40,21 @@ while preserving Python 2.7/3 compatibility and current external behavior.
 - If `require_bytes_like()` returns `bytearray`, update `to_bytes()` to handle
   it without calling `.tobytes()`.
 
-### Option B: Separate "bytes-only" from "bytes-like" paths
+### Option B: Bytes-only boundaries plus call site refactors
 - Keep `require_bytes_like()` as the default for bytes-like validation.
 - Limit `to_bytes()` to true boundary points that require a `bytes` object
-  (e.g., encoding, struct packing, hashing, or network write APIs).
-- Update call sites that currently call `to_bytes()` but only need bytes-like
-  access (slicing, indexing, length).
-- Keep `to_bytes()` at known bytes-only boundaries:
-  - Segment encode/pack (bytes concatenation).
-  - DNS name parsing/encoding and A/TXT RDATA handling (ASCII decode/encode).
-  - Transport boundaries that promise immutable bytes to callers or queues
-    (in-memory transport request/response queues, ICMP parse payload).
-  - Any transport send path that relies on immutable bytes semantics.
+  (encoding/decoding, bytes concatenation, immutable queueing).
+- For every `to_bytes()` call site, decide bytes-only vs bytes-like and change
+  call sites aggressively when it removes copies cleanly.
+- Candidate refactors if they are net wins:
+  - `Segment` stores bytes-like; `encode()` converts to bytes for concatenation.
+  - `Plain.encrypt()` continues to return bytes; convert at the boundary, not
+    earlier.
+  - DNS decode/encode and TXT/A RDATA remain bytes-only boundaries.
+  - ICMP parse payload remains bytes-only boundary.
+  - In-memory transport queues remain bytes-only boundaries for immutability.
+- Explicitly avoid adding `to_bytes()` in socket send paths (buffer protocol is
+  accepted).
 
 ### Option C: Reduce exception overhead in `require_bytes_like()` (defer)
 - Add early checks for common invalid types (text, int, None) before attempting
@@ -57,37 +62,36 @@ while preserving Python 2.7/3 compatibility and current external behavior.
 - Keep the `try/except` for buffer-protocol types not on the fast path.
 
 ## Recommendation
-Implement Option B only. Keep `to_bytes()` at explicit bytes-only boundaries,
-and avoid it where bytes-like objects are sufficient. Defer Option A and Option C
-unless profiling shows they are required.
+Implement Option B. Use it aggressively: change any call site that removes
+copies or wrapper churn without making APIs messier. If the audit shows no
+meaningful wins, stop and reassess Option C or Option A based on profiling.
 
 ## Implementation Steps
-1. Audit every `to_bytes()` call site and tag it as bytes-only or bytes-like;
-   keep bytes-only boundaries and remove conversions elsewhere.
-2. Replace non-boundary `to_bytes()` calls with `require_bytes_like()` (or local
-   validation) and defer conversion to explicit bytes-only boundaries.
-3. Keep `to_bytes()` at explicit bytes-only boundaries (segment encode/pack,
-   DNS decoding/encoding, in-memory transport queueing, ICMP parse payload,
-   and any immutable-bytes transport sends).
-4. Update docstrings to document any semantic changes consistently across Py2/3.
+1. Inventory every `to_bytes()` call site and any `bytes` concatenation or
+   decoding site; tag each as bytes-only or bytes-like.
+2. For bytes-like sites, remove `to_bytes()` and update adjacent call sites to
+   accept bytes-like inputs; keep return types unchanged where documented.
+3. For bytes-only boundaries, keep or add `to_bytes()` and document the
+   boundary contract in docstrings.
+4. Update docs for any semantic changes consistently across Py2/3.
+5. If the above yields no measurable reduction in copies, consider Option C or
+   Option A as a follow-up change (with a fresh audit).
 
 ## Tests
 - Add unit coverage for:
-  - `to_bytes()` on `bytearray` and `memoryview`, and rejection of text.
+  - `to_bytes()` on `bytearray` and `memoryview` in Py3; `memoryview` raises
+    `TypeError` in Py2; reject text on both.
   - `crypto._require_key()` accepting bytes-like and rejecting text.
+  - `Plain.encrypt()` returning bytes for bytes-like inputs (if unchanged).
 - Run fast unit tests with `python3`; do not run `tests/e2e/` locally.
 
 ## Affected Components
 - sfb/compat.py
 - sfb/crypto.py
-- sfb/channel/channel.py
 - sfb/protocol/segment.py
 - sfb/transport/dns/codec.py
-- sfb/transport/dns/dns_client.py
-- sfb/transport/dns/dns_server.py
 - sfb/transport/icmp/icmp_packet.py
-- sfb/transport/icmp/icmp_client.py
-- sfb/transport/icmp/icmp_server.py
 - sfb/transport/memory/memory_client.py
 - sfb/transport/memory/memory_server.py
 - tests (compat helper unit coverage)
+- doc/COMPAT_PERF_PLAN.md

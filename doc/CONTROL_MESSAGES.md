@@ -173,6 +173,12 @@ Until `window_ok` is received, both sides use max_in_flight = 1.
 
 Channel messages manage the lifecycle of data channels.
 
+### Channel 0 Constraint
+
+Channel 0 is reserved for control messages and is always open. Any channel
+message (`t="ch"`) that targets `ch=0` is a fatal protocol error: log, drop the
+message, and close the tunnel.
+
 ### open
 
 Request to open a channel. Channels are generic bidirectional byte streams;

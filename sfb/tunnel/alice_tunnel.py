@@ -98,6 +98,10 @@ class AliceTunnel(BaseTunnel):
             config.tunnel_pace_target_inflight_ratio,
             config.tunnel_pace_min_inflight,
             config.tunnel_pace_max_inflight,
+            config.tunnel_pace_feedback_gain,
+            config.tunnel_pace_ack_ewma_alpha,
+            config.tunnel_pace_rtt_floor_ms,
+            config.tunnel_pace_ack_idle_reset_sec,
         )
 
         # Enable module loader for handling Bob's module requests.
@@ -493,7 +497,7 @@ class AliceTunnel(BaseTunnel):
         if self._pacer.enabled and not keepalive_only:
             cap = self._pacer_cap()
             unacked = self._send_window.unacked_count
-            if not self._pacer.can_send(unacked, cap):
+            if not self._pacer.can_send(unacked, cap, srtt_ms=self._rtt.srtt_ms):
                 self._log_pacer_state(cap, unacked, action='blocked')
                 log_event(
                     self._logger,
@@ -585,6 +589,7 @@ class AliceTunnel(BaseTunnel):
                 unacked_count,
                 cap,
                 rate_limit=self._config.tunnel_send_rate,
+                srtt_ms=self._rtt.srtt_ms,
             )
             fields['side'] = 'alice'
             if action is not None:
@@ -747,13 +752,15 @@ class AliceTunnel(BaseTunnel):
         self._got_data = has_real_data
 
         prev_unacked = self._send_window.unacked_count
-        rtt_samples, acked_count = self._process_incoming_packet(
+        rtt_samples, acked_count, data_acked_count = self._process_incoming_packet(
             packet, now=now, packet_size=packet_size
         )
         new_unacked = self._send_window.unacked_count
         if rtt_samples or acked_count > 0:
             self._last_ack_progress_time = now
             self._ack_progressed = True
+        if self._pacer.enabled and data_acked_count > 0:
+            self._pacer.on_ack(data_acked_count, now)
 
         for sample in rtt_samples:
             self._rtt.add_sample(sample)

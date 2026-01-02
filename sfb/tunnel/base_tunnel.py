@@ -424,7 +424,7 @@ class BaseTunnel(object):
             packet_size: Optional encoded packet size from decode
 
         Returns:
-            tuple: (rtt_samples, acked_count)
+            tuple: (rtt_samples, acked_count, data_acked_count)
         """
         if now is None:
             now = time.time()
@@ -450,7 +450,7 @@ class BaseTunnel(object):
             self._last_cum_ack_time = now
 
         unacked_before = self._send_window.unacked_count
-        rtt_samples, acked_count = self._send_window.process_ack(
+        rtt_samples, acked_count, data_acked_count = self._send_window.process_ack(
             packet.ack, packet.sack, now=now
         )
         unacked_after = self._send_window.unacked_count
@@ -503,7 +503,7 @@ class BaseTunnel(object):
 
         self._packets_received += 1
 
-        return (rtt_samples, acked_count)
+        return (rtt_samples, acked_count, data_acked_count)
 
     def _process_control_messages(self):
         """Process pending control messages from channel 0."""

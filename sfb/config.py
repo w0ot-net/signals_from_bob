@@ -122,6 +122,14 @@ class Config:
     tunnel_pace_min_inflight: int = 1
     # Alice: adaptive pacing maximum inflight target (None = cap)
     tunnel_pace_max_inflight: Optional[int] = None
+    # Alice: adaptive pacing feedback gain
+    tunnel_pace_feedback_gain: float = 1.0
+    # Alice: adaptive pacing ACK rate EWMA alpha
+    tunnel_pace_ack_ewma_alpha: float = 0.2
+    # Alice: adaptive pacing RTT floor in milliseconds
+    tunnel_pace_rtt_floor_ms: float = 5.0
+    # Alice: adaptive pacing ACK idle reset seconds
+    tunnel_pace_ack_idle_reset_sec: float = 2.0
     # Bob: poll interval while waiting for connection (seconds)
     tunnel_connect_poll_interval: float = 0.1
     # Small timeout for "non-blocking" polls to prevent busy loops (seconds)
@@ -331,6 +339,15 @@ class Config:
         if (self.tunnel_pace_max_inflight is not None and
                 self.tunnel_pace_max_inflight < self.tunnel_pace_min_inflight):
             raise ValueError("tunnel_pace_max_inflight must be >= tunnel_pace_min_inflight")
+        if self.tunnel_pace_feedback_gain <= 0:
+            raise ValueError("tunnel_pace_feedback_gain must be > 0")
+        if (self.tunnel_pace_ack_ewma_alpha <= 0 or
+                self.tunnel_pace_ack_ewma_alpha > 1):
+            raise ValueError("tunnel_pace_ack_ewma_alpha must be > 0 and <= 1")
+        if self.tunnel_pace_rtt_floor_ms <= 0:
+            raise ValueError("tunnel_pace_rtt_floor_ms must be > 0")
+        if self.tunnel_pace_ack_idle_reset_sec <= 0:
+            raise ValueError("tunnel_pace_ack_idle_reset_sec must be > 0")
         if self.tunnel_connect_poll_interval <= 0:
             raise ValueError("tunnel_connect_poll_interval must be > 0")
 

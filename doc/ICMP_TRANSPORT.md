@@ -144,11 +144,20 @@ Proposed config fields (final names TBD):
 - `icmp_max_pending`: max concurrent ICMP requests in flight
 - `icmp_pending_timeout`: timeout before pruning stale ICMP requests
 - `tunnel_send_rate` / `tunnel_send_burst`: transport-agnostic pacing for Alice polls
+- `tunnel_pace_target_inflight_ratio` / `tunnel_pace_min_inflight` /
+  `tunnel_pace_max_inflight`: adaptive pacing bounds
+- `tunnel_pace_feedback_gain` / `tunnel_pace_ack_ewma_alpha` /
+  `tunnel_pace_rtt_floor_ms` / `tunnel_pace_ack_idle_reset_sec`:
+  adaptive pacing feedback tuning
 
 CLI:
 - `--transport icmp`
 - Alice: `--icmp_target <host>`
-- Alice pacing (all transports): `--send_rate`, `--send_burst`
+- Alice pacing (all transports): `--send_rate`, `--send_burst`,
+  `--pace_target_inflight_ratio`, `--pace_min_inflight`,
+  `--pace_max_inflight`, `--pace_feedback_gain`,
+  `--pace_ack_ewma_alpha`, `--pace_rtt_floor_ms`,
+  `--pace_ack_idle_reset_sec`
 - Bob: likely no extra args beyond listen defaults
 
 ---

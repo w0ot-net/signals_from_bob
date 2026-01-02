@@ -132,7 +132,7 @@ class ReliabilitySim(object):
                 )
 
             for ack, sack in self._b_to_a.deliver(now):
-                samples, _ = self._send_win.process_ack(ack, sack, now=now)
+                samples, _, _ = self._send_win.process_ack(ack, sack, now=now)
                 for sample in samples:
                     self._rtt.add_sample(sample)
 

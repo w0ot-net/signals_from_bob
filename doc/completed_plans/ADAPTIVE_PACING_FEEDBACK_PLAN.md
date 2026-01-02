@@ -100,3 +100,12 @@ Expose via CLI under client pacing args. Validate in Config.
   - Mitigation: min_inflight clamp and idle reset fallback.
 - Risk: overshoot with bursty ACKs.
   - Mitigation: EWMA smoothing and gain defaults.
+
+## Execution Notes
+- Implemented ACK-rate feedback in `sfb/tunnel/pacing.py` with EWMA and RTT-based target selection.
+- Wired data-only ACK accounting through `sfb/reliability/send_window.py` and
+  `sfb/tunnel/base_tunnel.py`, feeding `pacer.on_ack` from Alice.
+- Added config and CLI knobs for feedback tuning; logging now includes srtt and
+  feedback targets.
+- Updated unit tests for pacing and ACK accounting; refreshed ICMP transport doc.
+- Tests: `python3 -m unittest tests.test_pacing tests.test_reliability tests.test_reliability_sim tests.test_tunnel`

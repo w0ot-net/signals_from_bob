@@ -220,6 +220,30 @@ def add_client_pacing_args(parser, config):
         help='Adaptive pacing maximum inflight (default: %s)' %
              config.tunnel_pace_max_inflight
     )
+    parser.add_argument(
+        '--pace_feedback_gain', type=float,
+        default=config.tunnel_pace_feedback_gain,
+        help='Adaptive pacing feedback gain (default: %s)' %
+             config.tunnel_pace_feedback_gain
+    )
+    parser.add_argument(
+        '--pace_ack_ewma_alpha', type=float,
+        default=config.tunnel_pace_ack_ewma_alpha,
+        help='Adaptive pacing ACK EWMA alpha (default: %s)' %
+             config.tunnel_pace_ack_ewma_alpha
+    )
+    parser.add_argument(
+        '--pace_rtt_floor_ms', type=float,
+        default=config.tunnel_pace_rtt_floor_ms,
+        help='Adaptive pacing RTT floor ms (default: %s)' %
+             config.tunnel_pace_rtt_floor_ms
+    )
+    parser.add_argument(
+        '--pace_ack_idle_reset_sec', type=float,
+        default=config.tunnel_pace_ack_idle_reset_sec,
+        help='Adaptive pacing ACK idle reset sec (default: %s)' %
+             config.tunnel_pace_ack_idle_reset_sec
+    )
 
 
 def add_module_args(parser):
@@ -333,6 +357,14 @@ def create_config(args):
             args, 'pace_min_inflight', None)
         config_kwargs['tunnel_pace_max_inflight'] = getattr(
             args, 'pace_max_inflight', None)
+        config_kwargs['tunnel_pace_feedback_gain'] = getattr(
+            args, 'pace_feedback_gain', None)
+        config_kwargs['tunnel_pace_ack_ewma_alpha'] = getattr(
+            args, 'pace_ack_ewma_alpha', None)
+        config_kwargs['tunnel_pace_rtt_floor_ms'] = getattr(
+            args, 'pace_rtt_floor_ms', None)
+        config_kwargs['tunnel_pace_ack_idle_reset_sec'] = getattr(
+            args, 'pace_ack_idle_reset_sec', None)
 
     # Server-specific
     if args.role == 'server':

@@ -609,9 +609,9 @@ class AliceTunnel(BaseTunnel):
             return event_fields
         log_event(
             self._logger,
-            logging.DEBUG,
+            logging.INFO,
             'tunnel.pacer_target',
-            'Pacer target adjusted',
+            'Pacer target adjusted to %s' % target,
             build_fields,
         )
 

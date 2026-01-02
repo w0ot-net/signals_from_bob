@@ -12,6 +12,14 @@ preserving protocol behavior and cross platform support.
   buffer is full, which wastes CPU as connection counts rise.
 - After channel.read timeouts, the pump sleeps again, adding extra idle
   latency.
+- Channel.write_wait slices the remaining payload on every retry, causing
+  repeated copies under sustained backpressure.
+- ChannelManager.collect_segments rescans active channels on every poll even
+  though send-state callbacks already track transitions, adding O(n) overhead.
+- ControlChannel.recv_message applies timeout per read instead of as a total
+  budget, so control handling can stall longer than intended on partial frames.
+- Drain stats are updated on the hot path regardless of logging level, adding
+  avoidable lock contention.
 
 ## Constraints
 - Python 2.7 and 3 compatible; standard library only.
@@ -44,6 +52,10 @@ preserving protocol behavior and cross platform support.
    - Explicitly handle EOF/half-close: treat zero-length recv as peer close,
      flush any pending outbound data, and tear down cleanly without spin; do
      not set stop_event on read-side EOF so the opposite pump can drain.
+   - Remove the unconditional stop_event set in pump_channel_to_socket; only
+     set stop_event on fatal errors (or after both pumps complete), and on
+     read-side EOF issue a socket shutdown(SHUT_WR) where supported so the
+     opposite direction can finish draining.
    - For sends, track a per-socket outbound buffer and partial sends; use a
      non-blocking send loop gated by select on writability, with a short
      timeout (100-250ms) to honor stop_event promptly.
@@ -63,6 +75,9 @@ preserving protocol behavior and cross platform support.
    - Clarify how socks_relay_socket_timeout and socks_relay_write_timeout map
      to the new select-based timeouts (e.g., socket timeout only for handshake,
      write timeout bounds select-on-writable); update config/CLI documentation.
+   - Decide how non_blocking_poll_timeout and socks_pump_backoff_max map to
+     select polling/backoff; if a value becomes unused, remove it from config,
+     CLI, tests, and scripts/icmp_socks_diag.py in the same change.
    - Document the chosen timeout values and verify they do not regress CPU.
 3. Add event driven backpressure for channel send buffers.
    - Extend Channel with a send buffer space event or wait method that
@@ -75,6 +90,9 @@ preserving protocol behavior and cross platform support.
      thread blocks forever on a closed channel.
    - Consider reusing the new wait method in Channel.write_wait so file transfer
      benefits from the same backpressure behavior.
+   - Update Channel.write_wait to avoid slicing/copying the remaining payload
+     per retry (use memoryview/buffer_view with an offset/length or a new
+     write_from-style API).
    - In pump_socket_to_channel, wait on the event when the send buffer is
      full instead of sleeping with exponential backoff.
    - Define socket->channel behavior under backpressure: stop reading from the
@@ -90,7 +108,15 @@ preserving protocol behavior and cross platform support.
    - If channel.read can return immediately (closed or zero timeout), add a
      small bounded wait or guard to prevent spin, aligned with the select
      timeout used by the socket side.
-5. Add targeted unit tests.
+5. Trim channel manager/control hot paths.
+   - In collect_segments, rely on _active_channels plus send-state callbacks
+     for data readiness; avoid per-poll _has_send_data scans, and if a safety
+     sweep is needed, run it on a slow cadence or under debug logging only.
+   - Gate drain stats tracking behind logger.isEnabledFor(logging.DEBUG) or a
+     config flag to skip locks when disabled.
+   - Make ControlChannel.recv_message honor a total timeout budget by tracking
+     a deadline and passing remaining time into read.
+6. Add targeted unit tests.
    - Channel send buffer wait method: blocks until buffer drains and respects
      timeouts.
    - Data pump: relay continues under backpressure without socket.timeout
@@ -100,6 +126,8 @@ preserving protocol behavior and cross platform support.
    - Data pump: EOF/half-close tears down promptly without spin and still
      delivers pending data (no premature stop_event on read-side EOF).
    - Channel send buffer wait method: unblocks on channel close/abort.
+   - ControlChannel.recv_message respects total timeout budget with partial
+     data arrivals.
    - Backpressure: control/close signaling is delivered even when data buffers
      are full.
    - Keepalive suppression: verify no pong when any channel has pending data,

@@ -170,6 +170,26 @@ class SendWindow(object):
             pkt.retransmit_count,
         )
 
+    def get_unacked_info(self, seq):
+        """
+        Get unacked packet data for a specific sequence number.
+
+        Returns:
+            tuple: (seq, segments, flags, encrypted_body, send_time, retransmit_count)
+                or None if not found.
+        """
+        pkt = self._unacked.get(seq)
+        if pkt is None:
+            return None
+        return (
+            seq,
+            pkt.segments,
+            pkt.flags,
+            pkt.encrypted_body,
+            pkt.send_time,
+            pkt.retransmit_count,
+        )
+
     def mark_retransmit(self, seq, now=None):
         """
         Mark a packet as retransmitted.

@@ -87,6 +87,7 @@ class AliceTunnel(BaseTunnel):
         self._window_growth_interval = config.tunnel_window_growth_interval
         self._last_window_request_time = 0
         self._ack_progressed = False
+        self._fast_retransmit_ack = None
         # Transport-agnostic send rate limiter
         self._send_limiter = RateLimiter(
             config.tunnel_send_rate,
@@ -406,7 +407,14 @@ class AliceTunnel(BaseTunnel):
         for seq, segments, flags, encrypted_body in retransmits:
             if not self._can_send_retransmit():
                 break
-            self._send_retransmit(seq, segments, flags, encrypted_body, now)
+            self._send_retransmit(
+                seq,
+                segments,
+                flags,
+                encrypted_body,
+                now,
+                reason='rto',
+            )
 
         # 3. Send new packets if we can
         while True:
@@ -562,6 +570,34 @@ class AliceTunnel(BaseTunnel):
             )
             return False
         return True
+
+    def _maybe_fast_retransmit(self, packet, now):
+        """
+        Fast retransmit if SACK indicates a gap at the cumulative ACK.
+        """
+        if packet.sack == 0:
+            self._fast_retransmit_ack = None
+            return False
+        ack = packet.ack
+        if self._fast_retransmit_ack == ack:
+            return False
+        info = self._send_window.get_unacked_info(ack)
+        if info is None:
+            return False
+        if not self._can_send_retransmit():
+            return False
+        seq, segments, flags, encrypted_body, _, _ = info
+        sent = self._send_retransmit(
+            seq,
+            segments,
+            flags,
+            encrypted_body,
+            now,
+            reason='fast_gap',
+        )
+        if sent:
+            self._fast_retransmit_ack = ack
+        return sent
 
     def _reserve_transport_permit(self, now):
         permit = self._transport.reserve_send(now=now)
@@ -731,7 +767,7 @@ class AliceTunnel(BaseTunnel):
             },
         )
 
-    def _send_retransmit(self, seq, segments, flags, encrypted_body, now):
+    def _send_retransmit(self, seq, segments, flags, encrypted_body, now, reason=None):
         """Retransmit a packet."""
         packet = self._rebuild_packet(seq, segments, flags=flags)
         if encrypted_body is None:
@@ -755,12 +791,12 @@ class AliceTunnel(BaseTunnel):
                     'burst': self._config.tunnel_send_burst,
                 },
             )
-            return
+            return False
 
         permit = self._transport.reserve_send(now=now)
         if permit is None:
             self._log_transport_blocked()
-            return
+            return False
 
         try:
             self._send_window.mark_retransmit(seq, now=now)
@@ -776,12 +812,17 @@ class AliceTunnel(BaseTunnel):
         self._packets_sent += 1
         self._bytes_sent += len(packet_data)
         self._packets_since_response += 1
+        def build_fields():
+            fields = {'seq': seq, 'seg_count': len(segments), 'side': 'alice'}
+            if reason is not None:
+                fields['reason'] = reason
+            return fields
         log_event(
             self._logger,
             logging.DEBUG,
             'tunnel.retransmit',
             'Retransmitting packet',
-            lambda: {'seq': seq, 'seg_count': len(segments), 'side': 'alice'},
+            build_fields,
         )
         log_event(
             self._logger,
@@ -798,6 +839,7 @@ class AliceTunnel(BaseTunnel):
                 'side': 'alice',
             },
         )
+        return True
 
     def _handle_response(self, data, now):
         """Handle a transport response."""
@@ -839,6 +881,7 @@ class AliceTunnel(BaseTunnel):
         rtt_samples, acked_count, data_acked_count = self._process_incoming_packet(
             packet, now=now, packet_size=packet_size
         )
+        self._maybe_fast_retransmit(packet, now)
         new_unacked = self._send_window.unacked_count
         if rtt_samples or acked_count > 0:
             self._last_ack_progress_time = now

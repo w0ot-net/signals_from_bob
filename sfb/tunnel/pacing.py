@@ -11,6 +11,9 @@ class AdaptivePacer(object):
     Adaptive pacing controller driven by inflight targets.
     """
 
+    _ACK_RATE_DROP_FACTOR = 0.8
+    _PROBE_STEP = 1
+
     def __init__(self, enabled, target_inflight_ratio, min_inflight,
                  max_inflight, feedback_gain, ack_ewma_alpha, rtt_floor_ms,
                  ack_idle_reset_sec):
@@ -24,12 +27,14 @@ class AdaptivePacer(object):
         self._ack_idle_reset_sec = float(ack_idle_reset_sec)
         self._ack_rate_ewma = None
         self._last_ack_time = None
+        self._probe_extra = 0
+        self._last_probe_time = None
 
     @property
     def enabled(self):
         return self._enabled
 
-    def on_ack(self, acked_count, now):
+    def on_ack(self, acked_count, now, srtt_ms=None):
         if not self._enabled:
             return
         if acked_count <= 0:
@@ -42,10 +47,10 @@ class AdaptivePacer(object):
             self._last_ack_time = now
             return
         if dt > self._ack_idle_reset_sec:
-            self._ack_rate_ewma = None
-            self._last_ack_time = None
+            self._reset_feedback()
             return
         rate = float(acked_count) / dt
+        prev_rate = self._ack_rate_ewma
         if self._ack_rate_ewma is None:
             self._ack_rate_ewma = rate
         else:
@@ -54,6 +59,43 @@ class AdaptivePacer(object):
                 (1.0 - alpha) * self._ack_rate_ewma + alpha * rate
             )
         self._last_ack_time = now
+        if (prev_rate is not None and
+                self._ack_rate_ewma < prev_rate * self._ACK_RATE_DROP_FACTOR):
+            self._reset_probe(now)
+            return
+        if srtt_ms is None:
+            return
+        rtt_ms = srtt_ms
+        if rtt_ms < self._rtt_floor_ms:
+            rtt_ms = self._rtt_floor_ms
+        rtt_sec = rtt_ms / 1000.0
+        if rtt_sec <= 0:
+            return
+        if self._last_probe_time is None:
+            self._last_probe_time = now
+            return
+        delta = now - self._last_probe_time
+        if delta <= 0:
+            return
+        steps = int(delta / rtt_sec)
+        if steps <= 0:
+            return
+        self._probe_extra += steps * self._PROBE_STEP
+        self._last_probe_time += steps * rtt_sec
+
+    def on_retransmit(self, now):
+        if not self._enabled:
+            return
+        self._reset_probe(now)
+
+    def _reset_feedback(self):
+        self._ack_rate_ewma = None
+        self._last_ack_time = None
+        self._reset_probe(None)
+
+    def _reset_probe(self, now):
+        self._probe_extra = 0
+        self._last_probe_time = now
 
     def _normalize_cap(self, cap):
         if cap < 1:
@@ -93,9 +135,11 @@ class AdaptivePacer(object):
         cap = self._normalize_cap(cap)
         base_target = self._base_target(cap)
         feedback_target = self._feedback_target(cap, srtt_ms)
-        if feedback_target is not None:
-            return feedback_target
-        return base_target
+        target = base_target
+        if feedback_target is not None and feedback_target > target:
+            target = feedback_target
+        target += self._probe_extra
+        return self._clamp_target(target, cap)
 
     def can_send(self, unacked_count, cap, srtt_ms=None):
         if not self._enabled:
@@ -107,15 +151,22 @@ class AdaptivePacer(object):
         cap = self._normalize_cap(cap)
         base_target = self._base_target(cap)
         feedback_target = self._feedback_target(cap, srtt_ms)
-        target = base_target
+        baseline_target = base_target
         target_mode = 'base'
-        if feedback_target is not None:
-            target = feedback_target
+        if feedback_target is not None and feedback_target > baseline_target:
+            baseline_target = feedback_target
             target_mode = 'feedback'
+        probe_target = baseline_target + self._probe_extra
+        target = self._clamp_target(probe_target, cap)
+        if target > baseline_target:
+            target_mode = 'probe'
         fields = {
             'target_inflight': target,
             'base_target': base_target,
             'feedback_target': feedback_target,
+            'baseline_target': baseline_target,
+            'probe_extra': self._probe_extra,
+            'probe_target': probe_target if self._probe_extra else None,
             'target_mode': target_mode,
             'unacked_count': unacked_count,
             'cap': cap,

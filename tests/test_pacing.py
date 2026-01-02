@@ -79,6 +79,36 @@ class AdaptivePacerTests(unittest.TestCase):
         pacer.on_ack(0, now=1.0)
         self.assertIsNone(pacer._last_ack_time)
 
+    def test_probe_increases_per_rtt(self):
+        pacer = make_pacer(target_inflight_ratio=0.1, ack_ewma_alpha=1.0)
+        pacer.on_ack(1, now=1.0, srtt_ms=1000.0)
+        pacer.on_ack(1, now=2.0, srtt_ms=1000.0)
+        self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 1)
+        pacer.on_ack(1, now=3.1, srtt_ms=1000.0)
+        self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 2)
+
+    def test_probe_resets_on_rate_drop(self):
+        pacer = make_pacer(
+            target_inflight_ratio=0.1,
+            ack_ewma_alpha=1.0,
+            ack_idle_reset_sec=100.0,
+        )
+        pacer.on_ack(1, now=1.0, srtt_ms=1000.0)
+        pacer.on_ack(4, now=2.0, srtt_ms=1000.0)
+        pacer.on_ack(4, now=3.1, srtt_ms=1000.0)
+        self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 4)
+        pacer.on_ack(1, now=4.1, srtt_ms=1000.0)
+        self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 1)
+
+    def test_probe_resets_on_retransmit(self):
+        pacer = make_pacer(target_inflight_ratio=0.1, ack_ewma_alpha=1.0)
+        pacer.on_ack(1, now=1.0, srtt_ms=1000.0)
+        pacer.on_ack(1, now=2.0, srtt_ms=1000.0)
+        pacer.on_ack(1, now=3.1, srtt_ms=1000.0)
+        self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 2)
+        pacer.on_retransmit(now=3.2)
+        self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

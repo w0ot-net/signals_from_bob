@@ -685,6 +685,8 @@ class AliceTunnel(BaseTunnel):
             return
 
         self._send_window.mark_retransmit(seq, now=now)
+        if self._pacer.enabled:
+            self._pacer.on_retransmit(now)
         self._transport.send(packet_data)
 
         self._rtt.backoff()
@@ -759,11 +761,14 @@ class AliceTunnel(BaseTunnel):
         if rtt_samples or acked_count > 0:
             self._last_ack_progress_time = now
             self._ack_progressed = True
-        if self._pacer.enabled and data_acked_count > 0:
-            self._pacer.on_ack(data_acked_count, now)
-
         for sample in rtt_samples:
             self._rtt.add_sample(sample)
+        if self._pacer.enabled and data_acked_count > 0:
+            self._pacer.on_ack(
+                data_acked_count,
+                now,
+                srtt_ms=self._rtt.srtt_ms,
+            )
         return (True, has_real_data)
 
     def _maybe_request_window(self, now):

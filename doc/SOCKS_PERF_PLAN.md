@@ -24,16 +24,18 @@ preserving protocol behavior and cross platform support.
 1. Baseline and reproduce.
    - Use existing socks logging profiles to capture buffer_full, sleep_time,
      and relay error rates under load.
-   - Record CPU usage and throughput before changes for comparison.
-   - Specify the harness (script, ports, concurrency, duration) so baselines
-     are repeatable.
+   - Record CPU usage, throughput, and idle latency before changes for
+     comparison on Windows and Linux.
+   - Specify the harness (script, ports, concurrency, duration, payload sizes)
+     so baselines are repeatable.
 2. Decouple recv timeouts from sendall.
-   - Keep sockets in blocking mode with no timeout.
-   - Replace recv timeouts with select.select (or equivalent) on readability
-     so we can poll with a timeout without touching the socket timeout.
-   - Ensure stop_event is honored on timeout paths.
-   - Avoid indefinite blocking on sendall by selecting for writability with a
-     bounded timeout or using a non-blocking send loop that checks stop_event.
+   - Use non-blocking sockets and select.select to wait for readability and
+     writability with bounded timeouts.
+   - Replace recv timeouts with select on readability, then recv in a loop
+     until EWOULDBLOCK or no data, so we never touch socket timeouts.
+   - For sends, use a non-blocking send loop gated by select on writability,
+     with a short timeout (100-250ms) to honor stop_event promptly.
+   - Document the chosen timeout values and verify they do not regress CPU.
 3. Add event driven backpressure for channel send buffers.
    - Extend Channel with a send buffer state event or wait method that
      unblocks when send buffer space is available.
@@ -46,7 +48,8 @@ preserving protocol behavior and cross platform support.
    - When channel.read returns None (timeout), loop without an extra sleep so
      the existing timeout drives the polling cadence.
    - If channel.read can return immediately (closed or zero timeout), add a
-     small bounded wait or guard to prevent spin.
+     small bounded wait or guard to prevent spin, aligned with the select
+     timeout used by the socket side.
 5. Add targeted unit tests.
    - Channel send buffer wait method: blocks until buffer drains and respects
      timeouts.
@@ -54,6 +57,8 @@ preserving protocol behavior and cross platform support.
      (use local loopback sockets for Windows compatibility).
    - Data pump: stop_event terminates a blocked send path in bounded time
      (use select on writable to keep Windows compatibility).
+   - Keepalive suppression: verify no pong when any channel has pending data,
+     even under backpressure.
    - Run python3 -m unittest for the new tests (no E2E tests).
 
 ## Acceptance Criteria

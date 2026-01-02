@@ -200,27 +200,19 @@ def parse_args():
     )
     parser.add_argument(
         '--socks-relay-buffer-size', type=int, default=None,
-        help='Override socks_relay_buffer_size (bytes)'
-    )
-    parser.add_argument(
-        '--socks_relay_buffer_size', dest='socks_relay_buffer_size',
-        type=int, default=None, help=argparse.SUPPRESS
+        help='Override socks-relay-buffer-size (bytes)'
     )
     parser.add_argument(
         '--channel-max-send-buf', type=int, default=None,
-        help='Override channel_max_send_buf (bytes)'
-    )
-    parser.add_argument(
-        '--channel_max_send_buf', dest='channel_max_send_buf',
-        type=int, default=None, help=argparse.SUPPRESS
+        help='Override channel-max-send-buf (bytes)'
     )
     parser.add_argument(
         '--socks-pump-backoff-max', type=float, default=None,
-        help='Override socks_pump_backoff_max poll backoff (seconds)'
+        help='Override socks-pump-backoff-max poll backoff (seconds)'
     )
     parser.add_argument(
         '--non-blocking-poll-timeout', type=float, default=None,
-        help='Override non_blocking_poll_timeout (seconds)'
+        help='Override non-blocking-poll-timeout (seconds)'
     )
     parser.add_argument(
         '--profile-sfb-dir', default=None,
@@ -324,20 +316,20 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
     if db_log_path and db_log_flush is not None:
         cmd.extend(['--db-log-flush', str(db_log_flush)])
     if socks_relay_buffer_size is not None:
-        cmd.extend(['--socks_relay_buffer_size', str(socks_relay_buffer_size)])
+        cmd.extend(['--socks-relay-buffer-size', str(socks_relay_buffer_size)])
     if channel_max_send_buf is not None:
-        cmd.extend(['--channel_max_send_buf', str(channel_max_send_buf)])
+        cmd.extend(['--channel-max-send-buf', str(channel_max_send_buf)])
     if socks_pump_backoff_max is not None:
-        cmd.extend(['--socks_pump_backoff_max', str(socks_pump_backoff_max)])
+        cmd.extend(['--socks-pump-backoff-max', str(socks_pump_backoff_max)])
     if non_blocking_poll_timeout is not None:
-        cmd.extend(['--non_blocking_poll_timeout', str(non_blocking_poll_timeout)])
+        cmd.extend(['--non-blocking-poll-timeout', str(non_blocking_poll_timeout)])
     if icmp_mtu:
-        cmd.extend(['--icmp_mtu', str(icmp_mtu)])
+        cmd.extend(['--icmp-mtu', str(icmp_mtu)])
     cmd.extend([
         '--module', 'socks_server',
         'start',
-        '--socks_host', '127.0.0.1',
-        '--socks_port', str(socks_port),
+        '--socks-host', '127.0.0.1',
+        '--socks-port', str(socks_port),
     ])
     cmd = wrap_profile(cmd, profile_dir, 'bob')
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
@@ -356,26 +348,26 @@ def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
     ]
     if verbose:
         cmd.append('-v')
-    cmd.extend(['--icmp_target', icmp_target])
+    cmd.extend(['--icmp-target', icmp_target])
     if db_log_path:
         cmd.extend(['--db-log', db_log_path])
     cmd.extend(['--log-profile', log_profile or 'scp_stalled_icmp_socks'])
     if db_log_path and db_log_flush is not None:
         cmd.extend(['--db-log-flush', str(db_log_flush)])
     if socks_relay_buffer_size is not None:
-        cmd.extend(['--socks_relay_buffer_size', str(socks_relay_buffer_size)])
+        cmd.extend(['--socks-relay-buffer-size', str(socks_relay_buffer_size)])
     if channel_max_send_buf is not None:
-        cmd.extend(['--channel_max_send_buf', str(channel_max_send_buf)])
+        cmd.extend(['--channel-max-send-buf', str(channel_max_send_buf)])
     if socks_pump_backoff_max is not None:
-        cmd.extend(['--socks_pump_backoff_max', str(socks_pump_backoff_max)])
+        cmd.extend(['--socks-pump-backoff-max', str(socks_pump_backoff_max)])
     if non_blocking_poll_timeout is not None:
-        cmd.extend(['--non_blocking_poll_timeout', str(non_blocking_poll_timeout)])
+        cmd.extend(['--non-blocking-poll-timeout', str(non_blocking_poll_timeout)])
     if icmp_mtu:
-        cmd.extend(['--icmp_mtu', str(icmp_mtu)])
+        cmd.extend(['--icmp-mtu', str(icmp_mtu)])
     if send_rate is not None:
-        cmd.extend(['--send_rate', str(send_rate)])
+        cmd.extend(['--send-rate', str(send_rate)])
     if send_burst is not None:
-        cmd.extend(['--send_burst', str(send_burst)])
+        cmd.extend(['--send-burst', str(send_burst)])
     cmd = wrap_profile(cmd, profile_dir, 'alice')
     return ManagedProcess('alice', cmd, cwd=ROOT_DIR)
 

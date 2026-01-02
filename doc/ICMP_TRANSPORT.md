@@ -154,12 +154,12 @@ Proposed config fields (final names TBD):
 
 CLI:
 - `--transport icmp`
-- Alice: `--icmp_target <host>`
-- Alice pacing (all transports): `--send_rate`, `--send_burst`,
-  `--pace_target_inflight_ratio`, `--pace_min_inflight`,
-  `--pace_max_inflight`, `--pace_feedback_gain`,
-  `--pace_ack_ewma_alpha`, `--pace_rtt_floor_ms`,
-  `--pace_ack_idle_reset_sec`
+- Alice: `--icmp-target <host>`
+- Alice pacing (all transports): `--send-rate`, `--send-burst`,
+  `--pace-target-inflight-ratio`, `--pace-min-inflight`,
+  `--pace-max-inflight`, `--pace-feedback-gain`,
+  `--pace-ack-ewma-alpha`, `--pace-rtt-floor-ms`,
+  `--pace-ack-idle-reset-sec`
 - Bob: likely no extra args beyond listen defaults
 
 ---

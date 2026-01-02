@@ -98,11 +98,11 @@ class SocksServerModule(BaseModule):
             port_default = config.socks_listen_port
         start_p = subparsers.add_parser('start', help='Start SOCKS5 proxy server')
         start_p.add_argument(
-            '--socks_host', default=host_default,
+            '--socks-host', default=host_default,
             help='SOCKS server listen address (default: %s)' % host_default
         )
         start_p.add_argument(
-            '--socks_port', type=int, default=port_default,
+            '--socks-port', type=int, default=port_default,
             help='SOCKS server listen port (default: %s)' % port_default
         )
 

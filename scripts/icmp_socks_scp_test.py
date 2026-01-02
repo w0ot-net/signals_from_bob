@@ -142,9 +142,9 @@ def parse_args():
         help='Override ICMP payload MTU (passed to sfb CLI)'
     )
     parser.add_argument(
-        '--max-in-flight', '--max_in_flight',
+        '--max-in-flight',
         dest='max_in_flight', type=int, default=None,
-        help='Override max_in_flight (passed to sfb CLI)'
+        help='Override max-in-flight (passed to sfb CLI)'
     )
     parser.add_argument(
         '--send-rate', type=float, default=None,
@@ -354,14 +354,14 @@ def start_bob(socks_host, socks_port, icmp_mtu=None, max_in_flight=None,
     if db_log_flush is not None:
         cmd.extend(['--db-log-flush', str(db_log_flush)])
     if icmp_mtu:
-        cmd.extend(['--icmp_mtu', str(icmp_mtu)])
+        cmd.extend(['--icmp-mtu', str(icmp_mtu)])
     if max_in_flight is not None:
-        cmd.extend(['--max_in_flight', str(max_in_flight)])
+        cmd.extend(['--max-in-flight', str(max_in_flight)])
     cmd.extend([
         '--module', 'socks_server',
         'start',
-        '--socks_host', socks_host,
-        '--socks_port', str(socks_port),
+        '--socks-host', socks_host,
+        '--socks-port', str(socks_port),
     ])
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 
@@ -373,7 +373,7 @@ def start_alice(icmp_target, icmp_mtu=None, max_in_flight=None,
         'python3', '-m', 'sfb.cli',
         '--role', 'alice',
         '--transport', 'icmp',
-        '--icmp_target', icmp_target,
+        '--icmp-target', icmp_target,
     ]
     if verbose:
         cmd.append('-v')
@@ -382,13 +382,13 @@ def start_alice(icmp_target, icmp_mtu=None, max_in_flight=None,
     if db_log_flush is not None:
         cmd.extend(['--db-log-flush', str(db_log_flush)])
     if icmp_mtu:
-        cmd.extend(['--icmp_mtu', str(icmp_mtu)])
+        cmd.extend(['--icmp-mtu', str(icmp_mtu)])
     if max_in_flight is not None:
-        cmd.extend(['--max_in_flight', str(max_in_flight)])
+        cmd.extend(['--max-in-flight', str(max_in_flight)])
     if send_rate is not None:
-        cmd.extend(['--send_rate', str(send_rate)])
+        cmd.extend(['--send-rate', str(send_rate)])
     if send_burst is not None:
-        cmd.extend(['--send_burst', str(send_burst)])
+        cmd.extend(['--send-burst', str(send_burst)])
     return ManagedProcess('alice', cmd, cwd=ROOT_DIR)
 
 

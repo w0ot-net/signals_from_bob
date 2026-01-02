@@ -5,7 +5,7 @@
 
 ## Current Setup
 - Log profile: `icmp_retransmit_debug`
-- Command: `python3 -m sfb.cli --role alice --transport icmp --icmp_target <ip> --db-log`
+- Command: `python3 -m sfb.cli --role alice --transport icmp --icmp-target <ip> --db-log`
 
 ## Observations
 - 23s window: server log shows 1210 `tunnel.packet_recv` and 1160 `tunnel.retransmit`.

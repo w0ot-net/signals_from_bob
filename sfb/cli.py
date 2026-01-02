@@ -81,7 +81,7 @@ def add_common_args(parser, config, require_domain=True):
         help='Transport type (default: %s)' % config.transport_default
     )
     parser.add_argument(
-        '--max_in_flight', '--max-in-flight',
+        '--max-in-flight',
         dest='max_in_flight', type=int, default=config.max_in_flight,
         help='Max in-flight packets (1-256, default: %s)' %
              config.max_in_flight
@@ -116,25 +116,25 @@ def add_common_args(parser, config, require_domain=True):
         help='SQLite log queue max size (default: 0=unbounded)'
     )
     parser.add_argument(
-        '--socks_relay_buffer_size', type=int,
+        '--socks-relay-buffer-size', type=int,
         default=config.socks_relay_buffer_size,
         help='SOCKS relay buffer size in bytes (default: %s)' %
              config.socks_relay_buffer_size
     )
     parser.add_argument(
-        '--channel_max_send_buf', type=int,
+        '--channel-max-send-buf', type=int,
         default=config.channel_max_send_buf,
         help='Channel max send buffer in bytes (default: %s)' %
              config.channel_max_send_buf
     )
     parser.add_argument(
-        '--socks_pump_backoff_max', type=float,
+        '--socks-pump-backoff-max', type=float,
         default=config.socks_pump_backoff_max,
         help='SOCKS pump max poll backoff in seconds (default: %s)' %
              config.socks_pump_backoff_max
     )
     parser.add_argument(
-        '--non_blocking_poll_timeout', type=float,
+        '--non-blocking-poll-timeout', type=float,
         default=config.non_blocking_poll_timeout,
         help='Non-blocking poll timeout in seconds (default: %s)' %
              config.non_blocking_poll_timeout
@@ -151,11 +151,11 @@ def add_dns_server_args(parser, config):
     """Add DNS server-specific arguments."""
     host, port = _split_host_port(config.dns_listen_addr, 53)
     parser.add_argument(
-        '--dns_host', default=host,
+        '--dns-host', default=host,
         help='DNS server listen address (default: %s)' % host
     )
     parser.add_argument(
-        '--dns_port', type=int, default=port,
+        '--dns-port', type=int, default=port,
         help='DNS server listen port (default: %s)' % port
     )
     parser.add_argument(
@@ -176,7 +176,7 @@ def add_dns_client_args(parser, config):
 def add_icmp_common_args(parser, config):
     """Add ICMP arguments shared by client and server."""
     parser.add_argument(
-        '--icmp_mtu', type=int, default=config.icmp_payload_mtu,
+        '--icmp-mtu', type=int, default=config.icmp_payload_mtu,
         help='Max ICMP payload size in bytes (default: %s)' %
              config.icmp_payload_mtu
     )
@@ -185,7 +185,7 @@ def add_icmp_common_args(parser, config):
 def add_icmp_client_args(parser, config, require_target=True):
     """Add ICMP client-specific arguments."""
     parser.add_argument(
-        '--icmp_target',
+        '--icmp-target',
         default=config.icmp_target,
         required=require_target,
         help='ICMP target host or IP for client'
@@ -195,64 +195,64 @@ def add_icmp_client_args(parser, config, require_target=True):
 def add_client_pacing_args(parser, config):
     """Add transport-agnostic client pacing arguments."""
     parser.add_argument(
-        '--send_rate', type=float, default=config.tunnel_send_rate,
+        '--send-rate', type=float, default=config.tunnel_send_rate,
         help='Max packets per second from Alice (0=unlimited, default: %s)' %
              config.tunnel_send_rate
     )
     parser.add_argument(
-        '--send_burst', type=float, default=config.tunnel_send_burst,
+        '--send-burst', type=float, default=config.tunnel_send_burst,
         help='Burst capacity for send rate (packets, default: %s)' %
              (config.tunnel_send_burst if config.tunnel_send_burst is not None else
               'same as send_rate')
     )
     parser.add_argument(
-        '--adaptive_pacing', dest='adaptive_pacing', action='store_true',
+        '--adaptive-pacing', dest='adaptive_pacing', action='store_true',
         default=config.tunnel_adaptive_pacing_enabled,
         help='Enable adaptive pacing (default: %s)' %
              config.tunnel_adaptive_pacing_enabled
     )
     parser.add_argument(
-        '--no_adaptive_pacing', dest='adaptive_pacing', action='store_false',
+        '--no-adaptive-pacing', dest='adaptive_pacing', action='store_false',
         help='Disable adaptive pacing'
     )
     parser.add_argument(
-        '--pace_target_inflight_ratio', type=float,
+        '--pace-target-inflight-ratio', type=float,
         default=config.tunnel_pace_target_inflight_ratio,
         help='Adaptive pacing target inflight ratio (default: %s)' %
              config.tunnel_pace_target_inflight_ratio
     )
     parser.add_argument(
-        '--pace_min_inflight', type=int,
+        '--pace-min-inflight', type=int,
         default=config.tunnel_pace_min_inflight,
         help='Adaptive pacing minimum inflight (default: %s)' %
              config.tunnel_pace_min_inflight
     )
     parser.add_argument(
-        '--pace_max_inflight', type=int,
+        '--pace-max-inflight', type=int,
         default=config.tunnel_pace_max_inflight,
         help='Adaptive pacing maximum inflight (default: %s)' %
              config.tunnel_pace_max_inflight
     )
     parser.add_argument(
-        '--pace_feedback_gain', type=float,
+        '--pace-feedback-gain', type=float,
         default=config.tunnel_pace_feedback_gain,
         help='Adaptive pacing feedback gain (default: %s)' %
              config.tunnel_pace_feedback_gain
     )
     parser.add_argument(
-        '--pace_ack_ewma_alpha', type=float,
+        '--pace-ack-ewma-alpha', type=float,
         default=config.tunnel_pace_ack_ewma_alpha,
         help='Adaptive pacing ACK EWMA alpha (default: %s)' %
              config.tunnel_pace_ack_ewma_alpha
     )
     parser.add_argument(
-        '--pace_rtt_floor_ms', type=float,
+        '--pace-rtt-floor-ms', type=float,
         default=config.tunnel_pace_rtt_floor_ms,
         help='Adaptive pacing RTT floor ms (default: %s)' %
              config.tunnel_pace_rtt_floor_ms
     )
     parser.add_argument(
-        '--pace_ack_idle_reset_sec', type=float,
+        '--pace-ack-idle-reset-sec', type=float,
         default=config.tunnel_pace_ack_idle_reset_sec,
         help='Adaptive pacing ACK idle reset sec (default: %s)' %
              config.tunnel_pace_ack_idle_reset_sec

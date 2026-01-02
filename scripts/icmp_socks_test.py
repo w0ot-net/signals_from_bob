@@ -231,8 +231,8 @@ def start_bob(socks_port):
         '--log-profile', 'scp_stalled_icmp_socks',
         '--module', 'socks_server',
         'start',
-        '--socks_host', '127.0.0.1',
-        '--socks_port', str(socks_port),
+        '--socks-host', '127.0.0.1',
+        '--socks-port', str(socks_port),
     ]
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 
@@ -242,7 +242,7 @@ def start_alice(icmp_target):
         'python3', '-m', 'sfb.cli',
         '--role', 'alice',
         '--transport', 'icmp',
-        '--icmp_target', icmp_target,
+        '--icmp-target', icmp_target,
         '--db-log', CLIENT_DB_LOG,
         '--log-profile', 'scp_stalled_icmp_socks',
     ]

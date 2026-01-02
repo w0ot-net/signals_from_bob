@@ -28,12 +28,15 @@ preserving protocol behavior.
      seq -> `_UnackedPacket`, ordered by original send.
    - On send, insert into the ordered dict; on cumulative ACK, pop from the
      front while `seq_lt(seq, ack)`; on SACK ACK, delete by key if present.
-   - Do not reorder on retransmit; update timestamps in place so cumulative ACK
-     removal stays correct.
+   - Do not reorder on retransmit; keep insertion order for cumulative ACK
+     removal, and avoid double-removal when popping from the front.
+   - Update send timestamps only in `mark_retransmit()` after a successful send
+     (do not update during selection or before rate limiter checks).
    - For Bob opportunistic retransmit, choose the unacked packet with the
      oldest `send_time` (scan the ordered dict; bounded by `MAX_IN_FLIGHT`).
+     This is a behavior change from "send order"; add a targeted test.
    - For Alice `get_retransmits()`, collect candidates without mutating the
-     ordered dict; update timestamps after selection; no tombstones remain.
+     ordered dict; no timestamp updates during selection; no tombstones remain.
    - Update any internal references/tests that assumed `_send_order` exists.
 2. Use a monotonic clock for reliability timers.
    - Add `sfb/time_utils.py` (or extend `sfb/compat.py`) with
@@ -44,6 +47,9 @@ preserving protocol behavior.
    - Switch reliability/tunnel codepaths that compare timestamps to use the
      monotonic helper (send timestamps, ACK progress timers, retransmit timing,
      keepalive/poll scheduling), excluding Bob's wall-clock silence timeout.
+   - Decide and document time source for rate limiting/token buckets used in
+     tunnel pacing; prefer `monotonic_time()` for tunnel-level pacing and pass
+     it into limiter calls when available.
    - Ensure all reliability timestamps are sourced from `monotonic_time()`
      consistently; avoid mixing wall-clock `time.time()` with monotonic values.
    - Audit all `time.time()` usage and limit changes to reliability/tunnel:
@@ -69,6 +75,8 @@ preserving protocol behavior.
    - `SendWindow`: SACK-only progress with a missing cumulative ACK should
      leave only the missing seq in the ordered dict and keep retransmit scans
      bounded.
+   - `SendWindow`: Bob opportunistic selection uses oldest `send_time`, and
+     `mark_retransmit()` updates timestamps only after a successful send.
    - `RecvWindow`: verify eviction keeps the nearest offsets, drops the
      farthest when full, and uses the tie-break rule deterministically with
      duplicates/out-of-order arrivals.

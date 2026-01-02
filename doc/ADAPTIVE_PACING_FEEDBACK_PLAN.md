@@ -20,13 +20,13 @@ target inflight count adapts to the observed pipe instead of staying fixed.
 ## Proposed Architecture
 
 ### New Feedback Signals (Alice only)
-- `ack_rate_ewma`: smoothed packets/sec based on ACK progress.
+- `ack_rate_ewma`: smoothed packets/sec based on ACK progress (bounded by Alice polling cadence).
 - `srtt_ms`: from `RttEstimator` (existing).
 
 ### Target Computation
 1) Compute cap: `cap = min(transport.max_pending, send_window._max_in_flight)`.
 2) Compute base target: `base = clamp(int(cap * ratio), min_inflight, max_inflight or cap)`.
-3) If feedback is available:
+3) If feedback is available (`ack_rate_ewma` set and `srtt_ms` not None):
    - `rtt_sec = max(srtt_ms, rtt_floor_ms) / 1000.0`
    - `pipe = ack_rate_ewma * rtt_sec`
    - `feedback = clamp(int(pipe * feedback_gain), min_inflight, max_inflight or cap)`
@@ -34,11 +34,19 @@ target inflight count adapts to the observed pipe instead of staying fixed.
 4) If feedback is not available, use `base`.
 
 ### Feedback Update
-- On each response, call `pacer.on_ack(acked_count, now)` to update `ack_rate_ewma`.
-- Compute instantaneous rate as `acked_count / dt`, where `dt = now - last_ack_time`.
+- Only update when `data_acked_count > 0` (ignore keepalive-only responses).
+- On ack progress, call `pacer.on_ack(data_acked_count, now)` to update
+  `ack_rate_ewma`.
+- Use `data_acked_count` as newly acked packets that carried data or non-keepalive
+  control, not total ACKs.
+- Compute instantaneous rate as `data_acked_count / dt`, where
+  `dt = now - last_ack_time`.
+- If `last_ack_time` is None, set it to `now` and return without update.
+- If `ack_rate_ewma` is None, seed it to `rate` and set `last_ack_time = now`.
 - Use EWMA: `ack_rate_ewma = (1 - alpha) * ack_rate_ewma + alpha * rate`.
-- If `dt <= 0`, skip update.
-- If `dt > ack_idle_reset_sec`, reset `ack_rate_ewma` to None (fallback to base).
+- If `dt <= 0`, set `last_ack_time = now` and skip update.
+- If `dt > ack_idle_reset_sec`, reset `ack_rate_ewma` and `last_ack_time` to None
+  (fallback to base).
 
 ### Pacing Gate
 - `pacer.can_send(unacked_count, cap, srtt_ms)` blocks only when
@@ -46,7 +54,7 @@ target inflight count adapts to the observed pipe instead of staying fixed.
 - Keep keepalive-only polls exempt once due (existing behavior).
 
 ## Configuration Additions
-- `tunnel_pace_feedback_gain` (float, default 1.0)
+- `tunnel_pace_feedback_gain` (float, default 1.0, > 0)
 - `tunnel_pace_ack_ewma_alpha` (float, default 0.2, 0 < alpha <= 1)
 - `tunnel_pace_rtt_floor_ms` (float, default 5.0, > 0)
 - `tunnel_pace_ack_idle_reset_sec` (float, default 2.0, > 0)
@@ -60,7 +68,8 @@ Expose via CLI under client pacing args. Validate in Config.
   - `target_inflight(cap, srtt_ms=None)` uses feedback when available.
   - `can_send(unacked_count, cap, srtt_ms=None)` uses computed target.
 - `AliceTunnel._handle_response()`:
-  - after `_process_incoming_packet`, call `pacer.on_ack(acked_count, now)`.
+- after `_process_incoming_packet`, call `pacer.on_ack(data_acked_count, now)` when
+  `data_acked_count > 0`.
 - `AliceTunnel._can_send_new()`:
   - pass `srtt_ms=self._rtt.srtt_ms` into `pacer.can_send(...)`.
 - Logging (`tunnel.pacer_state`):
@@ -72,6 +81,9 @@ Expose via CLI under client pacing args. Validate in Config.
   - Idle reset behavior (dt > ack_idle_reset_sec).
   - Target uses feedback when available and falls back to base otherwise.
   - Target clamps against min/max/cap.
+  - No feedback until `srtt_ms` is available.
+  - Keepalive-only acks do not update EWMA.
+  - `data_acked_count == 0` does not update EWMA.
 - Alice tunnel tests:
   - pacer gating honors feedback target.
   - ack updates use `acked_count` from `process_ack`.

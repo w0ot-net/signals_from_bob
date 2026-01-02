@@ -89,3 +89,7 @@ transport details for ICMP/DNS.
   with `reason=fast_recovery` in the last 30s window, which would suppress
   new polls/control messages. This can stall the final `file_hash`/`hash_ok`
   exchange and leave the sender waiting indefinitely.
+- Fast recovery was not stuck on a single ACK; the `tunnel.send_blocked` logs
+  show `ack` advancing (e.g. 33411 -> 33505 within ~0.3s) while still
+  re-entering fast recovery for repeated SACK gaps. This implies sustained
+  out-of-order responses rather than a single missing packet.

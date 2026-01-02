@@ -35,8 +35,9 @@
 3) Add a receive buffer bound and overflow behavior.
    - Introduce a new config option (for example channel_max_recv_buf) or
      re-use an existing limit if appropriate.
-   - Define limit semantics (bytes vs messages), and specify where the
-     limit is enforced (pre- or post-reassembly).
+   - Define limit semantics (bytes vs messages), clarify that the limit is
+     per-channel, and specify where the limit is enforced (pre- or
+     post-reassembly).
    - Pick a default sizing rule (for example: N * negotiated recv MTU) and
      document the rationale and tuning guidance.
    - Define overflow behavior (for example: close channel with error and

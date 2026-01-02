@@ -32,6 +32,22 @@ Example SSH outcomes:
 - No tunnel aborts observed in these sessions; the close appears to originate
   at the target side after data stalls.
 
+## Latest reproduction findings (2026-01-02)
+- Four SOCKS sessions recorded in one run:
+  - rid=1 (ch=2) `127.0.0.1:22` SSH: connected, ran briefly, then
+    `sock.relay_eof` on Alice (target closed) and `socket_eof` / `socket_send_error`.
+  - rid=2 (ch=4) `172.67.177.210:443` wget: long-lived transfer with large
+    `target_to_channel` bytes; no EOF; Bob stops only on tunnel shutdown.
+  - rid=3 (ch=6) `127.0.0.1:22` SSH: immediate EOF (sub-second).
+  - rid=4 (ch=8) `127.0.0.1:22` SSH: ran ~17 seconds, then target EOF.
+- Alice logs show DNS transport instability during the SSH windows:
+  - `dns.error_response` with SERVFAIL (`rcode=2`) from `8.8.8.8:53`.
+  - `dns.send_blocked` with pending at `max_in_flight=128`.
+  - `tunnel.send_blocked` / `tunnel.send_window_distance` at the cap.
+- These stalls happen while the wget session continues, which suggests the
+  tunnel stays up but interactive SSH sessions become unresponsive and the
+  target closes them.
+
 ## What we've tried
 - Added SOCKS pump instrumentation (`sock.pump_start`, `sock.pump_stop`,
   `sock.pump_stats`) in `sfb/modules/socks/data_pump.py`.

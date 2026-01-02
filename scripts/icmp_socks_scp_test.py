@@ -212,6 +212,13 @@ def parse_args():
     return parser.parse_args()
 
 
+def has_explicit_log_profile(argv):
+    for arg in argv[1:]:
+        if arg == '--log-profile' or arg.startswith('--log-profile='):
+            return True
+    return False
+
+
 def require_linux_root():
     if platform.system().lower() != 'linux':
         raise SystemExit('ICMP transport is only supported on Linux')
@@ -395,6 +402,8 @@ def main():
     args = parse_args()
     if args.scp_verbose and args.scp_quiet:
         raise SystemExit('Only one of --scp-verbose or --scp-quiet can be set')
+    if has_explicit_log_profile(sys.argv):
+        args.verbose_cli = True
 
     if args.proxychains_connect_timeout <= 0:
         raise SystemExit('--proxychains-connect-timeout must be > 0')

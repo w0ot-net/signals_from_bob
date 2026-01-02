@@ -162,7 +162,12 @@ class AliceTunnel(BaseTunnel):
 
             try:
                 # Send SYN
-                self._transport.send(syn_data)
+                permit = self._transport.reserve_send(now=time_provider.now())
+                if permit is None:
+                    self._log_transport_blocked()
+                    time_provider.sleep(min(self._rtt.rto_sec, timeout / 10))
+                    continue
+                self._transport.send(syn_data, permit)
 
                 # Wait for SYN+ACK
                 remaining = timeout - (time_provider.now() - start_time)
@@ -248,7 +253,12 @@ class AliceTunnel(BaseTunnel):
                 if remaining <= 0:
                     raise TunnelError('Handshake timeout')
 
-                self._transport.send(ack_data)
+                permit = self._transport.reserve_send(now=time_provider.now())
+                if permit is None:
+                    self._log_transport_blocked()
+                    time_provider.sleep(min(self._rtt.rto_sec, remaining))
+                    continue
+                self._transport.send(ack_data, permit)
 
                 corr_id, response_data = self._transport.recv(
                     timeout=min(self._rtt.rto_sec, remaining)
@@ -518,26 +528,7 @@ class AliceTunnel(BaseTunnel):
                         },
                     )
                     return False
-        can_send = self._transport.can_send()
-        if not can_send:
-            def build_fields():
-                fields = {'side': 'alice'}
-                if hasattr(self._transport, 'pending_count'):
-                    try:
-                        fields['pending'] = self._transport.pending_count()
-                    except Exception:
-                        pass
-                if hasattr(self._transport, 'max_in_flight'):
-                    fields['max_in_flight'] = self._transport.max_in_flight
-                return fields
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Transport cannot send',
-                build_fields,
-            )
-        return can_send
+        return True
 
     def _can_send_retransmit(self):
         """Check if we can send a retransmit packet."""
@@ -554,26 +545,26 @@ class AliceTunnel(BaseTunnel):
                 },
             )
             return False
-        can_send = self._transport.can_send()
-        if not can_send:
-            def build_fields():
-                fields = {'side': 'alice'}
-                if hasattr(self._transport, 'pending_count'):
-                    try:
-                        fields['pending'] = self._transport.pending_count()
-                    except Exception:
-                        pass
-                if hasattr(self._transport, 'max_in_flight'):
-                    fields['max_in_flight'] = self._transport.max_in_flight
-                return fields
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Transport cannot send',
-                build_fields,
-            )
-        return can_send
+        return True
+
+    def _log_transport_blocked(self):
+        def build_fields():
+            fields = {'side': 'alice'}
+            if hasattr(self._transport, 'pending_count'):
+                try:
+                    fields['pending'] = self._transport.pending_count()
+                except Exception:
+                    pass
+            if hasattr(self._transport, 'max_in_flight'):
+                fields['max_in_flight'] = self._transport.max_in_flight
+            return fields
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.send_blocked',
+            'Transport cannot send',
+            build_fields,
+        )
 
     def _pacer_cap(self):
         cap = self._send_window._max_in_flight
@@ -676,13 +667,22 @@ class AliceTunnel(BaseTunnel):
             )
             return
 
-        self._send_window.send(
-            segments,
-            flags=flags,
-            encrypted_body=encrypted_body,
-            now=now,
-        )
-        self._transport.send(packet_data)
+        permit = self._transport.reserve_send(now=now)
+        if permit is None:
+            self._log_transport_blocked()
+            return
+
+        try:
+            self._send_window.send(
+                segments,
+                flags=flags,
+                encrypted_body=encrypted_body,
+                now=now,
+            )
+        except Exception:
+            self._transport.release_send(permit)
+            raise
+        self._transport.send(packet_data, permit)
         if self._pacer.enabled:
             cap = self._pacer_cap()
             self._log_pacer_state(cap, self._send_window.unacked_count, action='send')
@@ -719,7 +719,7 @@ class AliceTunnel(BaseTunnel):
             )
         packet_data = self._encode_packet(packet, encrypted_body=encrypted_body)
 
-        if self._send_limiter is not None and not self._send_limiter.consume(now=time_provider.now()):
+        if self._send_limiter is not None and not self._send_limiter.consume(now=now):
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -733,10 +733,19 @@ class AliceTunnel(BaseTunnel):
             )
             return
 
-        self._send_window.mark_retransmit(seq, now=now)
+        permit = self._transport.reserve_send(now=now)
+        if permit is None:
+            self._log_transport_blocked()
+            return
+
+        try:
+            self._send_window.mark_retransmit(seq, now=now)
+        except Exception:
+            self._transport.release_send(permit)
+            raise
         if self._pacer.enabled:
             self._pacer.on_retransmit(now)
-        self._transport.send(packet_data)
+        self._transport.send(packet_data, permit)
 
         self._rtt.backoff()
         self._last_send_time = now

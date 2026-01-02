@@ -15,7 +15,7 @@ from __future__ import absolute_import
 import random
 from collections import deque
 
-from .transport_base import Transport, Server
+from .transport_base import Transport, Server, TransportError
 from .. import time_provider
 
 
@@ -189,6 +189,7 @@ class LossyTransport(Transport):
             recv_impairment: NetworkImpairment for incoming packets
                             (defaults to send_impairment if not provided)
         """
+        super(LossyTransport, self).__init__()
         self._inner = transport
         self._send_imp = send_impairment or NetworkImpairment()
         self._recv_imp = recv_impairment or self._send_imp
@@ -213,48 +214,104 @@ class LossyTransport(Transport):
     def max_in_flight(self):
         return getattr(self._inner, 'max_in_flight', None)
 
-    def can_send(self):
-        cap = self.max_in_flight
-        if cap is not None and self.pending_count() >= cap:
-            return False
-        inner_can = getattr(self._inner, 'can_send', None)
-        if inner_can is None:
-            return True
-        return inner_can()
-
     def pending_count(self):
         # Include packets we "sent" but dropped
         return self._inner.pending_count() + len(self._dropped_ids)
 
-    def send(self, data):
+    def reserve_send(self, now=None):
+        if now is None:
+            now = time_provider.now()
+
+        inner_permit = self._inner.reserve_send(now=now)
+        self._prune_dropped(now)
+
+        cap = self.max_in_flight
+        if cap is not None:
+            pending_before = self.pending_count()
+            self._ensure_reserved()
+            reserved = len(self._reserved)
+            pending_total = pending_before + reserved
+            if pending_total >= cap:
+                if inner_permit is not None:
+                    self._inner.release_send(inner_permit)
+                return None
+        else:
+            pending_before = self.pending_count()
+
+        action = 'send'
+        if self._send_imp.should_drop():
+            action = 'drop'
+        elif self._send_imp.should_corrupt():
+            action = 'corrupt'
+
+        dup_permit = None
+        duplicate = False
+        if action == 'send':
+            if inner_permit is None:
+                return None
+            if self._send_imp.should_duplicate():
+                if not self._send_imp.should_corrupt():
+                    dup_permit = self._inner.reserve_send(now=now)
+                    if dup_permit is not None:
+                        duplicate = True
+        else:
+            if inner_permit is not None:
+                self._inner.release_send(inner_permit)
+                inner_permit = None
+
+        permit = self._reserve_permit(now=now, pending_before=pending_before)
+        permit.data = {
+            'action': action,
+            'inner_permit': inner_permit,
+            'dup_permit': dup_permit if duplicate else None,
+        }
+        return permit
+
+    def _send_impl(self, data, permit):
         """Send with possible impairment."""
         self._send_imp.packets_sent += 1
+        info = permit.data or {}
+        action = info.get('action', 'send')
+        inner_permit = info.get('inner_permit')
+        dup_permit = info.get('dup_permit')
 
-        # Check for drop
-        if self._send_imp.should_drop():
-            # Return fake corr_id - recv will never see a response
+        if action in ('drop', 'corrupt'):
             fake_id = self._next_fake_id
             self._next_fake_id += 1
-            self._dropped_ids[fake_id] = time_provider.now()
+            self._dropped_ids[fake_id] = permit.now
             return fake_id
 
-        # Check for corruption (simulate lower-layer discard)
-        if self._send_imp.should_corrupt():
-            fake_id = self._next_fake_id
-            self._next_fake_id += 1
-            self._dropped_ids[fake_id] = time_provider.now()
-            return fake_id
+        if inner_permit is None:
+            raise TransportError('Missing inner send permit')
 
-        # Send the packet
-        corr_id = self._inner.send(data)
-
-        # Check for duplication
-        if self._send_imp.should_duplicate():
-            # Duplicate could also be corrupted (dropped)
-            if not self._send_imp.should_corrupt():
-                self._inner.send(data)
-
+        try:
+            corr_id = self._inner.send(data, inner_permit)
+        except Exception:
+            if dup_permit is not None:
+                self._inner.release_send(dup_permit)
+            raise
+        if dup_permit is not None:
+            self._inner.send(data, dup_permit)
         return corr_id
+
+    def release_send(self, permit):
+        self._ensure_reserved()
+        if permit is None:
+            raise TransportError('Send permit required')
+        if permit.transport is not self:
+            raise TransportError('Send permit transport mismatch')
+        if permit.used:
+            raise TransportError('Send permit already used')
+        if permit not in self._reserved:
+            raise TransportError('Send permit not reserved')
+        self._reserved.remove(permit)
+        info = permit.data or {}
+        inner_permit = info.get('inner_permit')
+        dup_permit = info.get('dup_permit')
+        if inner_permit is not None:
+            self._inner.release_send(inner_permit)
+        if dup_permit is not None:
+            self._inner.release_send(dup_permit)
 
     def recv(self, timeout=None):
         """Receive with possible impairment."""
@@ -266,11 +323,7 @@ class LossyTransport(Transport):
             return ready
 
         # Clean up old dropped packet IDs
-        if self._dropped_ids:
-            expired = [fid for fid, t in self._dropped_ids.items()
-                       if now - t >= self._drop_timeout]
-            for fid in expired:
-                del self._dropped_ids[fid]
+        self._prune_dropped(now)
 
         # Calculate adjusted timeout
         if timeout is None:
@@ -356,6 +409,14 @@ class LossyTransport(Transport):
         if not self._delayed:
             return None
         return min(pkt.deliver_at for pkt in self._delayed)
+
+    def _prune_dropped(self, now):
+        if not self._dropped_ids:
+            return
+        expired = [fid for fid, t in self._dropped_ids.items()
+                   if now - t >= self._drop_timeout]
+        for fid in expired:
+            del self._dropped_ids[fid]
 
     def close(self):
         """Close the transport."""

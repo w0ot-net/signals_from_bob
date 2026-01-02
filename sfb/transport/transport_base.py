@@ -6,9 +6,9 @@ Transports handle the underlying I/O for the tunnel protocol. Due to the
 asymmetric nature of covert channels (Alice polls, Bob responds), transports
 use a request/response pattern at the wire level.
 
-The Transport interface separates send() and recv() to support pipelining -
-multiple requests in flight simultaneously. For serial operation, set
-max_in_flight=1 or call recv() after each send().
+The Transport interface separates reserve_send(), send(), and recv() to
+support pipelining - multiple requests in flight simultaneously. For serial
+operation, set max_in_flight=1 or call recv() after each send().
 
     Transport: Client side (Alice) - send requests, receive responses
     Server: Server side (Bob) - receive requests, send responses
@@ -20,23 +20,67 @@ import abc
 
 from .. import time_provider
 
-class Transport(object):
+
+def with_metaclass(meta, *bases):
+    class TemporaryClass(object):
+        pass
+    return meta('TemporaryClass', bases, {})
+
+
+class TransportMeta(abc.ABCMeta):
+    def __new__(mcls, name, bases, namespace):
+        if name != 'Transport' and 'send' in namespace:
+            raise TypeError('Transport subclasses must not override send()')
+        return super(TransportMeta, mcls).__new__(mcls, name, bases, namespace)
+
+
+class SendPermit(object):
+    __slots__ = ('transport', 'now', 'pending_before', 'used', 'data')
+
+    def __init__(self, transport, now, pending_before=None, data=None):
+        self.transport = transport
+        self.now = now
+        self.pending_before = pending_before
+        self.used = False
+        self.data = data
+
+
+class Transport(with_metaclass(TransportMeta, object)):
     """
     Abstract base for client transports with pipelining support.
 
-    Alice uses send() to dispatch requests and recv() to collect responses.
+    Alice reserves via reserve_send(), uses send() to dispatch requests, and
+    uses recv() to collect responses.
     Correlation IDs returned by send() are used to match responses.
     """
 
-    __metaclass__ = abc.ABCMeta
+    def __init__(self):
+        self._reserved = set()
 
     @abc.abstractmethod
-    def send(self, data):
+    def reserve_send(self, now=None):
         """
-        Send data to Bob.
+        Reserve capacity for a send attempt.
+
+        Args:
+            now: optional timestamp to reuse
+
+        Returns:
+            SendPermit or None if capacity is exhausted
+
+        Raises:
+            TransportError: on I/O failure
+        """
+        pass
+
+    @abc.abstractmethod
+    def _send_impl(self, data, permit):
+        """
+        Transport-specific send implementation.
 
         Args:
             data: bytes to send
+            permit: SendPermit reserved by this transport
 
         Returns:
             int: Correlation ID for matching response
@@ -45,6 +89,56 @@ class Transport(object):
             TransportError: on I/O failure
         """
         pass
+
+    def send(self, data, permit):
+        """
+        Send data to Bob using a reserved permit.
+
+        Args:
+            data: bytes to send
+            permit: SendPermit returned by reserve_send()
+
+        Returns:
+            int: Correlation ID for matching response
+
+        Raises:
+            TransportError: on I/O failure or invalid permit
+        """
+        self._ensure_reserved()
+        if permit is None:
+            raise TransportError('Send permit required')
+        if permit.transport is not self:
+            raise TransportError('Send permit transport mismatch')
+        if permit.used:
+            raise TransportError('Send permit already used')
+        if permit not in self._reserved:
+            raise TransportError('Send permit not reserved')
+        permit.used = True
+        try:
+            return self._send_impl(data, permit)
+        finally:
+            self._reserved.discard(permit)
+
+    def release_send(self, permit):
+        """
+        Release a reserved permit when a send is skipped.
+
+        Args:
+            permit: SendPermit returned by reserve_send()
+
+        Raises:
+            TransportError: on invalid permit
+        """
+        self._ensure_reserved()
+        if permit is None:
+            raise TransportError('Send permit required')
+        if permit.transport is not self:
+            raise TransportError('Send permit transport mismatch')
+        if permit.used:
+            raise TransportError('Send permit already used')
+        if permit not in self._reserved:
+            raise TransportError('Send permit not reserved')
+        self._reserved.remove(permit)
 
     @abc.abstractmethod
     def recv(self, timeout=None):
@@ -69,6 +163,8 @@ class Transport(object):
     def pending_count(self):
         """
         Number of requests awaiting response.
+
+        This is a non-pruning count; pruning occurs in reserve_send() and recv().
 
         Returns:
             int: count of pending requests
@@ -123,6 +219,23 @@ class Transport(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
         return False
+
+    def _ensure_reserved(self):
+        if not hasattr(self, '_reserved') or self._reserved is None:
+            self._reserved = set()
+
+    def _reserve_permit(self, now=None, pending_before=None, data=None):
+        self._ensure_reserved()
+        if now is None:
+            now = time_provider.now()
+        permit = SendPermit(
+            transport=self,
+            now=now,
+            pending_before=pending_before,
+            data=data,
+        )
+        self._reserved.add(permit)
+        return permit
 
 
 class Server(object):

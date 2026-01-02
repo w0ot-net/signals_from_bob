@@ -39,16 +39,20 @@ class IcmpClientTests(unittest.TestCase):
 
         PendingTracker.prune = counting_prune
         try:
-            client.send(b'test')
+            permit = client.reserve_send(now=1)
+            self.assertIsNotNone(permit)
+            client.send(b'test', permit)
         finally:
             PendingTracker.prune = orig_prune
 
         self.assertEqual(len(calls), 1)
 
-    def test_pending_count_prunes_stale(self):
+    def test_reserve_send_prunes_stale(self):
         client = self._make_client()
         client._pending.add(1, True, now=0)
-        count = client.pending_count(now=2)
+        permit = client.reserve_send(now=2)
+        self.assertIsNotNone(permit)
+        count = client.pending_count()
         self.assertEqual(count, 0)
 
 

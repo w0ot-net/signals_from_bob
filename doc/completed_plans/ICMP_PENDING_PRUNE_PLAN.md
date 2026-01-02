@@ -1,5 +1,11 @@
 # Pending Prune Consistency Plan
 
+## Status
+
+Superseded by `doc/completed_plans/TRANSPORT_SEND_PERMIT_PLAN.md` which moves
+pruning into `reserve_send()` and replaces the `can_send()`/`send()` flow with
+permit enforcement.
+
 ## Goal
 
 Reduce redundant O(n) pending pruning on transport send paths and make pruning

@@ -26,11 +26,22 @@ class MockTransport(Transport):
     """Simple mock transport for testing."""
 
     def __init__(self):
+        super(MockTransport, self).__init__()
         self._next_corr_id = 0
         self._pending = {}  # corr_id -> response
         self._sent = []
+        self.reserve_calls = 0
 
-    def send(self, data):
+    def reserve_send(self, now=None):
+        self.reserve_calls += 1
+        pending_before = self.pending_count()
+        self._ensure_reserved()
+        reserved = len(self._reserved)
+        if pending_before + reserved >= self.max_in_flight:
+            return None
+        return self._reserve_permit(now=now, pending_before=pending_before)
+
+    def _send_impl(self, data, permit):
         corr_id = self._next_corr_id
         self._next_corr_id += 1
         self._sent.append(data)
@@ -173,7 +184,9 @@ class LossyTransportTests(unittest.TestCase):
         inner = MockTransport()
         lossy = LossyTransport(inner, no_impairment())
 
-        corr_id = lossy.send(b'test')
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        corr_id = lossy.send(b'test', permit)
         result = lossy.recv(timeout=0)
 
         self.assertEqual(result, (corr_id, b'test'))
@@ -184,7 +197,9 @@ class LossyTransportTests(unittest.TestCase):
         lossy = LossyTransport(inner, imp)
 
         # Send should "succeed" but packet is dropped
-        corr_id = lossy.send(b'test')
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        corr_id = lossy.send(b'test', permit)
         self.assertIsNotNone(corr_id)
 
         # Inner transport should not have received anything
@@ -200,7 +215,9 @@ class LossyTransportTests(unittest.TestCase):
         imp = NetworkImpairment(corrupt_rate=1.0, corrupt_bytes=(1, 1), seed=42)
         lossy = LossyTransport(inner, imp)
 
-        lossy.send(b'\x00' * 10)
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        lossy.send(b'\x00' * 10, permit)
 
         # Corrupted packets are dropped, not sent to inner
         self.assertEqual(len(inner._sent), 0)
@@ -210,7 +227,9 @@ class LossyTransportTests(unittest.TestCase):
         imp = NetworkImpairment(dup_rate=1.0, seed=42)
         lossy = LossyTransport(inner, imp)
 
-        lossy.send(b'test')
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        lossy.send(b'test', permit)
 
         # Should have sent twice to inner
         self.assertEqual(len(inner._sent), 2)
@@ -220,7 +239,9 @@ class LossyTransportTests(unittest.TestCase):
         imp = NetworkImpairment(loss_rate=1.0, seed=42)
         lossy = LossyTransport(inner, imp)
 
-        lossy.send(b'test')
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        lossy.send(b'test', permit)
 
         # Dropped packet should count as pending
         self.assertEqual(lossy.pending_count(), 1)
@@ -231,7 +252,9 @@ class LossyTransportTests(unittest.TestCase):
         lossy = LossyTransport(inner, send_impairment=no_impairment(),
                                recv_impairment=imp)
 
-        corr_id = lossy.send(b'test')
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        corr_id = lossy.send(b'test', permit)
 
         # Immediate recv should return nothing (delayed)
         result = lossy.recv(timeout=0)
@@ -248,7 +271,9 @@ class LossyTransportTests(unittest.TestCase):
         lossy = LossyTransport(inner, imp)
 
         for _ in range(10):
-            lossy.send(b'test')
+            permit = lossy.reserve_send()
+            self.assertIsNotNone(permit)
+            lossy.send(b'test', permit)
 
         stats = lossy.stats()
         self.assertIn('send', stats)
@@ -261,6 +286,17 @@ class LossyTransportTests(unittest.TestCase):
         self.assertEqual(lossy.send_mtu, inner.send_mtu)
         self.assertEqual(lossy.recv_mtu, inner.recv_mtu)
         self.assertEqual(lossy.max_in_flight, inner.max_in_flight)
+
+    def test_reserve_send_uses_inner_once(self):
+        inner = MockTransport()
+        imp = NetworkImpairment(dup_rate=0.0, corrupt_rate=0.0, seed=42)
+        lossy = LossyTransport(inner, imp)
+
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        self.assertEqual(inner.reserve_calls, 1)
+        lossy.send(b'test', permit)
+        self.assertEqual(inner.reserve_calls, 1)
 
 
 class LossyServerTests(unittest.TestCase):

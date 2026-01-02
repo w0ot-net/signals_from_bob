@@ -41,6 +41,7 @@ class MockTransport(Transport):
     """Mock transport for testing Alice with pipelined send/recv."""
 
     def __init__(self, responses=None, max_in_flight=16):
+        super(MockTransport, self).__init__()
         self._responses = list(responses) if responses else []
         self._pending = []  # List of (corr_id, response)
         self._next_corr_id = 0
@@ -48,7 +49,15 @@ class MockTransport(Transport):
         self._closed = False
         self._max_in_flight = max_in_flight
 
-    def send(self, data):
+    def reserve_send(self, now=None):
+        pending_before = self.pending_count()
+        self._ensure_reserved()
+        reserved = len(self._reserved)
+        if pending_before + reserved >= self._max_in_flight:
+            return None
+        return self._reserve_permit(now=now, pending_before=pending_before)
+
+    def _send_impl(self, data, permit):
         self._sent.append(data)
         corr_id = self._next_corr_id
         self._next_corr_id += 1
@@ -67,9 +76,6 @@ class MockTransport(Transport):
 
     def pending_count(self):
         return len(self._pending)
-
-    def can_send(self):
-        return self.pending_count() < self._max_in_flight
 
     @property
     def max_in_flight(self):
@@ -205,9 +211,18 @@ class WindowGrowthTest(unittest.TestCase):
 
 class _PairedAliceTransport(Transport):
     def __init__(self, pair):
+        super(_PairedAliceTransport, self).__init__()
         self._pair = pair
 
-    def send(self, data):
+    def reserve_send(self, now=None):
+        pending_before = self.pending_count()
+        self._ensure_reserved()
+        reserved = len(self._reserved)
+        if pending_before + reserved >= self.max_in_flight:
+            return None
+        return self._reserve_permit(now=now, pending_before=pending_before)
+
+    def _send_impl(self, data, permit):
         with self._pair._lock:
             corr_id = self._pair._next_corr_id
             self._pair._next_corr_id += 1
@@ -243,9 +258,6 @@ class _PairedAliceTransport(Transport):
     def pending_count(self):
         with self._pair._lock:
             return len(self._pair._alice_pending)
-
-    def can_send(self):
-        return self.pending_count() < self.max_in_flight
 
     @property
     def max_in_flight(self):

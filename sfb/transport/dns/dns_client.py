@@ -58,6 +58,7 @@ class DnsClient(Transport):
         """
         if not isinstance(config, Config):
             raise TypeError('config must be a Config instance')
+        super(DnsClient, self).__init__()
 
         self._config = config
         self._base_domain = config.dns_base_domain.lower().rstrip('.')
@@ -163,41 +164,20 @@ class DnsClient(Transport):
     def max_in_flight(self):
         return self._max_in_flight
 
-    def pending_count(self, now=None):
+    def pending_count(self):
         """Return number of queries awaiting response."""
-        return prune_and_count(
-            self._pending, self._prune_stale, now=now, on_prune=self._on_prune
-        )
+        return len(self._pending)
 
-    def can_send(self):
-        """
-        Check if rate limit allows sending.
-
-        Returns:
-            bool: True if a query can be sent without exceeding rate limit
-        """
-        if self.pending_count() >= self._max_in_flight:
-            return False
-        return True
-
-    def send(self, data):
-        """
-        Send data as DNS query.
-
-        Args:
-            data: bytes to send
-
-        Returns:
-            int: Correlation ID for matching response
-
-        Raises:
-            TransportError: on I/O failure or MTU exceeded
-        """
-        now = time_provider.now()
+    def reserve_send(self, now=None):
+        if now is None:
+            now = time_provider.now()
         pending_before = prune_and_count(
             self._pending, self._prune_stale, now=now, on_prune=self._on_prune
         )
-        if pending_before >= self._max_in_flight:
+        self._ensure_reserved()
+        reserved = len(self._reserved)
+        pending_total = pending_before + reserved
+        if pending_total >= self._max_in_flight:
             log_event(
                 _LOG,
                 logging.DEBUG,
@@ -205,10 +185,31 @@ class DnsClient(Transport):
                 'DNS send blocked',
                 lambda: {
                     'pending': pending_before,
+                    'reserved': reserved,
+                    'pending_total': pending_total,
                     'max_in_flight': self._max_in_flight,
                 },
             )
-            raise TransportError('Too many pending queries')
+            return None
+        return self._reserve_permit(now=now, pending_before=pending_before)
+
+    def _send_impl(self, data, permit):
+        """
+        Send data as DNS query.
+
+        Args:
+            data: bytes to send
+            permit: SendPermit reserved by this transport
+
+        Returns:
+            int: Correlation ID for matching response
+
+        Raises:
+            TransportError: on I/O failure or MTU exceeded
+        """
+        pending_before = permit.pending_before
+        if pending_before is None:
+            pending_before = len(self._pending)
         data = require_bytes_like(data)
         if len(data) > self._send_mtu:
             raise TransportError(
@@ -232,7 +233,7 @@ class DnsClient(Transport):
 
         # Track pending
         pending = _PendingQuery(dns_id, query_name.lower())
-        self._pending.add(corr_id, pending)
+        self._pending.add(corr_id, pending, now=permit.now)
         self._dns_to_corr[dns_id] = corr_id
 
         log_event(

@@ -6,9 +6,10 @@ All transports use a **request/response** pattern at the wire level. Alice
 (client) sends requests, Bob (server) responds. This reflects the fundamental
 asymmetry of covert channels: Alice initiates all communication.
 
-The transport interface separates `send()` and `recv()` to support pipelining -
-multiple requests in flight simultaneously. For serial operation, simply call
-`recv()` after each `send()`, or set `max_in_flight=1`.
+The transport interface separates reservation, `send()`, and `recv()` to
+support pipelining - multiple requests in flight simultaneously. For serial
+operation, reserve one permit, call `send()`, then `recv()`, or set
+`max_in_flight=1`.
 
 The tunnel passes wire packet bytes to the transport: the header is in cleartext
 and the body may be encrypted depending on the configured cipher.
@@ -28,12 +29,21 @@ class Transport:
     Correlation IDs match responses to requests.
     """
 
-    def send(self, data: bytes) -> int:
+    def reserve_send(self, now: float = None) -> SendPermit or None:
         """
-        Send data to Bob.
+        Prune pending entries, check capacity, and reserve a send permit.
+
+        Returns None when capacity is exhausted.
+        """
+        ...
+
+    def send(self, data: bytes, permit: SendPermit) -> int:
+        """
+        Send data to Bob using a reserved permit.
 
         Args:
             data: Packet bytes to send
+            permit: SendPermit from reserve_send()
 
         Returns:
             Correlation ID for matching response
@@ -56,7 +66,7 @@ class Transport:
         ...
 
     def pending_count(self) -> int:
-        """Number of requests awaiting response."""
+        """Number of requests awaiting response (non-pruning)."""
         ...
 
     @property
@@ -67,6 +77,10 @@ class Transport:
     @property
     def recv_mtu(self) -> int:
         """Max bytes per recv."""
+        ...
+
+    def release_send(self, permit: SendPermit):
+        """Release a reserved permit when a send is skipped."""
         ...
 
     def close(self):
@@ -121,7 +135,10 @@ class Server:
 
 ```python
 # Equivalent to old exchange() - one request, wait for response
-corr_id = transport.send(packet_data)
+permit = transport.reserve_send()
+if permit is None:
+    raise RuntimeError('capacity exhausted')
+corr_id = transport.send(packet_data, permit)
 corr_id, response_data = transport.recv(timeout=5.0)
 ```
 
@@ -140,13 +157,15 @@ def tick():
         process_response(corr_id, response)
 
     # Send new packets up to limit
-    while can_send_more():
-        corr_id = transport.send(next_packet())
+    while tunnel.send_window.can_send:
+        packet = next_packet()
+        if packet is None:
+            break
+        permit = transport.reserve_send()
+        if permit is None:
+            break
+        corr_id = transport.send(packet, permit)
         track_in_flight(corr_id)
-
-def can_send_more():
-    return (transport.pending_count() < config.max_in_flight and
-            tunnel.send_window.can_send)
 ```
 
 ### Effective In-Flight Limit

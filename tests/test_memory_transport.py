@@ -15,7 +15,9 @@ from sfb.transport import (
 class InMemoryTransportTests(unittest.TestCase):
     def test_round_trip(self):
         client, server = create_inmemory_transport_pair(Config())
-        corr_id = client.send(b'hello')
+        permit = client.reserve_send()
+        self.assertIsNotNone(permit)
+        corr_id = client.send(b'hello', permit)
         data, responder = server.recv(timeout=0)
         self.assertEqual(data, b'hello')
         responder(b'world')
@@ -25,9 +27,10 @@ class InMemoryTransportTests(unittest.TestCase):
         client, server = create_inmemory_transport_pair(
             Config(max_in_flight=1)
         )
-        client.send(b'a')
-        with self.assertRaises(TransportError):
-            client.send(b'b')
+        permit = client.reserve_send()
+        self.assertIsNotNone(permit)
+        client.send(b'a', permit)
+        self.assertIsNone(client.reserve_send())
         data, responder = server.recv(timeout=0)
         responder(b'a')
         self.assertEqual(client.recv(timeout=0.1)[1], b'a')
@@ -36,9 +39,13 @@ class InMemoryTransportTests(unittest.TestCase):
         client, server = create_inmemory_transport_pair(
             Config(), send_mtu=4, recv_mtu=4
         )
+        permit = client.reserve_send()
+        self.assertIsNotNone(permit)
         with self.assertRaises(TransportError):
-            client.send(b'12345')
-        corr_id = client.send(b'1234')
+            client.send(b'12345', permit)
+        permit = client.reserve_send()
+        self.assertIsNotNone(permit)
+        corr_id = client.send(b'1234', permit)
         data, responder = server.recv(timeout=0)
         with self.assertRaises(TransportError):
             responder(b'56789')
@@ -54,7 +61,7 @@ class InMemoryTransportTests(unittest.TestCase):
         client, server = create_inmemory_transport_pair(Config())
         client.close()
         with self.assertRaises(TransportError):
-            client.send(b'data')
+            client.reserve_send()
 
 
 if __name__ == '__main__':

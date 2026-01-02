@@ -371,7 +371,11 @@ class DnsTransport(Transport):
         self._next_corr_id = 1
         self._max_in_flight = config.max_in_flight
 
-    def send(self, packet: bytes) -> int:
+    def reserve_send(self, now: float = None) -> SendPermit or None:
+        """Prune stale entries, check capacity, and reserve a send permit."""
+        ...
+
+    def send(self, packet: bytes, permit: SendPermit) -> int:
         """Encode packet, send DNS query, return correlation ID."""
         corr_id = self._next_corr_id
         self._next_corr_id += 1
@@ -416,6 +420,10 @@ class DnsTransport(Transport):
     def pending_count(self) -> int:
         return len(self._pending)
 
+    def release_send(self, permit: SendPermit):
+        """Release a reserved permit when a send is skipped."""
+        ...
+
     @property
     def max_in_flight(self) -> int:
         return self._max_in_flight
@@ -439,7 +447,10 @@ class DnsTransport(Transport):
 ```python
 config = Config(max_in_flight=1)
 transport = DnsTransport(domain, resolver, config=config)
-corr_id = transport.send(packet)
+permit = transport.reserve_send()
+if permit is None:
+    raise RuntimeError('capacity exhausted')
+corr_id = transport.send(packet, permit)
 corr_id, response = transport.recv(timeout=5.0)
 ```
 
@@ -459,11 +470,14 @@ def tick():
         process_response(corr_id, response)
 
     # Send new packets up to limit
-    while transport.pending_count() < config.max_in_flight:
-        if packet := next_packet():
-            transport.send(packet)
-        else:
+    while True:
+        packet = next_packet()
+        if packet is None:
             break
+        permit = transport.reserve_send()
+        if permit is None:
+            break
+        transport.send(packet, permit)
 ```
 
 Responses may arrive out of order. The reliability layer uses sequence numbers
@@ -471,14 +485,18 @@ to reorder them.
 
 ### Correlation ID Tracking
 
-The transport maps correlation IDs (returned by `send()`) to DNS query IDs
+The transport maps correlation IDs (returned by `send()` after reserving a
+permit) to DNS query IDs
 internally. This allows the tunnel layer to track in-flight packets without
 knowing DNS details. Examples below use `time_provider.now()` for monotonic
 timestamps:
 
 ```python
 # Tunnel layer tracks: corr_id -> (seq, send_time, is_retransmit)
-    corr_id = transport.send(packet_data)
+    permit = transport.reserve_send()
+    if permit is None:
+        return
+    corr_id = transport.send(packet_data, permit)
     in_flight[corr_id] = InFlightPacket(seq, time_provider.now(), is_retransmit=False)
 
 # When response arrives
@@ -493,9 +511,9 @@ if corr_id in in_flight:
 
 The transport does not retry - that's the reliability layer's job. Stale
 pending entries are automatically pruned when no response arrives to free
-in-flight capacity. Pruning runs on every `pending_count()`, `send()`, and
-`recv()` call, but each send performs a single prune and reuses the result
-to avoid redundant O(n) work:
+in-flight capacity. Pruning runs in `reserve_send()` and `recv()`; the
+`pending_count()` accessor is non-pruning. Each send attempt performs a
+single prune and reuses the result to avoid redundant O(n) work:
 
 ```python
 def _prune_stale(self):
@@ -878,10 +896,12 @@ Alice should maintain `max_in_flight` queries in-flight at all times
 # Optimal pipelining loop
 while data_to_send or transport.pending_count() > 0:
     # Send up to max_in_flight
-    while (transport.pending_count() < config.max_in_flight and
-           data_to_send):
+    while data_to_send:
         packet = next_packet()
-        corr_id = transport.send(packet)
+        permit = transport.reserve_send()
+        if permit is None:
+            break
+        corr_id = transport.send(packet, permit)
         in_flight[corr_id] = packet.seq
 
     # Drain all available responses (non-blocking)
@@ -905,11 +925,14 @@ For direct mode, Alice can send queries as fast as the network allows:
 # High-performance query loop (direct mode)
 while running:
     # Send burst of queries up to max_in_flight
-    while transport.pending_count() < config.max_in_flight:
-        if packet := next_outbound():
-            transport.send(packet)
-        else:
+    while True:
+        packet = next_outbound()
+        if packet is None:
             break
+        permit = transport.reserve_send()
+        if permit is None:
+            break
+        transport.send(packet, permit)
 
     # Process responses with short timeout
     while True:

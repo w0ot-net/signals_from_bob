@@ -205,3 +205,17 @@ the Transport base class and avoids thin wrappers.
 - One prune per send attempt on DNS and ICMP.
 - Clear, enforced send path with no thin wrappers.
 - Consistent behavior across transports and wrappers.
+
+## Execution Notes
+
+- Added send permits, transport metaclass enforcement, and reservation tracking
+  in `sfb/transport/transport_base.py`.
+- Updated DNS, ICMP, memory, and lossy transports to implement
+  `reserve_send()`/`_send_impl()` and make `pending_count()` non-pruning.
+- Reworked Alice tunnel send paths to reserve permits and pass them to
+  `send()`, including handshake paths and transport-blocked logging.
+- Updated unit tests to use permits, added base transport permit tests, and
+  adjusted pruning assertions to target `reserve_send()`.
+- Updated transport docs for the reserve/send contract and marked the ICMP
+  prune plan as superseded.
+- Tests not run (per instructions).

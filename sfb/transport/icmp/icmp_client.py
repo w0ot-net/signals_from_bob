@@ -36,6 +36,7 @@ class IcmpClient(Transport):
     def __init__(self, config):
         if not isinstance(config, Config):
             raise TypeError('config must be a Config instance')
+        super(IcmpClient, self).__init__()
         self._config = config
         self._require_privileges()
 
@@ -69,20 +70,19 @@ class IcmpClient(Transport):
     def max_in_flight(self):
         return self._max_in_flight
 
-    def pending_count(self, now=None):
-        return prune_and_count(self._pending, self._prune_stale, now=now)
+    def pending_count(self):
+        return len(self._pending)
 
-    def can_send(self):
-        if self.pending_count() >= self._max_in_flight:
-            return False
-        return True
-
-    def send(self, data):
-        now = time_provider.now()
+    def reserve_send(self, now=None):
+        if now is None:
+            now = time_provider.now()
         pending_before = prune_and_count(
             self._pending, self._prune_stale, now=now
         )
-        if pending_before >= self._max_in_flight:
+        self._ensure_reserved()
+        reserved = len(self._reserved)
+        pending_total = pending_before + reserved
+        if pending_total >= self._max_in_flight:
             log_event(
                 _LOG,
                 logging.DEBUG,
@@ -90,10 +90,18 @@ class IcmpClient(Transport):
                 'ICMP send blocked',
                 lambda: {
                     'pending': pending_before,
+                    'reserved': reserved,
+                    'pending_total': pending_total,
                     'max_in_flight': self._max_in_flight,
                 },
             )
-            raise TransportError('Too many pending requests')
+            return None
+        return self._reserve_permit(now=now, pending_before=pending_before)
+
+    def _send_impl(self, data, permit):
+        pending_before = permit.pending_before
+        if pending_before is None:
+            pending_before = len(self._pending)
 
         data = require_bytes_like(data)
         if len(data) > self._send_mtu:
@@ -109,7 +117,7 @@ class IcmpClient(Transport):
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
 
-        self._pending.add(seq, True)
+        self._pending.add(seq, True, now=permit.now)
 
         log_event(
             _LOG,

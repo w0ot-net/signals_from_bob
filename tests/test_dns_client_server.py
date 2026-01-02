@@ -259,20 +259,25 @@ class DnsClientTests(unittest.TestCase):
 
         PendingTracker.prune = counting_prune
         try:
-            client.send(b'test')
+            permit = client.reserve_send(now=1)
+            self.assertIsNotNone(permit)
+            client.send(b'test', permit)
         finally:
             PendingTracker.prune = orig_prune
 
         self.assertEqual(len(calls), 1)
 
-    def test_pending_count_prunes_stale(self):
+    def test_reserve_send_prunes_stale(self):
         client = DnsClient.__new__(DnsClient)
+        client._max_in_flight = 5
         client._pending = PendingTracker(1.0)
         client._dns_to_corr = {}
-        pending = _PendingQuery(100, b'packet', 'q.example.com')
+        pending = _PendingQuery(100, 'q.example.com')
         client._pending.add(1, pending, now=0)
         client._dns_to_corr[100] = 1
-        count = client.pending_count(now=2)
+        permit = client.reserve_send(now=2)
+        self.assertIsNotNone(permit)
+        count = client.pending_count()
         self.assertEqual(count, 0)
         self.assertEqual(client._dns_to_corr, {})
 

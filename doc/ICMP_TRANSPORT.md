@@ -124,7 +124,8 @@ Correlation IDs:
 
 ## Polling Semantics
 
-- Alice sends packets via `send()`, which emits an ICMP Echo Request.
+- Alice reserves capacity via `reserve_send()` then calls `send()`, which
+  emits an ICMP Echo Request.
 - Bob receives via `recv()`, validates ICMP framing/type, and returns a
   responder that sends an Echo Reply to the same source address with the
   same id/seq. The payload is passed to the tunnel unchanged. Checksum
@@ -171,7 +172,8 @@ CLI:
    - privilege check
    - checksum implementation
    - pending tracker (similar to DNS client)
-   - `send()` constructs Echo Request with SFB payload
+   - `send()` constructs Echo Request with SFB payload (using a permit from
+     `reserve_send()`)
    - `recv()` reads replies, validates type/framing, returns `(corr_id, data)`
 3. Add `sfb/transport/icmp/icmp_server.py`:
    - raw ICMP socket

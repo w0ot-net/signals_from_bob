@@ -21,6 +21,7 @@ class InMemoryTransport(Transport):
     def __init__(self, config, link=None, send_mtu=None, recv_mtu=None):
         if not isinstance(config, Config):
             raise TypeError('config must be a Config instance')
+        super(InMemoryTransport, self).__init__()
         self._send_mtu = send_mtu or DEFAULT_MAX_PACKET_SIZE
         self._recv_mtu = recv_mtu or DEFAULT_MAX_PACKET_SIZE
         self._max_in_flight = getattr(config, 'max_in_flight', 64)
@@ -45,7 +46,30 @@ class InMemoryTransport(Transport):
     def pending_count(self):
         return len(self._pending)
 
-    def send(self, data):
+    def reserve_send(self, now=None):
+        if self._link.is_closed():
+            raise TransportError('In-memory transport closed')
+        pending_before = self.pending_count()
+        self._ensure_reserved()
+        reserved = len(self._reserved)
+        pending_total = pending_before + reserved
+        if pending_total >= self._max_in_flight:
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'memory.send_blocked',
+                'In-memory transport send blocked',
+                lambda: {
+                    'pending': pending_before,
+                    'reserved': reserved,
+                    'pending_total': pending_total,
+                    'max_in_flight': self._max_in_flight,
+                },
+            )
+            return None
+        return self._reserve_permit(now=now, pending_before=pending_before)
+
+    def _send_impl(self, data, permit):
         if self._link.is_closed():
             raise TransportError('In-memory transport closed')
         data = to_bytes(data)
@@ -53,18 +77,6 @@ class InMemoryTransport(Transport):
             raise TransportError(
                 'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
             )
-        if self.pending_count() >= self._max_in_flight:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'memory.send_blocked',
-                'In-memory transport send blocked',
-                lambda: {
-                    'pending': self.pending_count(),
-                    'max_in_flight': self._max_in_flight,
-                },
-            )
-            raise TransportError('Too many pending in-memory requests')
 
         corr_id = self._next_corr_id
         self._next_corr_id = (self._next_corr_id + 1) & 0x7FFFFFFF

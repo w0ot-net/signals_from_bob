@@ -90,7 +90,8 @@ and sends new packets using `send()`/`recv()`:
 3. Send new packets (while capacity remains)
    ├─▶ Collect outgoing segments
    ├─▶ Build packet with seq/ack/sack
-   └─▶ transport.send(header + encrypt(segments))
+   ├─▶ permit = transport.reserve_send()
+   └─▶ transport.send(header + encrypt(segments), permit)
 ```
 
 ### Bob's Request Handler

@@ -351,8 +351,7 @@ class Channel(object):
                     if remaining <= 0:
                         raise ChannelError('timeout', 'Write timeout')
                     wait_timeout = min(wait_timeout, remaining)
-                if not self.wait_send_space(timeout=wait_timeout):
-                    raise ChannelError('timeout', 'Write timeout')
+                self.wait_send_space(timeout=wait_timeout)
                 backoff = min(backoff * 1.5, max_backoff)
                 continue
 
@@ -366,8 +365,7 @@ class Channel(object):
                     if remaining <= 0:
                         raise ChannelError('timeout', 'Write timeout')
                     wait_timeout = min(wait_timeout, remaining)
-                if not self.wait_send_space(timeout=wait_timeout):
-                    raise ChannelError('timeout', 'Write timeout')
+                self.wait_send_space(timeout=wait_timeout)
                 backoff = min(backoff * 1.5, max_backoff)
 
         return len(data)

@@ -25,6 +25,9 @@
    - Define behavior on remote CLOSE (full close vs half-close), and how
      late in-flight data is handled after CLOSE.
    - Document when CLOSE is sent and how pending data is handled.
+   - Cross-check close/abort, retransmit, and timeout behavior against
+     doc/ASYMMETRY.md and ensure keepalive pong suppression is preserved
+     when data is pending on any channel.
 2) Fix the ControlChannel error path.
    - Import ChannelError in sfb/channel/control_channel.py.
    - Add or adjust a unit test to ensure invalid control messages raise
@@ -34,6 +37,8 @@
      re-use an existing limit if appropriate.
    - Define limit semantics (bytes vs messages), and specify where the
      limit is enforced (pre- or post-reassembly).
+   - Pick a default sizing rule (for example: N * negotiated recv MTU) and
+     document the rationale and tuning guidance.
    - Define overflow behavior (for example: close channel with error and
      drop excess data), and make it consistent across platforms.
    - Update docs to describe receive-side limits and error behavior.
@@ -44,11 +49,15 @@
      compaction).
    - Define compaction criteria if using lazy cleanup and how fairness is
      preserved when channels are removed mid-iteration.
+   - Specify required invariants up front (stable ordering, O(1)
+     add/remove, bounded cleanup cost, no fairness regressions).
    - Keep round-robin fairness and avoid lock-heavy operations.
 5) Validation and documentation.
    - Run unit or module-level tests that cover close/abort semantics,
      control message handling, and send/recv buffer limits (including
      overflow behavior).
+   - Ensure tests remain Python 2.7/3 compatible, but run them with
+     python3.
    - Do not run tests/e2e; note this in the change summary.
    - Update doc/CHANNEL.md, doc/CHANNEL_MANAGER.md, and any protocol or
      control-message docs that describe CLOSE and error behavior.

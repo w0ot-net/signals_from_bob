@@ -46,7 +46,7 @@ DEFAULT_PROXYCHAINS_CONNECT_TIMEOUT_MS = 15000
 DEFAULT_PROXYCHAINS_READ_TIMEOUT_MS = 600000
 DEFAULT_SOCKS_PORT = 1080
 DEFAULT_REMOTE_FILE = '/tmp/del'
-DEFAULT_TEST_FILE = os.path.join('test_download_files', '2MB.bin')
+DEFAULT_TEST_FILE = os.path.join('test_download_files', '100MB.bin')
 
 
 class ManagedProcess(object):

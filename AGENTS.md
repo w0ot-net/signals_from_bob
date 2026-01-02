@@ -15,3 +15,4 @@ Project Rules
 - always commit and push after making code changes
 - breaking changes are acceptable when they improve cleanliness or performance; make the clean change and update all call sites in the same change, and avoid compatibility shims or transitional signatures for internal APIs
 - for code reviews, try to answer your own questions; if that is not possible, suggest likely best options when posing questions, grounded in observed facts
+- when executing a <plan>.md, add notes about how it was executed and then move it into doc/completed_plans

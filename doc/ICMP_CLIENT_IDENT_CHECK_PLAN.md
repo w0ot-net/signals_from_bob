@@ -17,16 +17,18 @@ Remove the redundant ident check in `IcmpClient._try_recv()` since
 
 1. Delete the redundant `ident != self._icmp_id` branch in
    `sfb/transport/icmp/icmp_client.py`.
-2. Keep `expect_ident` passed to `parse_icmp_echo()` so mismatched packets are
+2. Update tuple unpacking in `_try_recv()` to drop the unused `ident` result.
+3. Keep `expect_ident` passed to `parse_icmp_echo()` so mismatched packets are
    still rejected early.
-3. Add a unit test in `tests/test_icmp_packet.py` to assert that
+4. Add a unit test in `tests/test_icmp_packet.py` to assert that
    `parse_icmp_echo(..., expect_ident=...)` rejects a packet with a different
-   ident. This locks in the assumption that makes the branch redundant.
+   ident (use `build_echo_request` or `build_echo_reply`). This locks in the
+   assumption that makes the branch redundant.
 
 ## Implementation Sketch
 
 - In `sfb/transport/icmp/icmp_client.py`, remove the ident comparison after
-  `parse_icmp_echo()` returns a result.
+  `parse_icmp_echo()` returns a result, and unpack without `ident`.
 - In `tests/test_icmp_packet.py`, add a case that builds a packet with one
   ident and parses it with a different `expect_ident`, asserting `None`.
 

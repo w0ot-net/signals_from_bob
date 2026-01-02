@@ -42,9 +42,11 @@ preserving protocol behavior and cross platform support.
      timeout (100-250ms) to honor stop_event promptly.
    - Only include sockets in the writable set when outbound buffer has data to
      avoid select spin on Windows.
-   - If a pump handles multiple sockets, cap per-iteration bytes or loops so
-     a single busy socket cannot starve others; otherwise document the
-     per-connection assumption.
+   - Document the current model: each SOCKS connection spawns two threads and
+     each pump handles a single socket/channel (no multiplexed multi-socket
+     loop today).
+   - If a pump ever handles multiple sockets, cap per-iteration bytes or loops
+     so a single busy socket cannot starve others.
    - Bound the per-socket outbound buffer and gate channel.read so pending data
      cannot grow unbounded when the socket is not writable (use a cap and
      low-water mark or read only when writable).

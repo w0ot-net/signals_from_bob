@@ -11,6 +11,7 @@ bitmap and header layout while keeping reliability semantics unchanged.
 - Packet header size (14 bytes) and MTU calculations assume a 64-bit SACK.
 - Tests and troubleshooting docs assume max_in_flight=64.
 - Transport pending caps are tied to max_in_flight, which is still capped at 64.
+- SACK_MAX mask is 64-bit, so high SACK bits would be truncated after expansion.
 
 ## Constraints
 - Python 2.7/3 compatible; standard library only.
@@ -20,9 +21,10 @@ bitmap and header layout while keeping reliability semantics unchanged.
 - MTU negotiation remains asymmetric (independent send/recv MTUs).
 - Breaking protocol change is acceptable, but update all call sites and docs.
 - Do not run E2E tests under tests/e2e/ (DNS direct mode uses port 5353; authoritative uses port 53).
+- Historical/troubleshooting docs are out of scope for this change.
 
 ## Affected Components
-- sfb/protocol/constants.py (SACK_BITS/SACK_SIZE/PACKET_HEADER_SIZE/MAX_IN_FLIGHT offsets)
+- sfb/protocol/constants.py (SACK_BITS/SACK_SIZE/SACK_MAX/PACKET_HEADER_SIZE/MAX_IN_FLIGHT offsets)
 - sfb/protocol/__init__.py (remove DEFAULT_MAX_IN_FLIGHT export)
 - sfb/protocol/packet.py (PacketHeader encoding/decoding, sack helpers, repr)
 - sfb/protocol/segment.py (max payload size derives from header size)
@@ -31,15 +33,20 @@ bitmap and header layout while keeping reliability semantics unchanged.
 - sfb/tunnel/base_tunnel.py (MAX_WINDOW, MTU math using PACKET_HEADER_SIZE)
 - sfb/config.py (max_in_flight defaults/validation, pacing bounds, initial window,
   transport pending defaults)
+- sfb/transport/dns/dns_client.py (inflight cap tied to tunnel_max_in_flight)
+- sfb/transport/icmp/icmp_client.py (inflight cap tied to tunnel_max_in_flight)
+- sfb/transport/memory/memory_client.py (inflight cap default matches tunnel_max_in_flight)
+- sfb/transport/lossy.py (cap passthrough aligns with inflight_cap)
+- sfb/modules/socks/data_pump.py (outbound buffer cap scales with max_in_flight)
 - tests/test_packet.py, tests/test_reliability.py, tests/test_tunnel.py
 - doc/PROTOCOL.md, doc/RELIABILITY.md, doc/CONTROL_MESSAGES.md, doc/TUNNEL.md
 - doc/TRANSPORTS.md, doc/ICMP_TRANSPORT.md, doc/ASYMMETRY.md
-- doc/troubleshooting_socks_channel_starvation.md, doc/bugs/scp_stalled_icmp_socks.md
 
 ## Plan
 1. Update protocol constants and header layout.
    - Set SACK_BITS and MAX_IN_FLIGHT to 256; set SACK_SIZE to 32; update
      PACKET_HEADER_SIZE and offsets.
+   - Update SACK_MAX to cover 256 bits and keep masking consistent.
    - Raise max_in_flight default to 256 and remove DEFAULT_MAX_IN_FLIGHT.
 2. Extend PacketHeader encoding/decoding for a 256-bit SACK.
    - Encode SACK as four big-endian u64 words (or 32 bytes) while keeping sack
@@ -59,11 +66,15 @@ bitmap and header layout while keeping reliability semantics unchanged.
      tunnel_initial_window, and pacing min/max inflight bounds to 1-256.
    - Keep transport pending caps tied to max_in_flight so transports do not
      introduce separate caps.
+   - Align lossy transport cap passthrough with inflight_cap naming.
+   - Ensure memory transport inflight default uses the configured tunnel_max_in_flight.
 5. MTU and payload sizing.
    - Ensure PACKET_HEADER_SIZE changes propagate to MTU math, payload caps, and
      segment max payload.
-   - Re-evaluate protocol_initial_mtu and default MTU safety with the larger
-     header.
+   - Keep protocol_initial_mtu semantics as payload bytes; update docs that
+     described it as a total packet size limit.
+   - Re-evaluate default MTU safety with the larger header and confirm payload
+     + header stays within pre-negotiation limits.
 6. Documentation updates.
    - Update protocol header diagrams, SACK description, and max_in_flight caps
      to 256.
@@ -71,17 +82,21 @@ bitmap and header layout while keeping reliability semantics unchanged.
      16-bit).
    - Note the wire-format change and requirement that both sides upgrade
      together.
+   - Limit doc changes to core protocol/tunnel docs; leave historical/troubleshooting
+     docs unchanged.
 7. Tests and validation.
    - Update unit tests for new header size and 256-bit SACK encode/decode.
    - Add tests for SACK bit set/clear at high offsets (e.g., 128, 256).
+   - Add coverage to ensure SACK_MAX masks all 256 bits (no truncation).
    - Update any max_in_flight cap tests to 256.
    - Update SendWindow usage to pass explicit max_in_flight where defaults existed.
    - Run only unit tests: python3 -m unittest tests.test_packet tests.test_reliability tests.test_tunnel
 
 ## Acceptance Criteria
 - MAX_IN_FLIGHT and SACK_BITS are 256, header size and offsets are consistent.
+- SACK_MAX masks the full 256-bit window without truncation.
 - PacketHeader encodes/decodes 256-bit SACK correctly on Python 2 and 3.
 - Window negotiation and config accept 1-256 and honor max_in_flight only.
 - SendWindow has no implicit max_in_flight default; all call sites pass it explicitly.
-- Docs reflect 256-bit SACK and new header size; no stale 64 cap text remains.
+- Docs reflect 256-bit SACK and new header size in core protocol/tunnel docs.
 - Unit tests pass (no E2E tests run).

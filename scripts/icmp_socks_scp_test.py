@@ -142,6 +142,11 @@ def parse_args():
         help='Override ICMP payload MTU (passed to sfb CLI)'
     )
     parser.add_argument(
+        '--max-in-flight', '--max_in_flight',
+        dest='max_in_flight', type=int, default=None,
+        help='Override max_in_flight (passed to sfb CLI)'
+    )
+    parser.add_argument(
         '--send-rate', type=float, default=None,
         help='Override tunnel send rate for Alice (packets/sec, 0=unlimited)'
     )
@@ -335,8 +340,8 @@ def build_ssh_base(cmd_bin, ssh_port, identity_file, ssh_options):
     return cmd
 
 
-def start_bob(socks_host, socks_port, icmp_mtu=None, log_profile=None,
-              verbose=False, db_log_flush=None):
+def start_bob(socks_host, socks_port, icmp_mtu=None, max_in_flight=None,
+              log_profile=None, verbose=False, db_log_flush=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'bob',
@@ -350,6 +355,8 @@ def start_bob(socks_host, socks_port, icmp_mtu=None, log_profile=None,
         cmd.extend(['--db-log-flush', str(db_log_flush)])
     if icmp_mtu:
         cmd.extend(['--icmp_mtu', str(icmp_mtu)])
+    if max_in_flight is not None:
+        cmd.extend(['--max_in_flight', str(max_in_flight)])
     cmd.extend([
         '--module', 'socks_server',
         'start',
@@ -359,8 +366,9 @@ def start_bob(socks_host, socks_port, icmp_mtu=None, log_profile=None,
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 
 
-def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
-                log_profile=None, verbose=False, db_log_flush=None):
+def start_alice(icmp_target, icmp_mtu=None, max_in_flight=None,
+                send_rate=None, send_burst=None, log_profile=None,
+                verbose=False, db_log_flush=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'alice',
@@ -375,6 +383,8 @@ def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
         cmd.extend(['--db-log-flush', str(db_log_flush)])
     if icmp_mtu:
         cmd.extend(['--icmp_mtu', str(icmp_mtu)])
+    if max_in_flight is not None:
+        cmd.extend(['--max_in_flight', str(max_in_flight)])
     if send_rate is not None:
         cmd.extend(['--send_rate', str(send_rate)])
     if send_burst is not None:
@@ -487,6 +497,7 @@ def main():
             args.socks_host,
             args.socks_port,
             icmp_mtu=args.icmp_mtu,
+            max_in_flight=args.max_in_flight,
             log_profile=args.log_profile,
             verbose=args.verbose_cli,
             db_log_flush=args.db_log_flush,
@@ -494,6 +505,7 @@ def main():
         alice = start_alice(
             args.icmp_target,
             icmp_mtu=args.icmp_mtu,
+            max_in_flight=args.max_in_flight,
             send_rate=args.send_rate,
             send_burst=args.send_burst,
             log_profile=args.log_profile,

@@ -74,6 +74,11 @@ def add_common_args(parser, config, require_domain=True):
         help='Transport type (default: %s)' % config.transport_default
     )
     parser.add_argument(
+        '--max_in_flight', type=int, default=config.max_in_flight,
+        help='Max in-flight packets (1-256, default: %s)' %
+             config.max_in_flight
+    )
+    parser.add_argument(
         '--domain',
         required=require_domain,
         default=config.dns_base_domain,
@@ -329,6 +334,7 @@ def create_config(args):
         'dns_base_domain': args.domain,
         'transport': args.transport,
     }
+    config_kwargs['max_in_flight'] = getattr(args, 'max_in_flight', None)
 
     # DNS transport args
     if args.transport == 'dns':

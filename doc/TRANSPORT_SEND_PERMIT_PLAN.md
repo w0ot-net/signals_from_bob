@@ -26,6 +26,7 @@ the Transport base class and avoids thin wrappers.
   caller skips the send attempt.
 - Make `Transport.send(self, data, permit)` a concrete method that enforces:
   - `permit` is present, matches the transport, and is unused.
+  - `permit` is currently reserved by the transport (in `_reserved`), or raise.
   - Marks the permit as used before calling `_send_impl(self, data, permit)`
     (new abstract method).
 - Remove `can_send()` from the transport interface and update call sites to
@@ -46,6 +47,7 @@ the Transport base class and avoids thin wrappers.
   to override it.
 - Track outstanding permits in the base class and ensure `reserve_send()`
   includes them in capacity checks and `send()` clears them even on errors.
+  - Validation must confirm the permit is in `_reserved`, not just well-formed.
 - Ensure `_reserved` exists on all transport instances (base `__init__` plus
   subclass `__init__` calls, or a lazy initializer used by `reserve_send()`
   and `send()`).
@@ -117,6 +119,8 @@ the Transport base class and avoids thin wrappers.
    - If duplication is selected, request a second inner permit in
      `reserve_send()`; if unavailable, keep the primary send and skip the
      duplicate.
+   - Ensure `release_send()` on the lossy wrapper releases any cached inner
+     permits for that outer permit (so skipped sends do not leak capacity).
    - In `_send_impl()`, use the cached outcome and permits:
      - If dropped/corrupted, return a fake corr_id and record it; do not call
        `inner.reserve_send()` or `inner.send()`.
@@ -127,12 +131,14 @@ the Transport base class and avoids thin wrappers.
 6. `sfb/tunnel/alice_tunnel.py` and all other call sites
    - Replace `transport.can_send()` with `transport.reserve_send(now=now)` and
      propagate the returned permit through the send path.
+   - Keep `_can_send_new()` and `_can_send_retransmit()` returning boolean;
+     reserve permits only after rate limiter and packet build succeed.
    - Thread the permit into `_send_new_packet()` and `_send_retransmit()`; if
      `reserve_send()` returns `None`, log and skip the send attempt.
    - Update direct `transport.send()` call sites (SYN/SYN-ACK/ACK paths and any
      other direct sends) to obtain a permit first.
-   - If a permit is reserved and the send is skipped (e.g., error building the
-     packet), call `release_send(permit)` to avoid leaking capacity.
+   - If a permit is reserved and the send is skipped, call `release_send(permit)`
+     to avoid leaking capacity (should be rare if reserving late).
    - Only replace `Transport.can_send()` uses; do not touch pacer or rate
      limiter `can_send()` calls.
    - Ensure one permit is used for exactly one send attempt.
@@ -145,8 +151,8 @@ the Transport base class and avoids thin wrappers.
      flow and pruning rules.
    - Note the breaking API change and required updates for external transports.
    - Remove any `pending_count(now=...)` examples from docs.
-   - Update or mark `doc/ICMP_PENDING_PRUNE_PLAN.md` as superseded to avoid
-     conflicting guidance.
+   - Update or mark `doc/completed_plans/ICMP_PENDING_PRUNE_PLAN.md` as
+     superseded to avoid conflicting guidance.
 
 8. Tests
    - Add unit tests for DNS and ICMP to count prune calls per send attempt
@@ -159,11 +165,14 @@ the Transport base class and avoids thin wrappers.
    - Update mock `Transport` subclasses in tests to implement `reserve_send()`
      and `_send_impl()` instead of `send()`.
    - Add base transport tests for invalid permit, wrong transport, and reuse.
+   - Add a test that `send()` rejects permits not in `_reserved`.
    - Add tests that outstanding permits count against capacity, and that
      `send()` clears reservations even when `_send_impl` raises.
    - Add tests that `release_send()` restores capacity for unused permits.
    - Update lossy transport tests to use permits and validate no extra inner
      `reserve_send()` calls per send attempt.
+   - Update tests that expect `send()` to raise on capacity to use
+     `reserve_send()` returning `None` instead.
    - Do not run E2E tests; they remain unchanged.
 
 ## Compatibility and Risks

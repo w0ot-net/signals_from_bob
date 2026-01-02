@@ -22,8 +22,8 @@ class ControlChannel(Channel):
 
     __slots__ = ('_line_buf', '_read_chunk_size', '_send_event')
 
-    def __init__(self, channel_id=CHANNEL_CONTROL, max_send_buf=65536,
-                 max_recv_buf=65536, read_chunk_size=4096,
+    def __init__(self, channel_id=CHANNEL_CONTROL, max_send_buf=1048576,
+                 max_recv_buf=1048576, read_chunk_size=4096,
                  write_backoff_initial=0.01, write_backoff_max=1.0,
                  send_event=None):
         if channel_id != CHANNEL_CONTROL:

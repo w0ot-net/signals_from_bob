@@ -48,7 +48,7 @@ class Channel(object):
         '_send_state_callback', '_send_state_seq', '_close_pending',
     )
 
-    def __init__(self, channel_id, max_send_buf=65536, max_recv_buf=65536,
+    def __init__(self, channel_id, max_send_buf=1048576, max_recv_buf=1048576,
                  write_backoff_initial=0.01, write_backoff_max=1.0):
         """
         Create a channel.

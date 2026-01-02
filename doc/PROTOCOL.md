@@ -124,6 +124,18 @@ Payload immediately follows header.
 The even/odd convention applies only to dynamically opened channels and prevents
 ID collisions when both sides open channels concurrently.
 
+### Channel 0 Protocol Errors
+
+Channel 0 is reserved for control messages and is always open. Any channel
+lifecycle control message that references channel 0 is a fatal protocol error,
+including: `open`, `open_ok`, `open_fail`, `close`, `close_ok`, `close_err`,
+and `half_close`.
+
+On violation:
+- Log a protocol error with the offending message.
+- Drop the offending message.
+- Close the tunnel immediately.
+
 ---
 
 ## Control Messages (Channel 0)

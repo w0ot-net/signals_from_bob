@@ -58,3 +58,13 @@ transport details for ICMP/DNS.
   limits on Alice.
 - If responses are ack-only, confirm Bob is producing data segments and that
   the file transfer control messages (`module.send`/`module.recv`) are flowing.
+
+## Latest log findings
+- Alice log shows sustained `icmp.send_blocked`/`tunnel.send_blocked` with
+  `pending=128` (transport max_in_flight), indicating the ICMP pending queue is
+  saturated. This causes bursts then stalls while waiting for replies.
+- Fast-gap retransmits are firing (e.g. `tunnel.retransmit` with
+  `reason=fast_gap`) when SACK indicates a hole, but the overall cadence is
+  still gated by the pending cap.
+- Bob log shows `channel.send_buf_full` continuously and one segment per poll;
+  he is responding, but throughput remains bounded by Alice's poll capacity.

@@ -27,14 +27,20 @@ preserving protocol behavior and cross platform support.
    - Record CPU usage, throughput, and idle latency before changes for
      comparison on Windows and Linux.
    - Specify the harness (script, ports, concurrency, duration, payload sizes)
-     so baselines are repeatable.
+     so baselines are repeatable, and document target deltas to detect
+     regressions.
 2. Decouple recv timeouts from sendall.
    - Use non-blocking sockets and select.select to wait for readability and
      writability with bounded timeouts.
+   - Confirm the pumps are the sole owners of socket I/O after setup; if not,
+     document where non-blocking is set and how other callers handle it.
    - Replace recv timeouts with select on readability, then recv in a loop
      until EWOULDBLOCK or no data, so we never touch socket timeouts.
-   - For sends, use a non-blocking send loop gated by select on writability,
-     with a short timeout (100-250ms) to honor stop_event promptly.
+   - For sends, track a per-socket outbound buffer and partial sends; use a
+     non-blocking send loop gated by select on writability, with a short
+     timeout (100-250ms) to honor stop_event promptly.
+   - Handle EWOULDBLOCK/WSAEWOULDBLOCK consistently on Windows and Linux in
+     both pumps.
    - Document the chosen timeout values and verify they do not regress CPU.
 3. Add event driven backpressure for channel send buffers.
    - Extend Channel with a send buffer state event or wait method that
@@ -62,7 +68,8 @@ preserving protocol behavior and cross platform support.
    - Run python3 -m unittest for the new tests (no E2E tests).
 
 ## Acceptance Criteria
-- No socket.timeout exceptions on sendall under backpressure.
+- No send-path timeouts or exceptions under backpressure, and no data loss
+  during partial sends.
 - CPU usage does not spike with many idle or backpressured connections.
 - Throughput and latency are equal or better than baseline.
 - New unit tests pass on Windows and Linux with python3.

@@ -16,7 +16,7 @@ import threading
 from ..base_module import BaseModule, ModuleError, blocking
 from ...logging_util import log_event
 from ... import time_provider
-from .data_pump import pump_channel_to_socket, pump_socket_to_channel
+from .relay_connection import RelayConnection
 from .socks_control_messages import (
     T_SOCK,
     sock_connect_ok,
@@ -279,9 +279,17 @@ class SocksRelayModule(BaseModule):
         )
 
         # Create and register connection
-        conn = _RelayConnection(
+        conn = RelayConnection(
             rid, ch, channel, target_sock, self._logger, self._config,
+            side='alice',
+            peer_label='Target',
+            socket_to_channel_label='target_to_channel',
+            channel_to_socket_label='channel_to_target',
             half_close_sender=self._send_half_close,
+            thread_names=(
+                'relay-ch%d-t2c' % ch,
+                'relay-ch%d-c2t' % ch,
+            ),
         )
         with self._connections_lock:
             self._connections[ch] = conn
@@ -375,122 +383,3 @@ class SocksRelayModule(BaseModule):
             lambda: {'ch': ch},
         )
 
-
-class _RelayConnection(object):
-    """Manages a single relay connection between channel and target socket."""
-
-    __slots__ = (
-        'rid', 'ch', 'channel', 'sock', '_logger', '_config',
-        '_stop_event', '_threads', '_error', '_remote_half_close',
-        '_half_close_sent', '_half_close_sender',
-    )
-
-    def __init__(self, rid, ch, channel, sock, logger, config,
-                 half_close_sender=None):
-        self.rid = rid
-        self.ch = ch
-        self.channel = channel
-        self.sock = sock
-        self._logger = logger
-        self._config = config
-        self._stop_event = threading.Event()
-        self._threads = []
-        self._error = None
-        self._remote_half_close = threading.Event()
-        self._half_close_sent = threading.Event()
-        self._half_close_sender = half_close_sender
-
-    def _send_half_close(self):
-        if self._half_close_sender is None:
-            return
-        if self._half_close_sent.is_set():
-            return
-        self._half_close_sent.set()
-        self._half_close_sender(self.rid, self.ch)
-
-    def notify_remote_half_close(self):
-        self._remote_half_close.set()
-
-    def start_relay(self):
-        """Start bidirectional relay threads."""
-        try:
-            self.sock.setblocking(False)
-        except Exception:
-            pass
-
-        # Channel -> Target
-        t1 = threading.Thread(
-            target=self._relay_channel_to_target,
-            name='relay-ch%d-c2t' % self.ch,
-        )
-        t1.daemon = True
-
-        # Target -> Channel
-        t2 = threading.Thread(
-            target=self._relay_target_to_channel,
-            name='relay-ch%d-t2c' % self.ch,
-        )
-        t2.daemon = True
-
-        self._threads = [t1, t2]
-        t1.start()
-        t2.start()
-
-    def _relay_channel_to_target(self):
-        """Relay data from channel to target socket."""
-        pump_channel_to_socket(
-            self.channel,
-            self.sock,
-            self._config,
-            self._logger,
-            self._stop_event,
-            self.rid,
-            self.ch,
-            'alice',
-            'Target',
-            'channel_to_target',
-            remote_half_close_event=self._remote_half_close,
-        )
-
-    def _relay_target_to_channel(self):
-        """Relay data from target socket to channel."""
-        pump_socket_to_channel(
-            self.sock,
-            self.channel,
-            self._config,
-            self._logger,
-            self._stop_event,
-            self.rid,
-            self.ch,
-            'alice',
-            'Target',
-            'target_to_channel',
-            eof_callback=self._send_half_close,
-        )
-
-    def wait(self, timeout=None):
-        """Wait for relay threads to complete."""
-        for t in self._threads:
-            t.join(timeout=timeout)
-
-    def stop(self):
-        """Signal relay to stop and close resources."""
-        self._stop_event.set()
-
-        # Close socket to unblock recv
-        if self.sock:
-            try:
-                self.sock.close()
-            except Exception:
-                pass
-
-        # Close channel (notifies peer automatically)
-        if self.channel:
-            try:
-                self.channel.close()
-            except Exception:
-                pass
-
-        # Wait for threads with timeout
-        for t in self._threads:
-            t.join(timeout=self._config.socks_thread_join_timeout)

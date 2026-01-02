@@ -63,13 +63,24 @@ one request.
 - One record carries exactly one handshake message.
 - TLS record length = 4 (handshake header) + handshake body length.
 - Handshake length is the body length only (3-byte length field).
-- Keep the handshake minimal but syntactically valid:
-  - legacy_version 0x0303
+- Keep the handshake minimal but syntactically valid and deterministic.
+- ClientHello body (TLS 1.2):
+  - legacy_version = 0x0303
   - random (32 bytes)
-  - session_id (0-32 bytes)
-  - cipher_suites list (at least one entry)
-  - compression_methods = [0]
-  - extensions list (may include SNI/ALPN for cover)
+  - session_id_len (1 byte) + session_id (0-32 bytes)
+  - cipher_suites_len (2 bytes, even) + cipher_suites list (>= 1 entry)
+  - compression_methods_len (1 byte) + compression_methods (single 0x00)
+  - extensions_len (2 bytes) + extensions (SNI, ALPN, EXT_SFB_DATA)
+- ServerHello body (TLS 1.2):
+  - legacy_version = 0x0303
+  - random (32 bytes)
+  - session_id_len = 0 (server does not resume)
+  - cipher_suite (2 bytes) selected from ClientHello list
+  - compression_method = 0x00
+  - extensions_len (2 bytes) + extensions (EXT_SFB_DATA only if offered)
+- Cipher suites: define a fixed ordered list in the codec (e.g., a small
+  TLS 1.2 list). ServerHello selects the first supported entry from the
+  client list; if none match, treat as malformed and close.
 - Extension type for `EXT_SFB_DATA` should use the private-use range
   (0xFF00-0xFFFE), with a fixed constant in the codec.
 - ServerHello should only include `EXT_SFB_DATA` if the ClientHello offered it.
@@ -80,6 +91,8 @@ one request.
 - Do not parse until the full record is available; partial reads are normal
   and should be treated as incomplete.
 - Each connection carries exactly one record; after parsing, close the socket.
+- If EOF occurs before header or body completes, treat as malformed and close.
+- If extra bytes remain after the single record, treat as malformed and close.
 
 ### SFB Payload Carrier
 - Primary carrier: a dedicated extension, `EXT_SFB_DATA` (type 0xFF00).
@@ -106,9 +119,12 @@ one request.
 - Enforce maximum handshake and extension lengths to avoid large allocations.
 - Reject malformed records (bad lengths, unsupported handshake types).
 - Treat incomplete reads as pending, not errors; return `(None, None)` on
-  timeout, raise `TransportError` on hard parse errors.
+  timeout.
 - Enforce TLS record payload length <= 16384 and configured max sizes.
 - Enforce `record_length == 4 + handshake_body_length` and drop otherwise.
+- On parse errors, behave like other transports: close the socket, drop the
+  pending entry, log, and return `(None, None)` (no `TransportError` unless a
+  socket operation itself fails).
 
 ## MTU Strategy
 - Define `max_clienthello_bytes` and `max_serverhello_bytes` as the on-wire TLS
@@ -136,9 +152,14 @@ one request.
 - Non-blocking TCP sockets with `select` for connect/send/recv.
 - For each `send()`:
   - Build ClientHello with payload via codec.
-  - Open socket, connect to target, send record, track as pending.
+  - Open socket in non-blocking mode, start `connect_ex`.
+  - If connect completes immediately, send record and track as pending.
+  - If connect is in progress, store state (socket, send buffer, offset,
+    connect deadline) and return a correlation ID immediately; send occurs when
+    the socket becomes writable in `recv()`.
   - Return a monotonic correlation ID.
 - For `recv()`:
+  - Pump pending sockets: finish connects, flush pending sends, then read.
   - Poll pending sockets for readable data.
   - Read and buffer until a full TLS record is available.
   - Parse ServerHello and extract payload.
@@ -159,12 +180,14 @@ one request.
 - When a full ClientHello record is available, decode payload.
 - `recv()` returns `(payload, responder)` where responder:
   - Builds ServerHello with response payload.
-  - Sends it and closes the connection.
+  - Sends it (handling partial sends) and closes the connection.
 - Use non-blocking sockets and `select` to avoid blocking on partial reads.
 - Use `select` with non-blocking sockets for accept + recv; avoid mixing
   `socket.settimeout()` with a `select` loop.
 - Track per-connection deadlines with `time_provider.now()` and drop stale or
   malformed connections.
+- On malformed input, close the socket, log, and continue without raising to
+  the caller.
 
 ## Configuration and CLI
 
@@ -182,6 +205,10 @@ Proposed config fields:
   TLS record limits).
 - Validate configured max sizes against minimum handshake overhead (including
   SNI/ALPN if enabled) and reject configurations that cannot carry a packet.
+- Validate `tls_sni` as ASCII, 1-253 chars, labels 1-63 with only
+  letters/digits/hyphen/dot. Reject invalid characters.
+- Validate `tls_alpn` entries as ASCII, 1-255 bytes each, no empty tokens, and
+  total extension length within limits; reject invalid values.
 
 CLI:
 - `--transport tls`
@@ -199,10 +226,12 @@ CLI:
 - Handshake length and bounds enforcement.
 - Fragmented read handling (header then body across multiple reads).
 - Oversize record length rejection.
+- Early EOF and extra-bytes handling (drop and close).
 - Client/server loopback test with real sockets (no e2e tests).
 - Multiple concurrent in-flight connections to confirm no serialization.
 - Pending timeout and pruning behavior.
 - MTU calculation for configured max handshake sizes.
+- Config validation for invalid SNI/ALPN values.
 - Use `unittest` and ephemeral ports (bind 127.0.0.1:0) to avoid privileged
   ports and reduce flakiness.
 

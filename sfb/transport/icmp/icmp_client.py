@@ -185,9 +185,7 @@ class IcmpClient(Transport):
             )
             return (None, None)
 
-        _, ident, seq, payload = result
-        if ident != self._icmp_id:
-            return (None, None)
+        _, _, seq, payload = result
         if len(payload) > self._recv_mtu:
             return (None, None)
 

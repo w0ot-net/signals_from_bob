@@ -41,3 +41,10 @@ Remove the redundant ident check in `IcmpClient._try_recv()` since
 - No behavior change expected; mismatched ident packets are already rejected by
   `parse_icmp_echo()`.
 - ICMP remains Linux-only; no Windows-specific work needed.
+
+## Execution Notes
+
+- Removed redundant ident check and unused unpacking in
+  `sfb/transport/icmp/icmp_client.py`.
+- Added ident mismatch coverage in `tests/test_icmp_packet.py`.
+- Ran `python3 -m unittest tests/test_icmp_packet.py`.

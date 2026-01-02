@@ -84,3 +84,8 @@ class IcmpPacketTests(unittest.TestCase):
         packet = build_echo_reply(0x1, 0x2, b'data')
         result = parse_icmp_echo(packet, expect_type=ICMP_ECHO_REQUEST)
         self.assertIsNone(result)
+
+    def test_parse_rejects_wrong_ident(self):
+        packet = build_echo_request(0x1111, 0x2, b'data')
+        result = parse_icmp_echo(packet, expect_ident=0x2222)
+        self.assertIsNone(result)

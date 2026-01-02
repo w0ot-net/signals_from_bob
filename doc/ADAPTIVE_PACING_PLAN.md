@@ -3,10 +3,9 @@
 ## Goal
 Improve throughput by replacing fixed send pacing with an adaptive
 algorithm that:
-- Uses RTT EWMA to pace Alice's sends
 - Targets a configurable inflight ratio
 - Clamps to min(transport.max_pending, negotiated send window)
-- Preserves "poll immediately after real data" via pacer fast-start
+- Preserves "poll immediately after real data" via existing poll decisions
 - Keepalive polls are not delayed by pacing when due
 
 This plan applies to Alice only. Bob remains opportunistic, per
@@ -28,14 +27,11 @@ This plan applies to Alice only. Bob remains opportunistic, per
 
 ### New Component: AdaptivePacer (Alice)
 Add a pacing helper (e.g., `sfb/tunnel/pacing.py`) that:
-- Tracks RTT EWMA (use existing `RttEstimator`, add a read-only `srtt_ms` in ms).
 - Computes a target inflight count:
   - `cap = min(transport.max_pending, send_window._max_in_flight)`
   - `target = clamp(int(cap * target_inflight_ratio), min_inflight, max_inflight or cap)`
 - Enforces pacing by gating new sends when:
   - `send_window.unacked_count >= target`
-  - or time since last send is below `rtt_sec / target` (optional fine-grain)
-    where `rtt_sec = max(srtt_ms or 0, rtt_floor_ms) / 1000.0`
 - Treat existing `tunnel_send_rate` as a hard ceiling (pacer can only reduce).
 
 ### Reliability Updates (Support)
@@ -46,20 +42,16 @@ Add a pacing helper (e.g., `sfb/tunnel/pacing.py`) that:
 
 ### Integration Points
 - `AliceTunnel._can_send_new()`:
-  - Add `pacer.can_send(now, unacked_count)` check before send.
+  - Add `pacer.can_send(unacked_count, cap)` check before send.
   - Keep existing transport and window checks.
   - Bypass pacing for keepalive-only polls once the keepalive interval is due.
 - `AliceTunnel._handle_response()`:
-  - Feed RTT samples into pacer for EWMA and pacing updates.
-  - Track if any response in the tick had real data and trigger fast-start.
+  - Track if any response in the tick had real data.
 - `AliceTunnel._send_new_packet()`:
-  - Inform pacer on actual sends (for pacing interval calculations).
-  - Do not update pacer timing for keepalive-only polls.
-- Retransmits do not update pacer timing state.
+- Retransmits do not update pacer state.
 
 ### Preserve "Poll Immediately After Real Data"
-- If Bob sends real data, fast-start allows immediate polls to refill toward target inflight.
-- After the burst, revert to pacing based on RTT EWMA.
+- If Bob sends real data, allow immediate polls to refill toward target inflight.
 - Do not accelerate keepalive-only traffic; keep keepalive interval behavior.
 - Keepalive polls are sent on schedule even if pacing would otherwise block.
 
@@ -69,8 +61,6 @@ Add config fields (names TBD, defaults conservative):
 - `tunnel_pace_target_inflight_ratio` (float, default 0.7)
 - `tunnel_pace_min_inflight` (int, default 1)
 - `tunnel_pace_max_inflight` (int, default None => use cap, validated 1-64 when set)
-- `tunnel_pace_fast_start` (bool, default True)
-- `tunnel_pace_rtt_floor_ms` (float, default 5.0) to avoid divide by zero
 - `tunnel_send_rate` remains a hard ceiling when adaptive pacing is enabled.
 
 Expose via CLI overrides, similar to other tunnel knobs.
@@ -79,9 +69,6 @@ Expose via CLI overrides, similar to other tunnel knobs.
 - Start with static target inflight ratio and RTT EWMA.
 - Pacer permits new send when:
   - `unacked_count < target`
-  - and `now - last_send >= rtt_sec / target` (optional if we want spacing)
-- Update RTT EWMA from `RttEstimator` samples (first TX only).
-- Use `srtt_ms` with `rtt_floor_ms` to derive `rtt_sec` (fallback to floor if `srtt_ms` is unset).
 - Treat keepalive-only polls as exempt from pacing gates once the keepalive
   interval has elapsed; pacing still applies to real data sends.
 
@@ -96,15 +83,12 @@ Expose via CLI overrides, similar to other tunnel knobs.
 
 ## Logging
 Add a pacing-specific log event set (ex: `tunnel.pacer_state`) with:
-- srtt_ms, target_inflight, unacked_count, cap, rate_limit
-- fast_start active flag
+- target_inflight, unacked_count, cap, rate_limit
 Create a log profile that enables these events with minimal noise.
 
 ## Testing Plan
 - Unit tests for `AdaptivePacer`:
   - target clamping with cap/min/max
-  - pacing interval behavior at different RTTs
-  - fast-start burst on real data then steady-state
   - hard ceiling interaction with `tunnel_send_rate`
 - Alice tunnel tests:
   - pacer gating is honored (no send when at target)

@@ -122,12 +122,6 @@ class Config:
     tunnel_pace_min_inflight: int = 1
     # Alice: adaptive pacing maximum inflight target (None = cap)
     tunnel_pace_max_inflight: Optional[int] = None
-    # Alice: adaptive pacing fast-start after real data
-    tunnel_pace_fast_start: bool = True
-    # Alice: adaptive pacing RTT floor in milliseconds
-    tunnel_pace_rtt_floor_ms: float = 5.0
-    # Alice: adaptive pacing time-based spacing gate
-    tunnel_pace_time_based: bool = False
     # Bob: poll interval while waiting for connection (seconds)
     tunnel_connect_poll_interval: float = 0.1
     # Small timeout for "non-blocking" polls to prevent busy loops (seconds)
@@ -337,8 +331,6 @@ class Config:
         if (self.tunnel_pace_max_inflight is not None and
                 self.tunnel_pace_max_inflight < self.tunnel_pace_min_inflight):
             raise ValueError("tunnel_pace_max_inflight must be >= tunnel_pace_min_inflight")
-        if self.tunnel_pace_rtt_floor_ms <= 0:
-            raise ValueError("tunnel_pace_rtt_floor_ms must be > 0")
         if self.tunnel_connect_poll_interval <= 0:
             raise ValueError("tunnel_connect_poll_interval must be > 0")
 

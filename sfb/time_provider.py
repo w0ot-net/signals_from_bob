@@ -12,6 +12,11 @@ import threading
 import time
 
 
+# Direct aliases avoid wrapper overhead.
+sleep = time.sleep
+wall_time = time.time
+
+
 def _select_time_source():
     if hasattr(time, 'monotonic'):
         return time.monotonic, False
@@ -40,11 +45,6 @@ def now():
             else:
                 value = _clamp_last
     return value
-
-
-# Direct aliases avoid wrapper overhead.
-sleep = time.sleep
-wall_time = time.time
 
 
 def set_time_source(source, clamp=None):

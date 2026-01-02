@@ -33,6 +33,9 @@ preserving protocol behavior and cross platform support.
 2. Decouple recv timeouts from sendall.
    - Use non-blocking sockets and select.select to wait for readability and
      writability with bounded timeouts.
+   - Keep SOCKS5 handshake and target connect in blocking/timeout mode, then
+     switch sockets to non-blocking before relay threads start; remove per-pump
+     sock.settimeout to avoid stray socket.timeout during relay.
    - Confirm the pumps are the sole owners of socket I/O after setup; if not,
      document where non-blocking is set and how other callers handle it.
    - Replace recv timeouts with select on readability, then recv in a loop
@@ -54,15 +57,20 @@ preserving protocol behavior and cross platform support.
      low-water mark or read only when writable).
    - Handle EWOULDBLOCK/WSAEWOULDBLOCK consistently on Windows and Linux in
      both pumps.
-   - Clarify how socks_relay_socket_timeout and socks_relay_write_timeout are
-     used or retired once non-blocking/select is in place; update config/CLI
-     documentation accordingly.
+   - Clarify how socks_relay_socket_timeout and socks_relay_write_timeout map
+     to the new select-based timeouts (e.g., socket timeout only for handshake,
+     write timeout bounds select-on-writable); update config/CLI documentation.
    - Document the chosen timeout values and verify they do not regress CPU.
 3. Add event driven backpressure for channel send buffers.
    - Extend Channel with a send buffer space event or wait method that
      unblocks when the buffer transitions from full to not-full (level-triggered).
-   - Use the existing send state transition callback only if it can signal
-     buffer full/not-full transitions; otherwise add a dedicated signal.
+   - Do not reuse the send state transition callback (it drives active channel
+     tracking and keepalive suppression); add a dedicated buffer-space signal.
+   - Wire the signal in Channel.write and _take_send_data so waiters cannot
+     miss transitions; define clear/set behavior when the buffer becomes full
+     or drains below a low-water mark.
+   - Consider reusing the new wait method in Channel.write_wait so file transfer
+     benefits from the same backpressure behavior.
    - In pump_socket_to_channel, wait on the event when the send buffer is
      full instead of sleeping with exponential backoff.
    - Define socket->channel behavior under backpressure: stop reading from the
@@ -91,6 +99,8 @@ preserving protocol behavior and cross platform support.
      are full.
    - Keepalive suppression: verify no pong when any channel has pending data,
      even under backpressure.
+   - Update existing pump sleep/backoff tests to assert the new wait behavior
+     (remove expectations on time.sleep usage).
    - Run python3 -m unittest for the new tests (no E2E tests).
 
 ## Acceptance Criteria

@@ -24,6 +24,7 @@ from .log_profiles import LOG_PROFILES, apply_log_profile
 from .transport import TRANSPORTS, TransportError, get_transport_class
 from .tunnel import AliceTunnel, BobTunnel, TunnelState
 from .modules import AVAILABLE_MODULES
+from .modules.base_module import ModuleError
 from . import time_provider
 
 
@@ -619,6 +620,18 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
         # Run module command
         return module_cls.run_command(args, tunnel, module_logger)
 
+    except ModuleError as e:
+        module_label = getattr(args, 'module', None) or 'module'
+        reason = e.reason or str(e) or e.code
+        _print_error('%s error: %s' % (module_label, reason))
+        log_event(
+            logger,
+            logging.ERROR,
+            'cli.module_error',
+            'Module error',
+            lambda: {'module': module_label, 'code': e.code, 'reason': reason},
+        )
+        return 1
     except Exception as e:
         log_event(
             logger,

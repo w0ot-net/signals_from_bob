@@ -33,15 +33,17 @@ preserving protocol behavior and cross platform support.
 2. Decouple recv timeouts from sendall.
    - Use non-blocking sockets and select.select to wait for readability and
      writability with bounded timeouts.
-   - Keep SOCKS5 handshake and target connect in blocking/timeout mode, then
-     switch sockets to non-blocking before relay threads start; remove per-pump
-     sock.settimeout to avoid stray socket.timeout during relay.
+   - Keep SOCKS5 handshake, target connect, and SOCKS5 reply writes in
+     blocking/timeout mode, then switch sockets to non-blocking immediately
+     before relay threads start; remove per-pump sock.settimeout to avoid stray
+     socket.timeout during relay.
    - Confirm the pumps are the sole owners of socket I/O after setup; if not,
      document where non-blocking is set and how other callers handle it.
    - Replace recv timeouts with select on readability, then recv in a loop
      until EWOULDBLOCK or no data, so we never touch socket timeouts.
    - Explicitly handle EOF/half-close: treat zero-length recv as peer close,
-     flush any pending outbound data, and tear down cleanly without spin.
+     flush any pending outbound data, and tear down cleanly without spin; do
+     not set stop_event on read-side EOF so the opposite pump can drain.
    - For sends, track a per-socket outbound buffer and partial sends; use a
      non-blocking send loop gated by select on writability, with a short
      timeout (100-250ms) to honor stop_event promptly.
@@ -54,7 +56,8 @@ preserving protocol behavior and cross platform support.
      so a single busy socket cannot starve others.
    - Bound the per-socket outbound buffer and gate channel.read so pending data
      cannot grow unbounded when the socket is not writable (use a cap and
-     low-water mark or read only when writable).
+     low-water mark or read only when writable); keep the current read-size cap
+     based on channel send buffer availability when reading from sockets.
    - Handle EWOULDBLOCK/WSAEWOULDBLOCK consistently on Windows and Linux in
      both pumps.
    - Clarify how socks_relay_socket_timeout and socks_relay_write_timeout map
@@ -68,7 +71,8 @@ preserving protocol behavior and cross platform support.
      tracking and keepalive suppression); add a dedicated buffer-space signal.
    - Wire the signal in Channel.write and _take_send_data so waiters cannot
      miss transitions; define clear/set behavior when the buffer becomes full
-     or drains below a low-water mark.
+     or drains below a low-water mark; signal waiters on close/abort so no
+     thread blocks forever on a closed channel.
    - Consider reusing the new wait method in Channel.write_wait so file transfer
      benefits from the same backpressure behavior.
    - In pump_socket_to_channel, wait on the event when the send buffer is
@@ -94,7 +98,8 @@ preserving protocol behavior and cross platform support.
    - Data pump: stop_event terminates a blocked send path in bounded time
      (use select on writable to keep Windows compatibility).
    - Data pump: EOF/half-close tears down promptly without spin and still
-     delivers pending data.
+     delivers pending data (no premature stop_event on read-side EOF).
+   - Channel send buffer wait method: unblocks on channel close/abort.
    - Backpressure: control/close signaling is delivered even when data buffers
      are full.
    - Keepalive suppression: verify no pong when any channel has pending data,

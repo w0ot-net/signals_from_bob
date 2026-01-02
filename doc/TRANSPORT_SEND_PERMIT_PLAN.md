@@ -24,6 +24,8 @@ the Transport base class and avoids thin wrappers.
     capacity checks must include outstanding permits.
 - Add `release_send(permit)` to `Transport` to drop a reservation when a
   caller skips the send attempt.
+- Standardize the capacity attribute/property to `max_in_flight` across
+  transports and call sites (replace legacy `inflight_cap` / `max_pending`).
 - Make `Transport.send(self, data, permit)` a concrete method that enforces:
   - `permit` is present, matches the transport, and is unused.
   - `permit` is currently reserved by the transport (in `_reserved`), or raise.
@@ -111,11 +113,16 @@ the Transport base class and avoids thin wrappers.
    - Implement `reserve_send()` using the wrapper's `pending_count()` (includes
      dropped ids) and prune expired dropped ids inside `reserve_send()`.
    - Include outstanding permits (`len(self._reserved)`) in capacity checks.
+   - Always call `inner.reserve_send()` first so the inner transport prunes
+     stale entries before capacity checks; store the resulting permit for
+     potential send use.
    - Decide drop/corrupt/duplicate inside `reserve_send()` and store the
      outcome (and any inner permits) on the wrapper permit to avoid extra
      inner prune calls.
-   - If the impairment result is "send", acquire an inner permit inside
-     `reserve_send()` and store it; if not available, return `None`.
+   - If the impairment result is drop/corrupt, release the cached inner permit
+     immediately (still return an outer permit), so capacity is not consumed.
+   - If the impairment result is "send", keep the cached inner permit; if it
+     was not available, return `None`.
    - If duplication is selected, request a second inner permit in
      `reserve_send()`; if unavailable, keep the primary send and skip the
      duplicate.
@@ -135,8 +142,12 @@ the Transport base class and avoids thin wrappers.
      reserve permits only after rate limiter and packet build succeed.
    - Thread the permit into `_send_new_packet()` and `_send_retransmit()`; if
      `reserve_send()` returns `None`, log and skip the send attempt.
+   - Reserve permits before mutating send-window state; only call
+     `send_window.send()` / `mark_retransmit()` after a permit is reserved.
    - Update direct `transport.send()` call sites (SYN/SYN-ACK/ACK paths and any
      other direct sends) to obtain a permit first.
+   - If a handshake permit cannot be reserved, skip the recv/backoff loop for
+     that iteration (no request was sent).
    - If a permit is reserved and the send is skipped, call `release_send(permit)`
      to avoid leaking capacity (should be rare if reserving late).
    - Only replace `Transport.can_send()` uses; do not touch pacer or rate
@@ -153,6 +164,8 @@ the Transport base class and avoids thin wrappers.
    - Remove any `pending_count(now=...)` examples from docs.
    - Update or mark `doc/completed_plans/ICMP_PENDING_PRUNE_PLAN.md` as
      superseded to avoid conflicting guidance.
+   - Standardize naming to `max_in_flight` in code, logs, and docs (replace
+     legacy `max_pending` / `inflight_cap` references as part of this change).
 
 8. Tests
    - Add unit tests for DNS and ICMP to count prune calls per send attempt

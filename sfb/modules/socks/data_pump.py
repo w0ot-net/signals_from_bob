@@ -418,9 +418,19 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     try:
                         sent = sock.send(chunk[outbound_offset:])
                     except socket.error as exc:
-                    if _is_would_block(exc):
-                        sent = 0
-                    else:
+                        if _is_would_block(exc):
+                            sent = 0
+                        else:
+                            fatal_error = True
+                            exit_reason = 'socket_send_error'
+                            exit_error = exc
+                            if not stop_event.is_set():
+                                _log_pump_error(
+                                    logger, rid, ch, side, direction,
+                                    '%s send error' % send_label, exc
+                                )
+                            break
+                    except Exception as exc:
                         fatal_error = True
                         exit_reason = 'socket_send_error'
                         exit_error = exc
@@ -428,16 +438,6 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                             _log_pump_error(
                                 logger, rid, ch, side, direction,
                                 '%s send error' % send_label, exc
-                                )
-                        break
-                except Exception as exc:
-                    fatal_error = True
-                    exit_reason = 'socket_send_error'
-                    exit_error = exc
-                    if not stop_event.is_set():
-                        _log_pump_error(
-                            logger, rid, ch, side, direction,
-                            '%s send error' % send_label, exc
                             )
                         break
 

@@ -371,11 +371,11 @@ class DnsTransport(Transport):
         self._next_corr_id = 1
         self._max_in_flight = config.max_in_flight
 
-    def reserve_send(self, now: float = None) -> SendPermit or None:
+    def reserve_send(self, now=None):
         """Prune stale entries, check capacity, and reserve a send permit."""
         ...
 
-    def send(self, packet: bytes, permit: SendPermit) -> int:
+    def send(self, packet, permit):
         """Encode packet, send DNS query, return correlation ID."""
         corr_id = self._next_corr_id
         self._next_corr_id += 1
@@ -393,7 +393,7 @@ class DnsTransport(Transport):
         self.send_dns_query(query_name, dns_id, qtype=A)
         return corr_id
 
-    def recv(self, timeout: float = None) -> tuple:
+    def recv(self, timeout=None):
         """
         Receive next available response.
 
@@ -417,23 +417,23 @@ class DnsTransport(Transport):
         self._pending.pop(corr_id, None)
         return (corr_id, self.decode_response(response_data))
 
-    def pending_count(self) -> int:
+    def pending_count(self):
         return len(self._pending)
 
-    def release_send(self, permit: SendPermit):
+    def release_send(self, permit):
         """Release a reserved permit when a send is skipped."""
         ...
 
     @property
-    def max_in_flight(self) -> int:
+    def max_in_flight(self):
         return self._max_in_flight
 
     @property
-    def send_mtu(self) -> int:
+    def send_mtu(self):
         return self._send_mtu
 
     @property
-    def recv_mtu(self) -> int:
+    def recv_mtu(self):
         return self._recv_mtu
 
     def close(self):
@@ -584,7 +584,7 @@ With this configuration, queries for `*.tunnel.example.com` are routed to Bob.
 
 ```python
 class DnsTransport:
-    def recv(self) -> (bytes, callable):
+    def recv(self):
         """Receive DNS query and decode packet. Blocking."""
         while True:
             query, client_addr = self.recv_dns_query()  # blocks
@@ -596,17 +596,17 @@ class DnsTransport:
                 self.send_dns_response(query.id, client_addr, response_data)
             return decoded, responder
 
-    def close(self) -> None:
+    def close(self):
         """Close UDP socket."""
         self.socket.close()
 
     @property
-    def recv_mtu(self) -> int:
+    def recv_mtu(self):
         """Maximum bytes that can be received in one poll."""
         return self._recv_mtu
 
     @property
-    def send_mtu(self) -> int:
+    def send_mtu(self):
         """Maximum bytes that can be sent in one response."""
         return self._send_mtu
 ```

@@ -29,7 +29,7 @@ class Transport:
     Correlation IDs match responses to requests.
     """
 
-    def reserve_send(self, now: float = None) -> SendPermit or None:
+    def reserve_send(self, now=None):
         """
         Prune pending entries, check capacity, and reserve a send permit.
 
@@ -37,7 +37,7 @@ class Transport:
         """
         ...
 
-    def send(self, data: bytes, permit: SendPermit) -> int:
+    def send(self, data, permit):
         """
         Send data to Bob using a reserved permit.
 
@@ -50,7 +50,7 @@ class Transport:
         """
         ...
 
-    def recv(self, timeout: float = None) -> tuple:
+    def recv(self, timeout=None):
         """
         Receive next available response.
 
@@ -65,21 +65,21 @@ class Transport:
         """
         ...
 
-    def pending_count(self) -> int:
+    def pending_count(self):
         """Number of requests awaiting response (non-pruning)."""
         ...
 
     @property
-    def send_mtu(self) -> int:
+    def send_mtu(self):
         """Max bytes per send."""
         ...
 
     @property
-    def recv_mtu(self) -> int:
+    def recv_mtu(self):
         """Max bytes per recv."""
         ...
 
-    def release_send(self, permit: SendPermit):
+    def release_send(self, permit):
         """Release a reserved permit when a send is skipped."""
         ...
 
@@ -99,7 +99,7 @@ class Server:
     calling recv() again.
     """
 
-    def recv(self, timeout: float = None) -> tuple:
+    def recv(self, timeout=None):
         """
         Wait for request from Alice.
 
@@ -113,12 +113,12 @@ class Server:
         ...
 
     @property
-    def send_mtu(self) -> int:
+    def send_mtu(self):
         """Max bytes per response."""
         ...
 
     @property
-    def recv_mtu(self) -> int:
+    def recv_mtu(self):
         """Max bytes per request."""
         ...
 

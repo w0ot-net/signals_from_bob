@@ -58,6 +58,9 @@ consistent and avoiding redundant O(n) work.
    - `send()` captures `now`, gets `pending_before`, enforces `max_pending`,
      adds pending using the current time (default `PendingTracker.add` or a
      `now_add` after `sendto`), logs `pending_before + 1`.
+   - Ensure `send()` does not call `can_send()` or `pending_count()` after the
+     helper runs; it should use `pending_before` for `max_pending` checks to
+     avoid a second prune in the same send path.
 3. DNS client:
    - Same pattern, with `on_prune` callback to clear `_dns_to_corr`.
 4. Docs:
@@ -74,6 +77,7 @@ consistent and avoiding redundant O(n) work.
 - Add unit tests for ICMP and DNS that stub `PendingTracker.prune` (wrapping
   and restoring the original) to assert one prune per `send()`.
 - Verify `pending_count()` still removes stale entries.
+- For DNS, assert the prune callback clears `_dns_to_corr` for stale entries.
 - Avoid raw ICMP sockets by stubbing `_sock.sendto` and `build_echo_request`,
   reusing the existing test setup that bypasses raw socket privilege checks.
 

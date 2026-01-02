@@ -20,7 +20,7 @@ the tunnel already handles encryption.
 - Guarantee stealth against middleboxes; initial version targets correctness.
 
 ## Affected Components
-- `sfb/transport/tls/tls_codec.py` (new TLS handshake encoder/decoder)
+- `sfb/transport/tls/codec.py` (new TLS handshake encoder/decoder)
 - `sfb/transport/tls/tls_client.py` (new client transport)
 - `sfb/transport/tls/tls_server.py` (new server transport)
 - `sfb/transport/tls/__init__.py` (new transport package)
@@ -60,8 +60,9 @@ one request.
 - Handshake types:
   - ClientHello (0x01) for Alice -> Bob
   - ServerHello (0x02) for Bob -> Alice
-- One record carries exactly one handshake message; handshake length must match
-  the record payload length.
+- One record carries exactly one handshake message.
+- TLS record length = 4 (handshake header) + handshake body length.
+- Handshake length is the body length only (3-byte length field).
 - Keep the handshake minimal but syntactically valid:
   - legacy_version 0x0303
   - random (32 bytes)
@@ -69,9 +70,9 @@ one request.
   - cipher_suites list (at least one entry)
   - compression_methods = [0]
   - extensions list (may include SNI/ALPN for cover)
-- Extension type for `EXT_SFB_DATA` should use the private-use range (e.g.,
-  0xFE00) and the ServerHello should only include it if the ClientHello offered
-  it.
+- Extension type for `EXT_SFB_DATA` should use the private-use range
+  (0xFF00-0xFFFE), with a fixed constant in the codec.
+- ServerHello should only include `EXT_SFB_DATA` if the ClientHello offered it.
 
 ### Framing and I/O
 - TCP is a stream: read exactly the 5-byte TLS record header, then read the
@@ -81,24 +82,25 @@ one request.
 - Each connection carries exactly one record; after parsing, close the socket.
 
 ### SFB Payload Carrier
-- Primary carrier: a dedicated extension, `EXT_SFB_DATA` (type 0xFE00).
+- Primary carrier: a dedicated extension, `EXT_SFB_DATA` (type 0xFF00).
   - Extension data format:
     - 2 bytes: magic "SF" (0x53 0x46)
     - 1 byte: version (0x01)
     - 1 byte: flags (0 for now)
     - 2 bytes: payload length (big-endian)
     - N bytes: payload (SFB packet bytes)
-- Optional secondary carriers (phase 2, if needed for capacity or cover):
+- Optional secondary carriers (phase 2 only, not in initial implementation):
   - ClientHello random (fixed 32 bytes)
   - session_id (0-32 bytes)
   - session_ticket extension data
   - padding extension (only if zero-filled is not required for acceptance)
-- Parsing should accept payload in `EXT_SFB_DATA` first; if absent, it may fall
-  back to secondary carriers if enabled by config.
+- Parsing should accept payload in `EXT_SFB_DATA` first; if absent, treat as
+  unsupported unless secondary carriers are explicitly enabled by config.
 
 ### Response Payload
 - ServerHello includes `EXT_SFB_DATA` with the response payload.
-- ServerHello random/session_id can be used for extra bytes if configured.
+- ServerHello random/session_id can be used for extra bytes if configured
+  (phase 2 only).
 
 ### Validation
 - Enforce maximum handshake and extension lengths to avoid large allocations.
@@ -106,6 +108,7 @@ one request.
 - Treat incomplete reads as pending, not errors; return `(None, None)` on
   timeout, raise `TransportError` on hard parse errors.
 - Enforce TLS record payload length <= 16384 and configured max sizes.
+- Enforce `record_length == 4 + handshake_body_length` and drop otherwise.
 
 ## MTU Strategy
 - Define `max_clienthello_bytes` and `max_serverhello_bytes` as the on-wire TLS
@@ -121,8 +124,15 @@ one request.
   separately.
 - Clamp configured max sizes to the TLS record limit
   (record payload <= 16384, on-wire <= 16389).
+- MTU calculation must account for configured SNI/ALPN lengths and any enabled
+  secondary carriers so computed caps remain valid.
+- Reject configurations that cannot fit the minimum handshake + extension
+  overhead or that yield a transport `send_mtu` smaller than
+  `PACKET_HEADER_SIZE + 1`.
 
 ## Client Transport Design
+- Implement `reserve_send()` with `PendingTracker` and `time_provider.now()`;
+  implement `_send_impl()` only (do not override `send()`).
 - Non-blocking TCP sockets with `select` for connect/send/recv.
 - For each `send()`:
   - Build ClientHello with payload via codec.
@@ -135,6 +145,10 @@ one request.
   - Close the socket and return `(corr_id, payload)`.
 - Prune stale sockets using `PendingTracker` and `tls_pending_timeout`.
 - Enforce `tls_connect_timeout` and `tls_handshake_timeout` per socket.
+- Use `connect_ex` + `select` and check `getsockopt(SO_ERROR)` to complete
+  non-blocking connects before sending.
+- Track per-connection deadlines using `time_provider.now()`; do not rely on
+  wall-clock timeouts.
 
 ## Server Transport Design
 - Listen on a TCP socket with configurable host/port.
@@ -146,7 +160,11 @@ one request.
 - `recv()` returns `(payload, responder)` where responder:
   - Builds ServerHello with response payload.
   - Sends it and closes the connection.
-- Use socket timeouts to avoid blocking on partial reads.
+- Use non-blocking sockets and `select` to avoid blocking on partial reads.
+- Use `select` with non-blocking sockets for accept + recv; avoid mixing
+  `socket.settimeout()` with a `select` loop.
+- Track per-connection deadlines with `time_provider.now()` and drop stale or
+  malformed connections.
 
 ## Configuration and CLI
 
@@ -162,6 +180,8 @@ Proposed config fields:
 - `tls_alpn` (optional comma-separated list for cover)
 - Validate max record sizes and timeouts in config (positive values and within
   TLS record limits).
+- Validate configured max sizes against minimum handshake overhead (including
+  SNI/ALPN if enabled) and reject configurations that cannot carry a packet.
 
 CLI:
 - `--transport tls`
@@ -172,6 +192,7 @@ CLI:
 - Add `log_component_transport_tls` toggle.
 - Emit structured events for send/recv, parse errors, and pruning.
 - Add a log profile to enable TLS transport logs.
+- Add `tls.send`/`tls.recv` to the default event blacklist to control volume.
 
 ## Tests
 - Codec round-trip: build ClientHello/ServerHello, parse, payload match.
@@ -182,6 +203,8 @@ CLI:
 - Multiple concurrent in-flight connections to confirm no serialization.
 - Pending timeout and pruning behavior.
 - MTU calculation for configured max handshake sizes.
+- Use `unittest` and ephemeral ports (bind 127.0.0.1:0) to avoid privileged
+  ports and reduce flakiness.
 
 ## Implementation Order
 1. Write `doc/TLS_TRANSPORT.md` with the final wire format and constraints.

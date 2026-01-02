@@ -49,6 +49,9 @@ Both sides buffer unacked packets, but retransmission triggers differ:
 
 ## RTT and Timing
 
+All protocol timing uses a monotonic clock; wall time is reserved for
+user-facing timestamps and diagnostics.
+
 **Alice's RTT** is meaningful:
 - Measures: send packet → receive ACK in Bob's response
 - Reflects actual network round-trip time
@@ -68,7 +71,7 @@ If the connection dies, each side detects it differently:
 
 | Aspect | Alice | Bob |
 |--------|-------|-----|
-| Metric | Packets sent without response | Wall-clock silence |
+| Metric | Packets sent without response | Monotonic silence |
 | Threshold | 30 consecutive packets with no response | 60 seconds without poll |
 | Rationale | Can count her own sends | Cannot send, so counts time |
 
@@ -84,7 +87,7 @@ If the connection dies, each side detects it differently:
 **Bob:**
 - Cannot send packets unless Alice polls
 - If Alice disappears, Bob has nothing to count
-- Uses wall-clock time: 60 seconds of silence = dead connection
+- Uses monotonic time: 60 seconds of silence = dead connection
 
 ---
 

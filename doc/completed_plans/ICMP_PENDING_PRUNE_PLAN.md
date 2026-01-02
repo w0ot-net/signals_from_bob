@@ -82,3 +82,14 @@ consistent and avoiding redundant O(n) work.
 - No wire format changes.
 - Keep Linux-only ICMP constraints intact.
 - Keep the Transport interface stable unless Option A is explicitly chosen.
+
+## Execution Notes
+
+- Added `prune_and_count` helper in `sfb/transport/transport_base.py` and used
+  it in ICMP/DNS `pending_count()` and `send()` so each send prunes once with a
+  shared timestamp; DNS uses `on_prune` to clean `_dns_to_corr`.
+- Updated `doc/DNS_TRANSPORT.md` to document the single-prune-per-send behavior.
+- Added unit tests in `tests/test_icmp_client.py` and
+  `tests/test_dns_client_server.py` to verify one prune per send and that
+  `pending_count()` prunes stale entries.
+- Tests not run here.

@@ -59,6 +59,7 @@ LOG_PROFILES = {
             'tunnel.connected',
             'tunnel.closed',
             'tunnel.response_cap',
+            'tunnel.pacer_target',
             'tunnel.send_window_*',
             'tunnel.request_state_unexpected',
             'tunnel.tick_error',

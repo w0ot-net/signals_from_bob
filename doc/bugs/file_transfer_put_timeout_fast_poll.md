@@ -80,3 +80,12 @@ transport details for ICMP/DNS.
 - Fast-gap retransmits still appear (50 in the latest 5s window) with no
   `icmp.prune_stale`, so remaining chop is likely driven by SACK gaps or
   out-of-order responses rather than pending saturation.
+- Latest run shows `file.upload` logged on Bob but no `file.upload_complete`,
+  and no `file.upload_complete`/`file.download_complete` events were logged at
+  all. Alice logged the initial `put` request and a single `module.send`
+  response (likely `put_ok`), but no `module.recv` for `hash` and no
+  `module.recv` for `hash_ok` appear on either side.
+- During the tail of the run, Alice logged 2500 `tunnel.send_blocked` events
+  with `reason=fast_recovery` in the last 30s window, which would suppress
+  new polls/control messages. This can stall the final `file_hash`/`hash_ok`
+  exchange and leave the sender waiting indefinitely.

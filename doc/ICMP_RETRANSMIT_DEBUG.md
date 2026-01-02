@@ -11,7 +11,7 @@
 - 23s window: server log shows 1210 `tunnel.packet_recv` and 1160 `tunnel.retransmit`.
 - Retransmit seqs repeat about 31 times each (42 unique seqs).
 - Bob's `tunnel.packet_recv` ack values change 49 times; each ack value repeats on the
-  order of `max_in_flight` (default 64), suggesting pipelined polls.
+  order of `max_in_flight` (default 128), suggesting pipelined polls.
 - Client log in same window: 330 `tunnel.send_blocked` (258 transport blocked),
   1 `icmp.prune_stale`, 1 `tunnel.retransmit`.
 - Latest run (wget + SSH + 2 SOCKS clients):

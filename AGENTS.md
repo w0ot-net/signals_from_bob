@@ -18,3 +18,4 @@ Project Rules
 - when asked to evaluate a <plan>.md, perform a full code review of all affected components
 - when asked to draft a <plan>.md, include a section that lists all affected components
 - when executing a <plan>.md, add notes about how it was executed and then move it into doc/completed_plans
+- if unrelated changes are present, only commit the changes you made and ignore the other changes

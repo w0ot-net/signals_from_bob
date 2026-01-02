@@ -9,11 +9,11 @@ import hashlib
 import logging
 import os
 import threading
-import time
 
 from ...channel import ChannelError
 from ...compat import integer_types, to_native_str
 from ...logging_util import log_event
+from ... import time_provider
 from ..base_module import BaseModule, RequestResponseMixin, ModuleError, blocking
 from .file_transfer_control_messages import (
     file_list,
@@ -43,18 +43,18 @@ class TransferStats(object):
 
     def start(self):
         """Mark transfer start."""
-        self.start_time = time.time()
+        self.start_time = time_provider.now()
 
     def finish(self):
         """Mark transfer complete."""
-        self.end_time = time.time()
+        self.end_time = time_provider.now()
 
     @property
     def duration(self):
         """Transfer duration in seconds."""
         if self.start_time is None:
             return 0
-        end = self.end_time if self.end_time else time.time()
+        end = self.end_time if self.end_time else time_provider.now()
         return max(0.001, end - self.start_time)  # Avoid division by zero
 
     @property
@@ -565,7 +565,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         remaining = total_size
         deadline = None
         if timeout is not None:
-            deadline = time.time() + timeout
+            deadline = time_provider.now() + timeout
 
         while remaining > 0:
             chunk = fp.read(min(self._chunk_size, remaining))
@@ -577,7 +577,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             # Calculate remaining time for this chunk
             chunk_timeout = None
             if deadline is not None:
-                chunk_timeout = deadline - time.time()
+                chunk_timeout = deadline - time_provider.now()
                 if chunk_timeout <= 0:
                     raise FileTransferError('io', 'send timeout')
 
@@ -597,14 +597,14 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         remaining = total_size
         deadline = None
         if timeout is not None:
-            deadline = time.time() + timeout
+            deadline = time_provider.now() + timeout
         while remaining > 0:
             chunk_size = min(self._chunk_size, remaining)
             try:
                 if deadline is None:
                     chunk = channel.read_exact(chunk_size)
                 else:
-                    remaining_time = deadline - time.time()
+                    remaining_time = deadline - time_provider.now()
                     if remaining_time <= 0:
                         raise FileTransferError('io', 'timeout')
                     chunk = channel.read_exact(chunk_size, timeout=remaining_time)

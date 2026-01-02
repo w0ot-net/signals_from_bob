@@ -9,13 +9,13 @@ import logging
 import os
 import select
 import socket
-import time
 
 from ..transport_base import Server, TransportError
 from .icmp_packet import ICMP_ECHO_REQUEST, build_echo_reply, parse_icmp_echo
 from ...compat import require_bytes_like
 from ...config import Config
 from ...logging_util import get_logger, log_event
+from ... import time_provider
 
 _LOG = get_logger(__name__)
 
@@ -52,7 +52,7 @@ class IcmpServer(Server):
         deadline = None
         use_deadline = False
         if timeout is not None and timeout > 0:
-            deadline = time.time() + timeout
+            deadline = time_provider.now() + timeout
             use_deadline = True
         while True:
             try:
@@ -61,7 +61,7 @@ class IcmpServer(Server):
                 elif timeout == 0:
                     wait = 0
                 elif use_deadline:
-                    remaining = deadline - time.time()
+                    remaining = deadline - time_provider.now()
                     if remaining <= 0:
                         return (None, None)
                     wait = remaining

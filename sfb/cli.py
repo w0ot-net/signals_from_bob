@@ -16,7 +16,6 @@ import logging
 import os
 import signal
 import sys
-import time
 
 from .config import Config
 from .crypto import Plain, XOR
@@ -25,6 +24,7 @@ from .log_profiles import LOG_PROFILES, apply_log_profile
 from .transport import TRANSPORTS, TransportError, get_transport_class
 from .tunnel import AliceTunnel, BobTunnel, TunnelState
 from .modules import AVAILABLE_MODULES
+from . import time_provider
 
 
 # Role aliases
@@ -548,7 +548,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
         while tunnel._state != TunnelState.CONNECTED:
             if shutdown_requested[0]:
                 return 1
-            time.sleep(tunnel._config.tunnel_connect_poll_interval)
+            time_provider.sleep(tunnel._config.tunnel_connect_poll_interval)
 
         log_event(
             logger,
@@ -700,7 +700,7 @@ def run_client(args, config, crypto, logger):
 
         # Run until connection closes or signal received
         while tunnel._state == TunnelState.CONNECTED and not shutdown_requested[0]:
-            time.sleep(tunnel._config.tunnel_connect_poll_interval)
+            time_provider.sleep(tunnel._config.tunnel_connect_poll_interval)
 
         return 0
 

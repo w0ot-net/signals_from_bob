@@ -10,7 +10,6 @@ from __future__ import absolute_import
 
 import json
 import logging
-import time
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
 from .tunnel_control_messages import (
@@ -27,6 +26,7 @@ from ..protocol import (
 from ..reliability import RttEstimator
 from ..transport.transport_base import RateLimiter
 from ..logging_util import log_event
+from .. import time_provider
 
 
 class AliceTunnel(BaseTunnel):
@@ -134,10 +134,10 @@ class AliceTunnel(BaseTunnel):
         self._local_isn = self._generate_isn()
         self._send_window._next_seq = self._local_isn
 
-        start_time = time.time()
+        start_time = time_provider.now()
         attempt = 0
 
-        while time.time() - start_time < timeout:
+        while time_provider.now() - start_time < timeout:
             # Check if tunnel was closed (e.g., by signal handler)
             if self._state == TunnelState.CLOSED:
                 raise TunnelError('Tunnel closed during handshake')
@@ -165,7 +165,7 @@ class AliceTunnel(BaseTunnel):
                 self._transport.send(syn_data)
 
                 # Wait for SYN+ACK
-                remaining = timeout - (time.time() - start_time)
+                remaining = timeout - (time_provider.now() - start_time)
                 if remaining <= 0:
                     break
                 corr_id, response_data = self._transport.recv(
@@ -194,7 +194,7 @@ class AliceTunnel(BaseTunnel):
                         ) & 0xFFFF
 
                         # Send ACK to complete handshake
-                        self._complete_handshake(timeout - (time.time() - start_time))
+                        self._complete_handshake(timeout - (time_provider.now() - start_time))
                         return
 
                 self._rtt.backoff()
@@ -217,7 +217,7 @@ class AliceTunnel(BaseTunnel):
                 raise TunnelError('Tunnel closed during handshake')
 
             # Wait before retry
-            time.sleep(min(self._rtt.rto_sec, timeout / 10))
+            time_provider.sleep(min(self._rtt.rto_sec, timeout / 10))
 
         self._set_state(TunnelState.DISCONNECTED)
         raise TunnelError('Handshake timeout')
@@ -238,13 +238,13 @@ class AliceTunnel(BaseTunnel):
 
         try:
             self._set_state(TunnelState.CONNECTED)
-            self._last_recv_time = time.time()
+            self._last_recv_time = time_provider.now()
             self._packets_since_response = 0
 
             # Retransmit final ACK until we see any response from Bob.
-            start = time.time()
+            start = time_provider.now()
             while True:
-                remaining = remaining_timeout - (time.time() - start)
+                remaining = remaining_timeout - (time_provider.now() - start)
                 if remaining <= 0:
                     raise TunnelError('Handshake timeout')
 
@@ -329,7 +329,7 @@ class AliceTunnel(BaseTunnel):
         if self._state != TunnelState.CONNECTED:
             return False
 
-        now = time.time()
+        now = time_provider.now()
         packets_sent_before = self._packets_sent
 
         # 1. Receive all available responses
@@ -430,14 +430,14 @@ class AliceTunnel(BaseTunnel):
                 not self._channel_manager.has_pending_data() and
                 not self._got_data and not self._has_pending_data_acks):
             idle_sleep = max(self._config.tunnel_tick_sleep, 0.01)
-            time.sleep(idle_sleep)
+            time_provider.sleep(idle_sleep)
 
         return True
 
     def _can_send_new(self, now=None, keepalive_only=False):
         """Check if we can send a new packet."""
         if now is None:
-            now = time.time()
+            now = time_provider.now()
         if not self._send_window.can_send:
             log_event(
                 self._logger,
@@ -538,7 +538,7 @@ class AliceTunnel(BaseTunnel):
 
     def _can_send_retransmit(self):
         """Check if we can send a retransmit packet."""
-        if self._send_limiter is not None and not self._send_limiter.can_send(now=time.time()):
+        if self._send_limiter is not None and not self._send_limiter.can_send(now=time_provider.now()):
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -704,7 +704,7 @@ class AliceTunnel(BaseTunnel):
         packet = self._rebuild_packet(seq, segments, flags=flags)
         packet_data = self._encode_packet(packet)
 
-        if self._send_limiter is not None and not self._send_limiter.consume(now=time.time()):
+        if self._send_limiter is not None and not self._send_limiter.consume(now=time_provider.now()):
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -843,15 +843,15 @@ class AliceTunnel(BaseTunnel):
         Args:
             duration: Max seconds to run (None = until closed)
         """
-        start = time.time()
+        start = time_provider.now()
         while self._state == TunnelState.CONNECTED:
             self.tick()
 
-            if duration and (time.time() - start) >= duration:
+            if duration and (time_provider.now() - start) >= duration:
                 break
 
             # Brief sleep to avoid busy loop
-            time.sleep(self._config.tunnel_tick_sleep)
+            time_provider.sleep(self._config.tunnel_tick_sleep)
 
     def _run_loop(self):
         """Background thread loop - calls tick() until stopped."""
@@ -867,7 +867,7 @@ class AliceTunnel(BaseTunnel):
                     lambda: {'error': str(e), 'side': 'alice'},
                     exc_info=True,
                 )
-            time.sleep(self._config.tunnel_tick_sleep)
+            time_provider.sleep(self._config.tunnel_tick_sleep)
 
     def close(self):
         """Close the tunnel and transport."""

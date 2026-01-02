@@ -13,7 +13,6 @@ import random
 import select
 import socket
 import struct
-import time
 
 from ..transport_base import (
     Transport,
@@ -26,6 +25,7 @@ from .dns_utils import load_system_resolvers
 from ...compat import require_bytes_like
 from ...config import Config
 from ...logging_util import get_logger, log_event
+from ... import time_provider
 
 _LOG = get_logger(__name__)
 
@@ -193,7 +193,7 @@ class DnsClient(Transport):
         Raises:
             TransportError: on I/O failure or MTU exceeded
         """
-        now = time.time()
+        now = time_provider.now()
         pending_before = prune_and_count(
             self._pending, self._prune_stale, now=now, on_prune=self._on_prune
         )
@@ -282,12 +282,12 @@ class DnsClient(Transport):
         # Wait up to timeout (or indefinitely if timeout is None)
         deadline = None
         if timeout is not None:
-            deadline = time.time() + timeout
+            deadline = time_provider.now() + timeout
         while True:
             if timeout is None:
                 wait = None
             else:
-                remaining = deadline - time.time()
+                remaining = deadline - time_provider.now()
                 if remaining <= 0:
                     return (None, None)
                 wait = remaining
@@ -438,7 +438,7 @@ class DnsClient(Transport):
     def _prune_stale(self, now=None):
         """Remove stale pending queries to free capacity."""
         if now is None:
-            now = time.time()
+            now = time_provider.now()
         stale = self._pending.prune(now=now)
         if stale:
             log_event(

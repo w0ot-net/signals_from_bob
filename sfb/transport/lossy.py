@@ -13,10 +13,10 @@ Wraps any Transport or Server to inject configurable network impairment:
 from __future__ import absolute_import
 
 import random
-import time
 from collections import deque
 
 from .transport_base import Transport, Server
+from .. import time_provider
 
 
 class NetworkImpairment(object):
@@ -234,14 +234,14 @@ class LossyTransport(Transport):
             # Return fake corr_id - recv will never see a response
             fake_id = self._next_fake_id
             self._next_fake_id += 1
-            self._dropped_ids[fake_id] = time.time()
+            self._dropped_ids[fake_id] = time_provider.now()
             return fake_id
 
         # Check for corruption (simulate lower-layer discard)
         if self._send_imp.should_corrupt():
             fake_id = self._next_fake_id
             self._next_fake_id += 1
-            self._dropped_ids[fake_id] = time.time()
+            self._dropped_ids[fake_id] = time_provider.now()
             return fake_id
 
         # Send the packet
@@ -257,7 +257,7 @@ class LossyTransport(Transport):
 
     def recv(self, timeout=None):
         """Receive with possible impairment."""
-        now = time.time()
+        now = time_provider.now()
 
         # First, check delayed buffer for ready packets
         ready = self._check_delayed(now)
@@ -293,7 +293,7 @@ class LossyTransport(Transport):
 
         # Check delayed again after waiting
         if corr_id is None:
-            now = time.time()
+            now = time_provider.now()
             ready = self._check_delayed(now)
             if ready is not None:
                 return ready
@@ -408,7 +408,7 @@ class LossyServer(Server):
 
     def recv(self, timeout=None):
         """Receive request with possible impairment."""
-        now = time.time()
+        now = time_provider.now()
 
         # Check delayed requests first
         ready = self._check_delayed_requests(now)
@@ -435,7 +435,7 @@ class LossyServer(Server):
         result = self._inner.recv(inner_timeout)
         if result is None or result[0] is None:
             # Check delayed again
-            now = time.time()
+            now = time_provider.now()
             ready = self._check_delayed_requests(now)
             if ready is not None:
                 return ready

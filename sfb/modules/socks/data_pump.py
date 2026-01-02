@@ -12,10 +12,10 @@ import errno
 import logging
 import select
 import socket
-import time
 
 from ...logging_util import log_event
 from ...channel import ChannelError
+from ... import time_provider
 
 
 def _get_socket_error(exc):
@@ -46,7 +46,7 @@ def _is_interrupted(exc):
 def _select(read_list, write_list, timeout):
     if not read_list and not write_list:
         if timeout:
-            time.sleep(timeout)
+            time_provider.sleep(timeout)
         return [], []
     try:
         rlist, wlist, _ = select.select(read_list, write_list, [], timeout)
@@ -122,7 +122,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
         wait_time = 0.0
         base_backoff, max_backoff = _pump_poll_bounds(config)
         backoff = base_backoff
-        last_stats = time.time()
+        last_stats = time_provider.now()
         fatal_error = False
         while not stop_event.is_set():
             if pending is not None:
@@ -139,12 +139,12 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 except ChannelError as exc:
                     if exc.code == 'buffer_full':
                         buffer_full_count += 1
-                        start = time.time()
+                        start = time_provider.now()
                         try:
                             ready = channel.wait_send_space(timeout=backoff)
                         except ChannelError:
                             break
-                        wait_time += time.time() - start
+                        wait_time += time_provider.now() - start
                         if not ready:
                             backoff = min(backoff * 2.0, max_backoff)
                         else:
@@ -171,12 +171,12 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
             available = config.channel_max_send_buf - channel.send_buf_size
             if available <= 0:
                 buffer_full_count += 1
-                start = time.time()
+                start = time_provider.now()
                 try:
                     ready = channel.wait_send_space(timeout=backoff)
                 except ChannelError:
                     break
-                wait_time += time.time() - start
+                wait_time += time_provider.now() - start
                 if not ready:
                     backoff = min(backoff * 2.0, max_backoff)
                 else:
@@ -261,7 +261,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         )
                     break
 
-            now = time.time()
+            now = time_provider.now()
             if now - last_stats >= 1.0:
                 log_event(
                     logger,
@@ -305,7 +305,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
         outbound_limit = _outbound_cap(config)
         bytes_read = 0
         bytes_sent = 0
-        last_stats = time.time()
+        last_stats = time_provider.now()
         base_backoff, max_backoff = _pump_poll_bounds(config)
         backoff = base_backoff
         write_timeout = config.socks_relay_write_timeout
@@ -316,7 +316,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
             progress = False
 
             if outbound_size:
-                now = time.time()
+                now = time_provider.now()
                 if last_send is None:
                     last_send = now
                 if write_timeout is not None and now - last_send > write_timeout:
@@ -354,7 +354,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
 
                     if sent:
                         bytes_sent += sent
-                        last_send = time.time()
+                        last_send = time_provider.now()
                         progress = True
                         if sent < len(chunk) - outbound_offset:
                             outbound_offset += sent
@@ -403,7 +403,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         bytes_read += len(data)
                         progress = True
                         if last_send is None:
-                            last_send = time.time()
+                            last_send = time_provider.now()
 
             if channel_closed and outbound_size == 0:
                 break
@@ -413,7 +413,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
             else:
                 backoff = min(backoff * 2.0, max_backoff)
 
-            now = time.time()
+            now = time_provider.now()
             if now - last_stats >= 1.0:
                 log_event(
                     logger,

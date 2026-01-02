@@ -88,6 +88,14 @@ Alice ──▶ Recursive Resolver ──▶ ... ──▶ Bob
 
 ---
 
+## Timing and Timeouts
+
+Protocol timing (poll deadlines, pending request pruning, and pacing) uses the
+shared monotonic clock via `time_provider.now()`. Wall time is reserved for
+logging and user-facing timestamps via `time_provider.wall_time()`.
+
+---
+
 ## Query Format (Alice → Bob)
 
 Alice encodes tunnel packets into DNS query names using base32 in subdomain

@@ -15,6 +15,7 @@ import threading
 
 from ..base_module import BaseModule, ModuleError, blocking
 from ...logging_util import log_event
+from ... import time_provider
 from .data_pump import pump_channel_to_socket, pump_socket_to_channel
 from .socks_control_messages import T_SOCK, sock_connect_ok, sock_err
 
@@ -33,7 +34,6 @@ class SocksRelayModule(BaseModule):
     @classmethod
     def run_command(cls, args, tunnel, logger):
         """Run the relay (passive - just responds to requests)."""
-        import time
         module = cls(tunnel, logger=logger)
         log_event(
             logger,
@@ -45,7 +45,7 @@ class SocksRelayModule(BaseModule):
         try:
             # Wait for tunnel to close
             while tunnel.is_connected:
-                time.sleep(tunnel._config.tunnel_connect_poll_interval)
+                time_provider.sleep(tunnel._config.tunnel_connect_poll_interval)
             return 0
         finally:
             module.shutdown()

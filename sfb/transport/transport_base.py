@@ -17,8 +17,8 @@ max_pending=1 or call recv() after each send().
 from __future__ import absolute_import
 
 import abc
-import time
 
+from .. import time_provider
 
 class Transport(object):
     """
@@ -210,7 +210,7 @@ class TokenBucket(object):
             capacity = rate
         self._capacity = float(capacity)
         self._tokens = self._capacity
-        self._last_refill = time.time()
+        self._last_refill = time_provider.now()
 
     def _refill(self, now):
         elapsed = now - self._last_refill
@@ -223,7 +223,7 @@ class TokenBucket(object):
         if self._rate <= 0:
             return True
         if now is None:
-            now = time.time()
+            now = time_provider.now()
         self._refill(now)
         return self._tokens >= amount
 
@@ -231,7 +231,7 @@ class TokenBucket(object):
         if self._rate <= 0:
             return True
         if now is None:
-            now = time.time()
+            now = time_provider.now()
         self._refill(now)
         if self._tokens >= amount:
             self._tokens -= amount
@@ -280,7 +280,7 @@ def prune_and_count(pending, prune_fn, now=None, on_prune=None):
         int: count after pruning
     """
     if now is None:
-        now = time.time()
+        now = time_provider.now()
     stale = prune_fn(now=now)
     if stale is None:
         stale = []
@@ -300,7 +300,7 @@ class PendingTracker(object):
 
     def add(self, key, value, now=None):
         if now is None:
-            now = time.time()
+            now = time_provider.now()
         self._entries[key] = (value, now)
 
     def get(self, key):
@@ -320,7 +320,7 @@ class PendingTracker(object):
 
     def prune(self, now=None):
         if now is None:
-            now = time.time()
+            now = time_provider.now()
         stale = []
         for key, (value, ts) in list(self._entries.items()):
             if now - ts > self._timeout:

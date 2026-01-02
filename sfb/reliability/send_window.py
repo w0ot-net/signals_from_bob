@@ -5,9 +5,9 @@ Send window tracking unacked packets.
 
 from __future__ import absolute_import
 
-import time
 from collections import deque
 
+from .. import time_provider
 from ..protocol import (
     seq_lt,
     SEQ_MAX,
@@ -66,7 +66,7 @@ class SendWindow(object):
             int: Sequence number assigned to this packet
         """
         if now is None:
-            now = time.time()
+            now = time_provider.now()
 
         if not self.can_send:
             raise ValueError('Send window full')
@@ -97,7 +97,7 @@ class SendWindow(object):
                 data_acked_count: count of newly acked packets with segments
         """
         if now is None:
-            now = time.time()
+            now = time_provider.now()
 
         rtt_samples = []
         acked_count = 0
@@ -125,7 +125,7 @@ class SendWindow(object):
             list: List of (seq, segments, flags) to retransmit
         """
         if now is None:
-            now = time.time()
+            now = time_provider.now()
 
         retransmits = []
         for seq in self._send_order:
@@ -182,7 +182,7 @@ class SendWindow(object):
         Mark a packet as retransmitted.
         """
         if now is None:
-            now = time.time()
+            now = time_provider.now()
 
         pkt = self._unacked.get(seq)
         if pkt is None:

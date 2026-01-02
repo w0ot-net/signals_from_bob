@@ -9,13 +9,13 @@ import fnmatch
 import logging
 import sys
 import threading
-import time
 import sqlite3
 import json
 
 from .compat import queue
 
 from .compat import text_type
+from . import time_provider
 
 
 DEFAULT_FORMAT = '%(asctime)s %(levelname)s %(name)s: %(message)s'
@@ -273,14 +273,14 @@ class SQLiteLogHandler(logging.Handler):
             conn.commit()
 
             batch = []
-            last_flush = time.time()
+            last_flush = time_provider.now()
             flush_interval = self._flush_interval
             if flush_interval < 0:
                 flush_interval = 0.0
 
             while not self._stop.is_set():
                 if batch:
-                    timeout = flush_interval - (time.time() - last_flush)
+                    timeout = flush_interval - (time_provider.now() - last_flush)
                     if timeout < 0:
                         timeout = 0.0
                 else:
@@ -300,7 +300,7 @@ class SQLiteLogHandler(logging.Handler):
                 if item is not None:
                     batch.append(item)
 
-                if batch and (len(batch) >= 100 or time.time() - last_flush >= self._flush_interval):
+                if batch and (len(batch) >= 100 or time_provider.now() - last_flush >= self._flush_interval):
                     cur.executemany(
                         'INSERT INTO logs (created, level, logger, message, event, fields, pathname, lineno, func, thread, process) '
                         'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -308,7 +308,7 @@ class SQLiteLogHandler(logging.Handler):
                     )
                     conn.commit()
                     batch = []
-                    last_flush = time.time()
+                    last_flush = time_provider.now()
 
             if batch:
                 cur.executemany(

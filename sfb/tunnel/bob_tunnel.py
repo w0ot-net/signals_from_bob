@@ -9,10 +9,10 @@ transport server.
 from __future__ import absolute_import
 
 import logging
-import time
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
 from ..logging_util import log_event
+from .. import time_provider
 from ..protocol import (
     Packet,
     FLAG_SYN,
@@ -149,7 +149,7 @@ class BobTunnel(BaseTunnel):
             data: Encrypted packet bytes from Alice
             responder: Callable to send response
         """
-        now = time.time()
+        now = time_provider.now()
         self._update_poll_ewma(now)
 
         # Decode incoming packet
@@ -599,7 +599,7 @@ class BobTunnel(BaseTunnel):
         if self._last_request_time is None:
             return False
 
-        elapsed = time.time() - self._last_request_time
+        elapsed = time_provider.now() - self._last_request_time
         if elapsed > self._idle_timeout:
             if self._state == TunnelState.CONNECTING:
                 log_event(

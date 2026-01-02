@@ -10,7 +10,6 @@ import os
 import random
 import select
 import socket
-import time
 
 from ..transport_base import (
     Transport,
@@ -22,6 +21,7 @@ from .icmp_packet import ICMP_ECHO_REPLY, build_echo_request, parse_icmp_echo
 from ...compat import require_bytes_like
 from ...config import Config
 from ...logging_util import get_logger, log_event
+from ... import time_provider
 
 _LOG = get_logger(__name__)
 
@@ -78,7 +78,7 @@ class IcmpClient(Transport):
         return True
 
     def send(self, data):
-        now = time.time()
+        now = time_provider.now()
         pending_before = prune_and_count(
             self._pending, self._prune_stale, now=now
         )
@@ -139,12 +139,12 @@ class IcmpClient(Transport):
 
         deadline = None
         if timeout is not None:
-            deadline = time.time() + timeout
+            deadline = time_provider.now() + timeout
         while True:
             if timeout is None:
                 wait = None
             else:
-                remaining = deadline - time.time()
+                remaining = deadline - time_provider.now()
                 if remaining <= 0:
                     return (None, None)
                 wait = remaining
@@ -207,7 +207,7 @@ class IcmpClient(Transport):
 
     def _prune_stale(self, now=None):
         if now is None:
-            now = time.time()
+            now = time_provider.now()
         stale = self._pending.prune(now=now)
         if stale:
             log_event(

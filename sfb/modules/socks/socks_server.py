@@ -12,10 +12,10 @@ import logging
 import socket
 import struct
 import threading
-import time
 
 from ..base_module import BaseModule, ModuleError
 from ...logging_util import log_event
+from ... import time_provider
 from .data_pump import pump_channel_to_socket, pump_socket_to_channel
 from .socks_control_messages import T_SOCK, sock_connect
 
@@ -109,7 +109,6 @@ class SocksServerModule(BaseModule):
     @classmethod
     def run_command(cls, args, tunnel, logger):
         """Start the SOCKS server and run until tunnel closes."""
-        import time
         module = cls(tunnel, logger=logger)
         try:
             host = getattr(args, 'socks_host', None)
@@ -122,7 +121,7 @@ class SocksServerModule(BaseModule):
 
             # Wait for tunnel to close
             while tunnel.is_connected:
-                time.sleep(tunnel._config.tunnel_connect_poll_interval)
+                time_provider.sleep(tunnel._config.tunnel_connect_poll_interval)
             return 0
         finally:
             module.shutdown()
@@ -268,7 +267,7 @@ class SocksServerModule(BaseModule):
                         lambda: {'error': str(e)},
                         exc_info=True,
                     )
-                    time.sleep(backoff)
+                    time_provider.sleep(backoff)
                     backoff = min(backoff * 2.0, max_backoff)
 
     def _handle_client(self, sock, addr):

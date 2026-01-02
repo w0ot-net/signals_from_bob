@@ -47,6 +47,11 @@ except ImportError:
 
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+from sfb import time_provider
+
 LOG_DIR = os.path.join(ROOT_DIR, 'logs')
 SERVER_DB_LOG = os.path.join(LOG_DIR, 'icmp_diag_server_log.db')
 CLIENT_DB_LOG = os.path.join(LOG_DIR, 'icmp_diag_client_log.db')
@@ -116,11 +121,11 @@ class ManagedProcess(object):
             self.proc.terminate()
         except Exception:
             return
-        start = time.time()
-        while time.time() - start < timeout:
+        start = time_provider.now()
+        while time_provider.now() - start < timeout:
             if self.proc.poll() is not None:
                 return
-            time.sleep(0.1)
+            time_provider.sleep(0.1)
         try:
             self.proc.kill()
         except Exception:
@@ -267,7 +272,7 @@ def resolve_profile_dir(path):
 
 def wait_for_port(host, port, deadline, proc=None):
     """Wait until a TCP port is accepting connections."""
-    while time.time() < deadline:
+    while time_provider.now() < deadline:
         if proc is not None and proc.poll() is not None:
             raise RuntimeError('%s exited with code %s' % (proc.name, proc.poll()))
         try:
@@ -275,7 +280,7 @@ def wait_for_port(host, port, deadline, proc=None):
             sock.close()
             return True
         except socket.error:
-            time.sleep(0.2)
+            time_provider.sleep(0.2)
     return False
 
 
@@ -294,7 +299,7 @@ def wrap_profile(cmd, profile_dir, label):
     if not profile_dir:
         return cmd
     ensure_dir(profile_dir)
-    timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
+    timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime(time_provider.wall_time()))
     profile_path = os.path.join(
         profile_dir,
         '%s_%s_%s.pstats' % (label, timestamp, os.getpid())
@@ -390,9 +395,9 @@ def recv_exact(sock, size):
 def socks5_connect(proxy_host, proxy_port, target_host, target_port, timeout):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
-    connect_start = time.time()
+    connect_start = time_provider.now()
     sock.connect((proxy_host, proxy_port))
-    connect_done = time.time()
+    connect_done = time_provider.now()
 
     # Method negotiation: only "no auth"
     sock.sendall(b'\x05\x01\x00')
@@ -429,7 +434,7 @@ def socks5_connect(proxy_host, proxy_port, target_host, target_port, timeout):
         raise RuntimeError('Unsupported ATYP %s' % atyp)
     recv_exact(sock, addr_len)
     recv_exact(sock, 2)
-    handshake_done = time.time()
+    handshake_done = time_provider.now()
 
     return sock, (connect_done - connect_start), (handshake_done - connect_done), target_ip
 
@@ -451,14 +456,14 @@ def download_via_socks(client_id, proxy_host, proxy_port, target_host,
         'throughput_mbps': None,
     }
     sock = None
-    next_progress = time.time() + PROGRESS_INTERVAL
+    next_progress = time_provider.now() + PROGRESS_INTERVAL
 
     def push_progress():
         if progress_queue is not None:
             progress_queue.put({
                 'client_id': client_id,
                 'bytes': metrics.get('bytes', 0),
-                'ts': time.time(),
+                'ts': time_provider.now(),
             })
 
     try:
@@ -477,7 +482,7 @@ def download_via_socks(client_id, proxy_host, proxy_port, target_host,
             '',
         ]
         request_bytes = '\r\n'.join(request_lines).encode('ascii')
-        request_start = time.time()
+        request_start = time_provider.now()
         sock.sendall(request_bytes)
 
         header_buf = b''
@@ -505,7 +510,7 @@ def download_via_socks(client_id, proxy_host, proxy_port, target_host,
                     )
                 break
             if first_byte_time is None:
-                first_byte_time = time.time()
+                first_byte_time = time_provider.now()
             if not headers_parsed:
                 header_buf += chunk
                 if b'\r\n\r\n' not in header_buf:
@@ -540,11 +545,11 @@ def download_via_socks(client_id, proxy_host, proxy_port, target_host,
             metrics['bytes'] = body_bytes
             if content_length is not None and body_bytes >= content_length:
                 break
-            if time.time() >= next_progress:
+            if time_provider.now() >= next_progress:
                 push_progress()
-                next_progress = time.time() + PROGRESS_INTERVAL
+                next_progress = time_provider.now() + PROGRESS_INTERVAL
 
-        end_time = time.time()
+        end_time = time_provider.now()
         if status_code != 200:
             raise RuntimeError('HTTP status %s (expected 200)' % status_code)
         if content_length is not None and body_bytes != content_length:
@@ -578,7 +583,7 @@ def download_via_socks(client_id, proxy_host, proxy_port, target_host,
 
 def render_progress(status_bytes, expected_total, start_time, client_count, last_len):
     total_bytes = sum(status_bytes.values()) if status_bytes else 0
-    elapsed = max(time.time() - start_time, 0.001)
+    elapsed = max(time_provider.now() - start_time, 0.001)
     rate_mbps = (total_bytes / elapsed) / (1024 * 1024)
     parts = ['Progress:']
     if expected_total:
@@ -603,7 +608,7 @@ def run_downloads(client_count, proxy_host, proxy_port, target_host,
     result_q = queue.Queue()
     progress_q = queue.Queue()
     threads = []
-    start = time.time()
+    start = time_provider.now()
     for idx in range(client_count):
         t = threading.Thread(
             target=download_via_socks,
@@ -641,7 +646,7 @@ def run_downloads(client_count, proxy_host, proxy_port, target_host,
             update = progress_q.get(timeout=PROGRESS_INTERVAL)
             cid = update.get('client_id')
             bval = update.get('bytes', 0)
-            ts = update.get('ts', time.time())
+            ts = update.get('ts', time_provider.now())
             status_bytes[cid] = bval
             progress_log.append((ts, sum(status_bytes.values())))
         except QueueEmpty:
@@ -653,13 +658,13 @@ def run_downloads(client_count, proxy_host, proxy_port, target_host,
             client_count,
             last_render_len,
         )
-        if not alive or time.time() >= deadline:
+        if not alive or time_provider.now() >= deadline:
             while True:
                 try:
                     update = progress_q.get_nowait()
                     cid = update.get('client_id')
                     bval = update.get('bytes', 0)
-                    ts = update.get('ts', time.time())
+                    ts = update.get('ts', time_provider.now())
                     status_bytes[cid] = bval
                     progress_log.append((ts, sum(status_bytes.values())))
                 except QueueEmpty:
@@ -677,7 +682,7 @@ def run_downloads(client_count, proxy_host, proxy_port, target_host,
 
     for _, t in threads:
         t.join(timeout)
-    elapsed = time.time() - start
+    elapsed = time_provider.now() - start
     results = []
     while not result_q.empty():
         results.append(result_q.get())
@@ -747,9 +752,9 @@ def download_direct_http(host, port, request_path, timeout, file_size):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     try:
-        start = time.time()
+        start = time_provider.now()
         sock.connect((host, port))
-        connect_time = time.time() - start
+        connect_time = time_provider.now() - start
         path = '/' + request_path.lstrip('/')
         req = [
             'GET %s HTTP/1.1' % path,
@@ -783,7 +788,7 @@ def download_direct_http(host, port, request_path, timeout, file_size):
                     )
                 break
             if first_byte_time is None:
-                first_byte_time = time.time()
+                first_byte_time = time_provider.now()
             if not headers_parsed:
                 header_buf += chunk
                 if b'\r\n\r\n' not in header_buf:
@@ -810,7 +815,7 @@ def download_direct_http(host, port, request_path, timeout, file_size):
                 body_bytes += len(chunk)
             if content_length is not None and body_bytes >= content_length:
                 break
-        end = time.time()
+        end = time_provider.now()
         metrics['status_code'] = status_code
         metrics['bytes'] = body_bytes
         if status_code == 200:
@@ -910,15 +915,15 @@ def main():
             profile_dir=profile_dir,
         )
         bob.start()
-        time.sleep(0.2)
+        time_provider.sleep(0.2)
         alice.start()
 
-        deadline = time.time() + args.timeout
+        deadline = time_provider.now() + args.timeout
         socks_ready = wait_for_port('127.0.0.1', args.socks_port, deadline, proc=bob)
         if not socks_ready:
             raise SystemExit('SOCKS server did not become ready before timeout')
 
-        remaining = deadline - time.time()
+        remaining = deadline - time_provider.now()
         if remaining <= 0:
             raise SystemExit('Timeout expired before downloads could start')
 

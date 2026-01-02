@@ -15,7 +15,6 @@ from __future__ import absolute_import
 import collections
 import logging
 import threading
-import time
 
 from ..compat import integer_types
 
@@ -42,6 +41,7 @@ from .channel_control_messages import (
 from ..logging_util import get_logger, log_event
 from ..config import Config
 from ..protocol import Segment, SEGMENT_HEADER_SIZE
+from .. import time_provider
 
 logger = get_logger(__name__)
 
@@ -88,7 +88,7 @@ class ChannelManager(object):
 
         # Drain stats for debugging throughput stalls
         self._stats_lock = threading.Lock()
-        self._stats_last_log = time.time()
+        self._stats_last_log = time_provider.now()
         self._stats_interval = 1.0
         self._stats_bytes_sent = {}
 
@@ -460,7 +460,7 @@ class ChannelManager(object):
             return
         if not segments:
             return
-        now = time.time()
+        now = time_provider.now()
         with self._stats_lock:
             for seg in segments:
                 cid = seg.channel

@@ -12,7 +12,6 @@ import os
 import shutil
 import tempfile
 import threading
-import time
 import unittest
 
 from sfb.config import Config
@@ -20,6 +19,7 @@ from sfb.crypto import Plain, XOR
 from sfb.transport.dns import DnsClient, DnsServer
 from sfb.tunnel import AliceTunnel, BobTunnel, TunnelState
 from sfb.modules.file_transfer import FileTransferModule
+from sfb import time_provider
 
 
 TEST_PORT = 5353
@@ -97,7 +97,7 @@ class DnsE2ETest(unittest.TestCase):
             self.bob_thread.join(timeout=2.0)
 
         # Allow socket to fully release
-        time.sleep(0.1)
+        time_provider.sleep(0.1)
 
     def _create_config(self):
         """Create config for tests."""
@@ -133,7 +133,7 @@ class DnsE2ETest(unittest.TestCase):
         self.bob_thread.start()
 
         # Give server time to start
-        time.sleep(0.1)
+        time_provider.sleep(0.1)
 
     def _start_alice(self, config, crypto=None):
         """Start Alice client and connect."""
@@ -359,7 +359,7 @@ class _TunnelRunner(object):
                 self._tunnel.tick()
             except Exception:
                 pass
-            time.sleep(0.001)
+            time_provider.sleep(0.001)
 
 
 if __name__ == '__main__':

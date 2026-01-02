@@ -12,7 +12,6 @@ import os
 import shutil
 import tempfile
 import threading
-import time
 import unittest
 
 from sfb.config import Config
@@ -21,6 +20,7 @@ from sfb.transport.dns import DnsClient, DnsServer
 from sfb.transport.lossy import LossyTransport, NetworkImpairment
 from sfb.tunnel import AliceTunnel, BobTunnel, TunnelState
 from sfb.modules.file_transfer import FileTransferModule
+from sfb import time_provider
 
 
 TEST_PORT = 5353
@@ -94,7 +94,7 @@ class LossyE2ETest(unittest.TestCase):
         if self.bob_thread and self.bob_thread.is_alive():
             self.bob_thread.join(timeout=2.0)
 
-        time.sleep(0.1)
+        time_provider.sleep(0.1)
 
     def _create_config(self):
         """Create config for tests with fast retransmit for lossy conditions."""
@@ -128,7 +128,7 @@ class LossyE2ETest(unittest.TestCase):
 
         self.bob_thread = threading.Thread(target=serve, daemon=True)
         self.bob_thread.start()
-        time.sleep(0.1)
+        time_provider.sleep(0.1)
 
     def _start_alice(self, config, impairment=None):
         """Start Alice client with optional impairment."""
@@ -203,9 +203,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         local_path = os.path.join(self.alice_root, 'loss1_1kb.bin')
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.get('loss1_1kb.bin', local_path, timeout=60.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         with open(local_path, 'rb') as f:
             downloaded = f.read()
@@ -225,9 +225,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_bob(config)
         self._start_alice(config, impairment)
 
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.put(local_path, 'upload_loss1_1kb.bin', timeout=60.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         remote_path = os.path.join(self.bob_root, 'upload_loss1_1kb.bin')
         with open(remote_path, 'rb') as f:
@@ -250,9 +250,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         local_path = os.path.join(self.alice_root, 'loss5_1kb.bin')
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.get('loss5_1kb.bin', local_path, timeout=60.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         with open(local_path, 'rb') as f:
             downloaded = f.read()
@@ -272,9 +272,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_bob(config)
         self._start_alice(config, impairment)
 
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.put(local_path, 'upload_loss5_1kb.bin', timeout=60.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         remote_path = os.path.join(self.bob_root, 'upload_loss5_1kb.bin')
         with open(remote_path, 'rb') as f:
@@ -308,9 +308,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         local_path = os.path.join(self.alice_root, 'lossy1kb.bin')
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.get('lossy1kb.bin', local_path, timeout=60.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         with open(local_path, 'rb') as f:
             downloaded = f.read()
@@ -330,9 +330,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_bob(config)
         self._start_alice(config, impairment)
 
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.put(local_path, 'upload_lossy1kb.bin', timeout=60.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         remote_path = os.path.join(self.bob_root, 'upload_lossy1kb.bin')
         with open(remote_path, 'rb') as f:
@@ -355,9 +355,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         local_path = os.path.join(self.alice_root, 'loss20_1kb.bin')
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.get('loss20_1kb.bin', local_path, timeout=90.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         with open(local_path, 'rb') as f:
             downloaded = f.read()
@@ -383,9 +383,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         local_path = os.path.join(self.alice_root, 'latency_1kb.bin')
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.get('latency_1kb.bin', local_path, timeout=120.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         with open(local_path, 'rb') as f:
             downloaded = f.read()
@@ -412,9 +412,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         local_path = os.path.join(self.alice_root, 'burst_1kb.bin')
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.get('burst_1kb.bin', local_path, timeout=90.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         with open(local_path, 'rb') as f:
             downloaded = f.read()
@@ -439,9 +439,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         local_path = os.path.join(self.alice_root, 'dup_1kb.bin')
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.get('dup_1kb.bin', local_path, timeout=60.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         with open(local_path, 'rb') as f:
             downloaded = f.read()
@@ -467,9 +467,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         local_path = os.path.join(self.alice_root, 'reorder_1kb.bin')
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.get('reorder_1kb.bin', local_path, timeout=60.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         with open(local_path, 'rb') as f:
             downloaded = f.read()
@@ -495,9 +495,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         local_path = os.path.join(self.alice_root, 'corrupt_1kb.bin')
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.get('corrupt_1kb.bin', local_path, timeout=90.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         with open(local_path, 'rb') as f:
             downloaded = f.read()
@@ -525,9 +525,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         local_path = os.path.join(self.alice_root, 'moderate_1kb.bin')
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.get('moderate_1kb.bin', local_path, timeout=120.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         with open(local_path, 'rb') as f:
             downloaded = f.read()
@@ -559,9 +559,9 @@ class LossyE2ETest(unittest.TestCase):
         self._start_alice(config, impairment)
 
         local_path = os.path.join(self.alice_root, 'chaos_1kb.bin')
-        start = time.time()
+        start = time_provider.now()
         self.alice_file_module.get('chaos_1kb.bin', local_path, timeout=180.0)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
 
         with open(local_path, 'rb') as f:
             downloaded = f.read()
@@ -592,7 +592,7 @@ class _TunnelRunner(object):
                 self._tunnel.tick()
             except Exception:
                 pass
-            time.sleep(0.001)
+            time_provider.sleep(0.001)
 
 
 if __name__ == '__main__':

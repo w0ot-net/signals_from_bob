@@ -7,12 +7,12 @@ import os
 import shutil
 import tempfile
 import threading
-import time
 import unittest
 
 from sfb.tunnel import AliceTunnel, BobTunnel
 from sfb.crypto import Plain
 from sfb.modules.file_transfer import FileTransferModule, FileTransferError
+from sfb import time_provider
 
 # Import PairedTransport and make_test_config from test_tunnel
 import sys
@@ -65,7 +65,7 @@ class FileTransferTestCase(unittest.TestCase):
         # Run a few ticks to complete negotiation
         for _ in range(5):
             self.alice_tunnel.tick()
-            time.sleep(0.01)
+            time_provider.sleep(0.01)
 
     def tearDown(self):
         """Clean up tunnels and temp files."""
@@ -99,7 +99,7 @@ class FileTransferTestCase(unittest.TestCase):
         """Run Alice's tick loop."""
         for _ in range(count):
             self.alice_tunnel.tick()
-            time.sleep(delay)
+            time_provider.sleep(delay)
 
     def _create_test_file(self, directory, name, content):
         """Create a test file with given content."""
@@ -139,7 +139,7 @@ class TestListDir(FileTransferTestCase):
         # Tick Alice while waiting
         for _ in range(50):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -169,7 +169,7 @@ class TestListDir(FileTransferTestCase):
 
         for _ in range(50):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -202,7 +202,7 @@ class TestListDir(FileTransferTestCase):
 
         for _ in range(50):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -234,7 +234,7 @@ class TestGetFile(FileTransferTestCase):
 
         for _ in range(100):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -266,7 +266,7 @@ class TestGetFile(FileTransferTestCase):
 
         for _ in range(500):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -295,7 +295,7 @@ class TestGetFile(FileTransferTestCase):
 
         for _ in range(50):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -322,7 +322,7 @@ class TestGetFile(FileTransferTestCase):
 
         for _ in range(50):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -355,7 +355,7 @@ class TestPutFile(FileTransferTestCase):
 
         for _ in range(100):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -387,7 +387,7 @@ class TestPutFile(FileTransferTestCase):
 
         for _ in range(500):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -419,7 +419,7 @@ class TestPutFile(FileTransferTestCase):
 
         for _ in range(50):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -445,7 +445,7 @@ class TestPutFile(FileTransferTestCase):
 
         for _ in range(50):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -477,7 +477,7 @@ class TestBidirectional(FileTransferTestCase):
 
         for _ in range(50):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -505,7 +505,7 @@ class TestBidirectional(FileTransferTestCase):
 
         for _ in range(100):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -533,7 +533,7 @@ class TestBidirectional(FileTransferTestCase):
 
         for _ in range(100):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t.is_alive():
                 break
 
@@ -568,7 +568,7 @@ class TestBusyHandling(FileTransferTestCase):
 
         def do_get2():
             started.wait()  # Wait for first to start
-            time.sleep(0.1)  # Give it time to reserve active
+            time_provider.sleep(0.1)  # Give it time to reserve active
             try:
                 self.alice_ft.get(src_path, dst_path2, timeout=5.0)
             except FileTransferError as e:
@@ -581,7 +581,7 @@ class TestBusyHandling(FileTransferTestCase):
 
         for _ in range(500):
             self.alice_tunnel.tick()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             if not t1.is_alive() and not t2.is_alive():
                 break
 

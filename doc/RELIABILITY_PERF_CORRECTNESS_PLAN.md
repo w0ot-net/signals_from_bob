@@ -8,8 +8,8 @@ preserving protocol behavior.
 - `SendWindow` keeps SACK-acked seqs in `_send_order`, so the deque grows
   without bound when cumulative ACK stalls; `get_retransmits()` then scans an
   ever-growing list.
-- RTT/retransmit timing uses `time.time()`, so clock jumps can cause negative
-  RTTs or missed/early retransmits.
+- RTT/retransmit timing must be monotonic; wall-clock jumps can cause negative
+  RTTs or missed/early retransmits if `time_provider.now()` is not used.
 - `RecvWindow` drops new out-of-order packets when its buffer is full, even if
   the new packet is closer to `ack` than buffered ones, which can extend
   head-of-line blocking.
@@ -41,30 +41,27 @@ preserving protocol behavior.
    - Update any internal references/tests that assumed `_send_order` exists.
    - Track per-seq generation in the send window to map ACK/SACK seqs back to
      their composite key (e.g., maintain seq -> generation for active entries).
-2. Use a shared monotonic clock for reliability timers.
+2. Use a shared monotonic clock for protocol timing.
    - Use `sfb/time_provider.py` (shared with
      `doc/MONOTONIC_TIME_PROVIDER_PLAN.md`) with `now()`:
      - Python 3: `time.monotonic()`.
      - Python 2: `time.clock()` on Windows; otherwise `time.time()` with a
        last-value clamp to prevent backwards jumps (guarded by a small lock).
        Forward jumps are acceptable and will advance timers.
-   - Switch reliability/tunnel codepaths that compare timestamps to use
+   - Switch protocol codepaths that compare timestamps to use
      `time_provider.now()` (send timestamps, ACK progress timers, retransmit
-     timing, keepalive/poll scheduling, Bob idle timeout).
+     timing, keepalive/poll scheduling, Bob idle timeout, channel timeouts,
+     transport pending timeouts, and module pacing).
    - Decide and document time source for rate limiting/token buckets used in
      tunnel pacing; prefer `time_provider.now()` for tunnel-level pacing and pass
      it into limiter calls when available.
-   - Thread the chosen time provider into rate limiter update calls and list
-     the exact call sites updated to avoid mixed wall-clock/monotonic use.
+   - Thread the chosen time provider into rate limiter update calls to avoid
+     mixed wall-clock/monotonic use.
    - Ensure all reliability timestamps are sourced from `time_provider.now()`
      consistently; avoid mixing wall-clock `time.time()` with monotonic values.
-   - Audit all `time.time()` usage and limit changes to reliability/tunnel:
-     - `sfb/reliability/send_window.py` for send/retransmit timestamps.
-     - `sfb/tunnel/base_tunnel.py` for ACK progress timers.
-     - `sfb/tunnel/alice_tunnel.py` for handshake/poll scheduling loops.
-     - `sfb/tunnel/bob_tunnel.py` for poll EWMA/retransmit scheduling and idle
-       timeout checks.
-   - Keep wall-clock time only for logging/user-facing timestamps.
+   - Audit all `time.time()` usage across runtime code and tests; route interval
+     math through `time_provider.now()` and keep wall time limited to logging
+     or user-facing timestamps via `time_provider.wall_time()`.
    - Add a test hook for the monotonic source (module-level indirection via
      `time_provider`) so tests can drive time without external deps.
 3. Improve `RecvWindow` buffer behavior under pressure.

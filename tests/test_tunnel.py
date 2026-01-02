@@ -4,7 +4,6 @@
 from __future__ import absolute_import
 
 import threading
-import time
 import unittest
 import json
 
@@ -21,6 +20,7 @@ from sfb.transport import (
     Transport,
     Server,
 )
+from sfb import time_provider
 
 
 def make_test_config(**overrides):
@@ -195,7 +195,7 @@ class WindowGrowthTest(unittest.TestCase):
         alice._proposed_max_in_flight = 4
         alice._ack_progressed = True
 
-        alice._maybe_request_window(time.time())
+        alice._maybe_request_window(time_provider.now())
 
         msgs = _control_messages(alice.control)
         window_msgs = [m for m in msgs if m.get('t') == 'tun' and m.get('c') == 'window']
@@ -228,8 +228,8 @@ class _PairedAliceTransport(Transport):
             return None, None
 
         # Blocking wait
-        deadline = time.time() + (timeout if timeout else 3600)
-        while time.time() < deadline:
+        deadline = time_provider.now() + (timeout if timeout else 3600)
+        while time_provider.now() < deadline:
             with self._pair._lock:
                 if self._pair._bob_to_alice:
                     corr_id, data = self._pair._bob_to_alice.pop(0)
@@ -274,8 +274,8 @@ class _PairedBobServer(Server):
         if self._pair._closed:
             return None, None
 
-        deadline = time.time() + (timeout if timeout else 3600)
-        while time.time() < deadline:
+        deadline = time_provider.now() + (timeout if timeout else 3600)
+        while time_provider.now() < deadline:
             with self._pair._lock:
                 if self._pair._alice_to_bob:
                     corr_id, data = self._pair._alice_to_bob.pop(0)
@@ -319,12 +319,12 @@ class AliceRateLimitTest(unittest.TestCase):
 
         limiter = alice._send_limiter
         limiter._bucket._tokens = 0.0
-        limiter._bucket._last_refill = time.time()
+        limiter._bucket._last_refill = time_provider.now()
 
         self.assertFalse(alice._can_send_new())
 
         limiter._bucket._tokens = 0.0
-        limiter._bucket._last_refill = time.time() - 2.0
+        limiter._bucket._last_refill = time_provider.now() - 2.0
         self.assertTrue(alice._can_send_new())
 
 
@@ -426,7 +426,7 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(alice.state, TunnelState.CONNECTED)
 
             # Give Bob time to process
-            time.sleep(0.1)
+            time_provider.sleep(0.1)
             self.assertEqual(bob.state, TunnelState.CONNECTED)
 
         finally:
@@ -457,7 +457,7 @@ class EndToEndTests(unittest.TestCase):
             initial_sent = alice._packets_sent
             for _ in range(3):
                 alice.tick()
-                time.sleep(0.05)
+                time_provider.sleep(0.05)
 
             # Verify packets were exchanged
             self.assertGreater(alice._packets_sent, initial_sent)
@@ -498,7 +498,7 @@ class RecvWindowIntegrationTests(unittest.TestCase):
             # Tick to receive packets from Bob
             for _ in range(3):
                 alice.tick()
-                time.sleep(0.05)
+                time_provider.sleep(0.05)
 
             # ack should have advanced
             self.assertNotEqual(alice._recv_window.ack, 0)
@@ -554,7 +554,7 @@ class BobRetransmitTests(unittest.TestCase):
         bob._send_window.send(
             segments,
             flags=packet.flags,
-            now=time.time() - 1.0,
+            now=time_provider.now() - 1.0,
         )
 
         # Now verify there's an unacked packet with segments
@@ -574,7 +574,7 @@ class BobRetransmitTests(unittest.TestCase):
             sent_responses.append(data)
 
         # Call _send_response - should retransmit with fresh ack/sack
-        bob._send_response(mock_responder, time.time())
+        bob._send_response(mock_responder, time_provider.now())
 
         # Verify a packet was sent
         self.assertEqual(len(sent_responses), 1)
@@ -598,14 +598,14 @@ class BobRetransmitTests(unittest.TestCase):
         bob._send_window._next_seq = 101
 
         # Record a keepalive-only packet as unacked
-        bob._send_window.send([], flags=FLAG_KEEPALIVE, now=time.time() - 5.0)
+        bob._send_window.send([], flags=FLAG_KEEPALIVE, now=time_provider.now() - 5.0)
 
         sent_responses = []
 
         def mock_responder(data):
             sent_responses.append(data)
 
-        bob._send_response(mock_responder, time.time())
+        bob._send_response(mock_responder, time_provider.now())
 
         self.assertEqual(len(sent_responses), 1)
         response_packet = Packet.decode(sent_responses[0])
@@ -660,7 +660,7 @@ class WindowEnforcementTests(unittest.TestCase):
             sent_responses.append(data)
 
         initial_unacked = bob._send_window.unacked_count
-        bob._send_response(mock_responder, time.time())
+        bob._send_response(mock_responder, time_provider.now())
 
         # Should have retransmitted (not added new packet)
         # and should have sent something
@@ -678,7 +678,7 @@ class IdleTimeoutTests(unittest.TestCase):
 
         # Simulate a stalled handshake
         bob._set_state(TunnelState.CONNECTING)
-        bob._last_request_time = time.time() - 0.2  # 200ms ago
+        bob._last_request_time = time_provider.now() - 0.2  # 200ms ago
 
         # Should detect timeout
         result = bob._check_idle_timeout()
@@ -690,7 +690,7 @@ class IdleTimeoutTests(unittest.TestCase):
         server = MockServer()
         bob = BobTunnel(server, make_test_config(tunnel_idle_timeout=0.1), crypto=Plain())
 
-        bob._last_request_time = time.time() - 1.0  # Long ago
+        bob._last_request_time = time_provider.now() - 1.0  # Long ago
 
         result = bob._check_idle_timeout()
         self.assertFalse(result)
@@ -786,7 +786,7 @@ class KeepaliveFlagTests(unittest.TestCase):
         data = tunnel._encode_packet(packet)
         decoded = tunnel._decode_packet(data)
         self.assertIsNotNone(decoded)
-        tunnel._process_incoming_packet(decoded, now=time.time())
+        tunnel._process_incoming_packet(decoded, now=time_provider.now())
         self.assertEqual(tunnel.control._recv_buf_size, 0)
         self.assertEqual(tunnel.state, TunnelState.CONNECTED)
 
@@ -799,7 +799,7 @@ class KeepaliveFlagTests(unittest.TestCase):
         alice._recv_window.set_initial_seq(1)
         packet = Packet(seq=1, ack=0, sack=0, flags=FLAG_KEEPALIVE)
         data = alice._encode_packet(packet)
-        valid, has_real_data = alice._handle_response(data, now=time.time())
+        valid, has_real_data = alice._handle_response(data, now=time_provider.now())
         self.assertTrue(valid)
         self.assertFalse(has_real_data)
         self.assertFalse(alice._got_data)
@@ -821,7 +821,7 @@ class KeepaliveFlagTests(unittest.TestCase):
         def responder(data):
             sent_responses.append(data)
 
-        bob._send_response(responder, time.time())
+        bob._send_response(responder, time_provider.now())
 
         self.assertEqual(len(sent_responses), 1)
         response_packet = Packet.decode(sent_responses[0])

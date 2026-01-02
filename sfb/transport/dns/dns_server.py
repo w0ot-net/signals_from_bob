@@ -11,12 +11,12 @@ import logging
 import select
 import socket
 import struct
-import time
 
 from ..transport_base import Server, TransportError
 from . import codec
 from ...config import Config, DNS_STANDARD_SIZE
 from ...logging_util import get_logger, log_event
+from ... import time_provider
 
 
 class _ResponseSender(object):
@@ -199,7 +199,7 @@ class DnsServer(Server):
         deadline = None
         use_deadline = False
         if timeout is not None and timeout > 0:
-            deadline = time.time() + timeout
+            deadline = time_provider.now() + timeout
             use_deadline = True
         while True:
             try:
@@ -208,7 +208,7 @@ class DnsServer(Server):
                 elif timeout == 0:
                     wait = 0
                 elif use_deadline:
-                    remaining = deadline - time.time()
+                    remaining = deadline - time_provider.now()
                     if remaining <= 0:
                         return None, None
                     wait = remaining

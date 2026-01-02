@@ -17,6 +17,7 @@ import threading
 
 from ..compat import PY2, require_bytes_like, text_type, to_bytes, to_native_str
 from ..logging_util import get_logger, log_event
+from .. import time_provider
 
 logger = get_logger(__name__)
 
@@ -252,10 +253,9 @@ class Channel(object):
         Raises:
             ChannelError: if channel is not open
         """
-        import time
         deadline = None
         if timeout is not None:
-            deadline = time.time() + timeout
+            deadline = time_provider.now() + timeout
 
         while True:
             with self._lock:
@@ -264,7 +264,7 @@ class Channel(object):
                 if self._max_send_buf is None or self._send_buf_size < self._max_send_buf:
                     return True
             if deadline is not None:
-                remaining = deadline - time.time()
+                remaining = deadline - time_provider.now()
                 if remaining <= 0:
                     return False
                 self._send_space_event.wait(timeout=remaining)
@@ -288,14 +288,13 @@ class Channel(object):
         Raises:
             ChannelError: if channel closes or timeout expires
         """
-        import time
         data = _coerce_bytes_like(data)
         if not data:
             return 0
 
         deadline = None
         if timeout is not None:
-            deadline = time.time() + timeout
+            deadline = time_provider.now() + timeout
 
         offset = 0
         total_len = len(data)
@@ -305,7 +304,7 @@ class Channel(object):
 
         while offset < total_len:
             # Check deadline
-            if deadline is not None and time.time() >= deadline:
+            if deadline is not None and time_provider.now() >= deadline:
                 raise ChannelError('timeout', 'Write timeout')
 
             # Check channel state
@@ -336,7 +335,7 @@ class Channel(object):
                     logged_wait = True
                 wait_timeout = backoff
                 if deadline is not None:
-                    remaining = deadline - time.time()
+                    remaining = deadline - time_provider.now()
                     if remaining <= 0:
                         raise ChannelError('timeout', 'Write timeout')
                     wait_timeout = min(wait_timeout, remaining)
@@ -351,7 +350,7 @@ class Channel(object):
             else:
                 wait_timeout = backoff
                 if deadline is not None:
-                    remaining = deadline - time.time()
+                    remaining = deadline - time_provider.now()
                     if remaining <= 0:
                         raise ChannelError('timeout', 'Write timeout')
                     wait_timeout = min(wait_timeout, remaining)
@@ -379,8 +378,7 @@ class Channel(object):
         """
         deadline = None
         if timeout is not None:
-            import time
-            deadline = time.time() + timeout
+            deadline = time_provider.now() + timeout
 
         while True:
             with self._lock:
@@ -397,8 +395,7 @@ class Channel(object):
 
             # Wait for data or close
             if deadline is not None:
-                import time
-                remaining = deadline - time.time()
+                remaining = deadline - time_provider.now()
                 if remaining <= 0:
                     return None
                 got_event = self._recv_event.wait(timeout=remaining)
@@ -424,10 +421,9 @@ class Channel(object):
         if size <= 0:
             return b''
 
-        import time
         deadline = None
         if timeout is not None:
-            deadline = time.time() + timeout
+            deadline = time_provider.now() + timeout
 
         chunks = []
         remaining = size
@@ -435,7 +431,7 @@ class Channel(object):
             if deadline is None:
                 chunk = self.read(remaining)
             else:
-                remaining_time = deadline - time.time()
+                remaining_time = deadline - time_provider.now()
                 if remaining_time <= 0:
                     raise ChannelError('timeout', 'Read timeout')
                 chunk = self.read(remaining, timeout=remaining_time)

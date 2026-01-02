@@ -14,7 +14,6 @@ from __future__ import absolute_import
 
 import logging
 import threading
-import time
 
 from ..channel import ChannelManager, ChannelError
 from ..compat import integer_types
@@ -38,6 +37,7 @@ from ..protocol import (
 )
 from ..reliability import SendWindow, RecvWindow, ReliabilityStats, NoopReliabilityStats
 from ..logging_util import get_logger, log_event
+from .. import time_provider
 
 class TunnelState(object):
     """Tunnel connection states."""
@@ -420,14 +420,14 @@ class BaseTunnel(object):
 
         Args:
             packet: Decoded Packet instance
-            now: Current time (default: time.time())
+            now: Current time (default: time_provider.now())
             packet_size: Optional encoded packet size from decode
 
         Returns:
             tuple: (rtt_samples, acked_count, data_acked_count)
         """
         if now is None:
-            now = time.time()
+            now = time_provider.now()
 
         # Process ACK/SACK from peer (updates our send window)
         log_event(

@@ -3,7 +3,6 @@
 
 from __future__ import absolute_import
 
-import time
 import unittest
 
 from sfb.transport import (
@@ -20,6 +19,7 @@ from sfb.transport import (
     extreme_conditions,
     chaos,
 )
+from sfb import time_provider
 
 
 class MockTransport(Transport):
@@ -238,7 +238,7 @@ class LossyTransportTests(unittest.TestCase):
         self.assertEqual(result, (None, None))
 
         # After delay, should return
-        time.sleep(0.15)
+        time_provider.sleep(0.15)
         result = lossy.recv(timeout=0)
         self.assertEqual(result[0], corr_id)
 

@@ -5,7 +5,6 @@ import errno
 import logging
 import socket
 import threading
-import time
 import unittest
 
 from sfb.config import Config
@@ -13,6 +12,7 @@ from sfb.channel import Channel, STATE_CLOSED, STATE_OPEN
 from sfb.modules.socks import socks_server
 from sfb.modules.socks import data_pump
 from sfb.modules.socks.socks_server import SocksServerModule
+from sfb import time_provider
 
 
 def make_test_logger():
@@ -99,12 +99,12 @@ class SocksLoopTests(unittest.TestCase):
             if len(sleep_calls) >= 2:
                 module._running = False
 
-        original_sleep = socks_server.time.sleep
-        socks_server.time.sleep = fake_sleep
+        original_sleep = socks_server.time_provider.sleep
+        socks_server.time_provider.sleep = fake_sleep
         try:
             module._accept_loop()
         finally:
-            socks_server.time.sleep = original_sleep
+            socks_server.time_provider.sleep = original_sleep
             module._running = False
 
         self.assertTrue(sleep_calls)
@@ -153,15 +153,15 @@ class SocksLoopTests(unittest.TestCase):
             t.start()
             payload = b'abcdefghij'
             peer.sendall(payload)
-            time.sleep(0.05)
+            time_provider.sleep(0.05)
             drained = b''
-            deadline = time.time() + 1.0
-            while len(drained) < len(payload) and time.time() < deadline:
+            deadline = time_provider.now() + 1.0
+            while len(drained) < len(payload) and time_provider.now() < deadline:
                 chunk = channel._take_send_data(16)
                 if chunk:
                     drained += chunk
                 else:
-                    time.sleep(0.01)
+                    time_provider.sleep(0.01)
             try:
                 peer.shutdown(socket.SHUT_WR)
             except Exception:
@@ -214,7 +214,7 @@ class SocksLoopTests(unittest.TestCase):
             )
             t.daemon = True
             t.start()
-            time.sleep(0.05)
+            time_provider.sleep(0.05)
             stop_event.set()
             t.join(timeout=1.0)
             self.assertFalse(t.is_alive())
@@ -320,13 +320,13 @@ class SocksLoopTests(unittest.TestCase):
             )
             t.daemon = True
             t.start()
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             chunks = [b'x' * 16] * 8
             for chunk in chunks:
                 channel._deliver(chunk)
-                deadline = time.time() + 0.2
-                while channel.recv_buf_size and time.time() < deadline:
-                    time.sleep(0.005)
+                deadline = time_provider.now() + 0.2
+                while channel.recv_buf_size and time_provider.now() < deadline:
+                    time_provider.sleep(0.005)
             stop_event.set()
             t.join(timeout=1.0)
             self.assertFalse(t.is_alive())

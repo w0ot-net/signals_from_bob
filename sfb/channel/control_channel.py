@@ -9,6 +9,7 @@ import json
 import threading
 
 from .channel import Channel, CHANNEL_CONTROL, ChannelError
+from .. import time_provider
 
 CONTROL_MESSAGE_MAX_LENGTH = 0x1000
 
@@ -66,10 +67,9 @@ class ControlChannel(Channel):
         return data
 
     def recv_message(self, timeout=None):
-        import time
         deadline = None
         if timeout is not None:
-            deadline = time.time() + timeout
+            deadline = time_provider.now() + timeout
 
         while True:
             line = self._pop_line()
@@ -87,7 +87,7 @@ class ControlChannel(Channel):
                 raise ChannelError('invalid', 'Control message too long')
 
             if deadline is not None:
-                remaining = deadline - time.time()
+                remaining = deadline - time_provider.now()
                 if remaining <= 0:
                     return None
             else:

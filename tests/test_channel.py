@@ -3,7 +3,6 @@ from __future__ import absolute_import
 
 import json
 import threading
-import time
 import unittest
 
 import sfb.channel.channel_manager as channel_manager_module
@@ -21,6 +20,7 @@ from sfb.channel.control_channel import ControlChannel, CONTROL_MESSAGE_MAX_LENG
 from sfb.channel.channel_manager import ChannelManager
 from sfb.config import Config
 from sfb.protocol import Segment, SEGMENT_HEADER_SIZE, CHANNEL_CONTROL
+from sfb import time_provider
 
 
 def make_test_config(**overrides):
@@ -197,7 +197,7 @@ class ChannelTests(unittest.TestCase):
         ch.write(b'abcd')
 
         def drain():
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             ch._take_send_data(2)
 
         t = threading.Thread(target=drain)
@@ -228,7 +228,7 @@ class ChannelTests(unittest.TestCase):
 
         t = threading.Thread(target=wait_for_space)
         t.start()
-        time.sleep(0.02)
+        time_provider.sleep(0.02)
         ch.abort(code='aborted', message='boom')
         t.join(timeout=0.2)
         self.assertEqual(result.get('err'), 'not_open')
@@ -291,9 +291,9 @@ class ControlChannelTests(unittest.TestCase):
         ctrl = ControlChannel()
         ctrl._set_state(STATE_OPEN)
         ctrl._deliver(b'{"t":"tun"')
-        start = time.time()
+        start = time_provider.now()
         msg = ctrl.recv_message(timeout=0.05)
-        elapsed = time.time() - start
+        elapsed = time_provider.now() - start
         self.assertIsNone(msg)
         self.assertLess(elapsed, 0.2)
 
@@ -303,7 +303,7 @@ class ControlChannelTests(unittest.TestCase):
         ctrl._deliver(b'{"t":"tun","c":')
 
         def finish():
-            time.sleep(0.02)
+            time_provider.sleep(0.02)
             ctrl._deliver(b'"noop"}\n')
 
         t = threading.Thread(target=finish)

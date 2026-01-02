@@ -102,3 +102,9 @@ Provider API:
 ## Testing
 - Run targeted unit tests with `python3` (no E2E tests).
 - Include the new time provider test module in the unit run.
+
+## Execution Notes
+- Added `sfb/time_provider.py` with monotonic selection, clamp fallback, and test hooks; added `tests/test_time_provider.py`.
+- Replaced runtime timing and sleeps with `time_provider.now()`/`time_provider.sleep()` across `sfb/`, scripts, and tests; updated script `sys.path` setup for standalone runs.
+- Updated `doc/RELIABILITY_PERF_CORRECTNESS_PLAN.md` and `doc/DNS_TRANSPORT.md` to reference the shared monotonic provider.
+- Tests run: `python3 -m unittest tests.test_time_provider`.

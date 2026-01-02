@@ -100,3 +100,7 @@ Create a log profile that enables these events with minimal noise.
 3) Run ICMP SOCKS diag with pacing enabled (use configured MTU).
 4) Compare throughput and send_blocked counts vs baseline.
 5) Tune defaults based on logs and update documentation.
+
+## Execution Notes
+- Completed prior to this change per user report; no additional execution steps
+  were run as part of this move.

@@ -5,7 +5,7 @@ Send window tracking unacked packets.
 
 from __future__ import absolute_import
 
-from collections import deque
+from collections import OrderedDict
 
 from .. import time_provider
 from ..protocol import (
@@ -34,8 +34,9 @@ class SendWindow(object):
             raise ValueError('max_in_flight cannot exceed %d' % MAX_IN_FLIGHT)
         self._max_in_flight = max_in_flight
         self._next_seq = 0
-        self._unacked = {}  # seq -> _UnackedPacket
-        self._send_order = deque()
+        # Ordered by initial send; seq reuse cannot overlap while
+        # max_in_flight << 2^16.
+        self._unacked = OrderedDict()  # seq -> _UnackedPacket
         self._retransmit_count = 0  # Total retransmits
         self._stats = stats or NoopReliabilityStats()
 
@@ -83,7 +84,6 @@ class SendWindow(object):
             send_time=now,
             retransmit_count=0,
         )
-        self._send_order.append(seq)
         self._stats.on_send()
 
         return seq
@@ -130,9 +130,8 @@ class SendWindow(object):
             now = time_provider.now()
 
         retransmits = []
-        for seq in self._send_order:
-            pkt = self._unacked.get(seq)
-            if pkt is not None and now - pkt.send_time >= rto_sec:
+        for seq, pkt in self._unacked.items():
+            if now - pkt.send_time >= rto_sec:
                 retransmits.append(
                     (seq, pkt.segments, pkt.flags, pkt.encrypted_body)
                 )
@@ -146,16 +145,11 @@ class SendWindow(object):
         Returns:
             tuple: (seq, segments, flags, encrypted_body) or None if no unacked packets
         """
-        if not self._unacked:
+        oldest = self._select_oldest_unacked()
+        if oldest is None:
             return None
-
-        while self._send_order:
-            seq = self._send_order[0]
-            pkt = self._unacked.get(seq)
-            if pkt is not None:
-                return (seq, pkt.segments, pkt.flags, pkt.encrypted_body)
-            self._send_order.popleft()
-        return None
+        seq, pkt = oldest
+        return (seq, pkt.segments, pkt.flags, pkt.encrypted_body)
 
     def get_oldest_unacked_info(self):
         """
@@ -164,23 +158,18 @@ class SendWindow(object):
         Returns:
             tuple: (seq, segments, flags, encrypted_body, send_time, retransmit_count) or None
         """
-        if not self._unacked:
+        oldest = self._select_oldest_unacked()
+        if oldest is None:
             return None
-
-        while self._send_order:
-            seq = self._send_order[0]
-            pkt = self._unacked.get(seq)
-            if pkt is not None:
-                return (
-                    seq,
-                    pkt.segments,
-                    pkt.flags,
-                    pkt.encrypted_body,
-                    pkt.send_time,
-                    pkt.retransmit_count,
-                )
-            self._send_order.popleft()
-        return None
+        seq, pkt = oldest
+        return (
+            seq,
+            pkt.segments,
+            pkt.flags,
+            pkt.encrypted_body,
+            pkt.send_time,
+            pkt.retransmit_count,
+        )
 
     def mark_retransmit(self, seq, now=None):
         """
@@ -201,11 +190,10 @@ class SendWindow(object):
     def _ack_cumulative(self, ack, now, rtt_samples):
         acked_count = 0
         data_acked_count = 0
-        while self._send_order:
-            seq = self._send_order[0]
+        while self._unacked:
+            seq = next(iter(self._unacked))
             if not seq_lt(seq, ack):
                 break
-            self._send_order.popleft()
             acked_delta, data_acked_delta = self._ack_seq(
                 seq, now, rtt_samples, is_sack=False
             )
@@ -240,6 +228,20 @@ class SendWindow(object):
             self._stats.on_rtt_sample()
         data_acked = 1 if pkt.segments else 0
         return (1, data_acked)
+
+    def _select_oldest_unacked(self):
+        if not self._unacked:
+            return None
+        oldest = None
+        oldest_time = None
+        for seq, pkt in self._unacked.items():
+            pkt_time = pkt.send_time
+            if pkt_time is None:
+                pkt_time = 0.0
+            if oldest is None or pkt_time < oldest_time:
+                oldest = (seq, pkt)
+                oldest_time = pkt_time
+        return oldest
 
 
 class _UnackedPacket(object):

@@ -3,8 +3,8 @@ from __future__ import absolute_import
 
 import unittest
 
-from sfb.reliability import RttEstimator, SendWindow, RecvWindow
-from sfb.protocol import MAX_IN_FLIGHT, MIN_RTO_MS, MAX_RTO_MS
+from sfb.reliability import RttEstimator, SendWindow, RecvWindow, ReliabilityStats
+from sfb.protocol import MAX_IN_FLIGHT, MIN_RTO_MS, MAX_RTO_MS, SEQ_MAX
 
 
 class RttEstimatorTests(unittest.TestCase):
@@ -64,6 +64,19 @@ class SendWindowTests(unittest.TestCase):
         self.assertEqual(data_acked, 2)
         self.assertEqual(win.unacked_count, 1)
 
+    def test_sack_only_progress_removes_acked(self):
+        win = SendWindow(max_in_flight=4)
+        win.send([b'a'], now=1.0)  # seq 0
+        win.send([b'b'], now=2.0)  # seq 1 (missing)
+        win.send([b'c'], now=3.0)  # seq 2
+        win.send([b'd'], now=4.0)  # seq 3
+        sack = (1 << 0) | (1 << 1)  # ack+1, ack+2
+        win.process_ack(ack=1, sack=sack, now=5.0)
+        self.assertEqual(win.unacked_count, 1)
+        self.assertIn(1, win._unacked)
+        self.assertNotIn(2, win._unacked)
+        self.assertNotIn(3, win._unacked)
+
     def test_oldest_unacked_skips_acked(self):
         win = SendWindow(max_in_flight=4)
         win.send([b'a'], now=1.0)  # seq 0
@@ -96,6 +109,34 @@ class SendWindowTests(unittest.TestCase):
         self.assertEqual(acked, 1)
         self.assertEqual(data_acked, 1)
 
+    def test_oldest_unacked_uses_send_time(self):
+        win = SendWindow(max_in_flight=4)
+        seq0 = win.send([b'a'], now=1.0)
+        seq1 = win.send([b'b'], now=2.0)
+        win.send([b'c'], now=3.0)
+        win.mark_retransmit(seq0, now=4.0)
+        oldest = win.get_oldest_unacked_info()
+        self.assertEqual(oldest[0], seq1)
+
+    def test_get_retransmits_does_not_update_send_time(self):
+        win = SendWindow(max_in_flight=2)
+        seq = win.send([b'a'], now=1.0)
+        send_time = win._unacked[seq].send_time
+        win.get_retransmits(rto_sec=0.0, now=2.0)
+        self.assertEqual(win._unacked[seq].send_time, send_time)
+
+    def test_cumulative_ack_wraps_sequence_space(self):
+        win = SendWindow(max_in_flight=4)
+        win._next_seq = (SEQ_MAX - 1) & SEQ_MAX
+        seq_a = win.send([b'a'], now=1.0)
+        seq_b = win.send([b'b'], now=2.0)
+        seq_c = win.send([b'c'], now=3.0)
+        win.process_ack(ack=0, sack=0, now=4.0)
+        self.assertEqual(win.unacked_count, 1)
+        self.assertIn(seq_c, win._unacked)
+        self.assertNotIn(seq_a, win._unacked)
+        self.assertNotIn(seq_b, win._unacked)
+
     def test_max_in_flight_cap(self):
         self.assertRaises(ValueError, SendWindow, max_in_flight=MAX_IN_FLIGHT + 1)
 
@@ -122,12 +163,30 @@ class RecvWindowTests(unittest.TestCase):
         self.assertEqual(ready, [])
         self.assertEqual(len(win._buffer), 1)
 
+    def test_duplicate_before_buffer_full(self):
+        stats = ReliabilityStats()
+        win = RecvWindow(max_buffer=1, stats=stats)
+        win.receive(1, b'b')
+        win.receive(1, b'b')
+        self.assertEqual(stats.recv_duplicates, 1)
+        self.assertEqual(stats.recv_buffer_full, 0)
+
     def test_buffer_limit_drops_excess(self):
         win = RecvWindow(max_buffer=1)
         win.receive(2, b'c')
         win.receive(3, b'd')
         self.assertEqual(len(win._buffer), 1)
         self.assertEqual(win.ack, 0)
+
+    def test_buffer_full_drops_out_of_order(self):
+        stats = ReliabilityStats()
+        win = RecvWindow(max_buffer=1, stats=stats)
+        win.receive(1, b'b')
+        win.receive(2, b'c')
+        self.assertEqual(stats.recv_buffer_full, 1)
+        self.assertEqual(len(win._buffer), 1)
+        self.assertIn(1, win._buffer)
+        self.assertNotIn(2, win._buffer)
 
     def test_sack_ignores_beyond_window(self):
         win = RecvWindow(max_buffer=4)

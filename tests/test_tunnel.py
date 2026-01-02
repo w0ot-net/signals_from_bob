@@ -351,8 +351,10 @@ class AliceAdaptivePacingTests(unittest.TestCase):
         alice = AliceTunnel(transport, config, crypto=Plain())
         alice._state = TunnelState.CONNECTED
 
-        alice._send_window._unacked = {0: None, 1: None}
-        self.assertFalse(alice._can_send_new(now=0.0))
+        alice._send_window._max_in_flight = 4
+        alice._send_window.send([b'a'], now=0.0)
+        alice._send_window.send([b'b'], now=0.1)
+        self.assertFalse(alice._can_send_new(now=0.2))
 
 
 class BaseTunnelTests(unittest.TestCase):

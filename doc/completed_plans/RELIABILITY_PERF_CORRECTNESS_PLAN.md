@@ -98,3 +98,10 @@ preserving protocol behavior.
 - Cumulative ACK processing remains correct after retransmits.
 - New unit tests cover the new behavior and pass.
 - Keepalive pongs remain suppressed while any channel has pending data.
+
+## Execution Notes
+- Updated `SendWindow` to use an `OrderedDict`, select Bob retransmits by oldest
+  `send_time`, and keep cumulative ACK removal ordered without tombstones.
+- Added reliability and recv-window tests for SACK-only cleanup, wraparound ACK
+  handling, send-time selection, and buffer-full drops.
+- Ran `python3 -m unittest tests.test_reliability tests.test_tunnel`.

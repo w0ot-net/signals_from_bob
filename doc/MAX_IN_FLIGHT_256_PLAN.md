@@ -12,6 +12,8 @@ bitmap and header layout while keeping reliability semantics unchanged.
 - Tests and troubleshooting docs assume max_in_flight=64.
 - Transport pending caps are tied to max_in_flight, which is still capped at 64.
 - SACK_MAX mask is 64-bit, so high SACK bits would be truncated after expansion.
+- SACK wire order for the expanded bitmap is not explicit, risking a reversed
+  mapping across the 64-bit word splits.
 
 ## Constraints
 - Python 2.7/3 compatible; standard library only.
@@ -31,6 +33,8 @@ bitmap and header layout while keeping reliability semantics unchanged.
 - sfb/reliability/send_window.py (require explicit max_in_flight, SACK scan)
 - sfb/reliability/recv_window.py (SACK window checks, max buffer cap)
 - sfb/tunnel/base_tunnel.py (MAX_WINDOW, MTU math using PACKET_HEADER_SIZE)
+- sfb/tunnel/alice_tunnel.py (window growth clamps against MAX_WINDOW)
+- sfb/tunnel/bob_tunnel.py (response payload cap uses PACKET_HEADER_SIZE)
 - sfb/config.py (max_in_flight defaults/validation, pacing bounds, initial window,
   transport pending defaults)
 - sfb/transport/dns/dns_client.py (inflight cap tied to tunnel_max_in_flight)
@@ -50,6 +54,9 @@ bitmap and header layout while keeping reliability semantics unchanged.
 2. Extend PacketHeader encoding/decoding for a 256-bit SACK.
    - Encode SACK as four big-endian u64 words (or 32 bytes) while keeping sack
      as an integer in memory.
+   - Define wire order explicitly: bit 0 is ack+1 and bit 255 is ack+256; pack
+     the 256-bit integer as big-endian bytes so the highest-order bit maps to
+     offset 256.
    - Implement Python 2/3 compatible pack/unpack (manual split/combine, no
      int.to_bytes).
    - Update __repr__ to print full-width hex (64 digits) and docstrings to
@@ -70,7 +77,8 @@ bitmap and header layout while keeping reliability semantics unchanged.
    - Ensure PACKET_HEADER_SIZE changes propagate to MTU math, payload caps, and
      segment max payload.
    - Keep protocol_initial_mtu semantics as payload bytes; update docs that
-     described it as a total packet size limit.
+     described it as a total packet size limit and note the header is added
+     on the wire.
    - Re-evaluate default MTU safety with the larger header and confirm payload
      + header stays within pre-negotiation limits.
 6. Documentation updates.
@@ -78,13 +86,16 @@ bitmap and header layout while keeping reliability semantics unchanged.
      to 256.
    - Fix Reliability doc to describe SACK size correctly (currently says
      16-bit).
+   - Update protocol MTU wording to describe payload bytes vs header bytes and
+     the pre-negotiation payload limit.
    - Note the wire-format change and requirement that both sides upgrade
      together.
    - Limit doc changes to core protocol/tunnel docs; leave historical/troubleshooting
      docs unchanged.
 7. Tests and validation.
    - Update unit tests for new header size and 256-bit SACK encode/decode.
-   - Add tests for SACK bit set/clear at high offsets (e.g., 128, 256).
+   - Add tests for SACK bit set/clear at boundary offsets (64/65, 128/129,
+     192/193, 255/256) to confirm wire order across word splits.
    - Add coverage to ensure SACK_MAX masks all 256 bits (no truncation).
    - Update any max_in_flight cap tests to 256.
    - Update SendWindow usage to pass explicit max_in_flight where defaults existed.
@@ -94,6 +105,7 @@ bitmap and header layout while keeping reliability semantics unchanged.
 - MAX_IN_FLIGHT and SACK_BITS are 256, header size and offsets are consistent.
 - SACK_MAX masks the full 256-bit window without truncation.
 - PacketHeader encodes/decodes 256-bit SACK correctly on Python 2 and 3.
+- SACK wire order is documented and tests cover boundary offsets across splits.
 - Window negotiation and config accept 1-256 and honor max_in_flight only.
 - SendWindow has no implicit max_in_flight default; all call sites pass it explicitly.
 - Docs reflect 256-bit SACK and new header size in core protocol/tunnel docs.

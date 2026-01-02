@@ -62,6 +62,9 @@ if PY2:
     def to_bytes(data):
         """
         Coerce bytes-like input to bytes, rejecting text.
+
+        Use only at bytes-only boundaries (concatenation, encoding/decoding,
+        immutable queues).
         """
         if isinstance(data, text_type):
             raise TypeError('Expected bytes, got text')
@@ -96,13 +99,18 @@ else:
         if isinstance(data, bytes):
             return data
         if isinstance(data, memoryview):
+            if data.itemsize != 1:
+                raise TypeError('Expected bytes-like object')
             return data
         if isinstance(data, bytearray):
             return memoryview(data)
         try:
-            return memoryview(data)
+            view = memoryview(data)
         except TypeError:
             raise TypeError('Expected bytes-like object')
+        if view.itemsize != 1:
+            raise TypeError('Expected bytes-like object')
+        return view
 
     def require_bytes_like_or_bytearray(data):
         """
@@ -117,6 +125,8 @@ else:
         if isinstance(data, text_type):
             raise TypeError('Expected bytes, got text')
         view = data if isinstance(data, memoryview) else memoryview(data)
+        if view.itemsize != 1:
+            raise TypeError('Expected bytes-like object')
         if length is not None and len(view) != length:
             view = view[:length]
         return view
@@ -124,6 +134,9 @@ else:
     def to_bytes(data):
         """
         Coerce bytes-like input to bytes, rejecting text.
+
+        Use only at bytes-only boundaries (concatenation, encoding/decoding,
+        immutable queues).
         """
         data = require_bytes_like(data)
         return data if isinstance(data, bytes) else data.tobytes()

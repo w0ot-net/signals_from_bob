@@ -29,6 +29,8 @@ except NameError:
 
 def _is_buffer_view(value):
     if isinstance(value, memoryview):
+        if getattr(value, 'itemsize', None) != 1:
+            return False
         return True
     if _buffer_type is not None and isinstance(value, _buffer_type):
         return True

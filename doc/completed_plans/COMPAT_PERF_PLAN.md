@@ -112,4 +112,15 @@ stop and reassess Option C or Option A based on profiling.
 - sfb/transport/memory/memory_client.py
 - sfb/transport/memory/memory_server.py
 - tests (compat helper unit coverage)
-- doc/COMPAT_PERF_PLAN.md
+- doc/completed_plans/COMPAT_PERF_PLAN.md
+
+## Execution Notes (Option B, Guardrails)
+- Audited `to_bytes()` call sites; all are bytes-only boundaries (segment
+  encoding, DNS/ICMP decoding, channel send buffers, memory queues, and
+  Plain cipher output), so they remain in place to preserve Py2
+  memoryview/buffer acceptance.
+- Tightened Py3 bytes-like validation to itemsize-1 buffers in
+  `require_bytes_like()` and `buffer_view()`, with channel buffer checks
+  rejecting non-byte memoryviews.
+- Added unit coverage for `to_bytes()` conversions/rejections, Py3 non-byte
+  memoryview rejection, and crypto bytes-like key handling with Plain passthrough.

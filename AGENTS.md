@@ -14,3 +14,4 @@ Project Rules
 - E2E tests are in tests/e2e/ - do NOT run them yourself; only the user will run them
 - always commit and push after making code changes
 - breaking changes are acceptable when they improve cleanliness or performance; make the clean change and update all call sites in the same change, and avoid compatibility shims or transitional signatures for internal APIs
+- for code reviews, try to answer your own questions; if that is not possible, suggest likely best options when posing questions, grounded in observed facts

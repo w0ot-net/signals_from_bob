@@ -374,7 +374,7 @@ class DnsTransport(Transport):
         self._pending[corr_id] = _PendingQuery(
             corr_id=corr_id,
             dns_id=dns_id,
-            send_time=time.time(),
+            send_time=time_provider.now(),
         )
         self._dns_id_map[dns_id] = corr_id
 
@@ -463,19 +463,20 @@ to reorder them.
 
 The transport maps correlation IDs (returned by `send()`) to DNS query IDs
 internally. This allows the tunnel layer to track in-flight packets without
-knowing DNS details:
+knowing DNS details. Examples below use `time_provider.now()` for monotonic
+timestamps:
 
 ```python
 # Tunnel layer tracks: corr_id -> (seq, send_time, is_retransmit)
-corr_id = transport.send(packet_data)
-in_flight[corr_id] = InFlightPacket(seq, time.time(), is_retransmit=False)
+    corr_id = transport.send(packet_data)
+    in_flight[corr_id] = InFlightPacket(seq, time_provider.now(), is_retransmit=False)
 
 # When response arrives
 corr_id, response = transport.recv(timeout=0)
 if corr_id in in_flight:
     info = in_flight.pop(corr_id)
     if not info.is_retransmit:
-        rtt_sample = time.time() - info.send_time
+        rtt_sample = time_provider.now() - info.send_time
 ```
 
 ### Timeout Handling
@@ -489,7 +490,7 @@ to avoid redundant O(n) work:
 ```python
 def _prune_stale(self):
     """Remove pending queries older than pending_timeout."""
-    now = time.time()
+    now = time_provider.now()
     stale = [cid for cid, pq in self._pending.items()
              if now - pq.send_time > self._pending_timeout]
     for cid in stale:

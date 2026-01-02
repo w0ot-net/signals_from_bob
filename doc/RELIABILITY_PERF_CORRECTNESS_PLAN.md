@@ -19,7 +19,7 @@ preserving protocol behavior.
 - Python 2.7/3 compatible; standard library only.
 - Must support Windows and Linux (ICMP transport remains Linux-only).
 - Preserve asymmetry rules in `doc/ASYMMETRY.md`.
-- Bob's wall-clock silence timeout remains wall-clock (do not convert to monotonic).
+- Bob's silence timeout uses monotonic time (align with `doc/ASYMMETRY.md`).
 - Do not run E2E tests under `tests/e2e/`.
 
 ## Plan
@@ -41,32 +41,32 @@ preserving protocol behavior.
    - Update any internal references/tests that assumed `_send_order` exists.
    - Track per-seq generation in the send window to map ACK/SACK seqs back to
      their composite key (e.g., maintain seq -> generation for active entries).
-2. Use a monotonic clock for reliability timers.
-   - Add `sfb/time_utils.py` (or extend `sfb/compat.py`) with
-     `monotonic_time()`:
+2. Use a shared monotonic clock for reliability timers.
+   - Use `sfb/time_provider.py` (shared with
+     `doc/MONOTONIC_TIME_PROVIDER_PLAN.md`) with `now()`:
      - Python 3: `time.monotonic()`.
-     - Python 2: `time.time()` with a last-value clamp to prevent backwards
-       jumps (guarded by a small lock). Forward jumps are acceptable and will
-       advance timers.
-   - Switch reliability/tunnel codepaths that compare timestamps to use the
-     monotonic helper (send timestamps, ACK progress timers, retransmit timing,
-     keepalive/poll scheduling), excluding Bob's wall-clock silence timeout.
+     - Python 2: `time.clock()` on Windows; otherwise `time.time()` with a
+       last-value clamp to prevent backwards jumps (guarded by a small lock).
+       Forward jumps are acceptable and will advance timers.
+   - Switch reliability/tunnel codepaths that compare timestamps to use
+     `time_provider.now()` (send timestamps, ACK progress timers, retransmit
+     timing, keepalive/poll scheduling, Bob idle timeout).
    - Decide and document time source for rate limiting/token buckets used in
-     tunnel pacing; prefer `monotonic_time()` for tunnel-level pacing and pass
+     tunnel pacing; prefer `time_provider.now()` for tunnel-level pacing and pass
      it into limiter calls when available.
    - Thread the chosen time provider into rate limiter update calls and list
      the exact call sites updated to avoid mixed wall-clock/monotonic use.
-   - Ensure all reliability timestamps are sourced from `monotonic_time()`
+   - Ensure all reliability timestamps are sourced from `time_provider.now()`
      consistently; avoid mixing wall-clock `time.time()` with monotonic values.
    - Audit all `time.time()` usage and limit changes to reliability/tunnel:
      - `sfb/reliability/send_window.py` for send/retransmit timestamps.
      - `sfb/tunnel/base_tunnel.py` for ACK progress timers.
      - `sfb/tunnel/alice_tunnel.py` for handshake/poll scheduling loops.
-     - `sfb/tunnel/bob_tunnel.py` for poll EWMA/retransmit scheduling, but keep
-       `_check_idle_timeout()` on wall-clock time.
-   - Keep wall-clock time only for logging/user-facing timestamps and Bob idle.
-   - Add a test hook for the monotonic source (module-level indirection with a
-     default time provider) so tests can drive time without external deps.
+     - `sfb/tunnel/bob_tunnel.py` for poll EWMA/retransmit scheduling and idle
+       timeout checks.
+   - Keep wall-clock time only for logging/user-facing timestamps.
+   - Add a test hook for the monotonic source (module-level indirection via
+     `time_provider`) so tests can drive time without external deps.
 3. Improve `RecvWindow` buffer behavior under pressure.
    - Check for duplicates/already-buffered seqs before running the buffer-full
      eviction logic to avoid evicting useful packets for duplicates.
@@ -88,7 +88,7 @@ preserving protocol behavior.
    - `RecvWindow`: verify eviction keeps the nearest offsets, drops the
      farthest when full, and uses the tie-break rule deterministically with
      duplicates/out-of-order arrivals.
-   - `monotonic_time()`: ensure non-decreasing outputs with a controllable
+   - `time_provider.now()`: ensure non-decreasing outputs with a controllable
      time source (no external dependencies) and restore the default source.
    - Keepalive: verify pongs are suppressed while any channel has pending data.
    - ACK wrap: cumulative ACK pop logic remains correct across seq wrap.
@@ -99,7 +99,7 @@ preserving protocol behavior.
 - Retransmit scanning cost is bounded by `MAX_IN_FLIGHT`.
 - Timing is stable across backward wall-clock adjustments; forward jumps may
   still advance timers on Python 2.
-- Bob's wall-clock silence timeout remains wall-clock.
+- Bob's silence timeout uses monotonic time.
 - Recv buffer keeps nearest-to-ack packets under pressure.
 - Cumulative ACK processing remains correct after retransmits.
 - New unit tests cover the new behavior and pass.

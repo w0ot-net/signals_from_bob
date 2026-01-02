@@ -50,7 +50,8 @@ Both sides buffer unacked packets, but retransmission triggers differ:
 ## RTT and Timing
 
 All protocol timing uses a monotonic clock; wall time is reserved for
-user-facing timestamps and diagnostics.
+user-facing timestamps and diagnostics. Use `time_provider.now()` for protocol
+timing.
 
 **Alice's RTT** is meaningful:
 - Measures: send packet → receive ACK in Bob's response

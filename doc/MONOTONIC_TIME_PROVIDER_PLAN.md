@@ -46,11 +46,15 @@ Provider API:
    timestamps/metrics that should remain epoch-based (for example diagnostic
    timestamps in scripts).
 4. Standardize on `time_provider.sleep()` for codepaths where tests monkeypatch
-   `time.sleep`; update tests to patch `time_provider.sleep` or the module-level
-   provider instead of `time.sleep` directly.
-5. Document the monotonic requirement and the provider in an existing doc
-   (for example `doc/ARCHITECTURE.md` or `doc/RELIABILITY.md`) and update
-   `doc/ASYMMETRY.md` to describe Bob timeouts as monotonic silence.
+   `time.sleep` (notably `sfb/modules/socks/socks_server.py` and
+   `sfb/modules/socks/data_pump.py`); update tests to patch
+   `time_provider.sleep` or the module-level provider instead of `time.sleep`
+   directly.
+5. Document the monotonic requirement and the provider:
+   - Update `doc/ASYMMETRY.md` to describe Bob timeouts as monotonic silence.
+   - Update `doc/RELIABILITY_PERF_CORRECTNESS_PLAN.md` to align with the shared
+     time provider and monotonic silence (no wall-clock exception).
+   - Update `doc/DNS_TRANSPORT.md` examples to use `time_provider.now()`.
 6. Ensure all `time.time()` call sites are updated in this change; no partial
    conversions.
 
@@ -61,7 +65,8 @@ Provider API:
 - Unit tests and scripts are updated to use the provider where they measure
   durations or deadlines, and patch `time_provider.sleep()` where applicable.
 - Docstrings and docs reference monotonic time defaults, including
-  `doc/ASYMMETRY.md`.
+  `doc/ASYMMETRY.md`, `doc/RELIABILITY_PERF_CORRECTNESS_PLAN.md`, and
+  `doc/DNS_TRANSPORT.md`.
 - Python 2.7 and 3 behavior remains correct on Linux and Windows.
 
 ## Testing

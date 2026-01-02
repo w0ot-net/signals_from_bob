@@ -25,9 +25,10 @@ preserving protocol behavior.
 ## Plan
 1. Fix `SendWindow` send-order tracking.
    - Replace `_unacked` + `_send_order` with a single `OrderedDict` keyed by
-     seq -> `_UnackedPacket`, ordered by original send.
+     a composite (seq, generation) -> `_UnackedPacket`, ordered by original
+     send to avoid collisions if seq wraps while packets are in flight.
    - On send, insert into the ordered dict; on cumulative ACK, pop from the
-     front while `seq_lt(seq, ack)`; on SACK ACK, delete by key if present.
+     front while `seq_lt(entry.seq, ack)`; on SACK ACK, delete by key if present.
    - Do not reorder on retransmit; keep insertion order for cumulative ACK
      removal, and avoid double-removal when popping from the front.
    - Update send timestamps only in `mark_retransmit()` after a successful send
@@ -38,12 +39,15 @@ preserving protocol behavior.
    - For Alice `get_retransmits()`, collect candidates without mutating the
      ordered dict; no timestamp updates during selection; no tombstones remain.
    - Update any internal references/tests that assumed `_send_order` exists.
+   - Track per-seq generation in the send window to map ACK/SACK seqs back to
+     their composite key (e.g., maintain seq -> generation for active entries).
 2. Use a monotonic clock for reliability timers.
    - Add `sfb/time_utils.py` (or extend `sfb/compat.py`) with
      `monotonic_time()`:
      - Python 3: `time.monotonic()`.
      - Python 2: `time.time()` with a last-value clamp to prevent backwards
-       jumps (guarded by a small lock).
+       jumps (guarded by a small lock). Forward jumps are acceptable and will
+       advance timers.
    - Switch reliability/tunnel codepaths that compare timestamps to use the
      monotonic helper (send timestamps, ACK progress timers, retransmit timing,
      keepalive/poll scheduling), excluding Bob's wall-clock silence timeout.
@@ -93,7 +97,8 @@ preserving protocol behavior.
 ## Acceptance Criteria
 - `_send_order` tombstones no longer accumulate after SACK-only ACK progress.
 - Retransmit scanning cost is bounded by `MAX_IN_FLIGHT`.
-- Timing is stable across wall-clock adjustments.
+- Timing is stable across backward wall-clock adjustments; forward jumps may
+  still advance timers on Python 2.
 - Bob's wall-clock silence timeout remains wall-clock.
 - Recv buffer keeps nearest-to-ack packets under pressure.
 - Cumulative ACK processing remains correct after retransmits.

@@ -57,7 +57,7 @@ class Config:
     # Max SFB packet size to send/receive in ICMP payload
     icmp_payload_mtu: int = 1350
     # Timeout before considering an ICMP request stale (seconds)
-    icmp_pending_timeout: float = 1.0
+    icmp_pending_timeout: float = 2.0
 
     # --- Crypto ---
     # Encryption mode: 'none', 'xor', 'rc4'

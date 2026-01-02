@@ -41,8 +41,8 @@ doc/bugs/ssh_disconnects_socks_proxy.md.
 - Semantics: sender will not send more data on this channel. Receiver treats
   this as remote send closed and returns EOF (b'') once its recv buffer drains.
   Receiver may continue sending until it half-closes or fully closes.
-- Disallow half_close on channel 0 (control channel); log and close the tunnel
-  or ignore (decision required).
+- Disallow half_close on channel 0 (control channel); treat as a protocol
+  violation, log, and close the tunnel.
 - Full close remains ch_close/ch_close_ok; abort uses ch_close_err.
 - Wire compatibility: half_close is required for correctness, so mixed versions
   are unsupported.
@@ -57,17 +57,16 @@ doc/bugs/ssh_disconnects_socks_proxy.md.
 - Channel.read() returns b'' when recv closed and buffer is empty.
 - Channel.close() remains a full close that sends ch_close regardless of half
   close state.
-- When both halves are closed and the send buffer is drained, transition to
-  closed and unregister the channel.
+- Do not auto-close when both halves are closed; require an explicit close
+  handshake (ch_close/ch_close_ok) to transition to closed and unregister.
 
 ## Channel Manager Changes
 - Add ch_half_close handling:
   - Mark recv closed on the channel.
-  - If both halves are closed, finalize close and unregister the channel.
 - Add a callback path for local half-close sends.
 - Maintain existing close/abort control paths.
 - Add log events: channel.half_close_out, channel.half_close_in,
-  channel.half_close_auto_close.
+  channel.half_close_pending_close.
 
 ## Module Changes
 - SOCKS:
@@ -92,7 +91,8 @@ doc/bugs/ssh_disconnects_socks_proxy.md.
 - Channel tests:
   - close_write triggers EOF on read after buffer drains.
   - write after close_write raises send_closed.
-  - auto-close when both halves are closed.
+- Channel manager tests:
+  - no auto-close when both halves are closed (explicit close required).
 - Channel manager tests:
   - ch_half_close marks recv closed and does not unregister early.
   - full close still works after half-close.

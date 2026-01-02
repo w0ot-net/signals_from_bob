@@ -26,6 +26,7 @@ preserving protocol behavior and cross platform support.
      and relay error rates under load.
    - Record CPU usage, throughput, and idle latency before changes for
      comparison on Windows and Linux.
+   - Use python3 for any harness scripts to match project rules.
    - Specify the harness (script, ports, concurrency, duration, payload sizes)
      so baselines are repeatable, and document target deltas to detect
      regressions.
@@ -39,6 +40,11 @@ preserving protocol behavior and cross platform support.
    - For sends, track a per-socket outbound buffer and partial sends; use a
      non-blocking send loop gated by select on writability, with a short
      timeout (100-250ms) to honor stop_event promptly.
+   - Only include sockets in the writable set when outbound buffer has data to
+     avoid select spin on Windows.
+   - If a pump handles multiple sockets, cap per-iteration bytes or loops so
+     a single busy socket cannot starve others; otherwise document the
+     per-connection assumption.
    - Bound the per-socket outbound buffer and gate channel.read so pending data
      cannot grow unbounded when the socket is not writable (use a cap and
      low-water mark or read only when writable).
@@ -55,6 +61,9 @@ preserving protocol behavior and cross platform support.
      buffer full/not-full transitions; otherwise add a dedicated signal.
    - In pump_socket_to_channel, wait on the event when the send buffer is
      full instead of sleeping with exponential backoff.
+   - Define socket->channel behavior under backpressure: stop reading from the
+     socket while the channel buffer is full, or buffer locally with a cap and
+     low-water mark.
    - Wait in a loop on actual buffer state and wake on channel close or
      stop_event to avoid missed signals and deadlocks.
 4. Remove redundant idle sleeps in pump_channel_to_socket.
@@ -77,6 +86,7 @@ preserving protocol behavior and cross platform support.
 ## Acceptance Criteria
 - No send-path timeouts or exceptions under backpressure, and no data loss
   during partial sends.
+- No unbounded growth in per-socket or channel buffers.
 - CPU usage does not spike with many idle or backpressured connections.
 - Throughput and latency are equal or better than baseline.
 - New unit tests pass on Windows and Linux with python3.

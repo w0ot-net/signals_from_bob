@@ -42,18 +42,9 @@ def now():
     return value
 
 
-def sleep(seconds):
-    """
-    Sleep for the given number of seconds.
-    """
-    return time.sleep(seconds)
-
-
-def wall_time():
-    """
-    Return the current wall-clock time in epoch seconds.
-    """
-    return time.time()
+# Direct aliases avoid wrapper overhead.
+sleep = time.sleep
+wall_time = time.time
 
 
 def set_time_source(source, clamp=None):

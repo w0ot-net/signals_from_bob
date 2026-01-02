@@ -91,6 +91,8 @@ class Channel(object):
         '_max_send_buf', '_max_recv_buf', '_send_buf_size', '_recv_buf_size',
         '_write_backoff_initial', '_write_backoff_max', '_close_callback',
         '_send_state_callback', '_send_state_seq', '_close_pending',
+        '_half_close_callback', '_half_close_pending',
+        '_send_closed', '_recv_closed',
     )
 
     def __init__(self, channel_id, max_send_buf=1048576, max_recv_buf=1048576,
@@ -123,9 +125,13 @@ class Channel(object):
         self._write_backoff_initial = write_backoff_initial
         self._write_backoff_max = write_backoff_max
         self._close_callback = None
+        self._half_close_callback = None
         self._send_state_callback = None
         self._send_state_seq = 0
         self._close_pending = False
+        self._half_close_pending = False
+        self._send_closed = False
+        self._recv_closed = False
         self._send_space_event.set()
 
     @property
@@ -171,7 +177,7 @@ class Channel(object):
             int: number of bytes queued (may be less than len(data) if buffer partially full)
 
         Raises:
-            ChannelError: if channel is not open or buffer completely full
+            ChannelError: if channel is not open, send side closed, or buffer full
         """
         data = _coerce_bytes_like(data)
         if not data:
@@ -182,6 +188,8 @@ class Channel(object):
         with self._lock:
             if self.state != STATE_OPEN:
                 raise ChannelError('not_open', 'Channel not open')
+            if self._send_closed:
+                raise ChannelError('send_closed', 'Send side closed')
 
             current_size = self._send_buf_size
             if max_send_buf is not None and current_size >= max_send_buf:
@@ -263,6 +271,8 @@ class Channel(object):
             with self._lock:
                 if self.state != STATE_OPEN:
                     raise ChannelError('not_open', 'Channel not open')
+                if self._send_closed:
+                    raise ChannelError('send_closed', 'Send side closed')
                 if self._max_send_buf is None or self._send_buf_size < self._max_send_buf:
                     return True
             if deadline is not None:
@@ -372,7 +382,7 @@ class Channel(object):
 
         Returns:
             bytes: data read (may be less than size)
-            Empty bytes if channel closed cleanly.
+            Empty bytes if receive side closed cleanly.
             None on timeout.
 
         Raises:
@@ -393,6 +403,8 @@ class Channel(object):
                     if self._error:
                         code = self._error_code or 'closed'
                         raise ChannelError(code, self._error)
+                    return b''
+                if self._recv_closed:
                     return b''
 
             # Wait for data or close
@@ -465,6 +477,40 @@ class Channel(object):
             return 0
         self.write_wait(data, timeout=timeout)
         return len(data)
+
+    def close_write(self):
+        """
+        Half-close the send side of the channel.
+
+        Marks the send side closed and emits a half_close control message
+        after queued data drains.
+        """
+        callback = None
+        pending_size = None
+        with self._lock:
+            if self._send_closed:
+                return
+            if self.state != STATE_OPEN:
+                raise ChannelError('not_open', 'Channel not open')
+            self._send_closed = True
+            self._send_space_event.set()
+            if self._send_buf_size == 0:
+                self._half_close_pending = False
+                callback = self._half_close_callback
+            else:
+                self._half_close_pending = True
+                pending_size = self._send_buf_size
+
+        if pending_size is not None:
+            log_event(
+                logger,
+                logging.DEBUG,
+                'channel.half_close_pending_close',
+                'Half-close pending until send buffer drains',
+                lambda: {'ch': self.id, 'pending_bytes': pending_size},
+            )
+        if callback is not None:
+            callback(self.id)
 
     def _consume_recv(self, size):
         """Consume up to size bytes from recv buffer. Must hold lock."""
@@ -584,6 +630,15 @@ class Channel(object):
 
     # --- Methods called by muxer ---
 
+    def _set_recv_closed(self):
+        """Mark the receive side closed (called by muxer)."""
+        with self._lock:
+            if self._recv_closed or self.state == STATE_CLOSED:
+                return False
+            self._recv_closed = True
+            self._recv_event.set()
+        return True
+
     def _set_state(self, state, error=None, error_code=None, drop_buffers=False):
         """Set channel state (called by muxer)."""
         notify = None
@@ -604,6 +659,9 @@ class Channel(object):
                     self._recv_buf_size = 0
             if state == STATE_CLOSED:
                 self._close_pending = False
+                self._half_close_pending = False
+                self._send_closed = True
+                self._recv_closed = True
                 self._closed_event.set()
                 self._open_event.set()  # Also signal open waiters (failed)
                 self._recv_event.set()
@@ -626,6 +684,8 @@ class Channel(object):
         with self._lock:
             if self.state not in (STATE_OPEN, STATE_CLOSING):
                 return  # Discard data for non-open channels
+            if self._recv_closed:
+                return
             if (self._max_recv_buf is not None and
                     self._recv_buf_size + len(data) > self._max_recv_buf):
                 overflow = True
@@ -653,6 +713,7 @@ class Channel(object):
         """
         notify_send = None
         notify_close = False
+        notify_half_close = False
         max_send_buf = self._max_send_buf
         with self._lock:
             if not self._send_buf:
@@ -673,6 +734,9 @@ class Channel(object):
                 if self._send_buf_size == 0:
                     self._send_state_seq += 1
                     notify_send = (False, self._send_state_seq)
+                    if self._half_close_pending:
+                        self._half_close_pending = False
+                        notify_half_close = True
                     if self._close_pending:
                         self._close_pending = False
                         notify_close = True
@@ -683,6 +747,9 @@ class Channel(object):
                 if self._send_buf_size == 0:
                     self._send_state_seq += 1
                     notify_send = (False, self._send_state_seq)
+                    if self._half_close_pending:
+                        self._half_close_pending = False
+                        notify_half_close = True
                     if self._close_pending:
                         self._close_pending = False
                         notify_close = True
@@ -706,6 +773,9 @@ class Channel(object):
                 if self._send_buf_size == 0:
                     self._send_state_seq += 1
                     notify_send = (False, self._send_state_seq)
+                    if self._half_close_pending:
+                        self._half_close_pending = False
+                        notify_half_close = True
                     if self._close_pending:
                         self._close_pending = False
                         notify_close = True
@@ -719,6 +789,10 @@ class Channel(object):
             callback = self._send_state_callback
             if callback is not None:
                 callback(self.id, notify_send[0], notify_send[1])
+        if notify_half_close:
+            callback = self._half_close_callback
+            if callback is not None:
+                callback(self.id)
         if notify_close:
             callback = self._close_callback
             if callback is not None:

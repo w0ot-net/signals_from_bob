@@ -1,6 +1,6 @@
 # Plan: Channel Half-Close Control Messages
 
-Status: draft. This plan adds protocol-level half-close support because the
+Status: completed. This plan adds protocol-level half-close support because the
 SOCKS module half-close change did not resolve the SSH disconnects described in
 doc/bugs/ssh_disconnects_socks_proxy.md.
 
@@ -115,3 +115,11 @@ doc/bugs/ssh_disconnects_socks_proxy.md.
 6. Update docs.
 7. Add tests and run non-e2e checks with python3.
 8. Commit and push.
+
+## Execution Notes
+- Implemented channel half-close state, close_write, and manager handling/logging.
+- Migrated SOCKS to channel half-close and removed sock_half_close messages.
+- Audited file transfer and kept full close semantics.
+- Updated docs and unit tests.
+- Tests: `python3 -m unittest tests.test_channel tests.test_socks` (skipped=4).
+- E2E tests not run (per instructions).

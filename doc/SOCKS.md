@@ -44,6 +44,7 @@ Channels are just bidirectional byte streams:
 ```json
 {"t":"ch","c":"open","ch":1}
 {"t":"ch","c":"open_ok","ch":1}
+{"t":"ch","c":"half_close","ch":1}
 {"t":"ch","c":"close","ch":1}
 {"t":"ch","c":"close_ok","ch":1}
 ```
@@ -218,6 +219,10 @@ channel-to-socket. After SOCKS negotiation/connect replies, sockets are switched
 to non-blocking mode and the pumps use `select` for read/write readiness.
 `socks_relay_socket_timeout` applies to handshake/connect; `socks_relay_write_timeout`
 bounds stalled sends in the pumps.
+
+Socket EOF triggers `channel.close_write()`, which emits a channel `half_close`
+after queued data drains. When a remote `half_close` arrives, the channel-to-socket
+pump drains any pending outbound bytes and then shuts down the socket write side.
 
 ### SocksRelay Class
 

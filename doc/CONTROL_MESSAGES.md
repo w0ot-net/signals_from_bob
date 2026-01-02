@@ -54,6 +54,7 @@ required `t` and `c` fields.
 ```json
 {"t":"tun","c":"mtu","tx":500,"rx":150}
 {"t":"ch","c":"open","ch":2}
+{"t":"ch","c":"half_close","ch":2}
 {"t":"ch","c":"close","ch":2}
 {"t":"ch","c":"close_err","ch":2,"code":"aborted","reason":"Channel aborted"}
 {"t":"file","c":"get","rid":1,"ch":4,"path":"/etc/passwd"}
@@ -239,6 +240,18 @@ Receiver responds with `close_ok` and drops buffered data for the channel.
 |-------|-------------|
 | `code` | Error code (string) |
 | `reason` | Error message (string) |
+
+### half_close
+
+Sender will not send more data on this channel (half-close).
+
+```json
+{"t":"ch","c":"half_close","ch":2}
+```
+
+Receiver treats this as remote send closed and returns `b''` on read once its
+receive buffer drains. The channel remains open for sending until it is fully
+closed with `close`/`close_ok`.
 
 ---
 

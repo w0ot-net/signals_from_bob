@@ -155,6 +155,7 @@ All messages use the format `{"t":"<type>","c":"<command>",...}`:
 ```json
 {"t":"tun","c":"mtu","tx":500,"rx":150}
 {"t":"ch","c":"open","ch":2,"atype":"ipv4","addr":"192.168.1.1","port":8080}
+{"t":"ch","c":"half_close","ch":2}
 {"t":"ch","c":"close","ch":2}
 {"t":"ch","c":"close_err","ch":2,"code":"aborted","reason":"Channel aborted"}
 ```
@@ -170,6 +171,17 @@ Keepalive is a header flag with zero segments, not a channel 0 message.
 | `file` | File transfer module |
 | `sock` | SOCKS proxy module |
 | `sh` | Shell module |
+
+### Channel Half-Close
+
+`{"t":"ch","c":"half_close","ch":<id>}` indicates the sender will not send
+more data on the channel. The receiver marks the receive side closed and
+returns `b''` on read once its buffer drains. The channel remains open for
+sending until closed with `close`/`close_ok`. A half-close targeting channel 0
+is a fatal protocol error.
+
+Half-close is required for correct stream semantics; mixed versions are
+unsupported.
 
 ### MTU Negotiation
 

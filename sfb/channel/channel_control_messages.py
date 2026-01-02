@@ -44,3 +44,8 @@ def ch_close_ok(ch):
 def ch_close_err(ch, code, reason):
     """Channel closed with error."""
     return ControlMessage(T_CHANNEL, 'close_err', ch=ch, code=code, reason=reason)
+
+
+def ch_half_close(ch):
+    """Sender will not send more data on this channel."""
+    return ControlMessage(T_CHANNEL, 'half_close', ch=ch)

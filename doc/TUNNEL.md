@@ -227,7 +227,10 @@ The tunnel owns two reserved message types that cannot be overridden:
 | Type | Handler | Messages |
 |------|---------|----------|
 | `tun` | Tunnel | mtu, mtu_ok, mtu_ack, window, window_ok |
-| `ch` | ChannelManager | open, open_ok, open_fail, close, close_ok |
+| `ch` | ChannelManager | open, open_ok, open_fail, close, close_ok, close_err, half_close |
+
+The `half_close` channel message signals the end of a send stream while keeping
+the receive side open until a full close handshake completes.
 
 ### Module Registration
 

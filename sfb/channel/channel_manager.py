@@ -37,6 +37,7 @@ from .channel_control_messages import (
     ch_close,
     ch_close_ok,
     ch_close_err,
+    ch_half_close,
 )
 from ..logging_util import get_logger, log_event
 from ..config import Config
@@ -126,6 +127,7 @@ class ChannelManager(object):
 
     def _register_channel_locked(self, channel):
         channel._close_callback = self._on_channel_close
+        channel._half_close_callback = self._on_channel_half_close
         channel._set_send_state_callback(self._on_channel_send_state)
         self._channels[channel.id] = channel
         if channel.id == CHANNEL_CONTROL:
@@ -259,6 +261,19 @@ class ChannelManager(object):
             lambda: {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
         )
 
+    def _on_channel_half_close(self, channel_id):
+        """Callback invoked when channel.close_write() is called."""
+        if channel_id == CHANNEL_CONTROL:
+            return
+        self._control.send_message(ch_half_close(channel_id))
+        log_event(
+            logger,
+            logging.DEBUG,
+            'channel.half_close_out',
+            'Channel half-close requested',
+            lambda: {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+        )
+
     def deliver_segment(self, segment):
         """
         Deliver an incoming segment to the appropriate channel.
@@ -326,6 +341,8 @@ class ChannelManager(object):
             self._handle_close_ok(msg)
         elif cmd == 'close_err':
             self._handle_close_err(msg)
+        elif cmd == 'half_close':
+            self._handle_half_close(msg)
         # Tunnel messages handled by tunnel
 
     def collect_segments(self, max_payload, keepalive_data=None,
@@ -681,6 +698,27 @@ class ChannelManager(object):
                 'side': 'alice' if self._is_alice else 'bob',
             },
         )
+
+    def _handle_half_close(self, msg):
+        """Handle HALF_CLOSE request from peer."""
+        channel_id = msg.get('ch')
+        if channel_id is None:
+            return
+        if channel_id == CHANNEL_CONTROL:
+            return
+
+        with self._lock:
+            channel = self._channels.get(channel_id)
+        if channel is None:
+            return
+        if channel._set_recv_closed():
+            log_event(
+                logger,
+                logging.DEBUG,
+                'channel.half_close_in',
+                'Channel half-close received',
+                lambda: {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+            )
 
     def _handle_close_ok(self, msg):
         """Handle CLOSE_OK response."""

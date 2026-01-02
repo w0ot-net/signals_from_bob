@@ -17,7 +17,7 @@ from ..base_module import BaseModule, ModuleError
 from ...logging_util import log_event
 from ... import time_provider
 from .relay_connection import RelayConnection
-from .socks_control_messages import T_SOCK, sock_connect, sock_half_close
+from .socks_control_messages import T_SOCK, sock_connect
 
 
 # SOCKS5 constants
@@ -312,7 +312,6 @@ class SocksServerModule(BaseModule):
                 peer_label='Client',
                 socket_to_channel_label='client_to_channel',
                 channel_to_socket_label='channel_to_client',
-                half_close_sender=self._send_half_close,
                 thread_names=(
                     'socks-rid%d-c2ch' % rid,
                     'socks-rid%d-ch2c' % rid,
@@ -415,16 +414,6 @@ class SocksServerModule(BaseModule):
                 'Cleaned up connection',
                 lambda: {'rid': rid},
             )
-
-    def _send_half_close(self, rid, ch):
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'sock.half_close_out',
-            'SOCKS half-close sent',
-            lambda: {'rid': rid, 'ch': ch, 'side': 'bob'},
-        )
-        self.send_message(sock_half_close(rid, ch))
 
     # --- SOCKS5 Protocol Implementation ---
 
@@ -572,38 +561,3 @@ class SocksServerModule(BaseModule):
                     'side': 'bob',
                 },
             )
-
-    def handle_half_close(self, msg):
-        """Handle half_close from Alice."""
-        rid = msg.get('rid')
-        ch = msg.get('ch')
-        conn = None
-
-        with self._connections_lock:
-            if rid is not None:
-                conn = self._connections.get(rid)
-            if conn is None and ch is not None:
-                for candidate in self._connections.values():
-                    if candidate.channel.id == ch:
-                        conn = candidate
-                        break
-
-        if conn is None:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'sock.half_close_missing',
-                'Half-close for unknown connection',
-                lambda: {'rid': rid, 'ch': ch, 'side': 'bob'},
-            )
-            return
-
-        conn.notify_remote_half_close()
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'sock.half_close_in',
-            'SOCKS half-close received',
-            lambda: {'rid': rid, 'ch': ch, 'side': 'bob'},
-        )
-

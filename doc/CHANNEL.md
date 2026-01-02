@@ -47,8 +47,10 @@ may still receive OPEN_OK/OPEN_FAIL from the peer, which is ignored.
   channel receive buffer. Data is silently discarded if the channel is not in
   OPEN or CLOSING state (e.g., INIT or OPENING).
 - `read(size, timeout=None)` blocks (or times out) until data is available,
-  returning up to `size` bytes. On timeout it returns `None`. If called on a
-  channel in INIT or OPENING state, it blocks until the channel opens or closes.
+  returning up to `size` bytes. On timeout it returns `None`. If the receive
+  side is closed and the buffer is empty, it returns `b''`.
+  If called on a channel in INIT or OPENING state, it blocks until the channel
+  opens or closes.
 
 ### ControlChannel
 
@@ -79,11 +81,16 @@ error, and continue—invalid control messages are dropped, not fatal.
 - `write` raises `ChannelError` if the channel is not open. If the send buffer
   is completely full, `write` also raises `ChannelError`. If the buffer has
   partial space, `write` queues as much as fits and returns the byte count.
+- `close_write()` half-closes the send side: it stops new writes and sends a
+  `half_close` control message once the send buffer drains.
 - `close()` is graceful: it stops new writes, drains queued send data, then
   sends CLOSE. The channel closes after CLOSE_OK is received.
 - `abort(code, reason)` is immediate: queued send/recv data is dropped, the
   channel closes locally, and a `close_err` control message is sent with the
   error code and reason.
+- On receiving `half_close`, the channel marks the receive side closed; reads
+  return `b''` once buffered data drains. The channel remains open for sending
+  until a full close handshake completes.
 - On receiving CLOSE, the channel closes and any later in-flight data is
   dropped.
 - `read` returns any buffered data first after a clean close. Once the buffer

@@ -719,6 +719,9 @@ class BaseTunnel(object):
 
         Delegates to channel_manager.
         """
+        if cmd == 'half_close' and msg.get('ch') == 0:
+            self._close_protocol_violation('half_close_on_control_channel')
+            return
         self._channel_manager.handle_control_message(msg)
 
     def _handle_ping(self, msg):

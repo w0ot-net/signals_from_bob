@@ -89,6 +89,33 @@ class ChannelTests(unittest.TestCase):
         ch._take_send_data(10)
         self.assertEqual(called, [1])
 
+    def test_close_write_blocks_write(self):
+        ch = Channel(1)
+        ch._set_state(STATE_OPEN)
+        ch.close_write()
+        with self.assertRaises(ChannelError) as ctx:
+            ch.write(b'abc')
+        self.assertEqual(ctx.exception.code, 'send_closed')
+
+    def test_close_write_waits_for_send_drain(self):
+        ch = Channel(1)
+        called = []
+        ch._half_close_callback = lambda cid: called.append(cid)
+        ch._set_state(STATE_OPEN)
+        ch.write(b'abc')
+        ch.close_write()
+        self.assertEqual(called, [])
+        ch._take_send_data(10)
+        self.assertEqual(called, [1])
+
+    def test_read_eof_after_recv_close(self):
+        ch = Channel(1)
+        ch._set_state(STATE_OPEN)
+        ch._deliver(b'hello')
+        ch._set_recv_closed()
+        self.assertEqual(ch.read(10, timeout=0.1), b'hello')
+        self.assertEqual(ch.read(10, timeout=0.1), b'')
+
     def test_abort_drops_buffers_and_sets_error(self):
         ch = Channel(1)
         ch._set_state(STATE_OPEN)
@@ -432,6 +459,40 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertEqual(msgs[0]['t'], 'ch')
         self.assertEqual(msgs[0]['c'], 'close_ok')
         self.assertEqual(msgs[0]['ch'], 1)
+
+    def test_handle_half_close_marks_recv_closed(self):
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
+        ch = Channel(1)
+        ch._set_state(STATE_OPEN)
+        mgr._register_channel(ch)
+        mgr.handle_control_message({'c': 'half_close', 'ch': 1})
+        self.assertIsNotNone(mgr.get_channel(1))
+        self.assertEqual(ch.read(1, timeout=0.1), b'')
+
+    def test_half_close_does_not_auto_close(self):
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
+        ch = Channel(1)
+        ch._set_state(STATE_OPEN)
+        mgr._register_channel(ch)
+        ch.close_write()
+        mgr.handle_control_message({'c': 'half_close', 'ch': 1})
+        self.assertEqual(ch.state, STATE_OPEN)
+        self.assertIsNotNone(mgr.get_channel(1))
+
+    def test_close_after_half_close(self):
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
+        ch = Channel(1)
+        ch._set_state(STATE_OPEN)
+        mgr._register_channel(ch)
+        ch.close_write()
+        mgr.handle_control_message({'c': 'half_close', 'ch': 1})
+        ch.close()
+        msgs = self._drain_control_messages(mgr)
+        commands = [msg.get('c') for msg in msgs]
+        self.assertIn('half_close', commands)
+        self.assertIn('close', commands)
+        mgr.handle_control_message({'c': 'close_ok', 'ch': 1})
+        self.assertIsNone(mgr.get_channel(1))
 
     def test_deliver_segment_overflow_aborts(self):
         cfg = make_test_config()

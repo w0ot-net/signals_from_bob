@@ -21,7 +21,6 @@ from .socks_control_messages import (
     T_SOCK,
     sock_connect_ok,
     sock_err,
-    sock_half_close,
 )
 
 
@@ -285,7 +284,6 @@ class SocksRelayModule(BaseModule):
             peer_label='Target',
             socket_to_channel_label='target_to_channel',
             channel_to_socket_label='channel_to_target',
-            half_close_sender=self._send_half_close,
             thread_names=(
                 'relay-ch%d-t2c' % ch,
                 'relay-ch%d-c2t' % ch,
@@ -304,44 +302,6 @@ class SocksRelayModule(BaseModule):
             conn.wait()
         finally:
             self._cleanup_connection(ch)
-
-    def _send_half_close(self, rid, ch):
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'sock.half_close_out',
-            'SOCKS half-close sent',
-            lambda: {'rid': rid, 'ch': ch, 'side': 'alice'},
-        )
-        self.send_message(sock_half_close(rid, ch))
-
-    def handle_half_close(self, msg):
-        """Handle half_close from Bob."""
-        ch = msg.get('ch')
-        if ch is None:
-            return
-
-        with self._connections_lock:
-            conn = self._connections.get(ch)
-
-        if conn is None:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'sock.half_close_missing',
-                'Half-close for unknown channel',
-                lambda: {'ch': ch, 'side': 'alice'},
-            )
-            return
-
-        conn.notify_remote_half_close()
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'sock.half_close_in',
-            'SOCKS half-close received',
-            lambda: {'rid': msg.get('rid'), 'ch': ch, 'side': 'alice'},
-        )
 
     def _connect_target(self, host, port, timeout=None):
         """
@@ -382,4 +342,3 @@ class SocksRelayModule(BaseModule):
             'Cleaned up connection',
             lambda: {'ch': ch},
         )
-

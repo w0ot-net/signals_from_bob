@@ -15,14 +15,13 @@ class RelayConnection(object):
 
     __slots__ = (
         'rid', 'ch', 'channel', 'sock', '_logger', '_config',
-        '_stop_event', '_threads', '_remote_half_close', '_half_close_sent',
-        '_half_close_sender', '_thread_names', '_side', '_peer_label',
+        '_stop_event', '_threads', '_thread_names', '_side', '_peer_label',
         '_socket_to_channel_label', '_channel_to_socket_label',
     )
 
     def __init__(self, rid, ch, channel, sock, logger, config, side, peer_label,
                  socket_to_channel_label, channel_to_socket_label,
-                 half_close_sender=None, thread_names=None):
+                 thread_names=None):
         self.rid = rid
         self.ch = ch
         self.channel = channel
@@ -35,21 +34,7 @@ class RelayConnection(object):
         self._channel_to_socket_label = channel_to_socket_label
         self._stop_event = threading.Event()
         self._threads = []
-        self._remote_half_close = threading.Event()
-        self._half_close_sent = threading.Event()
-        self._half_close_sender = half_close_sender
         self._thread_names = thread_names or (None, None)
-
-    def _send_half_close(self):
-        if self._half_close_sender is None:
-            return
-        if self._half_close_sent.is_set():
-            return
-        self._half_close_sent.set()
-        self._half_close_sender(self.rid, self.ch)
-
-    def notify_remote_half_close(self):
-        self._remote_half_close.set()
 
     def start_relay(self):
         """Start bidirectional relay threads."""
@@ -87,7 +72,7 @@ class RelayConnection(object):
             self._side,
             self._peer_label,
             self._socket_to_channel_label,
-            eof_callback=self._send_half_close,
+            eof_callback=self.channel.close_write,
         )
 
     def _relay_channel_to_socket(self):
@@ -103,7 +88,6 @@ class RelayConnection(object):
             self._side,
             self._peer_label,
             self._channel_to_socket_label,
-            remote_half_close_event=self._remote_half_close,
         )
 
     def wait(self, timeout=None):

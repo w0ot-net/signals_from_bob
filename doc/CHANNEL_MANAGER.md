@@ -66,6 +66,15 @@ Channel 0 handling is special in segment packing:
 - Remote `close_ok` removes the channel if it was closing.
 - `open_fail` sets state to `CLOSED` and removes the channel.
 
+### Half-Close
+
+- Local `close_write()` marks the send side closed; `half_close` is sent after
+  the send buffer drains.
+- Remote `half_close` marks the receive side closed and keeps the channel
+  registered for continued outbound sends.
+- No automatic close occurs when both halves are closed; a full close handshake
+  (`close`/`close_ok`) is still required.
+
 ---
 
 ## Incoming Segments

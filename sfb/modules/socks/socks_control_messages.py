@@ -52,14 +52,3 @@ def sock_err(rid, ch, code, reason):
         reason: Human-readable reason
     """
     return ControlMessage(T_SOCK, 'err', rid=rid, ch=ch, code=code, reason=reason)
-
-
-def sock_half_close(rid, ch):
-    """
-    Peer will not send more data on this channel.
-
-    Args:
-        rid: Request ID
-        ch: Channel ID
-    """
-    return ControlMessage(T_SOCK, 'half_close', rid=rid, ch=ch)

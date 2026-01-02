@@ -69,15 +69,6 @@ def _pump_poll_bounds(config):
     return base, max_wait
 
 
-def _wait_for_send_drain(channel, stop_event, base_backoff, max_backoff):
-    backoff = base_backoff
-    while not stop_event.is_set():
-        if channel.send_buf_size == 0:
-            return True
-        time_provider.sleep(backoff)
-        backoff = min(backoff * 2.0, max_backoff)
-    return False
-
 
 def _shutdown_socket_write(sock):
     try:
@@ -209,7 +200,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         else:
                             backoff = base_backoff
                         continue
-                    if exc.code in ('not_open', 'closed'):
+                    if exc.code in ('not_open', 'closed', 'send_closed'):
                         exit_reason = 'channel_closed'
                         break
                     fatal_error = True
@@ -307,9 +298,6 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         lambda: {'rid': rid, 'ch': ch, 'label': recv_label, 'side': side},
                     )
                     if eof_callback is not None:
-                        _wait_for_send_drain(
-                            channel, stop_event, base_backoff, max_backoff
-                        )
                         if not stop_event.is_set():
                             try:
                                 eof_callback()
@@ -334,7 +322,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         pending_offset = 0
                         buffer_full_count += 1
                         break
-                    if exc.code in ('not_open', 'closed'):
+                    if exc.code in ('not_open', 'closed', 'send_closed'):
                         exit_reason = 'channel_closed'
                         return
                     fatal_error = True
@@ -403,8 +391,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
 
 
 def pump_channel_to_socket(channel, sock, config, logger, stop_event,
-                           rid, ch, side, send_label, direction,
-                           remote_half_close_event=None):
+                           rid, ch, side, send_label, direction):
     """
     Pump data from a tunnel channel to a socket.
 
@@ -500,10 +487,6 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                             if outbound_size == 0:
                                 last_send = None
 
-            remote_half_close = (
-                remote_half_close_event is not None and
-                remote_half_close_event.is_set()
-            )
             if not channel_closed and outbound_size < outbound_limit:
                 space = outbound_limit - outbound_size
                 read_size = config.socks_relay_buffer_size
@@ -514,8 +497,6 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         read_timeout = 0.0
                     else:
                         read_timeout = min(config.socks_relay_channel_timeout, backoff)
-                    if remote_half_close:
-                        read_timeout = 0.0
                     try:
                         data = channel.read(read_size, timeout=read_timeout)
                     except Exception as exc:
@@ -529,10 +510,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         exit_error = exc
                         break
                     if data is None:
-                        if remote_half_close:
-                            channel_closed = True
-                            channel_closed_reason = 'remote_half_close'
-                            shutdown_pending = True
+                        pass
                     elif data == b'':
                         log_event(
                             logger,
@@ -542,7 +520,10 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                             lambda: {'rid': rid, 'ch': ch, 'side': side},
                         )
                         channel_closed = True
-                        channel_closed_reason = 'channel_eof'
+                        if channel.is_closed:
+                            channel_closed_reason = 'channel_eof'
+                        else:
+                            channel_closed_reason = 'remote_half_close'
                         shutdown_pending = True
                     else:
                         outbound.append(data)

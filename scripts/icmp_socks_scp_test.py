@@ -21,7 +21,6 @@ import argparse
 import getpass
 import os
 import platform
-import posixpath
 import socket
 import subprocess
 import sys
@@ -46,7 +45,7 @@ DEFAULT_PROXYCHAINS_CONFIG = '/tmp/del'
 DEFAULT_PROXYCHAINS_CONNECT_TIMEOUT_MS = 15000
 DEFAULT_PROXYCHAINS_READ_TIMEOUT_MS = 600000
 DEFAULT_SOCKS_PORT = 1080
-DEFAULT_REMOTE_DIR = '/tmp/del'
+DEFAULT_REMOTE_FILE = '/tmp/del'
 DEFAULT_TEST_FILE = os.path.join('test_download_files', '2MB.bin')
 
 
@@ -207,12 +206,8 @@ def parse_args():
         help='Local file to upload (default: %s)' % DEFAULT_TEST_FILE
     )
     parser.add_argument(
-        '--remote-dir', default=DEFAULT_REMOTE_DIR,
-        help='Remote directory for upload (default: %s)' % DEFAULT_REMOTE_DIR
-    )
-    parser.add_argument(
-        '--skip-remote-dir', action='store_true',
-        help='Skip creating the remote directory before scp'
+        '--remote-file', default=DEFAULT_REMOTE_FILE,
+        help='Remote file path for upload (default: %s)' % DEFAULT_REMOTE_FILE
     )
     return parser.parse_args()
 
@@ -446,14 +441,9 @@ def main():
     sys.stdout.write('Proxychains config: %s\n' % proxychains_config)
 
     ssh_user = args.ssh_user or getpass.getuser()
-    remote_dir = args.remote_dir
-    if not remote_dir:
-        raise SystemExit('Remote directory must be non-empty')
-
-    remote_file = posixpath.join(
-        remote_dir,
-        os.path.basename(local_file)
-    )
+    remote_file = args.remote_file
+    if not remote_file:
+        raise SystemExit('Remote file must be non-empty')
 
     proxychains_prefix = build_proxychains_prefix(
         proxychains_bin,
@@ -514,16 +504,6 @@ def main():
         )
         if not socks_ready:
             raise SystemExit('SOCKS server did not become ready before timeout')
-
-        if not args.skip_remote_dir:
-            mkdir_cmd = proxychains_prefix + ssh_base + [
-                '%s@%s' % (ssh_user, args.ssh_host),
-                'mkdir -p -- %s' % shell_quote(remote_dir),
-            ]
-            sys.stdout.write('Ensuring remote directory: %s\n' % remote_dir)
-            rc = run_command(mkdir_cmd, args.timeout)
-            if rc != 0:
-                raise SystemExit('Remote mkdir failed with code %s' % rc)
 
         full_scp_cmd = proxychains_prefix + scp_cmd
         sys.stdout.write('Running: %s\n' % ' '.join(shell_quote(x) for x in full_scp_cmd))

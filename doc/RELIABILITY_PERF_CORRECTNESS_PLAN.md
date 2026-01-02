@@ -50,6 +50,8 @@ preserving protocol behavior.
    - Decide and document time source for rate limiting/token buckets used in
      tunnel pacing; prefer `monotonic_time()` for tunnel-level pacing and pass
      it into limiter calls when available.
+   - Thread the chosen time provider into rate limiter update calls and list
+     the exact call sites updated to avoid mixed wall-clock/monotonic use.
    - Ensure all reliability timestamps are sourced from `monotonic_time()`
      consistently; avoid mixing wall-clock `time.time()` with monotonic values.
    - Audit all `time.time()` usage and limit changes to reliability/tunnel:
@@ -62,6 +64,8 @@ preserving protocol behavior.
    - Add a test hook for the monotonic source (module-level indirection with a
      default time provider) so tests can drive time without external deps.
 3. Improve `RecvWindow` buffer behavior under pressure.
+   - Check for duplicates/already-buffered seqs before running the buffer-full
+     eviction logic to avoid evicting useful packets for duplicates.
    - When buffer is full, compute wrap-safe distance from `ack` for the
      incoming packet. If it is closer to `ack` than the farthest buffered
      packet, evict the farthest and accept the new one; otherwise drop the new
@@ -82,6 +86,8 @@ preserving protocol behavior.
      duplicates/out-of-order arrivals.
    - `monotonic_time()`: ensure non-decreasing outputs with a controllable
      time source (no external dependencies) and restore the default source.
+   - Keepalive: verify pongs are suppressed while any channel has pending data.
+   - ACK wrap: cumulative ACK pop logic remains correct across seq wrap.
    - Run `python3 -m unittest tests.test_reliability` (no E2E tests).
 
 ## Acceptance Criteria

@@ -236,7 +236,18 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     backoff = base_backoff
                 continue
 
-            rlist, _ = _select([sock], [], backoff)
+            try:
+                rlist, _ = _select([sock], [], backoff)
+            except Exception as exc:
+                fatal_error = True
+                exit_reason = 'socket_select_error'
+                exit_error = exc
+                if not stop_event.is_set():
+                    _log_pump_error(
+                        logger, rid, ch, side, direction,
+                        '%s select error' % recv_label, exc
+                    )
+                break
             if not rlist:
                 backoff = min(backoff * 2.0, max_backoff)
             else:
@@ -412,7 +423,18 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                             '%s send timeout' % send_label, socket.timeout()
                         )
                     break
-                _, wlist = _select([], [sock], backoff)
+                try:
+                    _, wlist = _select([], [sock], backoff)
+                except Exception as exc:
+                    fatal_error = True
+                    exit_reason = 'socket_select_error'
+                    exit_error = exc
+                    if not stop_event.is_set():
+                        _log_pump_error(
+                            logger, rid, ch, side, direction,
+                            '%s select error' % send_label, exc
+                        )
+                    break
                 if wlist:
                     chunk = outbound[0]
                     try:

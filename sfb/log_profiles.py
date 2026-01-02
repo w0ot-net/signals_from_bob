@@ -169,12 +169,14 @@ LOG_PROFILES = {
     # DNS + SOCKS session stall debugging (SSH/SCP over DNS transport).
     'dns_socks_stall_debug': {
         'log_component_transport_dns': True,
+        'log_component_transport_icmp': True,
         'log_component_tunnel': True,
         'log_component_channel': True,
         'log_component_module_socks': True,
         'log_event_whitelist': (
             'cli.*',
             'dns.*',
+            'icmp.*',
             'tunnel.state',
             'tunnel.connected',
             'tunnel.closed',

@@ -11,6 +11,8 @@ standard-library-only constraints.
 - Avoid running E2E tests in `tests/e2e/`.
 - Breaking changes are acceptable if all call sites are updated in the same
   change.
+- Protocol compatibility is not required; this is a breaking wire-format
+  change.
 - Keep code and scripts ASCII-only.
 
 ## Current Behavior (Problems)
@@ -35,6 +37,7 @@ standard-library-only constraints.
   out-of-order reception.
 - No extra wire overhead; MTU calculations remain unchanged.
 - Requires documentation updates since the header is no longer encrypted.
+- Breaking wire-format change; older peers are not supported.
 
 ### Option C: Packet-scoped crypto with clear nonce prefix
 - Prepend a fixed-size nonce in cleartext, encrypt the entire packet body.
@@ -44,6 +47,8 @@ standard-library-only constraints.
 ## Recommendation
 Implement Option B. It fixes correctness with minimal wire-format overhead and
 keeps the MTU negotiation unchanged. Document the header visibility tradeoff.
+This is a protocol-breaking change; ship with both sides updated and no
+compatibility shims.
 
 ## Implementation Sketch
 1. Define a packet-oriented crypto API in `sfb/crypto.py`:
@@ -74,6 +79,7 @@ keeps the MTU negotiation unchanged. Document the header visibility tradeoff.
    - `doc/TUNNEL.md` encryption section.
    - `doc/PROTOCOL.md` packet encryption overview.
    - `doc/ARCHITECTURE.md` crypto section if it references full-packet encryption.
+   - `doc/TRANSPORTS.md` transport payload description.
    - `sfb/crypto.py` module docstring.
 7. Update tests:
    - `tests/test_crypto.py`: add deterministic encryption test
@@ -89,8 +95,11 @@ keeps the MTU negotiation unchanged. Document the header visibility tradeoff.
 ## Notes
 - If Option C is chosen instead, adjust MTU computations and `max_packet_size`
   to account for nonce overhead, and update tests accordingly.
-- Document that per-packet RC4 derived only from `seq` and `direction` will
-  reuse keystreams across sessions (fixed ISN) and after seq wrap unless a
-  per-session salt or randomized ISN is introduced; defer that change for now.
+- Keystream reuse risk: per-packet RC4 derived only from `seq` and `direction`
+  will reuse keystreams across sessions (fixed ISN) and after seq wrap unless a
+  per-session salt or randomized ISN is introduced. Accepted for now; do not
+  address in this change.
+- This is a breaking wire-format change; do not add protocol negotiation or
+  backward compatibility in this change.
 - When executing this plan, add execution notes and move the plan to
   `doc/completed_plans/` per project rules.

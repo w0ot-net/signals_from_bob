@@ -36,11 +36,10 @@ bitmap and header layout while keeping reliability semantics unchanged.
 - sfb/transport/dns/dns_client.py (inflight cap tied to tunnel_max_in_flight)
 - sfb/transport/icmp/icmp_client.py (inflight cap tied to tunnel_max_in_flight)
 - sfb/transport/memory/memory_client.py (inflight cap default matches tunnel_max_in_flight)
-- sfb/transport/lossy.py (cap passthrough aligns with inflight_cap)
 - sfb/modules/socks/data_pump.py (outbound buffer cap scales with max_in_flight)
 - tests/test_packet.py, tests/test_reliability.py, tests/test_tunnel.py
 - doc/PROTOCOL.md, doc/RELIABILITY.md, doc/CONTROL_MESSAGES.md, doc/TUNNEL.md
-- doc/TRANSPORTS.md, doc/ICMP_TRANSPORT.md, doc/ASYMMETRY.md
+- doc/TRANSPORTS.md, doc/ICMP_TRANSPORT.md, doc/ASYMMETRY.md, doc/DNS_TRANSPORT.md
 
 ## Plan
 1. Update protocol constants and header layout.
@@ -66,8 +65,7 @@ bitmap and header layout while keeping reliability semantics unchanged.
      tunnel_initial_window, and pacing min/max inflight bounds to 1-256.
    - Keep transport pending caps tied to max_in_flight so transports do not
      introduce separate caps.
-   - Align lossy transport cap passthrough with inflight_cap naming.
-   - Ensure memory transport inflight default uses the configured tunnel_max_in_flight.
+   - Ensure transport defaults (e.g., memory) use the configured max_in_flight.
 5. MTU and payload sizing.
    - Ensure PACKET_HEADER_SIZE changes propagate to MTU math, payload caps, and
      segment max payload.

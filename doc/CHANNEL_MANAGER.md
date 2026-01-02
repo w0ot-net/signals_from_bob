@@ -58,8 +58,11 @@ Channel 0 handling is special in segment packing:
 
 ### Close
 
-- Local close sends `close` and marks state `CLOSING`.
+- Local close marks state `CLOSING`; `close` is sent after the send buffer drains.
+- Local abort sends `close_err` immediately, drops buffered data, and removes the channel.
 - Remote `close` triggers `close_ok` and removes the channel.
+- Remote `close_err` closes the channel with error, drops buffers, sends `close_ok`,
+  and removes the channel.
 - Remote `close_ok` removes the channel if it was closing.
 - `open_fail` sets state to `CLOSED` and removes the channel.
 
@@ -70,6 +73,8 @@ Channel 0 handling is special in segment packing:
 Incoming segments are routed by channel ID:
 - If the channel exists, the data is delivered to it.
 - Unknown channel IDs are ignored.
+- If delivery would exceed a channel's receive buffer, the channel is aborted
+  with `close_err`.
 
 ---
 
@@ -89,8 +94,9 @@ If less than 4 bytes remain (header + 1 byte payload), packing stops.
 
 ### Round-Robin Pointer
 
-The round-robin pointer advances after selecting the primary channel, even if
-other channels are used to fill the packet. This avoids bias across packets.
+Active channels are stored in order. After selecting the primary channel, the
+manager moves it to the tail so the next channel becomes primary on the next
+packet. This avoids bias across packets.
 
 ### Segment Slicing
 

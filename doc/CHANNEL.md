@@ -27,15 +27,16 @@ INIT -> OPENING -> OPEN -> CLOSING -> CLOSED
 - INIT: channel object created, no OPEN sent yet.
 - OPENING: OPEN sent, waiting for OPEN_OK/OPEN_FAIL.
 - OPEN: data may flow in both directions.
-- CLOSING: CLOSE sent, waiting for CLOSE_OK.
+- CLOSING: CLOSE pending or sent, waiting for CLOSE_OK.
 - CLOSED: channel fully closed, no further data.
 
 Control messages are sent on channel 0 to drive OPEN/CLOSE transitions.
 
-If `close()` is called while in INIT or OPENING state, the channel transitions
-directly to CLOSED without sending a CLOSE message (the channel was never fully
-established). Any pending OPEN request may still receive OPEN_OK/OPEN_FAIL from
-the peer, which is ignored.
+If `close()` is called while in INIT state, the channel transitions directly to
+CLOSED without sending a CLOSE message (the channel was never opened). If
+`close()` is called while in OPENING or OPEN state, the channel transitions to
+CLOSING and CLOSE is sent after the send buffer drains. Any pending OPEN request
+may still receive OPEN_OK/OPEN_FAIL from the peer, which is ignored.
 
 ## Data Flow
 
@@ -67,21 +68,29 @@ error, and continue—invalid control messages are dropped, not fatal.
 ## Buffering
 
 - Send data is buffered in a FIFO deque up to `max_send_buf`.
-- Receive data is buffered in a FIFO deque until the application reads it.
-
-There is no explicit receive-side cap in the channel implementation; flow
-control is expected to be handled by the muxer and the tunnel windowing.
+- Receive data is buffered in a FIFO deque up to `max_recv_buf` (default 64k,
+  per channel).
+- If inbound data would exceed `max_recv_buf`, the channel aborts with error
+  code `recv_overflow`, buffered data is discarded, and subsequent inbound
+  data for that channel is dropped.
 
 ## Errors and Close Semantics
 
 - `write` raises `ChannelError` if the channel is not open. If the send buffer
   is completely full, `write` also raises `ChannelError`. If the buffer has
   partial space, `write` queues as much as fits and returns the byte count.
-- `read` returns any buffered data first, even after channel close. Once the
-  buffer is empty and the channel is cleanly closed, `read` returns `b''`.
+- `close()` is graceful: it stops new writes, drains queued send data, then
+  sends CLOSE. The channel closes after CLOSE_OK is received.
+- `abort(code, reason)` is immediate: queued send/recv data is dropped, the
+  channel closes locally, and a `close_err` control message is sent with the
+  error code and reason.
+- On receiving CLOSE, the channel closes and any later in-flight data is
+  dropped.
+- `read` returns any buffered data first after a clean close. Once the buffer
+  is empty and the channel is cleanly closed, `read` returns `b''`.
 - `read` returns `None` on timeout (no data available within the timeout).
-- If a channel is closed with an error and no buffered data remains, `read`
-  raises `ChannelError` with the error message.
+- If a channel is closed with an error (local abort, `close_err`, or receive
+  overflow), `read` raises `ChannelError` with the error code and message.
 
 ## Thread Safety
 

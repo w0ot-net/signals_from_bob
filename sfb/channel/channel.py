@@ -42,13 +42,13 @@ class Channel(object):
 
     __slots__ = (
         'id', 'state', '_send_buf', '_recv_buf', '_lock',
-        '_recv_event', '_closed_event', '_open_event', '_error', '_max_send_buf',
-        '_send_buf_size', '_recv_buf_size',
+        '_recv_event', '_closed_event', '_open_event', '_error', '_error_code',
+        '_max_send_buf', '_max_recv_buf', '_send_buf_size', '_recv_buf_size',
         '_write_backoff_initial', '_write_backoff_max', '_close_callback',
-        '_send_state_callback', '_send_state_seq',
+        '_send_state_callback', '_send_state_seq', '_close_pending',
     )
 
-    def __init__(self, channel_id, max_send_buf=65536,
+    def __init__(self, channel_id, max_send_buf=65536, max_recv_buf=65536,
                  write_backoff_initial=0.01, write_backoff_max=1.0):
         """
         Create a channel.
@@ -56,6 +56,7 @@ class Channel(object):
         Args:
             channel_id: Channel ID (0=control, odd=Alice, even=Bob)
             max_send_buf: Max bytes to buffer for sending
+            max_recv_buf: Max bytes to buffer for receiving
             write_backoff_initial: Initial backoff delay for write_wait
             write_backoff_max: Maximum backoff delay for write_wait
         """
@@ -68,7 +69,9 @@ class Channel(object):
         self._closed_event = threading.Event()
         self._open_event = threading.Event()
         self._error = None
+        self._error_code = None
         self._max_send_buf = max_send_buf
+        self._max_recv_buf = max_recv_buf
         self._send_buf_size = 0
         self._recv_buf_size = 0
         self._write_backoff_initial = write_backoff_initial
@@ -76,6 +79,7 @@ class Channel(object):
         self._close_callback = None
         self._send_state_callback = None
         self._send_state_seq = 0
+        self._close_pending = False
 
     @property
     def is_open(self):
@@ -103,6 +107,11 @@ class Channel(object):
     def error(self):
         """Error message if channel failed to open or closed with error."""
         return self._error
+
+    @property
+    def error_code(self):
+        """Error code if channel closed with error."""
+        return self._error_code
 
     def write(self, data):
         """
@@ -273,7 +282,8 @@ class Channel(object):
                 # Check for close/error
                 if self.state == STATE_CLOSED:
                     if self._error:
-                        raise ChannelError('closed', self._error)
+                        code = self._error_code or 'closed'
+                        raise ChannelError(code, self._error)
                     return b''
 
             # Wait for data or close
@@ -389,8 +399,9 @@ class Channel(object):
         """
         Initiate channel close.
 
-        Does not block. The muxer will send CLOSE and transition
-        to CLOSED when CLOSE_OK is received.
+        Does not block. The muxer will send CLOSE after queued
+        send data drains and transition to CLOSED when CLOSE_OK
+        is received.
         """
         callback = None
         with self._lock:
@@ -398,15 +409,43 @@ class Channel(object):
                 return
             if self.state in (STATE_OPEN, STATE_OPENING):
                 self.state = STATE_CLOSING
-                callback = self._close_callback
+                if self._send_buf_size == 0:
+                    self._close_pending = False
+                    callback = self._close_callback
+                else:
+                    self._close_pending = True
             else:
                 self.state = STATE_CLOSED
+                self._close_pending = False
                 self._closed_event.set()
+                self._open_event.set()
                 self._recv_event.set()
 
         # Notify manager outside lock
         if callback:
-            callback(self.id)
+            callback(self.id, None, None, False)
+
+    def abort(self, code='aborted', message='Channel aborted'):
+        """
+        Abort channel immediately.
+
+        Drops queued data, closes locally, and notifies peer with close_err.
+        """
+        callback = None
+        with self._lock:
+            if self.state == STATE_CLOSED:
+                return
+            send_abort = self.state in (STATE_OPEN, STATE_OPENING, STATE_CLOSING)
+        self._set_state(
+            STATE_CLOSED,
+            error=message,
+            error_code=code,
+            drop_buffers=True,
+        )
+        if send_abort:
+            callback = self._close_callback
+        if callback:
+            callback(self.id, code, message, True)
 
     def wait_closed(self, timeout=None):
         """
@@ -436,18 +475,34 @@ class Channel(object):
 
     # --- Methods called by muxer ---
 
-    def _set_state(self, state, error=None):
+    def _set_state(self, state, error=None, error_code=None, drop_buffers=False):
         """Set channel state (called by muxer)."""
+        notify = None
         with self._lock:
             self.state = state
-            if error:
+            if error is not None:
                 self._error = error
+                self._error_code = error_code
+            if drop_buffers:
+                if self._send_buf_size:
+                    self._send_buf.clear()
+                    self._send_buf_size = 0
+                    self._send_state_seq += 1
+                    notify = (False, self._send_state_seq)
+                if self._recv_buf_size:
+                    self._recv_buf.clear()
+                    self._recv_buf_size = 0
             if state == STATE_CLOSED:
+                self._close_pending = False
                 self._closed_event.set()
                 self._open_event.set()  # Also signal open waiters (failed)
                 self._recv_event.set()
             elif state == STATE_OPEN:
                 self._open_event.set()  # Signal open waiters (success)
+        if notify is not None:
+            callback = self._send_state_callback
+            if callback is not None:
+                callback(self.id, notify[0], notify[1])
 
     def _deliver(self, data):
         """Deliver received data to channel (called by muxer)."""
@@ -455,16 +510,23 @@ class Channel(object):
         if not data:
             return
 
+        overflow = False
         with self._lock:
             if self.state not in (STATE_OPEN, STATE_CLOSING):
                 return  # Discard data for non-open channels
-            if isinstance(data, bytes):
-                chunk = data
+            if (self._max_recv_buf is not None and
+                    self._recv_buf_size + len(data) > self._max_recv_buf):
+                overflow = True
             else:
-                chunk = bytes(data)
-            self._recv_buf.append(chunk)
-            self._recv_buf_size += len(data)
+                if isinstance(data, bytes):
+                    chunk = data
+                else:
+                    chunk = bytes(data)
+                self._recv_buf.append(chunk)
+                self._recv_buf_size += len(data)
 
+        if overflow:
+            raise ChannelError('recv_overflow', 'Receive buffer overflow')
         self._recv_event.set()
 
     def _take_send_data(self, max_size):
@@ -477,7 +539,8 @@ class Channel(object):
         Returns:
             bytes: data to send (may be empty)
         """
-        notify = None
+        notify_send = None
+        notify_close = False
         with self._lock:
             if not self._send_buf:
                 return b''
@@ -496,14 +559,20 @@ class Channel(object):
                     self._send_buf_size -= max_size
                 if self._send_buf_size == 0:
                     self._send_state_seq += 1
-                    notify = (False, self._send_state_seq)
+                    notify_send = (False, self._send_state_seq)
+                    if self._close_pending:
+                        self._close_pending = False
+                        notify_close = True
                 result_data = data
             elif len(self._send_buf) == 1:
                 data = self._send_buf.popleft()
                 self._send_buf_size -= chunk_len
                 if self._send_buf_size == 0:
                     self._send_state_seq += 1
-                    notify = (False, self._send_state_seq)
+                    notify_send = (False, self._send_state_seq)
+                    if self._close_pending:
+                        self._close_pending = False
+                        notify_close = True
                 result_data = data
             else:
                 result = []
@@ -523,13 +592,20 @@ class Channel(object):
 
                 if self._send_buf_size == 0:
                     self._send_state_seq += 1
-                    notify = (False, self._send_state_seq)
+                    notify_send = (False, self._send_state_seq)
+                    if self._close_pending:
+                        self._close_pending = False
+                        notify_close = True
                 result_data = b''.join(result)
 
-        if notify is not None:
+        if notify_send is not None:
             callback = self._send_state_callback
             if callback is not None:
-                callback(self.id, notify[0], notify[1])
+                callback(self.id, notify_send[0], notify_send[1])
+        if notify_close:
+            callback = self._close_callback
+            if callback is not None:
+                callback(self.id, None, None, False)
         return result_data
 
     def _has_send_data(self):

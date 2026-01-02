@@ -131,6 +131,7 @@ All messages use the format `{"t":"<type>","c":"<command>",...}`:
 {"t":"tun","c":"mtu","tx":500,"rx":150}
 {"t":"ch","c":"open","ch":2,"atype":"ipv4","addr":"192.168.1.1","port":8080}
 {"t":"ch","c":"close","ch":2}
+{"t":"ch","c":"close_err","ch":2,"code":"aborted","reason":"Channel aborted"}
 ```
 
 Keepalive is a header flag with zero segments, not a channel 0 message.

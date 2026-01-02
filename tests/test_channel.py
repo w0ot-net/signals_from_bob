@@ -69,11 +69,38 @@ class ChannelTests(unittest.TestCase):
     def test_close_opening_triggers_callback(self):
         ch = Channel(1)
         called = []
-        ch._close_callback = lambda cid: called.append(cid)
+        ch._close_callback = lambda cid, *args, **kwargs: called.append(cid)
         ch._set_state(STATE_OPENING)
         ch.close()
         self.assertEqual(ch.state, STATE_CLOSING)
         self.assertEqual(called, [1])
+
+    def test_close_waits_for_send_drain(self):
+        ch = Channel(1)
+        called = []
+        ch._close_callback = lambda cid, *args, **kwargs: called.append(cid)
+        ch._set_state(STATE_OPEN)
+        ch.write(b'abc')
+        ch.close()
+        self.assertEqual(ch.state, STATE_CLOSING)
+        self.assertEqual(called, [])
+        ch._take_send_data(10)
+        self.assertEqual(called, [1])
+
+    def test_abort_drops_buffers_and_sets_error(self):
+        ch = Channel(1)
+        ch._set_state(STATE_OPEN)
+        ch.write(b'abc')
+        ch._deliver(b'xyz')
+        ch.abort(code='aborted', message='boom')
+        self.assertTrue(ch.is_closed)
+        self.assertEqual(ch.error, 'boom')
+        self.assertEqual(ch.error_code, 'aborted')
+        self.assertEqual(ch.send_buf_size, 0)
+        self.assertEqual(ch.recv_buf_size, 0)
+        with self.assertRaises(ChannelError) as ctx:
+            ch.read(1, timeout=0.1)
+        self.assertEqual(ctx.exception.code, 'aborted')
 
     def test_read_closed_with_error(self):
         ch = Channel(1)
@@ -314,6 +341,42 @@ class ChannelManagerTests(unittest.TestCase):
         mgr._register_channel(ch)
         mgr.handle_control_message({'c': 'close_ok', 'ch': 3})
         self.assertIsNone(mgr.get_channel(3))
+
+    def test_handle_close_err(self):
+        mgr = ChannelManager(is_alice=True, config=make_test_config())
+        ch = Channel(1)
+        ch._set_state(STATE_OPEN)
+        mgr._register_channel(ch)
+        mgr.handle_control_message({
+            'c': 'close_err',
+            'ch': 1,
+            'code': 'aborted',
+            'reason': 'boom',
+        })
+        self.assertIsNone(mgr.get_channel(1))
+        with self.assertRaises(ChannelError) as ctx:
+            ch.read(1, timeout=0.1)
+        self.assertEqual(ctx.exception.code, 'aborted')
+        msgs = self._drain_control_messages(mgr)
+        self.assertEqual(msgs[0]['t'], 'ch')
+        self.assertEqual(msgs[0]['c'], 'close_ok')
+        self.assertEqual(msgs[0]['ch'], 1)
+
+    def test_deliver_segment_overflow_aborts(self):
+        cfg = make_test_config(channel_max_recv_buf=4)
+        mgr = ChannelManager(is_alice=True, config=cfg)
+        ch = Channel(1, max_recv_buf=cfg.channel_max_recv_buf)
+        ch._set_state(STATE_OPEN)
+        mgr._register_channel(ch)
+        mgr.deliver_segment(Segment(1, b'abcde'))
+        self.assertIsNone(mgr.get_channel(1))
+        with self.assertRaises(ChannelError) as ctx:
+            ch.read(1, timeout=0.1)
+        self.assertEqual(ctx.exception.code, 'recv_overflow')
+        msgs = self._drain_control_messages(mgr)
+        self.assertEqual(msgs[0]['t'], 'ch')
+        self.assertEqual(msgs[0]['c'], 'close_err')
+        self.assertEqual(msgs[0]['code'], 'recv_overflow')
 
     def test_deliver_segment_routes(self):
         mgr = ChannelManager(is_alice=True, config=make_test_config())

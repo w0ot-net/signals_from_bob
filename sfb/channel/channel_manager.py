@@ -12,6 +12,7 @@ Responsibilities:
 
 from __future__ import absolute_import
 
+import collections
 import logging
 import threading
 import time
@@ -31,7 +32,13 @@ from .channel import (
     is_bob_channel,
 )
 from .control_channel import ControlChannel
-from .channel_control_messages import ch_open, ch_open_ok, ch_close, ch_close_ok
+from .channel_control_messages import (
+    ch_open,
+    ch_open_ok,
+    ch_close,
+    ch_close_ok,
+    ch_close_err,
+)
 from ..logging_util import get_logger, log_event
 from ..config import Config
 from ..protocol import Segment, SEGMENT_HEADER_SIZE
@@ -61,8 +68,7 @@ class ChannelManager(object):
         self._config = config
         self._channels = {}  # channel_id -> Channel
         self._lock = threading.Lock()
-        self._active_channels = []
-        self._active_set = set()
+        self._active_channels = collections.OrderedDict()
         self._send_state_seq = {}
 
         # Channel ID allocation
@@ -72,15 +78,13 @@ class ChannelManager(object):
         # Control channel (always exists)
         self._control = ControlChannel(
             max_send_buf=config.channel_max_send_buf,
+            max_recv_buf=config.channel_max_recv_buf,
             read_chunk_size=config.channel_control_read_chunk,
             write_backoff_initial=config.channel_write_backoff_initial,
             write_backoff_max=config.channel_write_backoff_max,
         )
         self._control._set_state(STATE_OPEN)
         self._register_channel(self._control)
-
-        # Round-robin index for segment packing (see CHANNEL_MANAGER.md)
-        self._rr_index = 0
 
         # Drain stats for debugging throughput stalls
         self._stats_lock = threading.Lock()
@@ -128,9 +132,8 @@ class ChannelManager(object):
             return
         has_data, seq = channel._get_send_state()
         self._send_state_seq[channel.id] = seq
-        if has_data and channel.id not in self._active_set:
-            self._active_set.add(channel.id)
-            self._active_channels.append(channel.id)
+        if has_data and channel.id not in self._active_channels:
+            self._active_channels[channel.id] = None
 
     def _unregister_channel_locked(self, channel_id):
         channel = self._channels.pop(channel_id, None)
@@ -138,24 +141,9 @@ class ChannelManager(object):
             return None
         channel._set_send_state_callback(None)
         self._send_state_seq.pop(channel_id, None)
-        if channel_id in self._active_set:
-            self._active_set.remove(channel_id)
-            self._remove_active_channel_locked(channel_id)
+        if channel_id in self._active_channels:
+            del self._active_channels[channel_id]
         return channel
-
-    def _remove_active_channel_locked(self, channel_id):
-        try:
-            idx = self._active_channels.index(channel_id)
-        except ValueError:
-            return
-        del self._active_channels[idx]
-        if not self._active_channels:
-            self._rr_index = 0
-            return
-        if self._rr_index > idx:
-            self._rr_index -= 1
-        elif self._rr_index >= len(self._active_channels):
-            self._rr_index = 0
 
     def _on_channel_send_state(self, channel_id, has_data, seq):
         if channel_id == CHANNEL_CONTROL:
@@ -168,13 +156,11 @@ class ChannelManager(object):
                 return
             self._send_state_seq[channel_id] = seq
             if has_data:
-                if channel_id not in self._active_set:
-                    self._active_set.add(channel_id)
-                    self._active_channels.append(channel_id)
+                if channel_id not in self._active_channels:
+                    self._active_channels[channel_id] = None
             else:
-                if channel_id in self._active_set:
-                    self._active_set.remove(channel_id)
-                    self._remove_active_channel_locked(channel_id)
+                if channel_id in self._active_channels:
+                    del self._active_channels[channel_id]
 
     def open_channel(self):
         """
@@ -194,6 +180,7 @@ class ChannelManager(object):
             channel = Channel(
                 channel_id,
                 max_send_buf=self._config.channel_max_send_buf,
+                max_recv_buf=self._config.channel_max_recv_buf,
                 write_backoff_initial=self._config.channel_write_backoff_initial,
                 write_backoff_max=self._config.channel_write_backoff_max,
             )
@@ -240,8 +227,29 @@ class ChannelManager(object):
                 channel._close_callback = self._on_channel_close
             channel.close()
 
-    def _on_channel_close(self, channel_id):
-        """Callback invoked when channel.close() is called."""
+    def _on_channel_close(self, channel_id, code=None, reason=None, abort=False):
+        """Callback invoked when channel.close() or channel.abort() is called."""
+        if abort:
+            if code is None:
+                code = 'aborted'
+            if reason is None:
+                reason = 'Channel aborted'
+            self._control.send_message(ch_close_err(channel_id, code, reason))
+            log_event(
+                logger,
+                logging.INFO,
+                'channel.abort',
+                'Channel abort requested',
+                lambda: {
+                    'ch': channel_id,
+                    'code': code,
+                    'reason': reason,
+                    'side': 'alice' if self._is_alice else 'bob',
+                },
+            )
+            with self._lock:
+                self._unregister_channel_locked(channel_id)
+            return
         self._control.send_message(ch_close(channel_id))
         log_event(
             logger,
@@ -276,7 +284,24 @@ class ChannelManager(object):
             )
             return
 
-        channel._deliver(segment.data)
+        try:
+            channel._deliver(segment.data)
+        except ChannelError as e:
+            if e.code == 'recv_overflow':
+                channel.abort(code=e.code, message=e.message)
+            else:
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    'channel.deliver_error',
+                    'Channel delivery error',
+                    lambda: {
+                        'ch': channel_id,
+                        'code': e.code,
+                        'reason': e.message,
+                        'side': 'alice' if self._is_alice else 'bob',
+                    },
+                )
 
     def handle_control_message(self, msg):
         """
@@ -299,6 +324,8 @@ class ChannelManager(object):
             self._handle_close(msg)
         elif cmd == 'close_ok':
             self._handle_close_ok(msg)
+        elif cmd == 'close_err':
+            self._handle_close_err(msg)
         # Tunnel messages handled by tunnel
 
     def collect_segments(self, max_payload, keepalive_data=None,
@@ -340,7 +367,6 @@ class ChannelManager(object):
         # Step 2: Snapshot active data channels and filter to those with data
         with self._lock:
             active_ids = list(self._active_channels)
-            rr_index = self._rr_index
             channel_snapshot = dict(
                 (cid, self._channels.get(cid)) for cid in active_ids
             )
@@ -361,17 +387,12 @@ class ChannelManager(object):
         if inactive_ids:
             with self._lock:
                 for cid in inactive_ids:
-                    if cid in self._active_set:
-                        self._active_set.remove(cid)
-                        self._remove_active_channel_locked(cid)
+                    if cid in self._active_channels:
+                        del self._active_channels[cid]
 
         # Step 3: Primary channel fill (round-robin selection)
         if active_channels and remaining > SEGMENT_HEADER_SIZE:
-            # Select primary channel via round-robin
-            if rr_index >= len(active_channels):
-                rr_index = 0
-            primary_idx = rr_index
-            primary_id = active_channels[primary_idx]
+            primary_id = active_channels[0]
 
             channel = channel_snapshot.get(primary_id)
             if channel is not None:
@@ -380,21 +401,18 @@ class ChannelManager(object):
                     segments.append(Segment(primary_id, data))
                     remaining -= SEGMENT_HEADER_SIZE + len(data)
 
-            # Advance round-robin pointer
+            # Advance round-robin pointer (move primary to tail)
             with self._lock:
-                self._rr_index = (primary_idx + 1) % len(active_channels)
+                if primary_id in self._active_channels:
+                    self._active_channels.pop(primary_id, None)
+                    self._active_channels[primary_id] = None
 
             # Step 4: Fill remaining space from other channels (round-robin)
             if remaining > SEGMENT_HEADER_SIZE:
                 # Start from the channel after primary
-                for i in range(len(active_channels)):
+                for cid in active_channels[1:]:
                     if remaining <= SEGMENT_HEADER_SIZE:
                         break
-
-                    idx = (primary_idx + 1 + i) % len(active_channels)
-                    cid = active_channels[idx]
-                    if cid == primary_id:
-                        continue
 
                     channel = channel_snapshot.get(cid)
                     if channel is None:
@@ -542,6 +560,7 @@ class ChannelManager(object):
             channel = Channel(
                 channel_id,
                 max_send_buf=self._config.channel_max_send_buf,
+                max_recv_buf=self._config.channel_max_recv_buf,
                 write_backoff_initial=self._config.channel_write_backoff_initial,
                 write_backoff_max=self._config.channel_write_backoff_max,
             )
@@ -623,6 +642,43 @@ class ChannelManager(object):
             'channel.close_in',
             'Channel close received',
             lambda: {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+        )
+
+    def _handle_close_err(self, msg):
+        """Handle CLOSE_ERR request from peer."""
+        channel_id = msg.get('ch')
+        if channel_id is None:
+            return
+
+        code = msg.get('code', 'remote_error')
+        reason = msg.get('reason', 'Channel closed with error')
+
+        with self._lock:
+            channel = self._channels.get(channel_id)
+        if channel is None:
+            return
+        channel._set_state(
+            STATE_CLOSED,
+            error=reason,
+            error_code=code,
+            drop_buffers=True,
+        )
+        with self._lock:
+            self._unregister_channel_locked(channel_id)
+
+        # Send CLOSE_OK (outside lock to avoid blocking)
+        self._control.send_message(ch_close_ok(channel_id))
+        log_event(
+            logger,
+            logging.INFO,
+            'channel.close_err_in',
+            'Channel close error received',
+            lambda: {
+                'ch': channel_id,
+                'code': code,
+                'reason': reason,
+                'side': 'alice' if self._is_alice else 'bob',
+            },
         )
 
     def _handle_close_ok(self, msg):

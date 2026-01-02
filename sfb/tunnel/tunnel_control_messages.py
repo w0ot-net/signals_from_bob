@@ -140,6 +140,18 @@ def ch_close_ok(ch):
     return ControlMessage(T_CHANNEL, 'close_ok', ch=ch)
 
 
+def ch_close_err(ch, code, reason):
+    """
+    Channel closed with error.
+
+    Args:
+        ch: Channel ID
+        code: Error code string
+        reason: Error message
+    """
+    return ControlMessage(T_CHANNEL, 'close_err', ch=ch, code=code, reason=reason)
+
+
 # =============================================================================
 # Module Loader Messages (t="mod")
 # =============================================================================

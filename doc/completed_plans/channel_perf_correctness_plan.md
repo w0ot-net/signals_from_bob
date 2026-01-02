@@ -94,3 +94,13 @@
 - Use python3 for any scripts or tests.
 - Keep code ASCII-only and use only the standard library.
 - Commit and push after making code changes.
+
+### Completed Notes
+- Implemented close_err control message and abort semantics; close now waits for
+  send buffer drain before emitting CLOSE.
+- Added per-channel receive buffer limit (default 64k) with recv_overflow abort.
+- Switched active-channel tracking to OrderedDict for O(1) removals with stable
+  round-robin rotation.
+- Added unit tests for close drain, abort, close_err handling, and recv overflow.
+- No per-channel close timeout added; rely on existing tunnel-level timeouts and
+  reliability retransmission.

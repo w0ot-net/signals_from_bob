@@ -8,7 +8,7 @@ from __future__ import absolute_import
 import json
 import threading
 
-from .channel import Channel, CHANNEL_CONTROL
+from .channel import Channel, CHANNEL_CONTROL, ChannelError
 
 CONTROL_MESSAGE_MAX_LENGTH = 0x1000
 
@@ -23,11 +23,13 @@ class ControlChannel(Channel):
     __slots__ = ('_line_buf', '_read_chunk_size', '_send_event')
 
     def __init__(self, channel_id=CHANNEL_CONTROL, max_send_buf=65536,
-                 read_chunk_size=4096, write_backoff_initial=0.01,
-                 write_backoff_max=1.0, send_event=None):
+                 max_recv_buf=65536, read_chunk_size=4096,
+                 write_backoff_initial=0.01, write_backoff_max=1.0,
+                 send_event=None):
         if channel_id != CHANNEL_CONTROL:
             raise ValueError('ControlChannel must use channel 0')
         Channel.__init__(self, channel_id, max_send_buf=max_send_buf,
+                         max_recv_buf=max_recv_buf,
                          write_backoff_initial=write_backoff_initial,
                          write_backoff_max=write_backoff_max)
         self._line_buf = bytearray()

@@ -39,3 +39,8 @@ def ch_close(ch):
 def ch_close_ok(ch):
     """Channel closed."""
     return ControlMessage(T_CHANNEL, 'close_ok', ch=ch)
+
+
+def ch_close_err(ch, code, reason):
+    """Channel closed with error."""
+    return ControlMessage(T_CHANNEL, 'close_err', ch=ch, code=code, reason=reason)

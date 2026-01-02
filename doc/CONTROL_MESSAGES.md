@@ -55,6 +55,7 @@ required `t` and `c` fields.
 {"t":"tun","c":"mtu","tx":500,"rx":150}
 {"t":"ch","c":"open","ch":2}
 {"t":"ch","c":"close","ch":2}
+{"t":"ch","c":"close_err","ch":2,"code":"aborted","reason":"Channel aborted"}
 {"t":"file","c":"get","rid":1,"ch":4,"path":"/etc/passwd"}
 {"t":"sh","c":"open","ch":6,"rows":24,"cols":80}
 ```
@@ -217,6 +218,21 @@ Channel closed.
 ```json
 {"t":"ch","c":"close_ok","ch":2}
 ```
+
+### close_err
+
+Channel closed with error (abort).
+
+```json
+{"t":"ch","c":"close_err","ch":2,"code":"recv_overflow","reason":"Receive buffer overflow"}
+```
+
+Receiver responds with `close_ok` and drops buffered data for the channel.
+
+| Field | Description |
+|-------|-------------|
+| `code` | Error code (string) |
+| `reason` | Error message (string) |
 
 ---
 

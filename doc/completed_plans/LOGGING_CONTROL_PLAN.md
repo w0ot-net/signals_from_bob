@@ -66,3 +66,7 @@
 - [x] Structured conversion: base_tunnel debug logs
 - [x] Structured conversion: dns/protocol debug logs
 - [x] Structured conversion: cli/modules logs
+
+## Execution Notes
+- Completed prior to this change per user report; no additional execution steps
+  were run as part of this move.

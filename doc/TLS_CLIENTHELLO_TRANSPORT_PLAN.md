@@ -20,7 +20,7 @@ the tunnel already handles encryption.
 - Guarantee stealth against middleboxes; initial version targets correctness.
 
 ## Affected Components
-- `sfb/transport/tls/codec.py` (new TLS handshake encoder/decoder)
+- `sfb/transport/tls/tls_codec.py` (new TLS handshake encoder/decoder)
 - `sfb/transport/tls/tls_client.py` (new client transport)
 - `sfb/transport/tls/tls_server.py` (new server transport)
 - `sfb/transport/tls/__init__.py` (new transport package)
@@ -60,6 +60,8 @@ one request.
 - Handshake types:
   - ClientHello (0x01) for Alice -> Bob
   - ServerHello (0x02) for Bob -> Alice
+- One record carries exactly one handshake message; handshake length must match
+  the record payload length.
 - Keep the handshake minimal but syntactically valid:
   - legacy_version 0x0303
   - random (32 bytes)
@@ -67,9 +69,19 @@ one request.
   - cipher_suites list (at least one entry)
   - compression_methods = [0]
   - extensions list (may include SNI/ALPN for cover)
+- Extension type for `EXT_SFB_DATA` should use the private-use range (e.g.,
+  0xFE00) and the ServerHello should only include it if the ClientHello offered
+  it.
+
+### Framing and I/O
+- TCP is a stream: read exactly the 5-byte TLS record header, then read the
+  record payload length.
+- Do not parse until the full record is available; partial reads are normal
+  and should be treated as incomplete.
+- Each connection carries exactly one record; after parsing, close the socket.
 
 ### SFB Payload Carrier
-- Primary carrier: a dedicated extension, `EXT_SFB_DATA`.
+- Primary carrier: a dedicated extension, `EXT_SFB_DATA` (type 0xFE00).
   - Extension data format:
     - 2 bytes: magic "SF" (0x53 0x46)
     - 1 byte: version (0x01)
@@ -91,17 +103,24 @@ one request.
 ### Validation
 - Enforce maximum handshake and extension lengths to avoid large allocations.
 - Reject malformed records (bad lengths, unsupported handshake types).
-- Return `(None, None)` on timeout; raise `TransportError` on hard parse errors.
+- Treat incomplete reads as pending, not errors; return `(None, None)` on
+  timeout, raise `TransportError` on hard parse errors.
+- Enforce TLS record payload length <= 16384 and configured max sizes.
 
 ## MTU Strategy
-- Compute `send_mtu` from the maximum ClientHello payload capacity:
-  `send_mtu = max(1, max_clienthello_bytes - tls_overhead_bytes)`.
-- Compute `recv_mtu` from the maximum ServerHello payload capacity:
-  `recv_mtu = max(1, max_serverhello_bytes - tls_overhead_bytes)`.
+- Define `max_clienthello_bytes` and `max_serverhello_bytes` as the on-wire TLS
+  record size including the 5-byte record header.
+- Compute `send_mtu` and `recv_mtu` as payload caps for SFB packet bytes, using
+  codec helpers that build a minimal Hello and subtract the record, handshake,
+  and extension overhead (including the `EXT_SFB_DATA` header).
+- `send_mtu` and `recv_mtu` are transport payload MTUs (SFB packet bytes), not
+  TLS record sizes.
 - Default `max_clienthello_bytes` and `max_serverhello_bytes` should be small
   enough to avoid fragmentation (e.g., 1200-1400 bytes) but configurable.
 - Expose independent limits so MTU negotiation can clamp each direction
   separately.
+- Clamp configured max sizes to the TLS record limit
+  (record payload <= 16384, on-wire <= 16389).
 
 ## Client Transport Design
 - Non-blocking TCP sockets with `select` for connect/send/recv.
@@ -111,13 +130,19 @@ one request.
   - Return a monotonic correlation ID.
 - For `recv()`:
   - Poll pending sockets for readable data.
+  - Read and buffer until a full TLS record is available.
   - Parse ServerHello and extract payload.
   - Close the socket and return `(corr_id, payload)`.
 - Prune stale sockets using `PendingTracker` and `tls_pending_timeout`.
+- Enforce `tls_connect_timeout` and `tls_handshake_timeout` per socket.
 
 ## Server Transport Design
 - Listen on a TCP socket with configurable host/port.
-- Accept a connection, read the ClientHello record, decode payload.
+- Accept connections and track active sockets with per-connection buffers and
+  deadlines.
+- `recv()` should poll both the listening socket and active sockets so one slow
+  client does not block others (preserves `max_in_flight` behavior).
+- When a full ClientHello record is available, decode payload.
 - `recv()` returns `(payload, responder)` where responder:
   - Builds ServerHello with response payload.
   - Sends it and closes the connection.
@@ -135,6 +160,8 @@ Proposed config fields:
 - `tls_max_serverhello_bytes`
 - `tls_sni` (optional cover name)
 - `tls_alpn` (optional comma-separated list for cover)
+- Validate max record sizes and timeouts in config (positive values and within
+  TLS record limits).
 
 CLI:
 - `--transport tls`
@@ -149,7 +176,10 @@ CLI:
 ## Tests
 - Codec round-trip: build ClientHello/ServerHello, parse, payload match.
 - Handshake length and bounds enforcement.
+- Fragmented read handling (header then body across multiple reads).
+- Oversize record length rejection.
 - Client/server loopback test with real sockets (no e2e tests).
+- Multiple concurrent in-flight connections to confirm no serialization.
 - Pending timeout and pruning behavior.
 - MTU calculation for configured max handshake sizes.
 

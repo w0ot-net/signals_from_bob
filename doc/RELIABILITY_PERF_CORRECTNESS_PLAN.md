@@ -24,6 +24,8 @@ preserving protocol behavior.
 - Preserve asymmetry rules in `doc/ASYMMETRY.md`.
 - Bob's silence timeout uses monotonic time (align with `doc/ASYMMETRY.md`).
 - Do not run E2E tests under `tests/e2e/`.
+- `max_in_flight` may rise as high as 512; keep any scans or selection bounded
+  by `max_in_flight`, and avoid unbounded queues.
 
 ## Affected Components
 - `sfb/reliability/send_window.py`
@@ -37,8 +39,10 @@ preserving protocol behavior.
 1. Fix `SendWindow` send-order tracking.
    - Replace `_unacked` + `_send_order` with a single `OrderedDict` keyed by
      `seq -> _UnackedPacket`, ordered by original send. Do not add a generation
-     map; seq reuse cannot overlap with `MAX_IN_FLIGHT=64`, and ACK/SACK carry
-     only seqs.
+     map yet; seq reuse cannot overlap while `max_in_flight << 2^16` (planned
+     512). Document this assumption. If `max_in_flight` ever approaches the
+     sequence space or seq reuse becomes possible, add a generation tag or
+     monotonic send id to disambiguate ACK/SACK processing.
    - On send, insert into the ordered dict. On cumulative ACK, pop from the
      front while `seq_lt(entry.seq, ack)`; on SACK ACK, delete `seq` if present.
    - Do not reorder on retransmit; keep insertion order for cumulative ACK
@@ -46,7 +50,8 @@ preserving protocol behavior.
    - Update send timestamps only in `mark_retransmit()` after a successful send
      (do not update during selection or before rate limiter checks).
    - For Bob opportunistic retransmit, select the unacked packet with the
-     oldest `send_time` (scan the ordered dict; bounded by `MAX_IN_FLIGHT`).
+     oldest `send_time` (scan the ordered dict; bounded by `max_in_flight`,
+     including a future 512 cap).
      This avoids cooldown stalls caused by recently retransmitted head-of-order.
    - For Alice `get_retransmits()`, collect candidates without mutating the
      ordered dict; no timestamp updates during selection; no tombstones remain.
@@ -55,8 +60,8 @@ preserving protocol behavior.
 2. Audit monotonic timing usage (no churn).
    - `sfb/time_provider.py` already provides monotonic timing; do a focused audit
      for any new `time.time()` usage in runtime code.
-   - If any stragglers exist, route interval math through `time_provider.now()`
-     and reserve `time_provider.wall_time()` for logging/user-facing timestamps.
+   - Current review did not find stragglers in affected components; only update
+     if new wall-clock interval math is discovered.
 3. Improve `RecvWindow` buffer behavior under pressure.
    - Check for duplicates/already-buffered seqs before running the buffer-full
      eviction logic to avoid evicting useful packets for duplicates.
@@ -80,7 +85,8 @@ preserving protocol behavior.
      duplicates/out-of-order arrivals.
    - Keepalive: verify pongs are suppressed while any channel has pending data
      (extend existing coverage only if gaps remain).
-   - ACK wrap: cumulative ACK pop logic remains correct across seq wrap.
+   - ACK wrap: cumulative ACK pop logic remains correct across seq wrap,
+     including a send-order sequence that crosses wrap.
    - Run `python3 -m unittest tests.test_reliability tests.test_tunnel`
      (no E2E tests).
 

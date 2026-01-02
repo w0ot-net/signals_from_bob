@@ -15,6 +15,24 @@ standard-library-only constraints.
   change.
 - Keep code and scripts ASCII-only.
 
+## Affected Components
+- `sfb/crypto.py`
+- `sfb/tunnel/base_tunnel.py`
+- `sfb/tunnel/alice_tunnel.py`
+- `sfb/tunnel/bob_tunnel.py`
+- `sfb/reliability/send_window.py`
+- `sfb/protocol/__init__.py`
+- `tests/test_crypto.py`
+- `tests/test_tunnel.py`
+- `tests/test_reliability.py`
+- `tests/test_reliability_sim.py`
+- `doc/TUNNEL.md`
+- `doc/PROTOCOL.md`
+- `doc/ARCHITECTURE.md`
+- `doc/RELIABILITY.md`
+- `doc/ICMP_TRANSPORT.md`
+- `doc/TRANSPORTS.md`
+
 ## Current Behavior (Problems)
 - RC4 is stateful per instance and the same instance is used for encrypt and
   decrypt in `BaseTunnel`, so send/recv operations interleave the keystream.
@@ -54,21 +72,27 @@ compatibility shims.
 1. Define a packet-oriented crypto API in `sfb/crypto.py`:
    - `encrypt(data, seq=None, direction=None)`
    - `decrypt(data, seq=None, direction=None)`
-   - Plain/XOR ignore `seq` and `direction`.
+   - Plain/XOR ignore `seq` and `direction`, but all tunnel call sites pass
+     them explicitly for consistency.
    - RC4 requires `seq` and `direction` (raise `ValueError` when missing) and
      uses them for key derivation.
+   - Update `BaseTunnel._encrypt`/`_decrypt` to accept and pass `seq` and
+     `direction`.
 2. Implement RC4 as stateless per packet:
    - Derive a per-packet key by concatenating the base key with a nonce:
      `key = base_key + struct.pack('>HB', seq, direction)`.
    - Validate `seq` is 0-65535 and `direction` is 0 or 1.
    - Reinitialize RC4 for each encrypt/decrypt call with the derived key.
 3. Cache encrypted bodies for retransmits:
-   - Extend the send window to store the encoded body (segments only) and the
-     encrypted body for each sequence number.
-   - Preserve current metadata needed by stats (segments or a has-data flag)
-     so `data_acked_count` keeps its meaning.
-   - Update any tests/call sites that rely on the current send_window payload
-     shape (see `tests/test_reliability.py` and `tests/test_tunnel.py`).
+   - Extend the send window to store segments, flags, and the encrypted body
+     (ciphertext) for each sequence number.
+   - Preserve metadata needed by stats and logging (segments or a has-data
+     flag, plus segment count) so `data_acked_count` and `seg_count` logs keep
+     their meaning.
+   - Add accessors (or expand existing return tuples) so Alice/Bob can reuse
+     cached ciphertext on retransmit without re-encoding or re-encrypting.
+   - Update tests/call sites that rely on the send_window payload shape,
+     including `tests/test_reliability_sim.py`.
    - On retransmit, reuse the cached encrypted body to avoid repeating KSA/PRGA
      work and keep retransmit ciphertext deterministic.
 4. Update tunnel encryption flow in `sfb/tunnel/base_tunnel.py`:
@@ -80,8 +104,8 @@ compatibility shims.
      assembling a Packet from header + segments.
    - Preserve max packet size enforcement by checking `len(data) <= max_size`
      before decoding the header/body.
-   - Preserve control-segment logging (call the protocol helper after segment
-     decode).
+   - Preserve control-segment logging by calling the protocol helper after
+     segment decode (export helper if needed).
 5. Split direction deterministically:
    - Use `direction = 0` for Alice-to-Bob packets and `1` for Bob-to-Alice.
    - Derive direction from `self._is_initiator` and send/receive context.
@@ -102,15 +126,20 @@ compatibility shims.
      (same `seq` yields same ciphertext), retransmit decrypt test, and
      direction-separation test; update RC4 usage to pass `seq`/`direction`.
    - `tests/test_tunnel.py`: avoid `Packet.decode()` on encrypted wire bytes;
-     decode via the tunnel path or header+segments helpers.
-   - `tests/test_reliability.py`: adjust SendWindow tests if the stored payload
-     or method signatures change.
+     decode via the tunnel path or header+segments helpers. Update direct
+     `_encrypt`/`_decrypt` usage to pass `seq`/`direction` or switch to
+     `_encode_packet`/`_decode_packet`.
+   - `tests/test_reliability.py`: adjust SendWindow tests if the stored
+     payload or method signatures change.
+   - `tests/test_reliability_sim.py`: adjust SendWindow usage if the stored
+     payload or method signatures change.
    - Add a focused tunnel test to ensure a retransmitted packet decrypts
      correctly (unit-level; no E2E).
 
 ## Tests
 - `python3 -m unittest tests/test_crypto.py`
 - `python3 -m unittest tests/test_tunnel.py` (if targeted tests are added)
+- `python3 -m unittest tests/test_reliability_sim.py` (if SendWindow API changes)
 
 ## Notes
 - If Option C is chosen instead, adjust MTU computations and `max_packet_size`

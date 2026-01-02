@@ -13,14 +13,13 @@ while preserving Python 2.7/3 compatibility and current external behavior.
 
 ## Current Behavior (Problem Statement)
 - `to_bytes()` always copies for `memoryview`/`bytearray` via `.tobytes()`.
-- Py3 `require_bytes_like_or_bytearray()` returns a `memoryview` for `bytearray`,
-  even though the docstring claims "without copying".
 - `require_bytes_like()` uses `try/except TypeError` for the buffer protocol;
   invalid inputs pay exception cost.
 - `buffer_view()` always creates a view and may slice even when the length is
   unchanged, creating extra objects in tight loops.
-- Some call sites require real `bytes` for concatenation or text decoding
-  (segment encoding, DNS name parsing, DNS A RDATA).
+- Some call sites require real `bytes` for concatenation, text decoding, or
+  immutable queueing (segment encoding, DNS name parsing, DNS A/TXT RDATA,
+  in-memory transport queues, ICMP parse payload).
 
 ## Performance Opportunities
 - Avoid unnecessary `to_bytes()` calls where bytes-like objects are sufficient.
@@ -31,10 +30,11 @@ while preserving Python 2.7/3 compatibility and current external behavior.
 
 ## Options
 
-### Option A: Align bytearray semantics and reduce wrappers (recommended)
+### Option A: Align bytearray semantics and reduce wrappers (defer)
 - In Py3, return `bytearray` unchanged from `require_bytes_like_or_bytearray()`.
 - Optionally return `bytearray` unchanged from `require_bytes_like()` after an
-  audit of call sites for any `memoryview`-specific expectations.
+  audit of call sites for any `memoryview`-specific expectations or slicing
+  behavior that could introduce extra copies.
 - If `require_bytes_like()` returns `bytearray`, update `to_bytes()` to handle
   it without calling `.tobytes()`.
 
@@ -47,37 +47,34 @@ while preserving Python 2.7/3 compatibility and current external behavior.
 - Keep `to_bytes()` at known bytes-only boundaries:
   - Segment encode/pack (bytes concatenation).
   - DNS name parsing/encoding and A/TXT RDATA handling (ASCII decode/encode).
+  - Transport boundaries that promise immutable bytes to callers or queues
+    (in-memory transport request/response queues, ICMP parse payload).
   - Any transport send path that relies on immutable bytes semantics.
 
-### Option C: Reduce exception overhead in `require_bytes_like()`
+### Option C: Reduce exception overhead in `require_bytes_like()` (defer)
 - Add early checks for common invalid types (text, int, None) before attempting
   `memoryview()` to avoid expensive exceptions.
 - Keep the `try/except` for buffer-protocol types not on the fast path.
 
 ## Recommendation
-Implement Option A plus Option B. Aligning bytearray handling removes wrapper
-churn, and reducing `to_bytes()` usage removes avoidable copies. Option C can
-follow if profiling shows a high rate of invalid inputs.
+Implement Option B only. Keep `to_bytes()` at explicit bytes-only boundaries,
+and avoid it where bytes-like objects are sufficient. Defer Option A and Option C
+unless profiling shows they are required.
 
 ## Implementation Steps
 1. Audit every `to_bytes()` call site and tag it as bytes-only or bytes-like;
    keep bytes-only boundaries and remove conversions elsewhere.
-2. Update `require_bytes_like_or_bytearray()` on Py3 to return `bytearray`
-   unchanged; update any call sites that depended on `memoryview`.
-3. Decide whether `require_bytes_like()` should also return `bytearray`. If so,
-   update `to_bytes()` to coerce `bytearray` safely and adjust call sites.
-4. Remove unnecessary `to_bytes()` conversions in hot paths and keep
-   conversions at explicit boundaries (segment encode, DNS decoding/encoding,
+2. Replace non-boundary `to_bytes()` calls with `require_bytes_like()` (or local
+   validation) and defer conversion to explicit bytes-only boundaries.
+3. Keep `to_bytes()` at explicit bytes-only boundaries (segment encode/pack,
+   DNS decoding/encoding, in-memory transport queueing, ICMP parse payload,
    and any immutable-bytes transport sends).
-5. Tighten `buffer_view()` usage in ICMP checksum and other hot paths to avoid
-   slices when the length already matches.
-6. Update docstrings to document any semantic changes consistently across Py2/3.
+4. Update docstrings to document any semantic changes consistently across Py2/3.
 
 ## Tests
 - Add unit coverage for:
-  - `require_bytes_like_or_bytearray()` bytearray passthrough on Py3.
   - `to_bytes()` on `bytearray` and `memoryview`, and rejection of text.
-  - `buffer_view()` length handling and error behavior.
+  - `crypto._require_key()` accepting bytes-like and rejecting text.
 - Run fast unit tests with `python3`; do not run `tests/e2e/` locally.
 
 ## Affected Components

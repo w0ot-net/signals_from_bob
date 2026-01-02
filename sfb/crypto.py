@@ -137,7 +137,7 @@ CIPHER_MODES = {
 
 def _require_key(psk):
     """Require a non-empty key of raw bytes."""
-    key = to_bytes(psk)
+    key = require_bytes_like(psk)
     if not key:
         raise ValueError('Key must not be empty')
     return bytearray(key)

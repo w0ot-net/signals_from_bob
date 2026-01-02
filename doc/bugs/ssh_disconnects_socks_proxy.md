@@ -31,6 +31,10 @@ Example SSH outcomes:
   `channel_eof` and `channel_closed`.
 - No tunnel aborts observed in these sessions; the close appears to originate
   at the target side after data stalls.
+- The issue reproduces with a single SSH session (no competing channels), so
+  this is not channel starvation.
+- The issue reproduces on ICMP transport, so it is not specific to recursive
+  DNS health.
 
 ## Latest reproduction findings (2026-01-02)
 - Four SOCKS sessions recorded in one run:

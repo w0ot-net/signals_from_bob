@@ -421,32 +421,48 @@ class AliceTunnel(BaseTunnel):
         # 3. Send new packets if we can
         while True:
             if self._channel_manager.has_pending_data():
-                if not self._can_send_new(now=now, keepalive_only=False):
+                control_only = self._fast_recovery_active
+                if not self._can_send_new(
+                        now=now,
+                        keepalive_only=False,
+                        allow_fast_recovery=control_only):
                     break
                 permit = self._reserve_transport_permit(now)
                 if permit is None:
                     break
-                segments = self._collect_segments(self._send_mtu)
+                segments = self._collect_segments(
+                    self._send_mtu,
+                    control_only=control_only,
+                )
                 if segments:
-                    self._has_pending_data_acks = True
+                    if not control_only:
+                        self._has_pending_data_acks = True
                     self._send_new_packet(segments, now, permit=permit)
                     continue
                 self._transport.release_send(permit)
-                break
+                if not control_only:
+                    break
 
             should_poll, keepalive_due, consume_pong_grace = self._poll_decision(now)
             if not should_poll:
                 break
-            if not self._can_send_new(now=now, keepalive_only=keepalive_due):
+            if not self._can_send_new(
+                    now=now,
+                    keepalive_only=keepalive_due,
+                    allow_fast_recovery=True):
                 break
             permit = self._reserve_transport_permit(now)
             if permit is None:
                 break
-            segments = self._collect_segments(self._send_mtu)
+            segments = self._collect_segments(
+                self._send_mtu,
+                control_only=self._fast_recovery_active,
+            )
             if segments:
                 self._send_new_packet(segments, now, permit=permit)
                 continue
-            if self._channel_manager.has_pending_data():
+            if (self._channel_manager.has_pending_data() and
+                    not self._fast_recovery_active):
                 self._transport.release_send(permit)
                 break
             self._send_new_packet([], now, flags=FLAG_KEEPALIVE, permit=permit)
@@ -465,29 +481,25 @@ class AliceTunnel(BaseTunnel):
 
         return True
 
-    def _can_send_new(self, now=None, keepalive_only=False):
+    def _can_send_new(self, now=None, keepalive_only=False,
+                      allow_fast_recovery=False):
         """Check if we can send a new packet."""
         if now is None:
             now = time_provider.now()
-        if self._fast_recovery_active:
-            allow_control = (
-                not keepalive_only and
-                not self._channel_manager.has_data_channels_pending()
+        if self._fast_recovery_active and not allow_fast_recovery:
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Fast recovery active',
+                lambda: {
+                    'side': 'alice',
+                    'reason': 'fast_recovery',
+                    'ack': self._fast_recovery_ack,
+                    'unacked': self._send_window.unacked_count,
+                },
             )
-            if not allow_control:
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.send_blocked',
-                    'Fast recovery active',
-                    lambda: {
-                        'side': 'alice',
-                        'reason': 'fast_recovery',
-                        'ack': self._fast_recovery_ack,
-                        'unacked': self._send_window.unacked_count,
-                    },
-                )
-                return False
+            return False
         if not self._send_window.can_send:
             log_event(
                 self._logger,

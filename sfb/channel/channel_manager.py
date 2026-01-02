@@ -103,9 +103,9 @@ class ChannelManager(object):
         """Event set when control channel has pending send data."""
         return self._control.send_event
 
-    def has_pending_data(self):
+    def has_pending_data(self, include_control=True):
         """Return True if any channel has queued send data."""
-        if self._control.send_event.is_set():
+        if include_control and self._control.send_event.is_set():
             return True
         with self._lock:
             return bool(self._active_channels)
@@ -351,7 +351,7 @@ class ChannelManager(object):
         # Tunnel messages handled by tunnel
 
     def collect_segments(self, max_payload, keepalive_data=None,
-                         return_pending=False):
+                         return_pending=False, control_only=False):
         """
         Collect segments from channels for transmission.
 
@@ -366,6 +366,7 @@ class ChannelManager(object):
             keepalive_data: Optional keepalive bytes to include only if
                            no other data is being sent (legacy)
             return_pending: If True, return (segments, pending_data)
+            control_only: If True, only collect control channel segments
 
         Returns:
             list: List of Segment instances if return_pending is False
@@ -411,40 +412,41 @@ class ChannelManager(object):
                     if cid in self._active_channels:
                         del self._active_channels[cid]
 
-        # Step 3: Primary channel fill (round-robin selection)
-        if active_channels and remaining > SEGMENT_HEADER_SIZE:
-            primary_id = active_channels[0]
+        if not control_only:
+            # Step 3: Primary channel fill (round-robin selection)
+            if active_channels and remaining > SEGMENT_HEADER_SIZE:
+                primary_id = active_channels[0]
 
-            channel = channel_snapshot.get(primary_id)
-            if channel is not None:
-                data = channel._take_send_data(remaining - SEGMENT_HEADER_SIZE)
-                if data:
-                    segments.append(Segment(primary_id, data))
-                    remaining -= SEGMENT_HEADER_SIZE + len(data)
-
-            # Advance round-robin pointer (move primary to tail)
-            with self._lock:
-                if primary_id in self._active_channels:
-                    self._active_channels.pop(primary_id, None)
-                    self._active_channels[primary_id] = None
-
-            # Step 4: Fill remaining space from other channels (round-robin)
-            if remaining > SEGMENT_HEADER_SIZE:
-                # Start from the channel after primary
-                for cid in active_channels[1:]:
-                    if remaining <= SEGMENT_HEADER_SIZE:
-                        break
-
-                    channel = channel_snapshot.get(cid)
-                    if channel is None:
-                        continue
-
-                    data = channel._take_send_data(
-                        remaining - SEGMENT_HEADER_SIZE
-                    )
+                channel = channel_snapshot.get(primary_id)
+                if channel is not None:
+                    data = channel._take_send_data(remaining - SEGMENT_HEADER_SIZE)
                     if data:
-                        segments.append(Segment(cid, data))
+                        segments.append(Segment(primary_id, data))
                         remaining -= SEGMENT_HEADER_SIZE + len(data)
+
+                # Advance round-robin pointer (move primary to tail)
+                with self._lock:
+                    if primary_id in self._active_channels:
+                        self._active_channels.pop(primary_id, None)
+                        self._active_channels[primary_id] = None
+
+                # Step 4: Fill remaining space from other channels (round-robin)
+                if remaining > SEGMENT_HEADER_SIZE:
+                    # Start from the channel after primary
+                    for cid in active_channels[1:]:
+                        if remaining <= SEGMENT_HEADER_SIZE:
+                            break
+
+                        channel = channel_snapshot.get(cid)
+                        if channel is None:
+                            continue
+
+                        data = channel._take_send_data(
+                            remaining - SEGMENT_HEADER_SIZE
+                        )
+                        if data:
+                            segments.append(Segment(cid, data))
+                            remaining -= SEGMENT_HEADER_SIZE + len(data)
 
         # Step 5: Optional keepalive_data if no other segments were added
         keepalive_sent = False

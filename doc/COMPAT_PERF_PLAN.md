@@ -14,8 +14,8 @@ while preserving Python 2.7/3 compatibility and current external behavior.
 ## Current Behavior (Problem Statement)
 - In Py3, `to_bytes()` always copies for `memoryview`/`bytearray` via
   `.tobytes()`.
-- In Py2, `to_bytes()` is an alias of `require_bytes_like()` and rejects
-  `memoryview`.
+- In Py2, `to_bytes()` accepts `memoryview`/`buffer` and copies to bytes; it
+  rejects text.
 - `require_bytes_like()` uses `try/except TypeError` for the buffer protocol;
   invalid inputs pay exception cost.
 - `buffer_view()` always creates a view and may slice even when the length is
@@ -61,10 +61,24 @@ while preserving Python 2.7/3 compatibility and current external behavior.
   `memoryview()` to avoid expensive exceptions.
 - Keep the `try/except` for buffer-protocol types not on the fast path.
 
+## Breaking-Change Analysis
+- `Segment` storing bytes-like is not clean: control parsing/logging requires
+  bytes for `.split`/`.decode` and would force conversions at use sites
+  (`sfb/tunnel/alice_tunnel.py`, `sfb/protocol/__init__.py`), erasing copy
+  savings. Py2 also has weaker bytearray/memoryview concatenation behavior.
+- Channel send buffers are bytes-only for immutability. Dropping `to_bytes()`
+  would allow caller mutation of queued data, which is a visible behavior
+  change. Preserving semantics would still require a copy, so there is no win.
+- In-memory transport queues already require bytes for immutability; moving
+  them to bytes-like would be a regression with no clear performance gain.
+- Returning `bytearray` directly from `require_bytes_like()` in Py3 is a public
+  type change with limited benefit; defer unless profiling shows this path is
+  hot and safe for all callers.
+
 ## Recommendation
-Implement Option B. Use it aggressively: change any call site that removes
-copies or wrapper churn without making APIs messier. If the audit shows no
-meaningful wins, stop and reassess Option C or Option A based on profiling.
+Implement Option B but keep bytes-only boundaries (segments, channel queues,
+memory queues, DNS/ICMP/TXT/A decode). If the audit shows no meaningful wins,
+stop and reassess Option C or Option A based on profiling.
 
 ## Implementation Steps
 1. Inventory every `to_bytes()` call site and any `bytes` concatenation or
@@ -72,15 +86,16 @@ meaningful wins, stop and reassess Option C or Option A based on profiling.
 2. For bytes-like sites, remove `to_bytes()` and update adjacent call sites to
    accept bytes-like inputs; keep return types unchanged where documented.
 3. For bytes-only boundaries, keep or add `to_bytes()` and document the
-   boundary contract in docstrings.
+   boundary contract in docstrings. Treat channel send buffers as bytes-only
+   queues for immutability.
 4. Update docs for any semantic changes consistently across Py2/3.
 5. If the above yields no measurable reduction in copies, consider Option C or
    Option A as a follow-up change (with a fresh audit).
 
 ## Tests
 - Add unit coverage for:
-  - `to_bytes()` on `bytearray` and `memoryview` in Py3; `memoryview` raises
-    `TypeError` in Py2; reject text on both.
+  - `to_bytes()` on `bytearray` and `memoryview` in Py3; accept `memoryview` in
+    Py2; reject text on both.
   - `crypto._require_key()` accepting bytes-like and rejecting text.
   - `Plain.encrypt()` returning bytes for bytes-like inputs (if unchanged).
 - Run fast unit tests with `python3`; do not run `tests/e2e/` locally.
@@ -89,6 +104,9 @@ meaningful wins, stop and reassess Option C or Option A based on profiling.
 - sfb/compat.py
 - sfb/crypto.py
 - sfb/protocol/segment.py
+- sfb/protocol/__init__.py
+- sfb/channel/channel.py
+- sfb/tunnel/alice_tunnel.py
 - sfb/transport/dns/codec.py
 - sfb/transport/icmp/icmp_packet.py
 - sfb/transport/memory/memory_client.py

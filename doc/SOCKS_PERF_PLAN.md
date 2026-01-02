@@ -68,13 +68,14 @@ preserving protocol behavior and cross platform support.
      loop today).
    - If a pump ever handles multiple sockets, cap per-iteration bytes or loops
      so a single busy socket cannot starve others.
-   - Bound the per-socket outbound buffer and gate channel.read so pending data
-     cannot grow unbounded when the socket is not writable (use a cap and
-     low-water mark or read only when writable); keep the current read-size cap
-     based on channel send buffer availability when reading from sockets.
-   - When the client socket is not writable, stop channel.read in
-     channel_to_client (or cap it behind a small buffer) to prevent recv buffer
-     overflow and channel aborts under backpressure.
+   - Bound the per-socket outbound buffer and keep channel.read draining; size
+     the buffer (or channel_max_recv_buf) to cover worst-case in-flight bytes
+     (max_in_flight * payload_cap) so client stalls cannot trigger recv_overflow.
+     Keep the current read-size cap based on channel send buffer availability
+     when reading from sockets.
+   - Only gate channel.read if there is sender-side backpressure or guaranteed
+     headroom for in-flight bytes; do not pause reads solely because the socket
+     is not writable.
    - Handle EWOULDBLOCK/WSAEWOULDBLOCK consistently on Windows and Linux in
      both pumps.
    - Clarify how socks_relay_socket_timeout and socks_relay_write_timeout map

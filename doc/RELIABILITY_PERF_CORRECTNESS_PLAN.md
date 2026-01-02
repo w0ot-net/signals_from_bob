@@ -25,14 +25,15 @@ preserving protocol behavior.
 ## Plan
 1. Fix `SendWindow` send-order tracking.
    - Replace `_unacked` + `_send_order` with a single `OrderedDict` keyed by
-     seq -> `_UnackedPacket`.
+     seq -> `_UnackedPacket`, ordered by original send.
    - On send, insert into the ordered dict; on cumulative ACK, pop from the
      front while `seq_lt(seq, ack)`; on SACK ACK, delete by key if present.
-   - On retransmit, delete+reinsert to keep order by last-send (Py2-safe);
-     `get_retransmits()` iterates the ordered dict in insertion order and
-     `get_oldest_unacked()` peeks the first item; no tombstones remain.
-   - Avoid mutating the ordered dict while iterating; collect retransmit
-     candidates first, then reorder/update timestamps.
+   - Do not reorder on retransmit; update timestamps in place so cumulative ACK
+     removal stays correct.
+   - For Bob opportunistic retransmit, choose the unacked packet with the
+     oldest `send_time` (scan the ordered dict; bounded by `MAX_IN_FLIGHT`).
+   - For Alice `get_retransmits()`, collect candidates without mutating the
+     ordered dict; update timestamps after selection; no tombstones remain.
    - Update any internal references/tests that assumed `_send_order` exists.
 2. Use a monotonic clock for reliability timers.
    - Add `sfb/time_utils.py` (or extend `sfb/compat.py`) with
@@ -43,6 +44,8 @@ preserving protocol behavior.
    - Switch reliability/tunnel codepaths that compare timestamps to use the
      monotonic helper (send timestamps, ACK progress timers, retransmit timing,
      keepalive/poll scheduling), excluding Bob's wall-clock silence timeout.
+   - Ensure all reliability timestamps are sourced from `monotonic_time()`
+     consistently; avoid mixing wall-clock `time.time()` with monotonic values.
    - Audit all `time.time()` usage and limit changes to reliability/tunnel:
      - `sfb/reliability/send_window.py` for send/retransmit timestamps.
      - `sfb/tunnel/base_tunnel.py` for ACK progress timers.
@@ -59,6 +62,8 @@ preserving protocol behavior.
      packet (use existing seq compare/distance helpers).
    - Define a deterministic tie-breaker for equal distance (e.g., keep the
      existing packet and drop the new one to avoid churn).
+   - When evicting to accept a closer packet, still record buffer pressure
+     via `on_recv_buffer_full()` and acceptance via `on_recv_buffered()`.
    - Keep the existing `SACK_BITS` window check in place.
 4. Add targeted unit tests.
    - `SendWindow`: SACK-only progress with a missing cumulative ACK should
@@ -77,5 +82,6 @@ preserving protocol behavior.
 - Timing is stable across wall-clock adjustments.
 - Bob's wall-clock silence timeout remains wall-clock.
 - Recv buffer keeps nearest-to-ack packets under pressure.
+- Cumulative ACK processing remains correct after retransmits.
 - New unit tests cover the new behavior and pass.
 - Keepalive pongs remain suppressed while any channel has pending data.

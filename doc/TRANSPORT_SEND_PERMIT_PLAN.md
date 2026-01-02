@@ -22,6 +22,8 @@ the Transport base class and avoids thin wrappers.
   - It does not add pending entries; pruning is the only mutation.
   - A successful reserve counts against capacity until its permit is used;
     capacity checks must include outstanding permits.
+- Add `release_send(permit)` to `Transport` to drop a reservation when a
+  caller skips the send attempt.
 - Make `Transport.send(self, data, permit)` a concrete method that enforces:
   - `permit` is present, matches the transport, and is unused.
   - Marks the permit as used before calling `_send_impl(self, data, permit)`
@@ -44,6 +46,9 @@ the Transport base class and avoids thin wrappers.
   to override it.
 - Track outstanding permits in the base class and ensure `reserve_send()`
   includes them in capacity checks and `send()` clears them even on errors.
+- Ensure `_reserved` exists on all transport instances (base `__init__` plus
+  subclass `__init__` calls, or a lazy initializer used by `reserve_send()`
+  and `send()`).
 - Use a Py2/3-compatible custom metaclass that rejects subclasses which
   define `send` in their class dict (raise `TypeError` at class creation),
   while exempting the base `Transport` class itself.
@@ -56,10 +61,14 @@ the Transport base class and avoids thin wrappers.
    - Add abstract `reserve_send(now=None)` and `_send_impl(data, permit)`.
    - Add `self._reserved` (set of active permits) and a helper to register
      a permit once capacity is available.
+   - Add a base `__init__` (and update subclasses to call it) or a lazy
+     `_ensure_reserved()` helper to initialize `_reserved`.
    - Implement `Transport.send(data, permit)` with validation, mark `used`
      before calling `_send_impl`, and always remove the permit from
      `self._reserved` (even if `_send_impl` raises). Raise `TransportError`
      if permit is missing, invalid, or reused.
+   - Add `Transport.release_send(permit)` to free a reservation when a
+     caller skips sending; validate transport/used and clear from `_reserved`.
    - Add `TransportMeta(abc.ABCMeta)` and apply it via a local Py2/3
      `with_metaclass` helper so the override check works in both versions,
      and does not reject the base class definition.
@@ -71,6 +80,8 @@ the Transport base class and avoids thin wrappers.
    - Include outstanding permits (`len(self._reserved)`) in capacity checks.
    - Move "send blocked" logging into `reserve_send()` using
      `permit.pending_before` (or the returned count) and keep the same log keys.
+   - Add a `reserved` or `pending_total` field to the log payload so blocked
+     sends due to outstanding permits are visible.
    - Move existing send logic into `_send_impl()`.
    - Use `permit.pending_before` for logging instead of `pending_count()`.
    - Remove `can_send()` from this class.
@@ -81,6 +92,8 @@ the Transport base class and avoids thin wrappers.
    - Same pattern as DNS: `reserve_send()` + `_send_impl()`.
    - Include outstanding permits (`len(self._reserved)`) in capacity checks.
    - Move "send blocked" logging into `reserve_send()` and keep log keys.
+   - Add a `reserved` or `pending_total` field to the log payload so blocked
+     sends due to outstanding permits are visible.
    - Use permit values for logging.
    - Remove `can_send()` from this class.
    - Make `pending_count()` return `len(self._pending)` without pruning.
@@ -118,6 +131,8 @@ the Transport base class and avoids thin wrappers.
      `reserve_send()` returns `None`, log and skip the send attempt.
    - Update direct `transport.send()` call sites (SYN/SYN-ACK/ACK paths and any
      other direct sends) to obtain a permit first.
+   - If a permit is reserved and the send is skipped (e.g., error building the
+     packet), call `release_send(permit)` to avoid leaking capacity.
    - Only replace `Transport.can_send()` uses; do not touch pacer or rate
      limiter `can_send()` calls.
    - Ensure one permit is used for exactly one send attempt.
@@ -130,6 +145,8 @@ the Transport base class and avoids thin wrappers.
      flow and pruning rules.
    - Note the breaking API change and required updates for external transports.
    - Remove any `pending_count(now=...)` examples from docs.
+   - Update or mark `doc/ICMP_PENDING_PRUNE_PLAN.md` as superseded to avoid
+     conflicting guidance.
 
 8. Tests
    - Add unit tests for DNS and ICMP to count prune calls per send attempt
@@ -144,6 +161,7 @@ the Transport base class and avoids thin wrappers.
    - Add base transport tests for invalid permit, wrong transport, and reuse.
    - Add tests that outstanding permits count against capacity, and that
      `send()` clears reservations even when `_send_impl` raises.
+   - Add tests that `release_send()` restores capacity for unused permits.
    - Update lossy transport tests to use permits and validate no extra inner
      `reserve_send()` calls per send attempt.
    - Do not run E2E tests; they remain unchanged.
@@ -158,8 +176,8 @@ the Transport base class and avoids thin wrappers.
   a second inner permit.
 - Reserve and send must be adjacent in time to avoid drift in pending counts.
 - Permit reuse must be rejected to avoid bypassing capacity enforcement.
-- Callers that reserve and do not send will hold capacity until cleared; keep
-  reserve/send adjacent or add explicit cleanup if needed.
+- Callers that reserve and do not send must call `release_send()` to avoid
+  holding capacity indefinitely.
 
 ## Expected Outcome
 

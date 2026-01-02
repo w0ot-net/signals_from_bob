@@ -295,11 +295,17 @@ class BaseTunnel(object):
         if diff < 0:
             return (False, None)
         distance = diff
-        if distance < max_in_flight:
+        unacked = self._send_window.unacked_count
+        distance_limit = max_in_flight + unacked
+        if distance_limit > self.MAX_WINDOW:
+            distance_limit = self.MAX_WINDOW
+        if distance < distance_limit:
             return (False, None)
         return (True, (
             distance,
             max_in_flight,
+            unacked,
+            distance_limit,
             self._last_cum_ack,
             next_seq,
         ))

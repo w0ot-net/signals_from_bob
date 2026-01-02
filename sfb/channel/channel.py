@@ -487,28 +487,51 @@ class Channel(object):
         """
         callback = None
         pending_size = None
+        state = None
+        send_closed_before = None
+        recv_closed = None
+        immediate = False
         with self._lock:
             if self._send_closed:
                 return
             if self.state != STATE_OPEN:
                 raise ChannelError('not_open', 'Channel not open')
+            state = self.state
+            send_closed_before = self._send_closed
+            recv_closed = self._recv_closed
             self._send_closed = True
             self._send_space_event.set()
-            if self._send_buf_size == 0:
+            pending_size = self._send_buf_size
+            if pending_size == 0:
                 self._half_close_pending = False
                 callback = self._half_close_callback
+                immediate = True
             else:
                 self._half_close_pending = True
-                pending_size = self._send_buf_size
 
         if pending_size is not None:
             log_event(
                 logger,
                 logging.DEBUG,
-                'channel.half_close_pending_close',
-                'Half-close pending until send buffer drains',
-                lambda: {'ch': self.id, 'pending_bytes': pending_size},
+                'channel.half_close_request',
+                'Half-close requested',
+                lambda: {
+                    'ch': self.id,
+                    'pending_bytes': pending_size,
+                    'state': state,
+                    'send_closed_before': send_closed_before,
+                    'recv_closed': recv_closed,
+                    'immediate': immediate,
+                },
             )
+            if not immediate and pending_size:
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    'channel.half_close_pending_close',
+                    'Half-close pending until send buffer drains',
+                    lambda: {'ch': self.id, 'pending_bytes': pending_size},
+                )
         if callback is not None:
             callback(self.id)
 

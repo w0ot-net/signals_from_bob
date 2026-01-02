@@ -154,6 +154,7 @@ LOG_PROFILES = {
             'tunnel.responder_error',
             'channel.open*',
             'channel.close*',
+            'channel.half_close*',
             'channel.send_buf_*',
             'channel.drain',
             'channel.pack',

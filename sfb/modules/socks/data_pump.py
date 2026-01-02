@@ -69,6 +69,16 @@ def _pump_poll_bounds(config):
     return base, max_wait
 
 
+def _channel_state_snapshot(channel):
+    return {
+        'state': channel.state,
+        'send_buf_size': channel.send_buf_size,
+        'recv_buf_size': channel.recv_buf_size,
+        'send_closed': getattr(channel, '_send_closed', None),
+        'recv_closed': getattr(channel, '_recv_closed', None),
+    }
+
+
 
 def _shutdown_socket_write(sock):
     try:
@@ -299,6 +309,20 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     )
                     if eof_callback is not None:
                         if not stop_event.is_set():
+                            log_event(
+                                logger,
+                                logging.DEBUG,
+                                'sock.relay_half_close_request',
+                                'SOCKS relay half-close requested',
+                                lambda: {
+                                    'rid': rid,
+                                    'ch': ch,
+                                    'direction': direction,
+                                    'label': recv_label,
+                                    'side': side,
+                                    'channel_state': _channel_state_snapshot(channel),
+                                },
+                            )
                             try:
                                 eof_callback()
                             except Exception as exc:
@@ -535,6 +559,22 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
 
             if channel_closed and outbound_size == 0:
                 if shutdown_pending:
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        'sock.relay_shutdown_write',
+                        'SOCKS relay socket write shutdown',
+                        lambda: {
+                            'rid': rid,
+                            'ch': ch,
+                            'direction': direction,
+                            'label': send_label,
+                            'side': side,
+                            'reason': channel_closed_reason,
+                            'outbound_size': outbound_size,
+                            'channel_state': _channel_state_snapshot(channel),
+                        },
+                    )
                     _shutdown_socket_write(sock)
                     shutdown_pending = False
                 if exit_reason is None:

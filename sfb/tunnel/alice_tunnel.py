@@ -603,7 +603,54 @@ class AliceTunnel(BaseTunnel):
         permit = self._transport.reserve_send(now=now)
         if permit is None:
             self._log_transport_blocked()
+            return None
+        if self._transport_headroom_blocked(permit):
+            return None
         return permit
+
+    def _transport_headroom(self, max_in_flight):
+        if max_in_flight is None:
+            return 0
+        headroom = max(2, max_in_flight // 16)
+        if max_in_flight <= headroom:
+            return 0
+        return headroom
+
+    def _transport_headroom_blocked(self, permit):
+        if not hasattr(self._transport, 'pending_count'):
+            return False
+        max_in_flight = getattr(self._transport, 'max_in_flight', None)
+        headroom = self._transport_headroom(max_in_flight)
+        if headroom <= 0:
+            return False
+        try:
+            pending = permit.pending_before
+            if pending is None:
+                pending = self._transport.pending_count()
+        except Exception:
+            return False
+        limit = max_in_flight - headroom
+        if pending < limit:
+            return False
+        try:
+            self._transport.release_send(permit)
+        except Exception:
+            pass
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.send_blocked',
+            'Transport headroom reserved',
+            lambda: {
+                'side': 'alice',
+                'reason': 'transport_headroom',
+                'pending': pending,
+                'max_in_flight': max_in_flight,
+                'headroom': headroom,
+                'limit': limit,
+            },
+        )
+        return True
 
     def _log_transport_blocked(self):
         def build_fields():
@@ -793,9 +840,8 @@ class AliceTunnel(BaseTunnel):
             )
             return False
 
-        permit = self._transport.reserve_send(now=now)
+        permit = self._reserve_transport_permit(now)
         if permit is None:
-            self._log_transport_blocked()
             return False
 
         try:

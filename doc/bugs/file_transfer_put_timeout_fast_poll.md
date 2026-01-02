@@ -68,3 +68,7 @@ transport details for ICMP/DNS.
   still gated by the pending cap.
 - Bob log shows `channel.send_buf_full` continuously and one segment per poll;
   he is responding, but throughput remains bounded by Alice's poll capacity.
+- In the latest 5s window on Alice, there were 1482
+  `icmp.send_blocked`/`tunnel.send_blocked` events and 379 fast-gap
+  retransmits, reinforcing that transport pending saturation is the primary
+  limiter rather than packet loss.

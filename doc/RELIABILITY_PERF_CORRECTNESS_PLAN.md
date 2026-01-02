@@ -1,0 +1,63 @@
+# Reliability Performance and Correctness Plan
+
+## Goal
+Fix reliability-layer performance degradation and timing hazards while
+preserving protocol behavior.
+
+## Issues
+- `SendWindow` keeps SACK-acked seqs in `_send_order`, so the deque grows
+  without bound when cumulative ACK stalls; `get_retransmits()` then scans an
+  ever-growing list.
+- RTT/retransmit timing uses `time.time()`, so clock jumps can cause negative
+  RTTs or missed/early retransmits.
+- `RecvWindow` drops new out-of-order packets when its buffer is full, even if
+  the new packet is closer to `ack` than buffered ones, which can extend
+  head-of-line blocking.
+- Missing tests for the above failure modes.
+
+## Constraints
+- Python 2.7/3 compatible; standard library only.
+- Must support Windows and Linux (ICMP transport remains Linux-only).
+- Preserve asymmetry rules in `doc/ASYMMETRY.md`.
+- Do not run E2E tests under `tests/e2e/`.
+
+## Plan
+1. Fix `SendWindow` send-order tracking.
+   - Replace `_unacked` + `_send_order` with a single `OrderedDict` keyed by
+     seq -> `_UnackedPacket`.
+   - On send, insert into the ordered dict; on cumulative ACK, pop from the
+     front while `seq_lt(seq, ack)`; on SACK ACK, delete by key if present.
+   - `get_retransmits()` iterates the ordered dict in insertion order;
+     `get_oldest_unacked()` peeks the first item; no tombstones remain.
+   - Update any internal references/tests that assumed `_send_order` exists.
+2. Use a monotonic clock for reliability timers.
+   - Add `sfb/time_utils.py` (or extend `sfb/compat.py`) with
+     `monotonic_time()`:
+     - Python 3: `time.monotonic()`.
+     - Python 2: `time.time()` with a last-value clamp to prevent backwards
+       jumps (guarded by a small lock).
+   - Switch reliability/tunnel codepaths that compare timestamps to use the
+     monotonic helper (send timestamps, ACK progress timers, retransmit timing,
+     keepalive/poll scheduling).
+   - Keep wall-clock time only for logging/user-facing timestamps.
+3. Improve `RecvWindow` buffer behavior under pressure.
+   - When buffer is full, compute the offset of the incoming packet. If it is
+     closer to `ack` than the farthest buffered packet, evict the farthest and
+     accept the new one; otherwise drop the new packet.
+   - Keep the existing `SACK_BITS` window check in place.
+4. Add targeted unit tests.
+   - `SendWindow`: SACK-only progress with a missing cumulative ACK should
+     leave only the missing seq in the ordered dict and keep retransmit scans
+     bounded.
+   - `RecvWindow`: verify eviction keeps the nearest offsets and drops the
+     farthest when full.
+   - `monotonic_time()`: ensure non-decreasing outputs with a controllable
+     time source (no external dependencies).
+   - Run `python3 -m unittest tests.test_reliability` (no E2E tests).
+
+## Acceptance Criteria
+- `_send_order` tombstones no longer accumulate after SACK-only ACK progress.
+- Retransmit scanning cost is bounded by `MAX_IN_FLIGHT`.
+- Timing is stable across wall-clock adjustments.
+- Recv buffer keeps nearest-to-ack packets under pressure.
+- New unit tests cover the new behavior and pass.

@@ -104,6 +104,51 @@ def _log_pump_error(logger, rid, ch, side, direction, msg, exc):
     )
 
 
+def _log_pump_start(logger, rid, ch, side, direction, label):
+    log_event(
+        logger,
+        logging.DEBUG,
+        'sock.pump_start',
+        'SOCKS pump start',
+        lambda: {
+            'rid': rid,
+            'ch': ch,
+            'direction': direction,
+            'label': label,
+            'side': side,
+        },
+    )
+
+
+def _log_pump_stop(logger, rid, ch, side, direction, label, reason,
+                   error=None, stats=None):
+    if reason is None:
+        reason = 'unknown'
+
+    def build_fields():
+        fields = {
+            'rid': rid,
+            'ch': ch,
+            'direction': direction,
+            'label': label,
+            'side': side,
+            'reason': reason,
+        }
+        if error is not None:
+            fields['error'] = str(error)
+        if stats:
+            fields.update(stats)
+        return fields
+
+    log_event(
+        logger,
+        logging.DEBUG,
+        'sock.pump_stop',
+        'SOCKS pump stop',
+        build_fields,
+    )
+
+
 def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                            rid, ch, side, recv_label, direction):
     """
@@ -112,18 +157,21 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
     Uses non-blocking writes with backpressure: stops reading from socket
     when channel buffer is full, which naturally backpressures TCP.
     """
+    bytes_recv = 0
+    bytes_written = 0
+    buffer_full_count = 0
+    wait_time = 0.0
+    exit_reason = None
+    exit_error = None
+    fatal_error = False
     try:
         sock.setblocking(False)
         pending = None
         pending_offset = 0
-        bytes_recv = 0
-        bytes_written = 0
-        buffer_full_count = 0
-        wait_time = 0.0
         base_backoff, max_backoff = _pump_poll_bounds(config)
         backoff = base_backoff
         last_stats = time_provider.now()
-        fatal_error = False
+        _log_pump_start(logger, rid, ch, side, direction, recv_label)
         while not stop_event.is_set():
             if pending is not None:
                 try:
@@ -151,8 +199,11 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                             backoff = base_backoff
                         continue
                     if exc.code in ('not_open', 'closed'):
+                        exit_reason = 'channel_closed'
                         break
                     fatal_error = True
+                    exit_reason = 'channel_write_error'
+                    exit_error = exc
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction,
@@ -161,6 +212,8 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     break
                 except Exception as exc:
                     fatal_error = True
+                    exit_reason = 'channel_write_error'
+                    exit_error = exc
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction,
@@ -203,6 +256,8 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     if _is_would_block(exc):
                         break
                     fatal_error = True
+                    exit_reason = 'socket_recv_error'
+                    exit_error = exc
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction,
@@ -211,6 +266,8 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     break
                 except Exception as exc:
                     fatal_error = True
+                    exit_reason = 'socket_recv_error'
+                    exit_error = exc
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction,
@@ -219,6 +276,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     break
 
                 if not data:
+                    exit_reason = 'socket_eof'
                     log_event(
                         logger,
                         logging.DEBUG,
@@ -244,8 +302,11 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         buffer_full_count += 1
                         break
                     if exc.code in ('not_open', 'closed'):
+                        exit_reason = 'channel_closed'
                         return
                     fatal_error = True
+                    exit_reason = 'channel_write_error'
+                    exit_error = exc
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction,
@@ -254,6 +315,8 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     break
                 except Exception as exc:
                     fatal_error = True
+                    exit_reason = 'channel_write_error'
+                    exit_error = exc
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction,
@@ -285,9 +348,25 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 buffer_full_count = 0
                 wait_time = 0.0
                 last_stats = now
+        if exit_reason is None:
+            if stop_event.is_set():
+                exit_reason = 'stop_event'
+            else:
+                exit_reason = 'loop_exit'
     finally:
         if fatal_error:
             stop_event.set()
+        _log_pump_stop(
+            logger, rid, ch, side, direction, recv_label, exit_reason,
+            error=exit_error,
+            stats={
+                'bytes_recv': bytes_recv,
+                'bytes_written': bytes_written,
+                'buffer_full': buffer_full_count,
+                'sleep_time': round(wait_time, 3),
+                'send_buf_size': channel.send_buf_size,
+            },
+        )
 
 
 def pump_channel_to_socket(channel, sock, config, logger, stop_event,
@@ -297,21 +376,25 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
 
     Uses non-blocking sends with select-driven backpressure.
     """
+    bytes_read = 0
+    bytes_sent = 0
+    outbound_size = 0
+    channel_closed = False
+    channel_closed_reason = None
+    exit_reason = None
+    exit_error = None
+    fatal_error = False
     try:
         sock.setblocking(False)
         outbound = collections.deque()
-        outbound_size = 0
         outbound_offset = 0
         outbound_limit = _outbound_cap(config)
-        bytes_read = 0
-        bytes_sent = 0
         last_stats = time_provider.now()
         base_backoff, max_backoff = _pump_poll_bounds(config)
         backoff = base_backoff
         write_timeout = config.socks_relay_write_timeout
         last_send = None
-        channel_closed = False
-        fatal_error = False
+        _log_pump_start(logger, rid, ch, side, direction, send_label)
         while not stop_event.is_set():
             progress = False
 
@@ -321,6 +404,8 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     last_send = now
                 if write_timeout is not None and now - last_send > write_timeout:
                     fatal_error = True
+                    exit_reason = 'socket_send_timeout'
+                    exit_error = socket.timeout()
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction,
@@ -333,22 +418,26 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     try:
                         sent = sock.send(chunk[outbound_offset:])
                     except socket.error as exc:
-                        if _is_would_block(exc):
-                            sent = 0
-                        else:
-                            fatal_error = True
-                            if not stop_event.is_set():
-                                _log_pump_error(
-                                    logger, rid, ch, side, direction,
-                                    '%s send error' % send_label, exc
-                                )
-                            break
-                    except Exception as exc:
+                    if _is_would_block(exc):
+                        sent = 0
+                    else:
                         fatal_error = True
+                        exit_reason = 'socket_send_error'
+                        exit_error = exc
                         if not stop_event.is_set():
                             _log_pump_error(
                                 logger, rid, ch, side, direction,
                                 '%s send error' % send_label, exc
+                                )
+                        break
+                except Exception as exc:
+                    fatal_error = True
+                    exit_reason = 'socket_send_error'
+                    exit_error = exc
+                    if not stop_event.is_set():
+                        _log_pump_error(
+                            logger, rid, ch, side, direction,
+                            '%s send error' % send_label, exc
                             )
                         break
 
@@ -384,6 +473,8 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                                 'Channel read error', exc
                             )
                         fatal_error = True
+                        exit_reason = 'channel_read_error'
+                        exit_error = exc
                         break
                     if data is None:
                         pass
@@ -396,6 +487,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                             lambda: {'rid': rid, 'ch': ch, 'side': side},
                         )
                         channel_closed = True
+                        channel_closed_reason = 'channel_eof'
                         _shutdown_socket_write(sock)
                     else:
                         outbound.append(data)
@@ -406,6 +498,8 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                             last_send = time_provider.now()
 
             if channel_closed and outbound_size == 0:
+                if exit_reason is None:
+                    exit_reason = channel_closed_reason or 'channel_eof'
                 break
 
             if progress:
@@ -433,6 +527,23 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                 bytes_read = 0
                 bytes_sent = 0
                 last_stats = now
+        if exit_reason is None:
+            if stop_event.is_set():
+                exit_reason = 'stop_event'
+            elif channel_closed:
+                exit_reason = channel_closed_reason or 'channel_eof'
+            else:
+                exit_reason = 'loop_exit'
     finally:
         if fatal_error:
             stop_event.set()
+        _log_pump_stop(
+            logger, rid, ch, side, direction, send_label, exit_reason,
+            error=exit_error,
+            stats={
+                'bytes_read': bytes_read,
+                'bytes_sent': bytes_sent,
+                'outbound_size': outbound_size,
+                'recv_buf_size': channel.recv_buf_size,
+            },
+        )

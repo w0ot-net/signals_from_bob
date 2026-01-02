@@ -8,7 +8,7 @@ use a request/response pattern at the wire level.
 
 The Transport interface separates send() and recv() to support pipelining -
 multiple requests in flight simultaneously. For serial operation, set
-max_pending=1 or call recv() after each send().
+max_in_flight=1 or call recv() after each send().
 
     Transport: Client side (Alice) - send requests, receive responses
     Server: Server side (Bob) - receive requests, send responses
@@ -77,12 +77,12 @@ class Transport(object):
 
     @property
     @abc.abstractmethod
-    def max_pending(self):
+    def max_in_flight(self):
         """
         Maximum concurrent in-flight requests.
 
         Returns:
-            int: max pending requests (transport limit)
+            int: max in-flight requests (transport limit)
         """
         pass
 

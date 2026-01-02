@@ -19,7 +19,7 @@ heavy download appears to block other channels from making progress.
   - ch0: 6852 bytes
 - `channel.send_buf_full` and `channel.send_buf_high` spam for ch2 with
   `size=8192` (send buffer full).
-- `tunnel.send_blocked` repeats with `pending=32` and `max_pending=32`
+- `tunnel.send_blocked` repeats with `pending=32` and `max_in_flight=32`
   (Alice side).
 - `tunnel.send_window_distance` repeats with `distance=64` and
   `max_in_flight=64`.

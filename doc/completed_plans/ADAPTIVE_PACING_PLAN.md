@@ -4,7 +4,7 @@
 Improve throughput by replacing fixed send pacing with an adaptive
 algorithm that:
 - Targets a configurable inflight ratio
-- Clamps to min(transport.max_pending, negotiated send window)
+- Clamps to the negotiated send window (max_in_flight cap)
 - Preserves "poll immediately after real data" via existing poll decisions
 - Keepalive polls are not delayed by pacing when due
 
@@ -28,7 +28,7 @@ This plan applies to Alice only. Bob remains opportunistic, per
 ### New Component: AdaptivePacer (Alice)
 Add a pacing helper (e.g., `sfb/tunnel/pacing.py`) that:
 - Computes a target inflight count:
-  - `cap = min(transport.max_pending, send_window._max_in_flight)`
+  - `cap = send_window._max_in_flight`
   - `target = clamp(int(cap * target_inflight_ratio), min_inflight, max_inflight or cap)`
 - Enforces pacing by gating new sends when:
   - `send_window.unacked_count >= target`

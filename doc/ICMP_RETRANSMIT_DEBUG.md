@@ -11,7 +11,7 @@
 - 23s window: server log shows 1210 `tunnel.packet_recv` and 1160 `tunnel.retransmit`.
 - Retransmit seqs repeat about 31 times each (42 unique seqs).
 - Bob's `tunnel.packet_recv` ack values change 49 times; each ack value repeats on the
-  order of `icmp_max_pending` (default 32), suggesting pipelined polls.
+  order of `max_in_flight` (default 64), suggesting pipelined polls.
 - Client log in same window: 330 `tunnel.send_blocked` (258 transport blocked),
   1 `icmp.prune_stale`, 1 `tunnel.retransmit`.
 - Latest run (wget + SSH + 2 SOCKS clients):
@@ -34,7 +34,7 @@
   - Bob logged 2 `tunnel.packet_decode_failed`.
 
 ## Hypotheses
-- High poll rate + `icmp_max_pending` causes many requests with the same ack value,
+- High poll rate + `max_in_flight` causes many requests with the same ack value,
   and Bob retransmits opportunistically on each request while unacked remains.
 - Send window only gates by unacked count. With SACK freeing slots while cumulative
   ACK stalls, the sender can advance `next_seq` more than 64 ahead of peer ACK,
@@ -45,7 +45,7 @@
 ## Next Steps
 - Apply Bob retransmit cooldown + ACK-stagnation gate and compare
   `tunnel.retransmit` vs `tunnel.retransmit_skip` counts.
-- Run a session with `icmp_max_pending=1` or `tunnel_send_rate` set to slow polling
+- Run a session with `max_in_flight=1` or `tunnel_send_rate` set to slow polling
   and compare retransmit counts to confirm the poll-cadence hypothesis.
 - Add send-window distance guard: block new sends when
   `(next_seq - last_cum_ack) >= max_in_flight` to prevent out-of-window drops.

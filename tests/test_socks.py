@@ -292,7 +292,7 @@ class SocksLoopTests(unittest.TestCase):
             socks_pump_backoff_max=0.01,
             socks_relay_buffer_size=32,
             socks_relay_channel_timeout=0.01,
-            tunnel_max_in_flight=2,
+            max_in_flight=2,
         )
         channel = Channel(1, max_recv_buf=128)
         channel._set_state(STATE_OPEN)

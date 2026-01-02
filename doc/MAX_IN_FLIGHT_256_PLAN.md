@@ -10,7 +10,7 @@ bitmap and header layout while keeping reliability semantics unchanged.
 - Config validation, tunnel negotiation, and documentation hardcode the 64 cap.
 - Packet header size (14 bytes) and MTU calculations assume a 64-bit SACK.
 - Tests and troubleshooting docs assume max_in_flight=64.
-- Non-DNS transports clamp tunnel_max_in_flight to 64, and transport pending
+- Non-DNS transports clamp max_in_flight to 64, and transport pending
   caps align with the old cap.
 
 ## Constraints
@@ -30,7 +30,7 @@ bitmap and header layout while keeping reliability semantics unchanged.
 - sfb/reliability/send_window.py (require explicit max_in_flight, SACK scan)
 - sfb/reliability/recv_window.py (SACK window checks, max buffer cap)
 - sfb/tunnel/base_tunnel.py (MAX_WINDOW, MTU math using PACKET_HEADER_SIZE)
-- sfb/config.py (tunnel_max_in_flight defaults/validation, pacing bounds, initial window,
+- sfb/config.py (max_in_flight defaults/validation, pacing bounds, initial window,
   remove non-DNS clamp, transport pending defaults)
 - tests/test_packet.py, tests/test_reliability.py, tests/test_tunnel.py
 - doc/PROTOCOL.md, doc/RELIABILITY.md, doc/CONTROL_MESSAGES.md, doc/TUNNEL.md
@@ -41,7 +41,7 @@ bitmap and header layout while keeping reliability semantics unchanged.
 1. Update protocol constants and header layout.
    - Set SACK_BITS and MAX_IN_FLIGHT to 256; set SACK_SIZE to 32; update
      PACKET_HEADER_SIZE and offsets.
-   - Raise tunnel_max_in_flight default to 256 and remove DEFAULT_MAX_IN_FLIGHT.
+   - Raise max_in_flight default to 256 and remove DEFAULT_MAX_IN_FLIGHT.
 2. Extend PacketHeader encoding/decoding for a 256-bit SACK.
    - Encode SACK as four big-endian u64 words (or 32 bytes) while keeping sack
      as an integer in memory.
@@ -56,10 +56,10 @@ bitmap and header layout while keeping reliability semantics unchanged.
    - Confirm retransmit behavior and SACK coverage semantics remain unchanged.
 4. Tunnel negotiation and config adjustments.
    - Raise BaseTunnel.MAX_WINDOW to 256.
-   - Update config validation ranges for tunnel_max_in_flight,
+   - Update config validation ranges for max_in_flight,
      tunnel_initial_window, and pacing min/max inflight bounds to 1-256.
-   - Remove the non-DNS tunnel_max_in_flight clamp so ICMP/memory can negotiate 256.
-   - Keep transport pending caps tied to tunnel_max_in_flight so transport
+   - Remove the non-DNS max_in_flight clamp so ICMP/memory can negotiate 256.
+   - Keep transport pending caps tied to max_in_flight so transport
      caps do not override the negotiated window.
 5. MTU and payload sizing.
    - Ensure PACKET_HEADER_SIZE changes propagate to MTU math, payload caps, and

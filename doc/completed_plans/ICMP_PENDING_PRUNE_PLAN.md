@@ -55,11 +55,11 @@ consistent and avoiding redundant O(n) work.
    - or a small `PendingPruner` class with `count(now)` and `prune(now)`
 2. ICMP client:
    - `pending_count()` calls helper (prunes once via `_prune_stale`).
-   - `send()` captures `now`, gets `pending_before`, enforces `max_pending`,
+   - `send()` captures `now`, gets `pending_before`, enforces `max_in_flight`,
      adds pending using the current time (default `PendingTracker.add` or a
      `now_add` after `sendto`), logs `pending_before + 1`.
    - Ensure `send()` does not call `can_send()` or `pending_count()` after the
-     helper runs; it should use `pending_before` for `max_pending` checks to
+     helper runs; it should use `pending_before` for `max_in_flight` checks to
      avoid a second prune in the same send path.
 3. DNS client:
    - Same pattern, with `on_prune` callback to clear `_dns_to_corr`.

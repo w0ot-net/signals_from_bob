@@ -14,7 +14,7 @@ from .memory_link import _InMemoryLink
 
 
 def create_inmemory_transport_pair(config, send_mtu=None, recv_mtu=None,
-                                   max_pending=None):
+                                   max_in_flight=None):
     """
     Create a connected in-memory Transport/Server pair.
 
@@ -22,22 +22,21 @@ def create_inmemory_transport_pair(config, send_mtu=None, recv_mtu=None,
         config: Config instance
         send_mtu: Optional request MTU (Alice->Bob)
         recv_mtu: Optional response MTU (Bob->Alice)
-        max_pending: Optional max in-flight requests
-
+        max_in_flight: Optional max in-flight requests
     Returns:
         tuple: (InMemoryTransport, InMemoryServer)
     """
     link = _InMemoryLink(
-        send_mtu, recv_mtu, max_pending, config,
+        send_mtu, recv_mtu, max_in_flight, config,
     )
     return (
         InMemoryTransport(
             config, link=link, send_mtu=send_mtu, recv_mtu=recv_mtu,
-            max_pending=max_pending,
+            max_in_flight=max_in_flight,
         ),
         InMemoryServer(
             config, link=link, send_mtu=recv_mtu, recv_mtu=send_mtu,
-            max_pending=max_pending,
+            max_in_flight=max_in_flight,
         ),
     )
 

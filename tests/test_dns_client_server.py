@@ -32,7 +32,7 @@ class DnsClientTests(unittest.TestCase):
 
     def _make_send_client(self):
         client = DnsClient.__new__(DnsClient)
-        client._max_pending = 5
+        client._max_in_flight = 5
         client._send_mtu = 1024
         client._pending = PendingTracker(1.0)
         client._dns_to_corr = {}

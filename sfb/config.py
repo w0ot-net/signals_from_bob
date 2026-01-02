@@ -38,8 +38,6 @@ class Config:
     dns_edns_size: int = DNS_STANDARD_SIZE
     # Minimum UDP recv buffer size for DNS responses/queries
     dns_recv_bufsize_min: int = 4096
-    # Maximum concurrent DNS queries in flight
-    dns_max_pending: int = 64
     # Timeout before considering a DNS query stale (seconds)
     dns_pending_timeout: float = 5.0
     # Query type for DNS tunneling (currently fixed to 'A')
@@ -58,8 +56,6 @@ class Config:
     icmp_target: Optional[str] = None
     # Max SFB packet size to send/receive in ICMP payload
     icmp_payload_mtu: int = 1350
-    # Maximum concurrent ICMP requests in flight
-    icmp_max_pending: int = 64
     # Timeout before considering an ICMP request stale (seconds)
     icmp_pending_timeout: float = 1.0
 
@@ -79,7 +75,7 @@ class Config:
     # Initial window size before negotiation (packets)
     tunnel_initial_window: int = 1
     # Maximum unacknowledged packets in flight (max 64, SACK bitmap limit)
-    tunnel_max_in_flight: int = 64
+    max_in_flight: int = 64
     # Handshake/connection timeout (seconds)
     tunnel_connect_timeout: float = 10.0
     # Alice: packets sent without response before giving up
@@ -279,8 +275,6 @@ class Config:
         # ICMP validation
         if self.icmp_payload_mtu <= 0:
             raise ValueError("icmp_payload_mtu must be > 0")
-        if self.icmp_max_pending < 1:
-            raise ValueError("icmp_max_pending must be >= 1")
         if self.icmp_pending_timeout <= 0:
             raise ValueError("icmp_pending_timeout must be > 0")
 
@@ -298,11 +292,11 @@ class Config:
             except AttributeError:
                 transport_name = effective_transport
             if transport_name != "dns":
-                self.tunnel_max_in_flight = 64
+                self.max_in_flight = 64
 
         # Tunnel validation
-        if self.tunnel_max_in_flight < 1 or self.tunnel_max_in_flight > 64:
-            raise ValueError("tunnel_max_in_flight must be 1-64")
+        if self.max_in_flight < 1 or self.max_in_flight > 64:
+            raise ValueError("max_in_flight must be 1-64")
         if self.tunnel_keepalive_interval <= 0:
             raise ValueError("tunnel_keepalive_interval must be > 0")
         if self.tunnel_pong_grace_polls < 0:

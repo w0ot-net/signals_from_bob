@@ -29,7 +29,7 @@ def make_test_config(**overrides):
         'dns_base_domain': 'test.local',
         'tunnel_idle_timeout': 60.0,
         'tunnel_keepalive_interval': 5.0,
-        'tunnel_max_in_flight': 16,
+        'max_in_flight': 16,
         'tunnel_connect_timeout': 10.0,
         'tunnel_timeout_packets': 100,
     }
@@ -40,13 +40,13 @@ def make_test_config(**overrides):
 class MockTransport(Transport):
     """Mock transport for testing Alice with pipelined send/recv."""
 
-    def __init__(self, responses=None, max_pending=16):
+    def __init__(self, responses=None, max_in_flight=16):
         self._responses = list(responses) if responses else []
         self._pending = []  # List of (corr_id, response)
         self._next_corr_id = 0
         self._sent = []
         self._closed = False
-        self._max_pending = max_pending
+        self._max_in_flight = max_in_flight
 
     def send(self, data):
         self._sent.append(data)
@@ -69,11 +69,11 @@ class MockTransport(Transport):
         return len(self._pending)
 
     def can_send(self):
-        return self.pending_count() < self._max_pending
+        return self.pending_count() < self._max_in_flight
 
     @property
-    def max_pending(self):
-        return self._max_pending
+    def max_in_flight(self):
+        return self._max_in_flight
 
     @property
     def send_mtu(self):
@@ -185,7 +185,7 @@ class WindowGrowthTest(unittest.TestCase):
             tunnel_window_growth_interval=0.01,
             tunnel_window_growth_mode='linear',
             tunnel_window_growth_step=1,
-            tunnel_max_in_flight=4,
+            max_in_flight=4,
         )
         transport = MockTransport()
         alice = AliceTunnel(transport, config, crypto=Plain())
@@ -245,10 +245,10 @@ class _PairedAliceTransport(Transport):
             return len(self._pair._alice_pending)
 
     def can_send(self):
-        return self.pending_count() < self.max_pending
+        return self.pending_count() < self.max_in_flight
 
     @property
-    def max_pending(self):
+    def max_in_flight(self):
         return 16
 
     @property
@@ -335,7 +335,7 @@ class AliceAdaptivePacingTests(unittest.TestCase):
             tunnel_pace_target_inflight_ratio=0.5,
             tunnel_pace_min_inflight=1,
         )
-        transport = MockTransport(max_pending=4)
+        transport = MockTransport(max_in_flight=4)
         alice = AliceTunnel(transport, config, crypto=Plain())
         alice._state = TunnelState.CONNECTED
 
@@ -622,7 +622,7 @@ class WindowEnforcementTests(unittest.TestCase):
         """Verify Alice doesn't exceed max_in_flight."""
         from sfb.protocol import Segment
         transport = MockTransport()
-        alice = AliceTunnel(transport, make_test_config(tunnel_max_in_flight=2), crypto=Plain())
+        alice = AliceTunnel(transport, make_test_config(max_in_flight=2), crypto=Plain())
 
         # Simulate post-negotiation state (window starts at 1 until negotiated)
         alice._send_window._max_in_flight = 2
@@ -638,7 +638,7 @@ class WindowEnforcementTests(unittest.TestCase):
         """Verify Bob doesn't exceed max_in_flight."""
         from sfb.protocol import Segment
         server = MockServer()
-        bob = BobTunnel(server, make_test_config(tunnel_max_in_flight=2), crypto=Plain())
+        bob = BobTunnel(server, make_test_config(max_in_flight=2), crypto=Plain())
 
         # Simulate post-negotiation state (window starts at 1 until negotiated)
         bob._send_window._max_in_flight = 2
@@ -918,7 +918,7 @@ class NegotiationTests(unittest.TestCase):
         """Verify Bob responds to window request with window_ok."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel(make_test_config(tunnel_max_in_flight=8), is_initiator=False)
+        tunnel = BaseTunnel(make_test_config(max_in_flight=8), is_initiator=False)
 
         # Alice requests window of 16
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'window', 'size': 16})

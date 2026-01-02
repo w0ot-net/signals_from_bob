@@ -351,7 +351,10 @@ class AliceTunnel(BaseTunnel):
         # This avoids busy-polling when the pending queue is near capacity
         if not received_any and hasattr(self._transport, 'pending_count'):
             pending = self._transport.pending_count()
-            threshold = int(self._transport.max_pending * 0.75)
+            cap = getattr(self._transport, 'max_in_flight', None)
+            if cap is None:
+                cap = self._send_window._max_in_flight
+            threshold = int(cap * 0.75)
             if pending >= threshold:
                 corr_id, data = self._transport.recv(timeout=0.05)
                 if corr_id is not None:
@@ -524,8 +527,8 @@ class AliceTunnel(BaseTunnel):
                         fields['pending'] = self._transport.pending_count()
                     except Exception:
                         pass
-                if hasattr(self._transport, 'max_pending'):
-                    fields['max_pending'] = self._transport.max_pending
+                if hasattr(self._transport, 'max_in_flight'):
+                    fields['max_in_flight'] = self._transport.max_in_flight
                 return fields
             log_event(
                 self._logger,
@@ -560,8 +563,8 @@ class AliceTunnel(BaseTunnel):
                         fields['pending'] = self._transport.pending_count()
                     except Exception:
                         pass
-                if hasattr(self._transport, 'max_pending'):
-                    fields['max_pending'] = self._transport.max_pending
+                if hasattr(self._transport, 'max_in_flight'):
+                    fields['max_in_flight'] = self._transport.max_in_flight
                 return fields
             log_event(
                 self._logger,
@@ -574,12 +577,6 @@ class AliceTunnel(BaseTunnel):
 
     def _pacer_cap(self):
         cap = self._send_window._max_in_flight
-        try:
-            transport_cap = self._transport.max_pending
-        except Exception:
-            transport_cap = None
-        if transport_cap is not None:
-            cap = min(cap, transport_cap)
         if cap < 1:
             cap = 1
         return cap

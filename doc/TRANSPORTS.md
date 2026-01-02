@@ -8,7 +8,7 @@ asymmetry of covert channels: Alice initiates all communication.
 
 The transport interface separates `send()` and `recv()` to support pipelining -
 multiple requests in flight simultaneously. For serial operation, simply call
-`recv()` after each `send()`, or set `max_pending=1`.
+`recv()` after each `send()`, or set `max_in_flight=1`.
 
 The tunnel passes wire packet bytes to the transport: the header is in cleartext
 and the body may be encrypted depending on the configured cipher.
@@ -57,11 +57,6 @@ class Transport:
 
     def pending_count(self) -> int:
         """Number of requests awaiting response."""
-        ...
-
-    @property
-    def max_pending(self) -> int:
-        """Max concurrent in-flight requests (transport limit)."""
         ...
 
     @property
@@ -122,7 +117,7 @@ class Server:
 
 ## Usage Patterns
 
-### Serial (max_pending=1 or explicit)
+### Serial (max_in_flight=1 or explicit)
 
 ```python
 # Equivalent to old exchange() - one request, wait for response
@@ -133,6 +128,8 @@ corr_id, response_data = transport.recv(timeout=5.0)
 ### Pipelined
 
 ```python
+config = Config()
+
 # Alice's main loop
 def tick():
     # Receive all available responses (non-blocking)
@@ -148,20 +145,15 @@ def tick():
         track_in_flight(corr_id)
 
 def can_send_more():
-    return (transport.pending_count() < transport.max_pending and
+    return (transport.pending_count() < config.max_in_flight and
             tunnel.send_window.can_send)
 ```
 
 ### Effective In-Flight Limit
 
-The actual in-flight count is bounded by:
-
-```python
-effective_limit = min(
-    transport.max_pending,      # Transport capacity (e.g., 16)
-    tunnel.negotiated_window,   # Tunnel negotiated limit
-)
-```
+The in-flight count is bounded by the negotiated tunnel window. Transports
+also cap their pending requests using the configured `max_in_flight`,
+so there is no separate transport-specific limit.
 
 ---
 
@@ -216,7 +208,7 @@ See `DNS_TRANSPORT.md` for complete specification.
 - Alice sends A queries to Bob (direct or via resolvers)
 - Data encoded in subdomain labels with nonce prefix
 - Bob responds with CNAME records containing data
-- `max_pending` controls concurrent queries (default: 16)
+- `max_in_flight` controls concurrent queries
 
 ### Query Format (Alice → Bob)
 
@@ -260,7 +252,8 @@ ID). The reliability layer handles out-of-order via sequence numbers.
 For serial DNS (one query at a time):
 
 ```python
-transport = DnsTransport(resolver, domain, max_pending=1)
+config = Config(max_in_flight=1)
+transport = DnsTransport(resolver, domain, config=config)
 ```
 
 ---
@@ -271,7 +264,7 @@ transport = DnsTransport(resolver, domain, max_pending=1)
 
 - Alice sends ICMP Echo Requests with data in payload
 - Bob responds with Echo Replies containing response data
-- `max_pending` controls concurrent requests
+- `max_in_flight` controls concurrent requests
 
 ### Correlation
 
@@ -291,7 +284,7 @@ transport = DnsTransport(resolver, domain, max_pending=1)
 
 - For local/unit testing with no network dependency
 - Backed by in-process queues; MTU defaults to `DEFAULT_MAX_PACKET_SIZE`
-- Max pending defaults to `tunnel_max_in_flight` unless overridden
+- In-flight cap follows `max_in_flight`
 - Use `create_inmemory_transport_pair(Config())` to get a connected
   `(Transport, Server)` pair for tests or simulations
 
@@ -303,6 +296,6 @@ transport = DnsTransport(resolver, domain, max_pending=1)
 2. Implement `Transport` (client) and/or `Server`
 3. Handle medium-specific encoding
 4. Implement correlation ID mapping for `send()`/`recv()`
-5. Set appropriate `max_pending` for the medium
+5. Respect `max_in_flight` when tracking in-flight requests
 
 The transport is unaware of tunnel protocol - it just moves encrypted bytes.

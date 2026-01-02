@@ -49,7 +49,7 @@ class IcmpClient(Transport):
 
         self._send_mtu = config.icmp_payload_mtu
         self._recv_mtu = config.icmp_payload_mtu
-        self._max_pending = config.icmp_max_pending
+        self._max_in_flight = config.max_in_flight
         self._pending_timeout = config.icmp_pending_timeout
         self._recv_bufsize = 65535
 
@@ -66,14 +66,14 @@ class IcmpClient(Transport):
         return self._recv_mtu
 
     @property
-    def max_pending(self):
-        return self._max_pending
+    def max_in_flight(self):
+        return self._max_in_flight
 
     def pending_count(self, now=None):
         return prune_and_count(self._pending, self._prune_stale, now=now)
 
     def can_send(self):
-        if self.pending_count() >= self._max_pending:
+        if self.pending_count() >= self._max_in_flight:
             return False
         return True
 
@@ -82,7 +82,7 @@ class IcmpClient(Transport):
         pending_before = prune_and_count(
             self._pending, self._prune_stale, now=now
         )
-        if pending_before >= self._max_pending:
+        if pending_before >= self._max_in_flight:
             log_event(
                 _LOG,
                 logging.DEBUG,
@@ -90,7 +90,7 @@ class IcmpClient(Transport):
                 'ICMP send blocked',
                 lambda: {
                     'pending': pending_before,
-                    'max_pending': self._max_pending,
+                    'max_in_flight': self._max_in_flight,
                 },
             )
             raise TransportError('Too many pending requests')

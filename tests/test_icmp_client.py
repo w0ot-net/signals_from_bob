@@ -20,7 +20,7 @@ class IcmpClientTests(unittest.TestCase):
     def _make_client(self):
         client = IcmpClient.__new__(IcmpClient)
         client._send_mtu = 1024
-        client._max_pending = 5
+        client._max_in_flight = 5
         client._pending = PendingTracker(1.0)
         client._target_ip = '127.0.0.1'
         client._sock = DummySock()

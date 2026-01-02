@@ -19,17 +19,16 @@ class InMemoryTransport(Transport):
     """Client-side in-memory transport (Alice)."""
 
     def __init__(self, config, link=None, send_mtu=None, recv_mtu=None,
-                 max_pending=None):
+                 max_in_flight=None):
         if not isinstance(config, Config):
             raise TypeError('config must be a Config instance')
         self._send_mtu = send_mtu or DEFAULT_MAX_PACKET_SIZE
         self._recv_mtu = recv_mtu or DEFAULT_MAX_PACKET_SIZE
-        self._max_pending = (
-            max_pending if max_pending is not None
-            else getattr(config, 'tunnel_max_in_flight', 64)
-        )
+        if max_in_flight is None:
+            max_in_flight = getattr(config, 'max_in_flight', 64)
+        self._max_in_flight = max_in_flight
         self._link = link or _InMemoryLink(
-            self._send_mtu, self._recv_mtu, self._max_pending, config,
+            self._send_mtu, self._recv_mtu, max_in_flight, config,
         )
         self._next_corr_id = 0
         self._pending = set()
@@ -43,8 +42,8 @@ class InMemoryTransport(Transport):
         return self._recv_mtu
 
     @property
-    def max_pending(self):
-        return self._max_pending
+    def max_in_flight(self):
+        return self._max_in_flight
 
     def pending_count(self):
         return len(self._pending)
@@ -57,7 +56,7 @@ class InMemoryTransport(Transport):
             raise TransportError(
                 'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
             )
-        if self.pending_count() >= self._max_pending:
+        if self.pending_count() >= self._max_in_flight:
             log_event(
                 _LOG,
                 logging.DEBUG,
@@ -65,7 +64,7 @@ class InMemoryTransport(Transport):
                 'In-memory transport send blocked',
                 lambda: {
                     'pending': self.pending_count(),
-                    'max_pending': self._max_pending,
+                    'max_in_flight': self._max_in_flight,
                 },
             )
             raise TransportError('Too many pending in-memory requests')

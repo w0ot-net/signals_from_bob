@@ -347,16 +347,8 @@ guess which packets to retransmit. Every gap is visible via SACK.
   outstanding count
 
 The send window tracks reliability (how many unacked packets are outstanding).
-Transport pipelining is a separate but related limit:
-
-```
-effective_in_flight = min(
-    tunnel.negotiated_window,   # Reliability limit (max 64)
-    transport.max_pending,      # Transport limit
-)
-```
-
-Alice can have up to `effective_in_flight` packets in flight simultaneously.
+Transport pipelining uses the same cap as the negotiated window
+(`max_in_flight`), so there is no separate transport-specific limit.
 The transport's `send()`/`recv()` interface allows multiple outstanding
 requests; responses may arrive out of order. The reliability layer handles
 reordering via sequence numbers and SACK.

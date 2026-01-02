@@ -35,7 +35,7 @@ quiet gaps between bursts and prints "stalled" even though bytes are still movin
 
 ## Findings and analysis (2025-12-31)
 - The tunnel is not idle; it is throughput-limited and bursty.
-- Alice repeatedly hit `tunnel.send_blocked` with `pending=32` (ICMP max_pending),
+- Alice repeatedly hit `tunnel.send_blocked` with `pending=32` (max_in_flight),
   so new polls could not be sent until replies arrived. This bounds throughput by
   polling cadence.
 - Alice also hit `tunnel.send_window_distance` with `distance=64` (max_in_flight),

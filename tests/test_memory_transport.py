@@ -22,7 +22,9 @@ class InMemoryTransportTests(unittest.TestCase):
         self.assertEqual(client.recv(timeout=0.1), (corr_id, b'world'))
 
     def test_pending_limit(self):
-        client, server = create_inmemory_transport_pair(Config(), max_pending=1)
+        client, server = create_inmemory_transport_pair(
+            Config(max_in_flight=1)
+        )
         client.send(b'a')
         with self.assertRaises(TransportError):
             client.send(b'b')

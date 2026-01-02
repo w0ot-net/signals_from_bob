@@ -210,11 +210,12 @@ class LossyTransport(Transport):
         return self._inner.recv_mtu
 
     @property
-    def max_pending(self):
-        return self._inner.max_pending
+    def max_in_flight(self):
+        return getattr(self._inner, 'max_in_flight', None)
 
     def can_send(self):
-        if self.pending_count() >= self.max_pending:
+        cap = self.max_in_flight
+        if cap is not None and self.pending_count() >= cap:
             return False
         inner_can = getattr(self._inner, 'can_send', None)
         if inner_can is None:

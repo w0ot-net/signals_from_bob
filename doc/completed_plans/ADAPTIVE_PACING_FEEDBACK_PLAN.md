@@ -24,7 +24,7 @@ target inflight count adapts to the observed pipe instead of staying fixed.
 - `srtt_ms`: from `RttEstimator` (existing).
 
 ### Target Computation
-1) Compute cap: `cap = min(transport.max_pending, send_window._max_in_flight)`.
+1) Compute cap: `cap = send_window._max_in_flight`.
 2) Compute base target: `base = clamp(int(cap * ratio), min_inflight, max_inflight or cap)`.
 3) If feedback is available (`ack_rate_ewma` set and `srtt_ms` not None):
    - `rtt_sec = max(srtt_ms, rtt_floor_ms) / 1000.0`

@@ -17,7 +17,7 @@
 2) **Channel send window/backpressure:** Tunnel window/MTU negotiation may be small; send window growth may be slow.
 3) **ICMP payload MTU:** Default 1200 payload MTU; small payloads increase per-packet overhead.
 4) **Polling cadence (Alice/Bob):** `tunnel_send_rate` and retransmit/poll intervals may be conservative for local links.
-5) **Pending/queue limits:** `icmp_max_pending`/`icmp_pending_timeout` could be constraining in-flight requests.
+5) **Pending/queue limits:** `max_in_flight`/`icmp_pending_timeout` could be constraining in-flight requests.
 
 ## Next Diagnostic Steps
 - Run `scripts/icmp_socks_diag.py` with tunables to see rate impact:
@@ -95,7 +95,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
   - ICMP pending/window saturation (unacked=64) is the dominant limiter; channel send buffer remains full much of the time.
 - Next experiments:
   - Increase buffers further (e.g., `--socks_relay_buffer_size 16384`, `--channel_max_send_buf 131072`).
-  - Increase ICMP concurrency/window (consider bumping `icmp_max_pending` beyond 64) and ensure send window can grow; keep `--send-rate 0` and omit `--send-burst` to allow defaults.
+  - Increase ICMP concurrency/window (consider bumping `max_in_flight` beyond 64) and ensure send window can grow; keep `--send-rate 0` and omit `--send-burst` to allow defaults.
   - Optionally reduce pump backoff (`non_blocking_poll_timeout`, `socks_pump_backoff_max`) if we add config overrides for them.
 
 ## Experiment Log: Smaller Backoff + Larger Buffers (Dec 31, 2025)

@@ -64,7 +64,7 @@ class DnsClient(Transport):
         self._qtype = codec.RECORD_TYPES[config.dns_query_type]
         self._rtype = codec.RECORD_TYPES[config.dns_response_type]
         self._edns_size = config.dns_edns_size
-        self._max_pending = config.dns_max_pending
+        self._max_in_flight = config.max_in_flight
         self._pending_timeout = config.dns_pending_timeout
         self._label_max_len = config.dns_label_max_len
         self._cname_suffix = '%s.%s' % (
@@ -100,7 +100,7 @@ class DnsClient(Transport):
                 'qtype': config.dns_query_type,
                 'rtype': config.dns_response_type,
                 'edns_size': self._edns_size,
-                'max_pending': self._max_pending,
+                'max_in_flight': self._max_in_flight,
                 'pending_timeout': self._pending_timeout,
                 'label_max_len': self._label_max_len,
                 'cname_suffix': self._cname_suffix,
@@ -160,8 +160,8 @@ class DnsClient(Transport):
         return self._payload_cap
 
     @property
-    def max_pending(self):
-        return self._max_pending
+    def max_in_flight(self):
+        return self._max_in_flight
 
     def pending_count(self, now=None):
         """Return number of queries awaiting response."""
@@ -176,7 +176,7 @@ class DnsClient(Transport):
         Returns:
             bool: True if a query can be sent without exceeding rate limit
         """
-        if self.pending_count() >= self._max_pending:
+        if self.pending_count() >= self._max_in_flight:
             return False
         return True
 
@@ -197,7 +197,7 @@ class DnsClient(Transport):
         pending_before = prune_and_count(
             self._pending, self._prune_stale, now=now, on_prune=self._on_prune
         )
-        if pending_before >= self._max_pending:
+        if pending_before >= self._max_in_flight:
             log_event(
                 _LOG,
                 logging.DEBUG,
@@ -205,7 +205,7 @@ class DnsClient(Transport):
                 'DNS send blocked',
                 lambda: {
                     'pending': pending_before,
-                    'max_pending': self._max_pending,
+                    'max_in_flight': self._max_in_flight,
                 },
             )
             raise TransportError('Too many pending queries')

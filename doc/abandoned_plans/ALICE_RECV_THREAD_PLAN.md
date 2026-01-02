@@ -22,7 +22,7 @@ protocol behavior.
 - This change is deferred; we are not going to implement it right now.
 - Idle CPU usage is already low, so the primary benefit (idle CPU reduction)
   is negligible.
-- Throughput would not materially change because `max_pending` and Alice's
+- Throughput would not materially change because `max_in_flight` and Alice's
   polling rate still dominate.
 - The remaining benefit is mostly reduced tail latency from the 50ms
   high-pending wait and the 1ms tick sleep, and that is not currently a

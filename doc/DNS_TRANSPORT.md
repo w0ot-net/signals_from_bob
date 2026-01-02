@@ -363,13 +363,13 @@ class DnsTransport(Transport):
     Correlation IDs map to DNS query IDs internally.
     """
 
-    def __init__(self, base_domain, resolver=None, max_pending=16, timeout=5.0):
+    def __init__(self, base_domain, resolver=None, config=None, timeout=5.0):
         self._socket = socket.socket(AF_INET, SOCK_DGRAM)
         self._socket.setblocking(False)
         self._pending = {}      # corr_id -> _PendingQuery
         self._dns_id_map = {}   # dns_query_id -> corr_id
         self._next_corr_id = 1
-        self._max_pending = max_pending
+        self._max_in_flight = config.max_in_flight
 
     def send(self, packet: bytes) -> int:
         """Encode packet, send DNS query, return correlation ID."""
@@ -417,8 +417,8 @@ class DnsTransport(Transport):
         return len(self._pending)
 
     @property
-    def max_pending(self) -> int:
-        return self._max_pending
+    def max_in_flight(self) -> int:
+        return self._max_in_flight
 
     @property
     def send_mtu(self) -> int:
@@ -434,10 +434,11 @@ class DnsTransport(Transport):
 
 ### Usage Patterns
 
-**Serial (max_pending=1 or explicit recv after each send):**
+**Serial (max_in_flight=1 or explicit recv after each send):**
 
 ```python
-transport = DnsTransport(domain, resolver, max_pending=1)
+config = Config(max_in_flight=1)
+transport = DnsTransport(domain, resolver, config=config)
 corr_id = transport.send(packet)
 corr_id, response = transport.recv(timeout=5.0)
 ```
@@ -445,7 +446,8 @@ corr_id, response = transport.recv(timeout=5.0)
 **Pipelined:**
 
 ```python
-transport = DnsTransport(domain, resolver, max_pending=16)
+config = Config()
+transport = DnsTransport(domain, resolver, config=config)
 
 # Alice's tick loop
 def tick():
@@ -457,7 +459,7 @@ def tick():
         process_response(corr_id, response)
 
     # Send new packets up to limit
-    while transport.pending_count() < transport.max_pending:
+    while transport.pending_count() < config.max_in_flight:
         if packet := next_packet():
             transport.send(packet)
         else:
@@ -869,13 +871,15 @@ For direct mode, use the shortest possible domain (e.g., `x.x` = 3 chars).
 
 ### Aggressive Pipelining
 
-Alice should maintain `max_pending` queries in-flight at all times:
+Alice should maintain `max_in_flight` queries in-flight at all times
+(assume `config` is the active `Config` instance):
 
 ```python
 # Optimal pipelining loop
 while data_to_send or transport.pending_count() > 0:
-    # Send up to max_pending
-    while transport.pending_count() < transport.max_pending and data_to_send:
+    # Send up to max_in_flight
+    while (transport.pending_count() < config.max_in_flight and
+           data_to_send):
         packet = next_packet()
         corr_id = transport.send(packet)
         in_flight[corr_id] = packet.seq
@@ -889,7 +893,7 @@ while data_to_send or transport.pending_count() > 0:
         process(response)
 ```
 
-With `max_pending=16` and 100ms RTT:
+With `max_in_flight=16` and 100ms RTT:
 - Sequential: 10 packets/second
 - Pipelined: 160 packets/second (16x improvement)
 
@@ -900,8 +904,8 @@ For direct mode, Alice can send queries as fast as the network allows:
 ```python
 # High-performance query loop (direct mode)
 while running:
-    # Send burst of queries up to max_pending
-    while transport.pending_count() < transport.max_pending:
+    # Send burst of queries up to max_in_flight
+    while transport.pending_count() < config.max_in_flight:
         if packet := next_outbound():
             transport.send(packet)
         else:

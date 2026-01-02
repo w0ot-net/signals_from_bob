@@ -142,7 +142,7 @@ Use `non_blocking_poll_timeout` in tight poll loops to avoid CPU spikes.
 Proposed config fields (final names TBD):
 - `icmp_target`: Alice target host/IP
 - `icmp_payload_mtu`: max SFB packet size to send/receive (default conservative)
-- `icmp_max_pending`: max concurrent ICMP requests in flight
+- `max_in_flight`: max concurrent ICMP requests in flight
 - `icmp_pending_timeout`: timeout before pruning stale ICMP requests
 - `tunnel_send_rate` / `tunnel_send_burst`: transport-agnostic pacing for Alice polls
 - `tunnel_pace_target_inflight_ratio` / `tunnel_pace_min_inflight` /

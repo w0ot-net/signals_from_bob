@@ -42,7 +42,7 @@ Connection to 127.0.0.1 closed by remote host.
 
 ## Log Evidence
 - Client shows repeated `tunnel.send_blocked` with `pending: 32` and
-  `max_pending: 32` (DNS inflight saturated).
+  `max_in_flight: 32` (max_in_flight saturated).
 - Client shows `channel.send_buf_full` and `channel.write_wait` for the scp
   channel (example: `ch: 4`), indicating backpressure at the channel buffer.
 - Server continues to send responses (`dns.send`, `tunnel.packet_send`) while

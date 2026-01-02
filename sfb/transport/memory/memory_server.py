@@ -15,17 +15,15 @@ class InMemoryServer(Server):
     """Server-side in-memory transport (Bob)."""
 
     def __init__(self, config, link=None, send_mtu=None, recv_mtu=None,
-                 max_pending=None):
+                 max_in_flight=None):
         if not isinstance(config, Config):
             raise TypeError('config must be a Config instance')
         request_mtu = recv_mtu or DEFAULT_MAX_PACKET_SIZE
         response_mtu = send_mtu or DEFAULT_MAX_PACKET_SIZE
-        link_max_pending = (
-            max_pending if max_pending is not None
-            else getattr(config, 'tunnel_max_in_flight', 64)
-        )
+        if max_in_flight is None:
+            max_in_flight = getattr(config, 'max_in_flight', 64)
         self._link = link or _InMemoryLink(
-            request_mtu, response_mtu, link_max_pending, config,
+            request_mtu, response_mtu, max_in_flight, config,
         )
         self._send_mtu = self._link.response_mtu
         self._recv_mtu = self._link.request_mtu

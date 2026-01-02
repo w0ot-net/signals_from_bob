@@ -49,7 +49,7 @@ class MockTransport(Transport):
         return len(self._pending)
 
     @property
-    def max_pending(self):
+    def max_in_flight(self):
         return 16
 
     @property
@@ -260,7 +260,7 @@ class LossyTransportTests(unittest.TestCase):
 
         self.assertEqual(lossy.send_mtu, inner.send_mtu)
         self.assertEqual(lossy.recv_mtu, inner.recv_mtu)
-        self.assertEqual(lossy.max_pending, inner.max_pending)
+        self.assertEqual(lossy.max_in_flight, inner.max_in_flight)
 
 
 class LossyServerTests(unittest.TestCase):

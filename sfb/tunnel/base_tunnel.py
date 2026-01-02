@@ -97,7 +97,7 @@ class BaseTunnel(object):
         self._default_window = config.tunnel_initial_window
 
         # Reliability - start with initial window until negotiated
-        self._proposed_max_in_flight = min(config.tunnel_max_in_flight, self.MAX_WINDOW)
+        self._proposed_max_in_flight = min(config.max_in_flight, self.MAX_WINDOW)
         if config.tunnel_stats_enabled:
             self._reliability_stats = ReliabilityStats()
             self._stats_enabled = True

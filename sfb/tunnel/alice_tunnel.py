@@ -88,6 +88,8 @@ class AliceTunnel(BaseTunnel):
         self._last_window_request_time = 0
         self._ack_progressed = False
         self._fast_retransmit_ack = None
+        self._fast_recovery_active = False
+        self._fast_recovery_ack = None
         # Transport-agnostic send rate limiter
         self._send_limiter = RateLimiter(
             config.tunnel_send_rate,
@@ -467,6 +469,20 @@ class AliceTunnel(BaseTunnel):
         """Check if we can send a new packet."""
         if now is None:
             now = time_provider.now()
+        if self._fast_recovery_active:
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Fast recovery active',
+                lambda: {
+                    'side': 'alice',
+                    'reason': 'fast_recovery',
+                    'ack': self._fast_recovery_ack,
+                    'unacked': self._send_window.unacked_count,
+                },
+            )
+            return False
         if not self._send_window.can_send:
             log_event(
                 self._logger,
@@ -598,6 +614,28 @@ class AliceTunnel(BaseTunnel):
         if sent:
             self._fast_retransmit_ack = ack
         return sent
+
+    def _update_fast_recovery(self, packet):
+        """
+        Track SACK gaps and pause new sends while a gap is active.
+        """
+        gap = False
+        if packet.sack != 0:
+            if self._send_window.get_unacked_info(packet.ack) is not None:
+                gap = True
+        if gap:
+            self._fast_recovery_active = True
+            self._fast_recovery_ack = packet.ack
+            return
+        if not self._fast_recovery_active:
+            return
+        if self._send_window.unacked_count == 0:
+            self._fast_recovery_active = False
+            self._fast_recovery_ack = None
+            return
+        if packet.sack == 0 or packet.ack != self._fast_recovery_ack:
+            self._fast_recovery_active = False
+            self._fast_recovery_ack = None
 
     def _reserve_transport_permit(self, now):
         permit = self._transport.reserve_send(now=now)
@@ -928,6 +966,7 @@ class AliceTunnel(BaseTunnel):
             packet, now=now, packet_size=packet_size
         )
         self._maybe_fast_retransmit(packet, now)
+        self._update_fast_recovery(packet)
         new_unacked = self._send_window.unacked_count
         if rtt_samples or acked_count > 0:
             self._last_ack_progress_time = now

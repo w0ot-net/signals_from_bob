@@ -37,6 +37,8 @@ preserving protocol behavior and cross platform support.
      document where non-blocking is set and how other callers handle it.
    - Replace recv timeouts with select on readability, then recv in a loop
      until EWOULDBLOCK or no data, so we never touch socket timeouts.
+   - Explicitly handle EOF/half-close: treat zero-length recv as peer close,
+     flush any pending outbound data, and tear down cleanly without spin.
    - For sends, track a per-socket outbound buffer and partial sends; use a
      non-blocking send loop gated by select on writability, with a short
      timeout (100-250ms) to honor stop_event promptly.
@@ -66,6 +68,8 @@ preserving protocol behavior and cross platform support.
    - Define socket->channel behavior under backpressure: stop reading from the
      socket while the channel buffer is full, or buffer locally with a cap and
      low-water mark.
+   - Ensure control/close signaling is not blocked by data backpressure (e.g.,
+     always drain close/control frames or allow a small reserved path).
    - Wait in a loop on actual buffer state and wake on channel close or
      stop_event to avoid missed signals and deadlocks.
 4. Remove redundant idle sleeps in pump_channel_to_socket.
@@ -81,6 +85,10 @@ preserving protocol behavior and cross platform support.
      (use local loopback sockets for Windows compatibility).
    - Data pump: stop_event terminates a blocked send path in bounded time
      (use select on writable to keep Windows compatibility).
+   - Data pump: EOF/half-close tears down promptly without spin and still
+     delivers pending data.
+   - Backpressure: control/close signaling is delivered even when data buffers
+     are full.
    - Keepalive suppression: verify no pong when any channel has pending data,
      even under backpressure.
    - Run python3 -m unittest for the new tests (no E2E tests).

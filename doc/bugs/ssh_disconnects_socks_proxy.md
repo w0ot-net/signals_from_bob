@@ -56,3 +56,5 @@ Example SSH outcomes:
   tunnel, channel, SOCKS, and DNS events.
 - Collected logs for DNS sessions; observed SERVFAILs and send-window
   saturation as above.
+- Tested lower `max_in_flight` values during SSH-only sessions; SSH still
+  disconnects, so inflight cap alone does not resolve the stall.

@@ -20,6 +20,8 @@ preserving protocol behavior and cross platform support.
   budget, so control handling can stall longer than intended on partial frames.
 - Drain stats are updated on the hot path regardless of logging level, adding
   avoidable lock contention.
+- Bob can hit Channel recv buffer overflow on channel_to_client when the client
+  socket is not draining, triggering abort/close and sock.relay_error.
 
 ## Constraints
 - Python 2.7 and 3 compatible; standard library only.
@@ -70,6 +72,9 @@ preserving protocol behavior and cross platform support.
      cannot grow unbounded when the socket is not writable (use a cap and
      low-water mark or read only when writable); keep the current read-size cap
      based on channel send buffer availability when reading from sockets.
+   - When the client socket is not writable, stop channel.read in
+     channel_to_client (or cap it behind a small buffer) to prevent recv buffer
+     overflow and channel aborts under backpressure.
    - Handle EWOULDBLOCK/WSAEWOULDBLOCK consistently on Windows and Linux in
      both pumps.
    - Clarify how socks_relay_socket_timeout and socks_relay_write_timeout map
@@ -128,6 +133,8 @@ preserving protocol behavior and cross platform support.
    - Channel send buffer wait method: unblocks on channel close/abort.
    - ControlChannel.recv_message respects total timeout budget with partial
      data arrivals.
+   - Data pump: channel_to_client respects socket backpressure and does not
+     trigger recv_overflow under sustained client stalls.
    - Backpressure: control/close signaling is delivered even when data buffers
      are full.
    - Keepalive suppression: verify no pong when any channel has pending data,

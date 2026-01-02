@@ -413,11 +413,15 @@ class AliceTunnel(BaseTunnel):
             if self._channel_manager.has_pending_data():
                 if not self._can_send_new(now=now, keepalive_only=False):
                     break
+                permit = self._reserve_transport_permit(now)
+                if permit is None:
+                    break
                 segments = self._collect_segments(self._send_mtu)
                 if segments:
                     self._has_pending_data_acks = True
-                    self._send_new_packet(segments, now)
+                    self._send_new_packet(segments, now, permit=permit)
                     continue
+                self._transport.release_send(permit)
                 break
 
             should_poll, keepalive_due, consume_pong_grace = self._poll_decision(now)
@@ -425,13 +429,17 @@ class AliceTunnel(BaseTunnel):
                 break
             if not self._can_send_new(now=now, keepalive_only=keepalive_due):
                 break
+            permit = self._reserve_transport_permit(now)
+            if permit is None:
+                break
             segments = self._collect_segments(self._send_mtu)
             if segments:
-                self._send_new_packet(segments, now)
+                self._send_new_packet(segments, now, permit=permit)
                 continue
             if self._channel_manager.has_pending_data():
+                self._transport.release_send(permit)
                 break
-            self._send_new_packet([], now, flags=FLAG_KEEPALIVE)
+            self._send_new_packet([], now, flags=FLAG_KEEPALIVE, permit=permit)
             if consume_pong_grace and self._pong_grace_remaining > 0:
                 self._pong_grace_remaining -= 1
 
@@ -547,6 +555,12 @@ class AliceTunnel(BaseTunnel):
             return False
         return True
 
+    def _reserve_transport_permit(self, now):
+        permit = self._transport.reserve_send(now=now)
+        if permit is None:
+            self._log_transport_blocked()
+        return permit
+
     def _log_transport_blocked(self):
         def build_fields():
             fields = {'side': 'alice'}
@@ -642,7 +656,7 @@ class AliceTunnel(BaseTunnel):
             False,
         )
 
-    def _send_new_packet(self, segments, now, flags=0):
+    def _send_new_packet(self, segments, now, flags=0, permit=None):
         """Send a new packet with given segments."""
         packet, seq = self._build_packet(flags=flags, segments=segments)
         body = self._encode_segments(packet.segments)
@@ -665,12 +679,14 @@ class AliceTunnel(BaseTunnel):
                     'burst': self._config.tunnel_send_burst,
                 },
             )
+            if permit is not None:
+                self._transport.release_send(permit)
             return
 
-        permit = self._transport.reserve_send(now=now)
         if permit is None:
-            self._log_transport_blocked()
-            return
+            permit = self._reserve_transport_permit(now)
+            if permit is None:
+                return
 
         try:
             self._send_window.send(

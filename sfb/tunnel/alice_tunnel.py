@@ -103,6 +103,7 @@ class AliceTunnel(BaseTunnel):
             config.tunnel_pace_rtt_floor_ms,
             config.tunnel_pace_ack_idle_reset_sec,
         )
+        self._pacer_last_target = None
 
         # Enable module loader for handling Bob's module requests.
         self.enable_module_loader()
@@ -494,24 +495,26 @@ class AliceTunnel(BaseTunnel):
                 },
             )
             return False
-        if self._pacer.enabled and not keepalive_only:
+        if self._pacer.enabled:
             cap = self._pacer_cap()
-            unacked = self._send_window.unacked_count
-            if not self._pacer.can_send(unacked, cap, srtt_ms=self._rtt.srtt_ms):
-                self._log_pacer_state(cap, unacked, action='blocked')
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.send_blocked',
-                    'Send pacing blocked',
-                    lambda: {
-                        'side': 'alice',
-                        'reason': 'pacer',
-                        'unacked': unacked,
-                        'cap': cap,
-                    },
-                )
-                return False
+            self._maybe_log_pacer_target_change(cap, reason='gate_check')
+            if not keepalive_only:
+                unacked = self._send_window.unacked_count
+                if not self._pacer.can_send(unacked, cap, srtt_ms=self._rtt.srtt_ms):
+                    self._log_pacer_state(cap, unacked, action='blocked')
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'tunnel.send_blocked',
+                        'Send pacing blocked',
+                        lambda: {
+                            'side': 'alice',
+                            'reason': 'pacer',
+                            'unacked': unacked,
+                            'cap': cap,
+                        },
+                    )
+                    return False
         can_send = self._transport.can_send()
         if not can_send:
             def build_fields():
@@ -580,6 +583,37 @@ class AliceTunnel(BaseTunnel):
         if cap < 1:
             cap = 1
         return cap
+
+    def _maybe_log_pacer_target_change(self, cap, reason=None):
+        if not self._pacer.enabled:
+            return
+        fields = self._pacer.state_fields(
+            self._send_window.unacked_count,
+            cap,
+            rate_limit=self._config.tunnel_send_rate,
+            srtt_ms=self._rtt.srtt_ms,
+        )
+        target = fields.get('target_inflight')
+        if target is None:
+            return
+        if self._pacer_last_target == target:
+            return
+        prev_target = self._pacer_last_target
+        self._pacer_last_target = target
+        def build_fields():
+            event_fields = dict(fields)
+            event_fields['previous_target_inflight'] = prev_target
+            event_fields['side'] = 'alice'
+            if reason is not None:
+                event_fields['reason'] = reason
+            return event_fields
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.pacer_target',
+            'Pacer target adjusted',
+            build_fields,
+        )
 
     def _log_pacer_state(self, cap, unacked_count, action=None):
         if not self._pacer.enabled:
@@ -769,6 +803,7 @@ class AliceTunnel(BaseTunnel):
                 now,
                 srtt_ms=self._rtt.srtt_ms,
             )
+            self._maybe_log_pacer_target_change(self._pacer_cap(), reason='ack')
         return (True, has_real_data)
 
     def _maybe_request_window(self, now):

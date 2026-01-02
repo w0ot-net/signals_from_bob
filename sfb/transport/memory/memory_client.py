@@ -18,17 +18,14 @@ _LOG = get_logger(__name__)
 class InMemoryTransport(Transport):
     """Client-side in-memory transport (Alice)."""
 
-    def __init__(self, config, link=None, send_mtu=None, recv_mtu=None,
-                 max_in_flight=None):
+    def __init__(self, config, link=None, send_mtu=None, recv_mtu=None):
         if not isinstance(config, Config):
             raise TypeError('config must be a Config instance')
         self._send_mtu = send_mtu or DEFAULT_MAX_PACKET_SIZE
         self._recv_mtu = recv_mtu or DEFAULT_MAX_PACKET_SIZE
-        if max_in_flight is None:
-            max_in_flight = getattr(config, 'max_in_flight', 64)
-        self._max_in_flight = max_in_flight
+        self._max_in_flight = getattr(config, 'max_in_flight', 64)
         self._link = link or _InMemoryLink(
-            self._send_mtu, self._recv_mtu, max_in_flight, config,
+            self._send_mtu, self._recv_mtu, config,
         )
         self._next_corr_id = 0
         self._pending = set()

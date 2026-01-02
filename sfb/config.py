@@ -284,16 +284,6 @@ class Config:
         if self.crypto_mode != "none" and not self.crypto_psk:
             raise ValueError("crypto_psk required for %s mode" % self.crypto_mode)
 
-        # Transport-aware defaults
-        effective_transport = self.transport or self.transport_default
-        if effective_transport:
-            try:
-                transport_name = effective_transport.lower()
-            except AttributeError:
-                transport_name = effective_transport
-            if transport_name != "dns":
-                self.max_in_flight = 64
-
         # Tunnel validation
         if self.max_in_flight < 1 or self.max_in_flight > 64:
             raise ValueError("max_in_flight must be 1-64")

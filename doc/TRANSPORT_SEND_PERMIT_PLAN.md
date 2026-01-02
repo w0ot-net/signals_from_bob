@@ -25,7 +25,7 @@ the Transport base class and avoids thin wrappers.
 - Add `release_send(permit)` to `Transport` to drop a reservation when a
   caller skips the send attempt.
 - Standardize the capacity attribute/property to `max_in_flight` across
-  transports and call sites (replace legacy `inflight_cap` / `max_pending`).
+  transports and call sites.
 - Make `Transport.send(self, data, permit)` a concrete method that enforces:
   - `permit` is present, matches the transport, and is unused.
   - `permit` is currently reserved by the transport (in `_reserved`), or raise.
@@ -164,8 +164,7 @@ the Transport base class and avoids thin wrappers.
    - Remove any `pending_count(now=...)` examples from docs.
    - Update or mark `doc/completed_plans/ICMP_PENDING_PRUNE_PLAN.md` as
      superseded to avoid conflicting guidance.
-   - Standardize naming to `max_in_flight` in code, logs, and docs (replace
-     legacy `max_pending` / `inflight_cap` references as part of this change).
+- Standardize naming to `max_in_flight` in code, logs, and docs.
 
 8. Tests
    - Add unit tests for DNS and ICMP to count prune calls per send attempt

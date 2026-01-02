@@ -14,16 +14,13 @@ from ...protocol.constants import DEFAULT_MAX_PACKET_SIZE
 class InMemoryServer(Server):
     """Server-side in-memory transport (Bob)."""
 
-    def __init__(self, config, link=None, send_mtu=None, recv_mtu=None,
-                 max_in_flight=None):
+    def __init__(self, config, link=None, send_mtu=None, recv_mtu=None):
         if not isinstance(config, Config):
             raise TypeError('config must be a Config instance')
         request_mtu = recv_mtu or DEFAULT_MAX_PACKET_SIZE
         response_mtu = send_mtu or DEFAULT_MAX_PACKET_SIZE
-        if max_in_flight is None:
-            max_in_flight = getattr(config, 'max_in_flight', 64)
         self._link = link or _InMemoryLink(
-            request_mtu, response_mtu, max_in_flight, config,
+            request_mtu, response_mtu, config,
         )
         self._send_mtu = self._link.response_mtu
         self._recv_mtu = self._link.request_mtu

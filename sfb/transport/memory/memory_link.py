@@ -15,18 +15,15 @@ class _InMemoryLink(object):
     """Shared state between in-memory client and server."""
 
     __slots__ = (
-        'request_mtu', 'response_mtu', 'max_in_flight',
+        'request_mtu', 'response_mtu',
         '_requests', '_responses', '_closed', '_lock',
     )
 
-    def __init__(self, request_mtu, response_mtu, max_in_flight, config):
+    def __init__(self, request_mtu, response_mtu, config):
         if not isinstance(config, Config):
             raise TypeError('config must be a Config instance')
         self.request_mtu = request_mtu or DEFAULT_MAX_PACKET_SIZE
         self.response_mtu = response_mtu or DEFAULT_MAX_PACKET_SIZE
-        if max_in_flight is None:
-            max_in_flight = getattr(config, 'max_in_flight', 64)
-        self.max_in_flight = max_in_flight
         self._requests = queue.Queue()
         self._responses = queue.Queue()
         self._closed = False

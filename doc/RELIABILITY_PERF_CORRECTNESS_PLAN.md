@@ -13,9 +13,9 @@ preserving protocol behavior.
   packets are eligible.
 - Timing is already routed through `time_provider.now()`, but we should confirm
   no new wall-clock usages slipped in.
-- `RecvWindow` drops new out-of-order packets when its buffer is full, even if
-  the new packet is closer to `ack` than buffered ones, which can extend
-  head-of-line blocking.
+- `RecvWindow` must drop incoming out-of-order packets when its buffer is full
+  (spec requirement). Ensure we keep this behavior and add tests to prevent
+  accidental eviction of buffered packets.
 - Missing tests for the above failure modes.
 
 ## Constraints
@@ -62,17 +62,13 @@ preserving protocol behavior.
      for any new `time.time()` usage in runtime code.
    - Current review did not find stragglers in affected components; only update
      if new wall-clock interval math is discovered.
-3. Improve `RecvWindow` buffer behavior under pressure.
-   - Check for duplicates/already-buffered seqs before running the buffer-full
-     eviction logic to avoid evicting useful packets for duplicates.
-   - When buffer is full, compute wrap-safe distance from `ack` for the
-     incoming packet. If it is closer to `ack` than the farthest buffered
-     packet, evict the farthest and accept the new one; otherwise drop the new
-     packet (use existing seq compare/distance helpers).
-   - Define a deterministic tie-breaker for equal distance (e.g., keep the
-     existing packet and drop the new one to avoid churn).
-   - When evicting to accept a closer packet, still record buffer pressure
-     via `on_recv_buffer_full()` and acceptance via `on_recv_buffered()`.
+3. Keep `RecvWindow` buffer-full behavior spec-compliant.
+   - Ensure duplicates/already-buffered seqs are rejected before buffer-full
+     handling to avoid stats churn.
+   - When buffer is full, drop the incoming out-of-order packet; do not evict
+     buffered packets (SACKed data must never be discarded).
+   - Record buffer pressure via `on_recv_buffer_full()` when dropping due to
+     capacity.
    - Keep the existing `SACK_BITS` window check in place.
 4. Add targeted unit tests.
    - `SendWindow`: SACK-only progress with a missing cumulative ACK should
@@ -80,9 +76,8 @@ preserving protocol behavior.
      bounded.
    - `SendWindow`: Bob opportunistic selection uses oldest `send_time`, and
      `mark_retransmit()` updates timestamps only after a successful send.
-   - `RecvWindow`: verify eviction keeps the nearest offsets, drops the
-     farthest when full, and uses the tie-break rule deterministically with
-     duplicates/out-of-order arrivals.
+   - `RecvWindow`: verify buffer-full drops incoming out-of-order packets and
+     preserves existing buffered seqs; duplicates remain ignored.
    - Keepalive: verify pongs are suppressed while any channel has pending data
      (extend existing coverage only if gaps remain).
    - ACK wrap: cumulative ACK pop logic remains correct across seq wrap,
@@ -98,7 +93,8 @@ preserving protocol behavior.
 - Timing continues to use `time_provider.now()`; no new wall-clock interval math
   in runtime code.
 - Bob's silence timeout uses monotonic time.
-- Recv buffer keeps nearest-to-ack packets under pressure.
+- Recv buffer never evicts buffered packets; full buffers drop incoming
+  out-of-order packets and record buffer pressure.
 - Cumulative ACK processing remains correct after retransmits.
 - New unit tests cover the new behavior and pass.
 - Keepalive pongs remain suppressed while any channel has pending data.

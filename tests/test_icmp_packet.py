@@ -5,11 +5,13 @@ import socket
 import struct
 import unittest
 
+from sfb.compat import to_bytes
 from sfb.transport.icmp.icmp_packet import (
     ICMP_ECHO_REPLY,
     ICMP_ECHO_REQUEST,
     build_echo_reply,
     build_echo_request,
+    checksum,
     parse_icmp_echo,
 )
 
@@ -58,7 +60,7 @@ class IcmpPacketTests(unittest.TestCase):
         payload = b'abc'
         icmp = build_echo_reply(ident, seq, payload)
         ip_header = self._build_ipv4_header(len(icmp), socket.IPPROTO_ICMP)
-        packet = ip_header + icmp
+        packet = ip_header + to_bytes(icmp)
         result = parse_icmp_echo(packet, expect_type=ICMP_ECHO_REPLY)
         self.assertIsNotNone(result)
         icmp_type, parsed_ident, parsed_seq, parsed_payload = result
@@ -89,3 +91,19 @@ class IcmpPacketTests(unittest.TestCase):
         packet = build_echo_request(0x1111, 0x2, b'data')
         result = parse_icmp_echo(packet, expect_ident=0x2222)
         self.assertIsNone(result)
+
+    def test_checksum_known_vector_even(self):
+        header = struct.pack('>BBHHH', ICMP_ECHO_REQUEST, 0, 0, 0x1234, 0x0001)
+        packet = header + b'ping'
+        self.assertEqual(checksum(packet), 0x06FA)
+
+    def test_checksum_known_vector_odd(self):
+        header = struct.pack('>BBHHH', ICMP_ECHO_REPLY, 0, 0, 0xBEEF, 0x0102)
+        packet = header + b'hello'
+        self.assertEqual(checksum(packet), 0xFC3B)
+
+    def test_checksum_zero_for_built_packets(self):
+        request = build_echo_request(0x1234, 0x0001, b'ping')
+        reply = build_echo_reply(0xBEEF, 0x0102, b'hello')
+        self.assertEqual(checksum(request), 0)
+        self.assertEqual(checksum(reply), 0)

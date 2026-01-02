@@ -32,6 +32,33 @@ if PY2:
             return bytes(data)
         raise TypeError('Expected bytes-like object')
 
+    def require_bytes_like_or_bytearray(data):
+        """
+        Require bytes-like input, accepting bytearray without copying.
+        """
+        if isinstance(data, bytearray):
+            return data
+        return require_bytes_like(data)
+
+    def buffer_view(data, length=None):
+        """
+        Return a buffer view limited to length when provided.
+        """
+        if isinstance(data, text_type):
+            raise TypeError('Expected bytes, got text')
+        try:
+            if length is None:
+                return buffer(data)
+            return buffer(data, 0, length)
+        except TypeError:
+            if isinstance(data, memoryview):
+                data = data.tobytes() if hasattr(data, 'tobytes') else data.tostring()
+            else:
+                data = require_bytes_like(data)
+            if length is None:
+                return buffer(data)
+            return buffer(data, 0, length)
+
     to_bytes = require_bytes_like
 else:
     text_type = str
@@ -59,6 +86,23 @@ else:
             return memoryview(data)
         except TypeError:
             raise TypeError('Expected bytes-like object')
+
+    def require_bytes_like_or_bytearray(data):
+        """
+        Require bytes-like input, accepting bytearray without copying.
+        """
+        return require_bytes_like(data)
+
+    def buffer_view(data, length=None):
+        """
+        Return a memoryview limited to length when provided.
+        """
+        if isinstance(data, text_type):
+            raise TypeError('Expected bytes, got text')
+        view = data if isinstance(data, memoryview) else memoryview(data)
+        if length is not None and len(view) != length:
+            view = view[:length]
+        return view
 
     def to_bytes(data):
         """

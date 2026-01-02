@@ -61,3 +61,11 @@ checksums so higher packet rates are possible.
   (memoryview on Python 3, bytes on Python 2).
 - Packet bytes are identical to the current output.
 - Unit tests pass (no E2E tests run here).
+
+## Execution Notes
+- Added `_checksum_buffer` with buffer views and a big-endian memoryview.cast
+  fast path in `sfb/transport/icmp/icmp_packet.py`.
+- Reworked `build_echo_packet()` to build a single `bytearray`, checksum in
+  place, and return `memoryview` on Python 3 or `bytes` on Python 2; updated
+  callers that concatenate to use `to_bytes()`.
+- Added checksum unit tests for even/odd vectors and for built packets.

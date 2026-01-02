@@ -10,7 +10,14 @@ import socket
 import struct
 import sys
 
-from ...compat import array_frombytes, byte_at, require_bytes_like, to_bytes
+from ...compat import (
+    array_frombytes,
+    buffer_view,
+    byte_at,
+    require_bytes_like,
+    require_bytes_like_or_bytearray,
+    to_bytes,
+)
 
 ICMP_ECHO_REQUEST = 8
 ICMP_ECHO_REPLY = 0
@@ -18,69 +25,60 @@ ICMP_CODE = 0
 ICMP_HEADER_LEN = 8
 
 
+def _sum_words(data):
+    words = array.array('H')
+    array_frombytes(words, data)
+    if sys.byteorder == 'little':
+        # Array uses native endianness; checksum needs network byte order.
+        words.byteswap()
+    return sum(words)
+
+
+def _checksum_buffer(data):
+    total = 0
+    length = len(data)
+    if length % 2:
+        total += byte_at(data, length - 1) << 8
+        length -= 1
+    if length:
+        view = buffer_view(data, length)
+        if sys.byteorder == 'big' and getattr(view, 'itemsize', None) == 1:
+            cast = getattr(view, 'cast', None)
+            if cast is not None:
+                try:
+                    total += sum(cast('H'))
+                except (TypeError, ValueError):
+                    total += _sum_words(view)
+            else:
+                total += _sum_words(view)
+        else:
+            total += _sum_words(view)
+    total = (total & 0xFFFF) + (total >> 16)
+    total = (total & 0xFFFF) + (total >> 16)
+    return (~total) & 0xFFFF
+
+
 def checksum(data):
     """
     Compute ICMP checksum for bytes data.
     """
     data = require_bytes_like(data)
-    total = 0
-    length = len(data)
-    if length % 2:
-        total += byte_at(data, length - 1) << 8
-        data = data[:-1]
-        length -= 1
-    if length:
-        words = array.array('H')
-        array_frombytes(words, data)
-        if sys.byteorder == 'little':
-            # Array uses native endianness; checksum needs network byte order.
-            words.byteswap()
-        total += sum(words)
-    total = (total & 0xFFFF) + (total >> 16)
-    total = (total & 0xFFFF) + (total >> 16)
-    return (~total) & 0xFFFF
-
-
-def _checksum_parts(parts):
-    total = 0
-    odd_byte = None
-    for part in parts:
-        if not part:
-            continue
-        if odd_byte is not None:
-            total += (odd_byte << 8) + byte_at(part, 0)
-            part = part[1:]
-            odd_byte = None
-            if not part:
-                continue
-        length = len(part)
-        if length % 2:
-            odd_byte = byte_at(part, length - 1)
-            part = part[:-1]
-            length -= 1
-        if length:
-            words = array.array('H')
-            array_frombytes(words, part)
-            if sys.byteorder == 'little':
-                # Array uses native endianness; checksum needs network byte order.
-                words.byteswap()
-            total += sum(words)
-    if odd_byte is not None:
-        total += odd_byte << 8
-    total = (total & 0xFFFF) + (total >> 16)
-    total = (total & 0xFFFF) + (total >> 16)
-    return (~total) & 0xFFFF
+    return _checksum_buffer(data)
 
 
 def build_echo_packet(icmp_type, ident, seq, payload):
     """
     Build an ICMP Echo packet with the given type, id, seq, and payload.
     """
-    payload = to_bytes(payload)
-    header = struct.pack('>BBHHH', icmp_type, ICMP_CODE, 0, ident, seq)
-    csum = _checksum_parts((header, payload))
-    header = struct.pack('>BBHHH', icmp_type, ICMP_CODE, csum, ident, seq)
-    return header + payload
+    payload = require_bytes_like_or_bytearray(payload)
+    packet_len = ICMP_HEADER_LEN + len(payload)
+    packet = bytearray(packet_len)
+    struct.pack_into('>BBHHH', packet, 0, icmp_type, ICMP_CODE, 0, ident, seq)
+    if payload:
+        packet[ICMP_HEADER_LEN:] = payload
+    csum = _checksum_buffer(packet)
+    struct.pack_into('>BBHHH', packet, 0, icmp_type, ICMP_CODE, csum, ident, seq)
+    return require_bytes_like(packet)
 
 
 def build_echo_request(ident, seq, payload):

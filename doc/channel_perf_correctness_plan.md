@@ -25,6 +25,7 @@
   and drop subsequent inbound data for that channel.
 - Keepalive pong suppression remains when any channel has pending data.
 - Active-channel removal is O(1) while keeping round-robin ordering stable.
+- Mixed-version peers are not supported; protocol changes may be breaking.
 
 ## Plan
 1) Define intended close semantics and update design docs.
@@ -55,8 +56,8 @@
    - Define limit semantics (bytes vs messages), clarify that the limit is
      per-channel, and specify where the limit is enforced (pre- or
      post-reassembly).
-   - Pick a default sizing rule based on per-side negotiated recv MTU
-     (asymmetric), and document the rationale and tuning guidance.
+   - Set the default receive buffer limit to 64k and document the
+     rationale and tuning guidance.
    - Define overflow behavior (for example: close channel with error and
      drop excess data), including which control message is sent and what
      happens to subsequent inbound data on that channel.
@@ -92,3 +93,4 @@
 ## Execution Notes
 - Use python3 for any scripts or tests.
 - Keep code ASCII-only and use only the standard library.
+- Commit and push after making code changes.

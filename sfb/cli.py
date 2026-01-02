@@ -54,6 +54,13 @@ def _split_host_port(addr, default_port):
     return addr, default_port
 
 
+def _has_arg_prefix(args, prefix):
+    for item in args:
+        if item == prefix or item.startswith(prefix + '='):
+            return True
+    return False
+
+
 def normalize_role(role):
     """Normalize role name (bob->server, alice->client)."""
     role = role.lower()
@@ -280,6 +287,12 @@ def parse_args(args=None):
     1. First pass gets --role, --transport, --module
     2. Second pass adds role/transport/module-specific args
     """
+    if args is None:
+        arg_list = sys.argv[1:]
+    else:
+        arg_list = list(args)
+    log_profile_explicit = _has_arg_prefix(arg_list, '--log-profile')
+
     # First pass: get basic options
     parser = argparse.ArgumentParser(
         description='sfb - Signals From Bob tunnel',
@@ -289,7 +302,7 @@ def parse_args(args=None):
     add_common_args(parser, config_defaults, require_domain=False)
     add_module_args(parser)
 
-    partial_args, remaining = parser.parse_known_args(args)
+    partial_args, remaining = parser.parse_known_args(arg_list)
     role = normalize_role(partial_args.role)
     transport = partial_args.transport
 
@@ -323,8 +336,9 @@ def parse_args(args=None):
         subparsers = parser.add_subparsers(dest='command', help='Module commands')
         module_cls.register_commands(subparsers, role, config=config_defaults)
 
-    parsed = parser.parse_args(args)
+    parsed = parser.parse_args(arg_list)
     parsed.role = normalize_role(parsed.role)  # Normalize in final result
+    parsed.log_profile_explicit = log_profile_explicit
     return parsed
 
 
@@ -746,6 +760,8 @@ def main(args=None):
     if parsed.db_log is _DB_LOG_DEFAULT:
         # --db-log passed without a path, use default
         parsed.db_log = './logs/%s_log.db' % parsed.role
+    if getattr(parsed, 'log_profile_explicit', False):
+        parsed.verbose = True
 
     config = create_config(parsed)
     if parsed.log_profile:

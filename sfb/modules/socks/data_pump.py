@@ -69,6 +69,16 @@ def _pump_poll_bounds(config):
     return base, max_wait
 
 
+def _wait_for_send_drain(channel, stop_event, base_backoff, max_backoff):
+    backoff = base_backoff
+    while not stop_event.is_set():
+        if channel.send_buf_size == 0:
+            return True
+        time_provider.sleep(backoff)
+        backoff = min(backoff * 2.0, max_backoff)
+    return False
+
+
 def _shutdown_socket_write(sock):
     try:
         sock.shutdown(socket.SHUT_WR)
@@ -150,7 +160,8 @@ def _log_pump_stop(logger, rid, ch, side, direction, label, reason,
 
 
 def pump_socket_to_channel(sock, channel, config, logger, stop_event,
-                           rid, ch, side, recv_label, direction):
+                           rid, ch, side, recv_label, direction,
+                           eof_callback=None):
     """
     Pump data from a socket to a tunnel channel.
 
@@ -295,7 +306,18 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         'Relay EOF',
                         lambda: {'rid': rid, 'ch': ch, 'label': recv_label, 'side': side},
                     )
-                    channel.close()
+                    if eof_callback is not None:
+                        _wait_for_send_drain(
+                            channel, stop_event, base_backoff, max_backoff
+                        )
+                        if not stop_event.is_set():
+                            try:
+                                eof_callback()
+                            except Exception as exc:
+                                _log_pump_error(
+                                    logger, rid, ch, side, direction,
+                                    'Half-close callback error', exc
+                                )
                     return
 
                 bytes_recv += len(data)
@@ -381,7 +403,8 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
 
 
 def pump_channel_to_socket(channel, sock, config, logger, stop_event,
-                           rid, ch, side, send_label, direction):
+                           rid, ch, side, send_label, direction,
+                           remote_half_close_event=None):
     """
     Pump data from a tunnel channel to a socket.
 
@@ -392,6 +415,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
     outbound_size = 0
     channel_closed = False
     channel_closed_reason = None
+    shutdown_pending = False
     exit_reason = None
     exit_error = None
     fatal_error = False
@@ -476,6 +500,10 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                             if outbound_size == 0:
                                 last_send = None
 
+            remote_half_close = (
+                remote_half_close_event is not None and
+                remote_half_close_event.is_set()
+            )
             if not channel_closed and outbound_size < outbound_limit:
                 space = outbound_limit - outbound_size
                 read_size = config.socks_relay_buffer_size
@@ -486,6 +514,8 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         read_timeout = 0.0
                     else:
                         read_timeout = min(config.socks_relay_channel_timeout, backoff)
+                    if remote_half_close:
+                        read_timeout = 0.0
                     try:
                         data = channel.read(read_size, timeout=read_timeout)
                     except Exception as exc:
@@ -499,7 +529,10 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         exit_error = exc
                         break
                     if data is None:
-                        pass
+                        if remote_half_close:
+                            channel_closed = True
+                            channel_closed_reason = 'remote_half_close'
+                            shutdown_pending = True
                     elif data == b'':
                         log_event(
                             logger,
@@ -510,7 +543,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         )
                         channel_closed = True
                         channel_closed_reason = 'channel_eof'
-                        _shutdown_socket_write(sock)
+                        shutdown_pending = True
                     else:
                         outbound.append(data)
                         outbound_size += len(data)
@@ -520,6 +553,9 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                             last_send = time_provider.now()
 
             if channel_closed and outbound_size == 0:
+                if shutdown_pending:
+                    _shutdown_socket_write(sock)
+                    shutdown_pending = False
                 if exit_reason is None:
                     exit_reason = channel_closed_reason or 'channel_eof'
                 break

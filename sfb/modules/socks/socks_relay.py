@@ -17,7 +17,12 @@ from ..base_module import BaseModule, ModuleError, blocking
 from ...logging_util import log_event
 from ... import time_provider
 from .data_pump import pump_channel_to_socket, pump_socket_to_channel
-from .socks_control_messages import T_SOCK, sock_connect_ok, sock_err
+from .socks_control_messages import (
+    T_SOCK,
+    sock_connect_ok,
+    sock_err,
+    sock_half_close,
+)
 
 
 class SocksRelayModule(BaseModule):
@@ -274,8 +279,10 @@ class SocksRelayModule(BaseModule):
         )
 
         # Create and register connection
-        conn = _RelayConnection(rid, ch, channel, target_sock,
-                                self._logger, self._config)
+        conn = _RelayConnection(
+            rid, ch, channel, target_sock, self._logger, self._config,
+            half_close_sender=self._send_half_close,
+        )
         with self._connections_lock:
             self._connections[ch] = conn
             self._pending_connects.discard(ch)
@@ -289,6 +296,44 @@ class SocksRelayModule(BaseModule):
             conn.wait()
         finally:
             self._cleanup_connection(ch)
+
+    def _send_half_close(self, rid, ch):
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'sock.half_close_out',
+            'SOCKS half-close sent',
+            lambda: {'rid': rid, 'ch': ch, 'side': 'alice'},
+        )
+        self.send_message(sock_half_close(rid, ch))
+
+    def handle_half_close(self, msg):
+        """Handle half_close from Bob."""
+        ch = msg.get('ch')
+        if ch is None:
+            return
+
+        with self._connections_lock:
+            conn = self._connections.get(ch)
+
+        if conn is None:
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'sock.half_close_missing',
+                'Half-close for unknown channel',
+                lambda: {'ch': ch, 'side': 'alice'},
+            )
+            return
+
+        conn.notify_remote_half_close()
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'sock.half_close_in',
+            'SOCKS half-close received',
+            lambda: {'rid': msg.get('rid'), 'ch': ch, 'side': 'alice'},
+        )
 
     def _connect_target(self, host, port, timeout=None):
         """
@@ -336,10 +381,12 @@ class _RelayConnection(object):
 
     __slots__ = (
         'rid', 'ch', 'channel', 'sock', '_logger', '_config',
-        '_stop_event', '_threads', '_error',
+        '_stop_event', '_threads', '_error', '_remote_half_close',
+        '_half_close_sent', '_half_close_sender',
     )
 
-    def __init__(self, rid, ch, channel, sock, logger, config):
+    def __init__(self, rid, ch, channel, sock, logger, config,
+                 half_close_sender=None):
         self.rid = rid
         self.ch = ch
         self.channel = channel
@@ -349,6 +396,20 @@ class _RelayConnection(object):
         self._stop_event = threading.Event()
         self._threads = []
         self._error = None
+        self._remote_half_close = threading.Event()
+        self._half_close_sent = threading.Event()
+        self._half_close_sender = half_close_sender
+
+    def _send_half_close(self):
+        if self._half_close_sender is None:
+            return
+        if self._half_close_sent.is_set():
+            return
+        self._half_close_sent.set()
+        self._half_close_sender(self.rid, self.ch)
+
+    def notify_remote_half_close(self):
+        self._remote_half_close.set()
 
     def start_relay(self):
         """Start bidirectional relay threads."""
@@ -388,6 +449,7 @@ class _RelayConnection(object):
             'alice',
             'Target',
             'channel_to_target',
+            remote_half_close_event=self._remote_half_close,
         )
 
     def _relay_target_to_channel(self):
@@ -403,6 +465,7 @@ class _RelayConnection(object):
             'alice',
             'Target',
             'target_to_channel',
+            eof_callback=self._send_half_close,
         )
 
     def wait(self, timeout=None):

@@ -17,7 +17,7 @@ from ..base_module import BaseModule, ModuleError
 from ...logging_util import log_event
 from ... import time_provider
 from .data_pump import pump_channel_to_socket, pump_socket_to_channel
-from .socks_control_messages import T_SOCK, sock_connect
+from .socks_control_messages import T_SOCK, sock_connect, sock_half_close
 
 
 # SOCKS5 constants
@@ -306,8 +306,10 @@ class SocksServerModule(BaseModule):
                 return
 
             # Create connection tracker
-            conn = _ServerConnection(rid, sock, channel, host, port,
-                                     self._logger, self._config)
+            conn = _ServerConnection(
+                rid, sock, channel, host, port, self._logger, self._config,
+                half_close_sender=self._send_half_close,
+            )
             with self._connections_lock:
                 self._connections[rid] = conn
 
@@ -405,6 +407,16 @@ class SocksServerModule(BaseModule):
                 'Cleaned up connection',
                 lambda: {'rid': rid},
             )
+
+    def _send_half_close(self, rid, ch):
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'sock.half_close_out',
+            'SOCKS half-close sent',
+            lambda: {'rid': rid, 'ch': ch, 'side': 'bob'},
+        )
+        self.send_message(sock_half_close(rid, ch))
 
     # --- SOCKS5 Protocol Implementation ---
 
@@ -553,16 +565,52 @@ class SocksServerModule(BaseModule):
                 },
             )
 
+    def handle_half_close(self, msg):
+        """Handle half_close from Alice."""
+        rid = msg.get('rid')
+        ch = msg.get('ch')
+        conn = None
+
+        with self._connections_lock:
+            if rid is not None:
+                conn = self._connections.get(rid)
+            if conn is None and ch is not None:
+                for candidate in self._connections.values():
+                    if candidate.channel.id == ch:
+                        conn = candidate
+                        break
+
+        if conn is None:
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'sock.half_close_missing',
+                'Half-close for unknown connection',
+                lambda: {'rid': rid, 'ch': ch, 'side': 'bob'},
+            )
+            return
+
+        conn.notify_remote_half_close()
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'sock.half_close_in',
+            'SOCKS half-close received',
+            lambda: {'rid': rid, 'ch': ch, 'side': 'bob'},
+        )
+
 
 class _ServerConnection(object):
     """Manages a single SOCKS client connection."""
 
     __slots__ = (
         'rid', 'sock', 'channel', 'host', 'port', '_logger', '_config',
-        '_stop_event', '_threads',
+        '_stop_event', '_threads', '_remote_half_close', '_half_close_sent',
+        '_half_close_sender',
     )
 
-    def __init__(self, rid, sock, channel, host, port, logger, config):
+    def __init__(self, rid, sock, channel, host, port, logger, config,
+                 half_close_sender=None):
         self.rid = rid
         self.sock = sock
         self.channel = channel
@@ -572,6 +620,20 @@ class _ServerConnection(object):
         self._config = config
         self._stop_event = threading.Event()
         self._threads = []
+        self._remote_half_close = threading.Event()
+        self._half_close_sent = threading.Event()
+        self._half_close_sender = half_close_sender
+
+    def _send_half_close(self):
+        if self._half_close_sender is None:
+            return
+        if self._half_close_sent.is_set():
+            return
+        self._half_close_sent.set()
+        self._half_close_sender(self.rid, self.channel.id)
+
+    def notify_remote_half_close(self):
+        self._remote_half_close.set()
 
     def start_relay(self):
         """Start bidirectional relay threads."""
@@ -611,6 +673,7 @@ class _ServerConnection(object):
             'bob',
             'Client',
             'client_to_channel',
+            eof_callback=self._send_half_close,
         )
 
     def _relay_channel_to_client(self):
@@ -626,6 +689,7 @@ class _ServerConnection(object):
             'bob',
             'Client',
             'channel_to_client',
+            remote_half_close_event=self._remote_half_close,
         )
 
     def wait(self, timeout=None):

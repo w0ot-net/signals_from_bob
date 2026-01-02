@@ -67,7 +67,7 @@ class BaseTunnel(object):
     RESERVED_TYPES = frozenset(['tun', 'ch'])
 
     # Pre-negotiation limits
-    MAX_WINDOW = 64  # SACK bitmap size limit
+    MAX_WINDOW = 256  # SACK bitmap size limit
 
     def __init__(self, config, crypto=None, is_initiator=True, logger=None):
         """

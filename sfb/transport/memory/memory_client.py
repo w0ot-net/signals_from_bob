@@ -24,7 +24,7 @@ class InMemoryTransport(Transport):
         super(InMemoryTransport, self).__init__()
         self._send_mtu = send_mtu or DEFAULT_MAX_PACKET_SIZE
         self._recv_mtu = recv_mtu or DEFAULT_MAX_PACKET_SIZE
-        self._max_in_flight = getattr(config, 'max_in_flight', 64)
+        self._max_in_flight = getattr(config, 'max_in_flight', 256)
         self._link = link or _InMemoryLink(
             self._send_mtu, self._recv_mtu, config,
         )

@@ -949,7 +949,7 @@ Bob should maximize data per response by filling to the MTU:
 ```python
 def prepare_response(mtu):
     segments = []
-    size = 8  # tunnel header
+    size = 38  # tunnel header
 
     while size < mtu and outbound_queue:
         segment = outbound_queue.peek()

@@ -10,7 +10,7 @@ DEFAULT_MAX_PACKET_SIZE = 1450
 DEFAULT_MTU = 100  # Until MTU negotiation completes
 
 # Header sizes
-PACKET_HEADER_SIZE = 14
+PACKET_HEADER_SIZE = 38
 SEGMENT_HEADER_SIZE = 3
 
 # Header field offsets (big-endian)
@@ -19,10 +19,10 @@ SEQ_SIZE = 2
 ACK_OFFSET = 2
 ACK_SIZE = 2
 SACK_OFFSET = 4
-SACK_SIZE = 8
-FLAGS_OFFSET = 12
+SACK_SIZE = 32
+FLAGS_OFFSET = 36
 FLAGS_SIZE = 1
-RESERVED_OFFSET = 13
+RESERVED_OFFSET = 37
 RESERVED_SIZE = 1
 
 # Flags (bit positions)
@@ -35,12 +35,11 @@ SEQ_MAX = 0xFFFF
 SEQ_HALF = 0x8000  # For wraparound comparison
 
 # SACK bitmap
-SACK_BITS = 64
-SACK_MAX = 0xFFFFFFFFFFFFFFFF
+SACK_BITS = 256
+SACK_MAX = (1 << SACK_BITS) - 1
 
 # Windowing
-MAX_IN_FLIGHT = 64  # Also max value, matches SACK bitmap size
-DEFAULT_MAX_IN_FLIGHT = 8
+MAX_IN_FLIGHT = 256  # Also max value, matches SACK bitmap size
 
 # Channel IDs
 CHANNEL_CONTROL = 0

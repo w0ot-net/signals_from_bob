@@ -18,7 +18,7 @@ muxer. It is independent of the underlying transport (DNS, ICMP, etc).
 
 - `seq` is a 16-bit sequence number for each packet sent.
 - `ack` is the next expected sequence number from the peer.
-- `sack` is a 16-bit bitmap of packets received beyond `ack`.
+- `sack` is a 256-bit bitmap of packets received beyond `ack`.
 
 Sequence numbers are 16-bit and wrap from 65535 to 0. All comparisons use
 modular arithmetic.
@@ -42,8 +42,8 @@ ACK behavior:
 
 ### Buffer Limits
 
-The out-of-order buffer is bounded by the negotiated max_in_flight (maximum 64).
-Because max_in_flight is negotiated and capped at 64, the receiver's buffer
+The out-of-order buffer is bounded by the negotiated max_in_flight (maximum 256).
+Because max_in_flight is negotiated and capped at 256, the receiver's buffer
 capacity always matches or exceeds the sender's window. Buffer overflow should
 not occur under normal operation.
 
@@ -58,7 +58,7 @@ retransmit dropped packets based on SACK feedback.
 
 - Maintain a transmit queue of unacked packets.
 - The sender may have up to `max_in_flight` unacked packets outstanding (see
-  Window Negotiation in PROTOCOL.md). Maximum value is 64.
+  Window Negotiation in PROTOCOL.md). Maximum value is 256.
 - On ACK or SACK, remove acknowledged packets from the queue.
 - If a packet remains unacked past the retransmission timeout (RTO),
   retransmit it. Retransmits reuse an existing sequence number and do not

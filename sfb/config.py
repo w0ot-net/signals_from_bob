@@ -74,8 +74,8 @@ class Config:
     tunnel_idle_timeout: float = 60.0
     # Initial window size before negotiation (packets)
     tunnel_initial_window: int = 1
-    # Maximum unacknowledged packets in flight (max 64, SACK bitmap limit)
-    max_in_flight: int = 64
+    # Maximum unacknowledged packets in flight (max 256, SACK bitmap limit)
+    max_in_flight: int = 256
     # Handshake/connection timeout (seconds)
     tunnel_connect_timeout: float = 10.0
     # Alice: packets sent without response before giving up
@@ -285,16 +285,16 @@ class Config:
             raise ValueError("crypto_psk required for %s mode" % self.crypto_mode)
 
         # Tunnel validation
-        if self.max_in_flight < 1 or self.max_in_flight > 64:
-            raise ValueError("max_in_flight must be 1-64")
+        if self.max_in_flight < 1 or self.max_in_flight > 256:
+            raise ValueError("max_in_flight must be 1-256")
         if self.tunnel_keepalive_interval <= 0:
             raise ValueError("tunnel_keepalive_interval must be > 0")
         if self.tunnel_pong_grace_polls < 0:
             raise ValueError("tunnel_pong_grace_polls must be >= 0")
         if self.tunnel_idle_timeout <= 0:
             raise ValueError("tunnel_idle_timeout must be > 0")
-        if self.tunnel_initial_window < 1 or self.tunnel_initial_window > 64:
-            raise ValueError("tunnel_initial_window must be 1-64")
+        if self.tunnel_initial_window < 1 or self.tunnel_initial_window > 256:
+            raise ValueError("tunnel_initial_window must be 1-256")
         if self.tunnel_window_growth_mode not in ("linear", "doubling"):
             raise ValueError("tunnel_window_growth_mode must be 'linear' or 'doubling'")
         if self.tunnel_window_growth_step < 1:
@@ -316,12 +316,12 @@ class Config:
             raise ValueError("tunnel_send_burst must be > 0 or None")
         if self.tunnel_pace_target_inflight_ratio <= 0:
             raise ValueError("tunnel_pace_target_inflight_ratio must be > 0")
-        if self.tunnel_pace_min_inflight < 1 or self.tunnel_pace_min_inflight > 64:
-            raise ValueError("tunnel_pace_min_inflight must be 1-64")
+        if self.tunnel_pace_min_inflight < 1 or self.tunnel_pace_min_inflight > 256:
+            raise ValueError("tunnel_pace_min_inflight must be 1-256")
         if (self.tunnel_pace_max_inflight is not None and
                 (self.tunnel_pace_max_inflight < 1 or
-                 self.tunnel_pace_max_inflight > 64)):
-            raise ValueError("tunnel_pace_max_inflight must be 1-64 or None")
+                 self.tunnel_pace_max_inflight > 256)):
+            raise ValueError("tunnel_pace_max_inflight must be 1-256 or None")
         if (self.tunnel_pace_max_inflight is not None and
                 self.tunnel_pace_max_inflight < self.tunnel_pace_min_inflight):
             raise ValueError("tunnel_pace_max_inflight must be >= tunnel_pace_min_inflight")

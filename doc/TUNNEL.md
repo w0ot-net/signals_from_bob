@@ -277,7 +277,7 @@ The tunnel enforces a symmetric MTU by clamping to the minimum of
 
 The tunnel passes the resulting payload MTU to
 `channel_manager.collect_segments(max_payload)` to ensure segments fit within
-transport limits. The packet header (8 bytes) must also be accounted for.
+transport limits. The packet header (38 bytes) must also be accounted for.
 
 ---
 

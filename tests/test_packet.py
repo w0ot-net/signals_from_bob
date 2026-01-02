@@ -10,10 +10,20 @@ from sfb.protocol import (
     FLAG_SYN,
     FLAG_ACK,
     FLAG_KEEPALIVE,
+    PACKET_HEADER_SIZE,
 )
+from sfb.protocol.constants import SACK_OFFSET, SACK_SIZE
 
 
 class PacketHeaderTests(unittest.TestCase):
+    def _expected_sack_bytes(self, offset):
+        bits = [0] * SACK_SIZE
+        bit_index = offset - 1
+        byte_index = (SACK_SIZE - 1) - (bit_index // 8)
+        bit_in_byte = bit_index % 8
+        bits[byte_index] = 1 << bit_in_byte
+        return bytes(bytearray(bits))
+
     def test_encode_decode_roundtrip(self):
         header = PacketHeader(seq=1, ack=2, sack=3, flags=FLAG_SYN | FLAG_ACK)
         data = header.encode()
@@ -37,6 +47,19 @@ class PacketHeaderTests(unittest.TestCase):
         data = header.encode()
         decoded = PacketHeader.decode(data)
         self.assertEqual(decoded.flags, FLAG_KEEPALIVE)
+
+    def test_sack_wire_order_boundaries(self):
+        for offset in (64, 65, 128, 129, 192, 193, 255, 256):
+            sack = 1 << (offset - 1)
+            header = PacketHeader(seq=0, ack=0, sack=sack, flags=0)
+            data = header.encode()
+            self.assertEqual(len(data), PACKET_HEADER_SIZE)
+            sack_bytes = data[SACK_OFFSET:SACK_OFFSET + SACK_SIZE]
+            self.assertEqual(sack_bytes, self._expected_sack_bytes(offset))
+
+    def test_sack_masks_to_256_bits(self):
+        header = PacketHeader(sack=(1 << 256) | 1)
+        self.assertEqual(header.sack, 1)
 
 
 class PacketTests(unittest.TestCase):

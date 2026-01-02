@@ -110,3 +110,9 @@ bitmap and header layout while keeping reliability semantics unchanged.
 - SendWindow has no implicit max_in_flight default; all call sites pass it explicitly.
 - Docs reflect 256-bit SACK and new header size in core protocol/tunnel docs.
 - Unit tests pass (no E2E tests run).
+
+## Execution Notes
+- Updated protocol constants, header encoding/decoding, window caps, and config ranges to 256.
+- Updated reliability window logic, MTU/header sizing docs, and protocol/window negotiation docs.
+- Added unit tests for 256-bit SACK wire order boundaries and masking.
+- Ran: python3 -m unittest tests.test_packet tests.test_reliability tests.test_tunnel

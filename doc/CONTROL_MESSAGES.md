@@ -151,19 +151,19 @@ MTU negotiation. Sent immediately after handshake.
 Alice proposes her transport's max payload MTUs for each direction.
 Bob responds with independent `tx`/`rx` values based on his limits.
 
-Until `mtu_ok` is received, both sides limit packets to 100 bytes.
+Until `mtu_ok` is received, both sides limit payloads to 100 bytes (header added on the wire).
 
 ### window / window_ok
 
 Send window negotiation. Sent after MTU negotiation.
 
 ```json
-{"t":"tun","c":"window","size":64}
+{"t":"tun","c":"window","size":256}
 {"t":"tun","c":"window_ok","size":8}
 ```
 
 Alice proposes max in-flight packets. Bob responds with
-`min(alice_size, bob_max, 64)`. Maximum is 64 (SACK bitmap size).
+`min(alice_size, bob_max, 256)`. Maximum is 256 (SACK bitmap size).
 
 Until `window_ok` is received, both sides use max_in_flight = 1.
 

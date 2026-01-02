@@ -4,7 +4,7 @@
 
 ```
 ┌──────────────────────────────────────┐
-│ Header (14 bytes)                    │
+│ Header (38 bytes)                    │
 ├──────────────────────────────────────┤
 │ Segment 0                            │
 │ Segment 1                            │
@@ -12,8 +12,9 @@
 └──────────────────────────────────────┘
 ```
 
-Protocol max packet size: 1450 bytes (configurable per transport)
-Pre-negotiation packet size limit is 100 bytes for all transports until MTU_OK.
+Protocol max packet size: 1450 bytes (header + segments; configurable per transport)
+Pre-negotiation payload limit is 100 bytes for all transports until MTU_OK.
+The header is always added on the wire.
 
 Packet encryption is optional. When enabled, the header is sent in cleartext
 and only the body (segments) is encrypted with the PSK. Transports may impose
@@ -23,24 +24,28 @@ wraps under a static PSK.
 
 ---
 
-## Header (14 bytes)
+## Header (38 bytes)
 
 ```
- 0       1       2       3       4       5       6       7
-┌───────┬───────┬───────┬───────┬───────┬───────┬───────┬───────┐
-│      seq      │      ack      │              sack             │
-├───────┴───────┴───────┴───────┴───────┴───────┴───────┴───────┤
- 8       9      10      11      12      13
-┌───────┬───────┬───────┬───────┬───────┬───────┐
-│          sack (cont)          │ flags │  rsvd │
-└───────┴───────┴───────┴───────┴───────┴───────┘
+ 0       1       2       3
+┌───────┬───────┬───────┬───────┐
+│      seq      │      ack      │
+└───────┴───────┴───────┴───────┘
+ 4                               35
+┌──────────────────────────────────────┐
+│           sack (256 bits)            │
+└──────────────────────────────────────┘
+ 36      37
+┌───────┬───────┐
+│ flags │  rsvd │
+└───────┴───────┘
 ```
 
 | Field    | Size | Description                                 |
 |----------|------|---------------------------------------------|
 | seq      | 2    | Sequence number of this packet              |
 | ack      | 2    | Next expected sequence number from peer     |
-| sack     | 8    | Bitmap of 64 packets received beyond ack    |
+| sack     | 32   | Bitmap of 256 packets received beyond ack  |
 | flags    | 1    | Packet flags                                |
 | rsvd     | 1    | Reserved (must be 0)                        |
 
@@ -48,6 +53,9 @@ All multi-byte fields are big-endian.
 
 Segments follow the header. Parse by reading each segment header (channel + len)
 and consuming len bytes of payload, repeating until the packet is exhausted.
+
+Wire-format note: The 256-bit SACK header layout is not backward-compatible.
+Both sides must be upgraded together.
 
 ---
 
@@ -73,14 +81,17 @@ KEEPALIVE constraints:
 
 ## SACK Bitmap
 
-The 64-bit SACK field represents packets received beyond the cumulative `ack`.
+The 256-bit SACK field represents packets received beyond the cumulative `ack`.
 
 - Bit 0 = ack + 1 received
 - Bit 1 = ack + 2 received
 - ...
-- Bit 63 = ack + 64 received
+- Bit 255 = ack + 256 received
 
-Example: ack=100, sack=0x0000000000000014
+The bitmap is encoded as a 32-byte big-endian integer on the wire. The highest
+order bit maps to offset 256, and the lowest order bit maps to offset 1.
+
+Example: ack=100, sack=0x0000000000000000000000000000000000000000000000000000000000000014
 - Received: 100 and below (cumulative), 102, 104
 - Missing: 101, 103
 
@@ -164,9 +175,9 @@ Until `mtu_ok` is received, both sides limit packets to 100 bytes.
 After MTU negotiation, Alice and Bob negotiate the send window:
 
 1. Alice sends: `{"t":"tun","c":"window","size":X}`
-2. Bob responds: `{"t":"tun","c":"window_ok","size":Y}` where Y = min(X, bob_max, 64)
+2. Bob responds: `{"t":"tun","c":"window_ok","size":Y}` where Y = min(X, bob_max, 256)
 
-Maximum is 64 (SACK bitmap size). Until `window_ok` is received, use max_in_flight = 1.
+Maximum is 256 (SACK bitmap size). Until `window_ok` is received, use max_in_flight = 1.
 
 ---
 
@@ -210,11 +221,11 @@ Alice                              Bob
   │     MTUs are now tx=150, rx=500  │
 ```
 
-Until MTU_OK is received, both sides must limit packets to 100 bytes. The MTU
-control messages themselves are well under this limit.
+Until MTU_OK is received, both sides must limit payloads to 100 bytes. The MTU
+control messages themselves are well under this limit (header added on the wire).
 
-The negotiated MTU applies to the entire packet (header + segments), whether
-encrypted or not.
+The negotiated MTU applies to payload bytes (segments only). The header is
+added on the wire.
 Each transport computes its max based on encoding overhead (e.g., base32 for
 DNS queries, base64 for DNS responses).
 
@@ -225,7 +236,7 @@ DNS queries, base64 for DNS responses).
 Immediately after MTU negotiation, Alice and Bob negotiate the send window:
 
 1. Alice sends: `{"t":"tun","c":"window","size":X}` where X is her preferred max_in_flight
-2. Bob responds: `{"t":"tun","c":"window_ok","size":Y}` where Y = min(X, bob_max, 64)
+2. Bob responds: `{"t":"tun","c":"window_ok","size":Y}` where Y = min(X, bob_max, 256)
 3. Both sides now use Y as max_in_flight
 
 ```
@@ -234,16 +245,16 @@ Alice                              Bob
   │←───────── (handshake) ──────────→│
   │←──────── (MTU negotiation) ─────→│
   │                                  │
-  │── {t:tun,c:window,size:64} ──────▶│  Alice proposes 64
+  │── {t:tun,c:window,size:256} ─────▶│  Alice proposes 256
   │◀── {t:tun,c:window_ok,size:32} ──│  Bob's max is 32, use 32
   │                                  │
   │      max_in_flight is now 32     │
 ```
 
-The maximum value is capped at 64 to match the SACK bitmap size. This guarantees:
+The maximum value is capped at 256 to match the SACK bitmap size. This guarantees:
 
 - The sender cannot have more packets in-flight than the SACK can represent
-- The receiver's out-of-order buffer never exceeds 64 packets
+- The receiver's out-of-order buffer never exceeds 256 packets
 - All gaps within the window are visible to the sender via SACK
 
 Until WINDOW_OK is received, both sides use max_in_flight = 1 (stop-and-wait).
@@ -322,11 +333,11 @@ interval rather than network latency.
 
 ### SACK Coverage Guarantee
 
-The 64-bit SACK bitmap represents packets ack+1 through ack+64. Because
-max_in_flight is capped at 64, the SACK bitmap always covers the entire
+The 256-bit SACK bitmap represents packets ack+1 through ack+256. Because
+max_in_flight is capped at 256, the SACK bitmap always covers the entire
 send window:
 
-- The sender cannot have more than 64 packets in-flight
+- The sender cannot have more than 256 packets in-flight
 - All in-flight packets fall within SACK's representable range
 - The sender always has complete visibility into which packets were received
 
@@ -340,7 +351,7 @@ guess which packets to retransmit. Every gap is visible via SACK.
 ### Send Window
 
 - Both sides use the negotiated max_in_flight (see Window Negotiation)
-- Maximum value is 64 (SACK bitmap size); minimum is 1
+- Maximum value is 256 (SACK bitmap size); minimum is 1
 - Sender can have up to max_in_flight unacked packets outstanding
 - Window slides forward as cumulative acks are received
 - Retransmits reuse an existing sequence number and do not add to the

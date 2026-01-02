@@ -2,15 +2,19 @@
 """
 Packet header encoding and decoding.
 
-Packet Header (14 bytes):
-    0       1       2       3       4       5       6       7
+Packet Header (38 bytes):
+    0       1       2       3
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |      seq      |      ack      |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    4                               35
    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-   |      seq      |      ack      |            sack               |
+   |                          sack (256 bits)                      |
    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    8       9      10      11      12      13
-   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-   |           sack (cont)         | flags |  rsvd |
-   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    36      37
+   +-+-+-+-+-+-+-+-+
+   | flags |  rsvd |
+   +-+-+-+-+-+-+-+-+
 
 All multi-byte fields are big-endian.
 """
@@ -38,15 +42,16 @@ class PacketHeader(object):
     Attributes:
         seq: Sequence number of this packet (0-65535)
         ack: Next expected sequence number from peer (0-65535)
-        sack: Bitmap of 64 packets received beyond ack
+        sack: Bitmap of 256 packets received beyond ack (bit 0 = ack + 1)
         flags: Packet flags (SYN, ACK, KEEPALIVE)
     """
 
     __slots__ = ('seq', 'ack', 'sack', 'flags')
 
-    # Struct format: big-endian, 2 unsigned shorts, 1 unsigned 64-bit, 2 unsigned bytes
-    _STRUCT = struct.Struct('>HHQBB')
+    # Struct format: big-endian, 2 unsigned shorts, 4 unsigned 64-bit, 2 unsigned bytes
+    _STRUCT = struct.Struct('>HHQQQQBB')
     _VALID_FLAGS = FLAG_SYN | FLAG_ACK | FLAG_KEEPALIVE
+    _WORD_MASK = 0xFFFFFFFFFFFFFFFF
 
     def __init__(self, seq=0, ack=0, sack=0, flags=0):
         self.seq = seq & SEQ_MAX
@@ -95,9 +100,12 @@ class PacketHeader(object):
         Encode header to bytes.
 
         Returns:
-            bytes: 8-byte encoded header
+            bytes: 38-byte encoded header
         """
-        return self._STRUCT.pack(self.seq, self.ack, self.sack, self.flags, 0)
+        word0, word1, word2, word3 = self._sack_to_words(self.sack)
+        return self._STRUCT.pack(
+            self.seq, self.ack, word0, word1, word2, word3, self.flags, 0
+        )
 
     @classmethod
     def decode(cls, data):
@@ -105,7 +113,7 @@ class PacketHeader(object):
         Decode header from bytes.
 
         Args:
-            data: bytes or buffer containing at least 8 bytes
+            data: bytes or buffer containing at least 38 bytes
 
         Returns:
             PacketHeader: Decoded header
@@ -118,12 +126,13 @@ class PacketHeader(object):
                 'Packet header requires %d bytes, got %d' %
                 (PACKET_HEADER_SIZE, len(data))
             )
-        seq, ack, sack, flags, reserved = cls._STRUCT.unpack(
+        seq, ack, word0, word1, word2, word3, flags, reserved = cls._STRUCT.unpack(
             data[:PACKET_HEADER_SIZE]
         )
         if reserved != 0:
             raise ValueError('Packet header reserved byte must be 0')
         flags = cls._validate_flags(flags)
+        sack = cls._sack_from_words(word0, word1, word2, word3)
         return cls(seq=seq, ack=ack, sack=sack, flags=flags)
 
     def sack_has(self, offset):
@@ -131,7 +140,7 @@ class PacketHeader(object):
         Check if a SACK bit is set.
 
         Args:
-            offset: Offset from ack (1-64)
+            offset: Offset from ack (1-256)
 
         Returns:
             bool: True if packet at ack+offset was received
@@ -145,7 +154,7 @@ class PacketHeader(object):
         Set a SACK bit.
 
         Args:
-            offset: Offset from ack (1-64)
+            offset: Offset from ack (1-256)
         """
         if 1 <= offset <= SACK_BITS:
             self.sack |= (1 << (offset - 1))
@@ -155,7 +164,7 @@ class PacketHeader(object):
         Clear a SACK bit.
 
         Args:
-            offset: Offset from ack (1-64)
+            offset: Offset from ack (1-256)
         """
         if 1 <= offset <= SACK_BITS:
             self.sack &= ~(1 << (offset - 1))
@@ -169,9 +178,28 @@ class PacketHeader(object):
         if self.keepalive_flag:
             flags_str.append('KEEPALIVE')
         flags_repr = '|'.join(flags_str) if flags_str else '0'
-        return 'PacketHeader(seq=%d, ack=%d, sack=0x%016x, flags=%s)' % (
+        return 'PacketHeader(seq=%d, ack=%d, sack=0x%064x, flags=%s)' % (
             self.seq, self.ack, self.sack, flags_repr
         )
+
+    @classmethod
+    def _sack_to_words(cls, sack):
+        sack = sack & SACK_MAX
+        return (
+            (sack >> 192) & cls._WORD_MASK,
+            (sack >> 128) & cls._WORD_MASK,
+            (sack >> 64) & cls._WORD_MASK,
+            sack & cls._WORD_MASK,
+        )
+
+    @classmethod
+    def _sack_from_words(cls, word0, word1, word2, word3):
+        return (
+            (word0 << 192) |
+            (word1 << 128) |
+            (word2 << 64) |
+            word3
+        ) & SACK_MAX
 
     @classmethod
     def _validate_flags(cls, flags):

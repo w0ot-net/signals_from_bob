@@ -13,7 +13,6 @@ from ..protocol import (
     SEQ_MAX,
     SACK_BITS,
     MAX_IN_FLIGHT,
-    DEFAULT_MAX_IN_FLIGHT,
 )
 from .stats import NoopReliabilityStats
 
@@ -29,7 +28,7 @@ class SendWindow(object):
     with fresh ACK/SACK while reusing ciphertext on retransmit.
     """
 
-    def __init__(self, max_in_flight=DEFAULT_MAX_IN_FLIGHT, stats=None):
+    def __init__(self, max_in_flight, stats=None):
         if max_in_flight > MAX_IN_FLIGHT:
             raise ValueError('max_in_flight cannot exceed %d' % MAX_IN_FLIGHT)
         self._max_in_flight = max_in_flight

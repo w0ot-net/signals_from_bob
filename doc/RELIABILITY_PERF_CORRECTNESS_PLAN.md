@@ -19,6 +19,7 @@ preserving protocol behavior.
 - Python 2.7/3 compatible; standard library only.
 - Must support Windows and Linux (ICMP transport remains Linux-only).
 - Preserve asymmetry rules in `doc/ASYMMETRY.md`.
+- Bob's wall-clock silence timeout remains wall-clock (do not convert to monotonic).
 - Do not run E2E tests under `tests/e2e/`.
 
 ## Plan
@@ -27,7 +28,8 @@ preserving protocol behavior.
      seq -> `_UnackedPacket`.
    - On send, insert into the ordered dict; on cumulative ACK, pop from the
      front while `seq_lt(seq, ack)`; on SACK ACK, delete by key if present.
-   - `get_retransmits()` iterates the ordered dict in insertion order;
+   - On retransmit, delete+reinsert to keep order by last-send (Py2-safe);
+     `get_retransmits()` iterates the ordered dict in insertion order and
      `get_oldest_unacked()` peeks the first item; no tombstones remain.
    - Update any internal references/tests that assumed `_send_order` exists.
 2. Use a monotonic clock for reliability timers.
@@ -38,12 +40,15 @@ preserving protocol behavior.
        jumps (guarded by a small lock).
    - Switch reliability/tunnel codepaths that compare timestamps to use the
      monotonic helper (send timestamps, ACK progress timers, retransmit timing,
-     keepalive/poll scheduling).
+     keepalive/poll scheduling), excluding Bob's wall-clock silence timeout.
    - Keep wall-clock time only for logging/user-facing timestamps.
+   - Add a test hook for the monotonic source (module-level indirection) so
+     tests can drive time without external deps.
 3. Improve `RecvWindow` buffer behavior under pressure.
-   - When buffer is full, compute the offset of the incoming packet. If it is
-     closer to `ack` than the farthest buffered packet, evict the farthest and
-     accept the new one; otherwise drop the new packet.
+   - When buffer is full, compute wrap-safe distance from `ack` for the
+     incoming packet. If it is closer to `ack` than the farthest buffered
+     packet, evict the farthest and accept the new one; otherwise drop the new
+     packet (use existing seq compare/distance helpers).
    - Keep the existing `SACK_BITS` window check in place.
 4. Add targeted unit tests.
    - `SendWindow`: SACK-only progress with a missing cumulative ACK should
@@ -59,5 +64,7 @@ preserving protocol behavior.
 - `_send_order` tombstones no longer accumulate after SACK-only ACK progress.
 - Retransmit scanning cost is bounded by `MAX_IN_FLIGHT`.
 - Timing is stable across wall-clock adjustments.
+- Bob's wall-clock silence timeout remains wall-clock.
 - Recv buffer keeps nearest-to-ack packets under pressure.
 - New unit tests cover the new behavior and pass.
+- Keepalive pongs remain suppressed while any channel has pending data.

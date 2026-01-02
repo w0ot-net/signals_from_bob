@@ -81,7 +81,8 @@ def add_common_args(parser, config, require_domain=True):
         help='Transport type (default: %s)' % config.transport_default
     )
     parser.add_argument(
-        '--max_in_flight', type=int, default=config.max_in_flight,
+        '--max_in_flight', '--max-in-flight',
+        dest='max_in_flight', type=int, default=config.max_in_flight,
         help='Max in-flight packets (1-256, default: %s)' %
              config.max_in_flight
     )

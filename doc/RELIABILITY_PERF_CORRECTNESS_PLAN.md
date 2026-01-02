@@ -31,6 +31,8 @@ preserving protocol behavior.
    - On retransmit, delete+reinsert to keep order by last-send (Py2-safe);
      `get_retransmits()` iterates the ordered dict in insertion order and
      `get_oldest_unacked()` peeks the first item; no tombstones remain.
+   - Avoid mutating the ordered dict while iterating; collect retransmit
+     candidates first, then reorder/update timestamps.
    - Update any internal references/tests that assumed `_send_order` exists.
 2. Use a monotonic clock for reliability timers.
    - Add `sfb/time_utils.py` (or extend `sfb/compat.py`) with
@@ -41,23 +43,32 @@ preserving protocol behavior.
    - Switch reliability/tunnel codepaths that compare timestamps to use the
      monotonic helper (send timestamps, ACK progress timers, retransmit timing,
      keepalive/poll scheduling), excluding Bob's wall-clock silence timeout.
-   - Keep wall-clock time only for logging/user-facing timestamps.
-   - Add a test hook for the monotonic source (module-level indirection) so
-     tests can drive time without external deps.
+   - Audit all `time.time()` usage and limit changes to reliability/tunnel:
+     - `sfb/reliability/send_window.py` for send/retransmit timestamps.
+     - `sfb/tunnel/base_tunnel.py` for ACK progress timers.
+     - `sfb/tunnel/alice_tunnel.py` for handshake/poll scheduling loops.
+     - `sfb/tunnel/bob_tunnel.py` for poll EWMA/retransmit scheduling, but keep
+       `_check_idle_timeout()` on wall-clock time.
+   - Keep wall-clock time only for logging/user-facing timestamps and Bob idle.
+   - Add a test hook for the monotonic source (module-level indirection with a
+     default time provider) so tests can drive time without external deps.
 3. Improve `RecvWindow` buffer behavior under pressure.
    - When buffer is full, compute wrap-safe distance from `ack` for the
      incoming packet. If it is closer to `ack` than the farthest buffered
      packet, evict the farthest and accept the new one; otherwise drop the new
      packet (use existing seq compare/distance helpers).
+   - Define a deterministic tie-breaker for equal distance (e.g., keep the
+     existing packet and drop the new one to avoid churn).
    - Keep the existing `SACK_BITS` window check in place.
 4. Add targeted unit tests.
    - `SendWindow`: SACK-only progress with a missing cumulative ACK should
      leave only the missing seq in the ordered dict and keep retransmit scans
      bounded.
-   - `RecvWindow`: verify eviction keeps the nearest offsets and drops the
-     farthest when full.
+   - `RecvWindow`: verify eviction keeps the nearest offsets, drops the
+     farthest when full, and uses the tie-break rule deterministically with
+     duplicates/out-of-order arrivals.
    - `monotonic_time()`: ensure non-decreasing outputs with a controllable
-     time source (no external dependencies).
+     time source (no external dependencies) and restore the default source.
    - Run `python3 -m unittest tests.test_reliability` (no E2E tests).
 
 ## Acceptance Criteria

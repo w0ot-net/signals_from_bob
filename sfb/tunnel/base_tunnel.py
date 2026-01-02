@@ -383,7 +383,7 @@ class BaseTunnel(object):
                     return (None, None)
                 return None
             if return_size:
-                return (packet, len(decrypted))
+                return (packet, len(data))
             return packet
         except (ValueError, TypeError) as e:
             def build_fields():

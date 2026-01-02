@@ -89,5 +89,8 @@ keeps the MTU negotiation unchanged. Document the header visibility tradeoff.
 ## Notes
 - If Option C is chosen instead, adjust MTU computations and `max_packet_size`
   to account for nonce overhead, and update tests accordingly.
+- Document that per-packet RC4 derived only from `seq` and `direction` will
+  reuse keystreams across sessions (fixed ISN) and after seq wrap unless a
+  per-session salt or randomized ISN is introduced; defer that change for now.
 - When executing this plan, add execution notes and move the plan to
   `doc/completed_plans/` per project rules.

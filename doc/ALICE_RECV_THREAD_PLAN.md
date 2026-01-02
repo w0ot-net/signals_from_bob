@@ -18,6 +18,20 @@ protocol behavior.
 - No transport behavior changes on the wire.
 - No changes to Bob-side behavior.
 
+## Decision
+- This change is deferred; we are not going to implement it right now.
+- Idle CPU usage is already low, so the primary benefit (idle CPU reduction)
+  is negligible.
+- Throughput would not materially change because `max_pending` and Alice's
+  polling rate still dominate.
+- The remaining benefit is mostly reduced tail latency from the 50ms
+  high-pending wait and the 1ms tick sleep, and that is not currently a
+  pain point.
+- A receive thread adds complexity and risk (transport thread-safety,
+  handshake ordering, shutdown races) without a clear payoff.
+- If we revisit this later, the wake event must integrate with the run loop;
+  otherwise the gains are limited.
+
 ## Proposed Design
 - Add a dedicated receive thread in `AliceTunnel` that blocks on
   `transport.recv(timeout=None)` and pushes responses onto a thread-safe

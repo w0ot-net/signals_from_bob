@@ -470,19 +470,24 @@ class AliceTunnel(BaseTunnel):
         if now is None:
             now = time_provider.now()
         if self._fast_recovery_active:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Fast recovery active',
-                lambda: {
-                    'side': 'alice',
-                    'reason': 'fast_recovery',
-                    'ack': self._fast_recovery_ack,
-                    'unacked': self._send_window.unacked_count,
-                },
+            allow_control = (
+                not keepalive_only and
+                not self._channel_manager.has_data_channels_pending()
             )
-            return False
+            if not allow_control:
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.send_blocked',
+                    'Fast recovery active',
+                    lambda: {
+                        'side': 'alice',
+                        'reason': 'fast_recovery',
+                        'ack': self._fast_recovery_ack,
+                        'unacked': self._send_window.unacked_count,
+                    },
+                )
+                return False
         if not self._send_window.can_send:
             log_event(
                 self._logger,

@@ -110,6 +110,11 @@ class ChannelManager(object):
         with self._lock:
             return bool(self._active_channels)
 
+    def has_data_channels_pending(self):
+        """Return True if any non-control channel has queued send data."""
+        with self._lock:
+            return bool(self._active_channels)
+
     def pending_send_bytes(self, include_control=True):
         """Return total queued send bytes across channels."""
         with self._lock:

@@ -49,11 +49,15 @@ keeps the MTU negotiation unchanged. Document the header visibility tradeoff.
 1. Define a packet-oriented crypto API in `sfb/crypto.py`:
    - `encrypt(data, seq=None, direction=None)`
    - `decrypt(data, seq=None, direction=None)`
-   - Plain/XOR ignore `seq` and `direction`; RC4 uses them.
+   - Plain/XOR ignore `seq` and `direction`.
+   - RC4 requires `seq` and `direction` (raise `ValueError` when missing) and
+     uses them for key derivation.
 2. Implement RC4 as stateless per packet:
-   - Derive a per-packet key using `hashlib.sha256(base_key + nonce).digest()`
-     where `nonce = struct.pack('>HB', seq, direction)`.
+   - Derive a per-packet key by concatenating the base key with a nonce:
+     `key = base_key + struct.pack('>HB', seq, direction)`.
+   - Validate `seq` is 0-65535 and `direction` is 0 or 1.
    - Reinitialize RC4 for each encrypt/decrypt call with the derived key.
+     If KSA dominates runtime, consider caching derived state for retransmits.
 3. Update tunnel encryption flow in `sfb/tunnel/base_tunnel.py`:
    - Encode header and body separately.
    - Send `header + encrypt(body, seq, direction)`.
@@ -65,13 +69,16 @@ keeps the MTU negotiation unchanged. Document the header visibility tradeoff.
 5. Optimize XOR/RC4 hot loops:
    - Use a single `bytearray` buffer and mutate in place.
    - Replace modulo per byte with an index that wraps at `key_len`.
-6. Update docs to reflect header visibility and packet-scoped crypto:
+6. Update docs to reflect header visibility, packet-scoped crypto, and the
+   keystream reuse risk when seq wraps with a static PSK:
    - `doc/TUNNEL.md` encryption section.
+   - `doc/PROTOCOL.md` packet encryption overview.
    - `doc/ARCHITECTURE.md` crypto section if it references full-packet encryption.
+   - `sfb/crypto.py` module docstring.
 7. Update tests:
    - `tests/test_crypto.py`: add deterministic encryption test
      (same `seq` yields same ciphertext), retransmit decrypt test, and
-     direction-separation test.
+     direction-separation test; update RC4 usage to pass `seq`/`direction`.
    - Add a focused tunnel test to ensure a retransmitted packet decrypts
      correctly (unit-level; no E2E).
 

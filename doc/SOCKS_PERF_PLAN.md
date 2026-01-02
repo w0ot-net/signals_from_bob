@@ -39,13 +39,20 @@ preserving protocol behavior and cross platform support.
    - For sends, track a per-socket outbound buffer and partial sends; use a
      non-blocking send loop gated by select on writability, with a short
      timeout (100-250ms) to honor stop_event promptly.
+   - Bound the per-socket outbound buffer and gate channel.read so pending data
+     cannot grow unbounded when the socket is not writable (use a cap and
+     low-water mark or read only when writable).
    - Handle EWOULDBLOCK/WSAEWOULDBLOCK consistently on Windows and Linux in
      both pumps.
+   - Clarify how socks_relay_socket_timeout and socks_relay_write_timeout are
+     used or retired once non-blocking/select is in place; update config/CLI
+     documentation accordingly.
    - Document the chosen timeout values and verify they do not regress CPU.
 3. Add event driven backpressure for channel send buffers.
-   - Extend Channel with a send buffer state event or wait method that
-     unblocks when send buffer space is available.
-   - Use the existing send state transition callback to signal the event.
+   - Extend Channel with a send buffer space event or wait method that
+     unblocks when the buffer transitions from full to not-full (level-triggered).
+   - Use the existing send state transition callback only if it can signal
+     buffer full/not-full transitions; otherwise add a dedicated signal.
    - In pump_socket_to_channel, wait on the event when the send buffer is
      full instead of sleeping with exponential backoff.
    - Wait in a loop on actual buffer state and wake on channel close or

@@ -20,3 +20,4 @@ Project Rules
 - when executing a <plan>.md, add notes about how it was executed and then move it into doc/completed_plans
 - if unrelated changes are present, only commit the changes you made and ignore the other changes
 - when asked to look at logs, default to logs/server_log.db and logs/client_log.db unless otherwise specified
+- after inspecting logs for a bug listed under doc/bugs, summarize any new findings in the corresponding .md file

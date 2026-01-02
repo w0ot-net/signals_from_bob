@@ -79,6 +79,7 @@ compatibility shims.
    - `doc/TUNNEL.md` encryption section.
    - `doc/PROTOCOL.md` packet encryption overview.
    - `doc/ARCHITECTURE.md` crypto section if it references full-packet encryption.
+   - `doc/RELIABILITY.md` receive path encryption wording.
    - `doc/TRANSPORTS.md` transport payload description.
    - `sfb/crypto.py` module docstring.
 7. Update tests:

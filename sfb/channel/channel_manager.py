@@ -378,11 +378,10 @@ class ChannelManager(object):
             if channel is None:
                 inactive_ids.append(cid)
                 continue
-            if channel._has_send_data():
-                active_channels.append(cid)
-                pending_data = True
-            else:
-                inactive_ids.append(cid)
+            active_channels.append(cid)
+
+        if active_channels:
+            pending_data = True
 
         if inactive_ids:
             with self._lock:
@@ -457,6 +456,8 @@ class ChannelManager(object):
 
     def _record_drain_stats(self, segments):
         """Record per-channel drain stats for debugging stalls."""
+        if not logger.isEnabledFor(logging.DEBUG):
+            return
         if not segments:
             return
         now = time.time()

@@ -59,7 +59,24 @@ if PY2:
                 return buffer(data)
             return buffer(data, 0, length)
 
-    to_bytes = require_bytes_like
+    def to_bytes(data):
+        """
+        Coerce bytes-like input to bytes, rejecting text.
+        """
+        if isinstance(data, text_type):
+            raise TypeError('Expected bytes, got text')
+        if isinstance(data, bytes):
+            return data
+        if isinstance(data, bytearray):
+            return bytes(data)
+        if isinstance(data, memoryview):
+            return data.tobytes() if hasattr(data, 'tobytes') else data.tostring()
+        try:
+            if isinstance(data, buffer):
+                return str(data)
+        except NameError:
+            pass
+        return require_bytes_like(data)
 else:
     text_type = str
     integer_types = (int,)

@@ -1,16 +1,91 @@
 # -*- coding: ascii -*-
 """
 Shared SOCKS data pump helpers.
+
+Each SOCKS connection uses two threads; each pump handles one socket/channel.
 """
 
 from __future__ import absolute_import
 
+import collections
+import errno
 import logging
+import select
 import socket
 import time
 
 from ...logging_util import log_event
 from ...channel import ChannelError
+
+
+def _get_socket_error(exc):
+    err = getattr(exc, 'errno', None)
+    if err is None:
+        args = getattr(exc, 'args', None)
+        if args:
+            err = args[0]
+    return err
+
+
+def _is_would_block(exc):
+    err = _get_socket_error(exc)
+    if err is None:
+        return False
+    return err in (
+        errno.EAGAIN,
+        errno.EWOULDBLOCK,
+        getattr(errno, 'WSAEWOULDBLOCK', 10035),
+    )
+
+
+def _is_interrupted(exc):
+    err = _get_socket_error(exc)
+    return err == errno.EINTR
+
+
+def _select(read_list, write_list, timeout):
+    if not read_list and not write_list:
+        if timeout:
+            time.sleep(timeout)
+        return [], []
+    try:
+        rlist, wlist, _ = select.select(read_list, write_list, [], timeout)
+        return rlist, wlist
+    except select.error as exc:
+        if _is_interrupted(exc):
+            return [], []
+        raise
+
+
+def _pump_poll_bounds(config):
+    base = config.non_blocking_poll_timeout
+    if base is None or base <= 0:
+        base = 0.01
+    max_wait = config.socks_pump_backoff_max
+    if max_wait is None or max_wait <= 0:
+        max_wait = base
+    if max_wait < base:
+        max_wait = base
+    return base, max_wait
+
+
+def _shutdown_socket_write(sock):
+    try:
+        sock.shutdown(socket.SHUT_WR)
+    except Exception:
+        pass
+
+
+def _outbound_cap(config):
+    max_in_flight_bytes = config.tunnel_max_in_flight * config.protocol_max_packet_size
+    cap = config.channel_max_recv_buf
+    if cap is None:
+        cap = max_in_flight_bytes
+    else:
+        cap = max(cap, max_in_flight_bytes)
+    if cap <= 0:
+        cap = config.socks_relay_buffer_size
+    return cap
 
 
 def _log_pump_error(logger, rid, ch, side, direction, msg, exc):
@@ -38,83 +113,153 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
     when channel buffer is full, which naturally backpressures TCP.
     """
     try:
-        sock.settimeout(config.socks_relay_socket_timeout)
-        pending = b''
+        sock.setblocking(False)
+        pending = None
+        pending_offset = 0
         bytes_recv = 0
         bytes_written = 0
         buffer_full_count = 0
-        sleep_time = 0.0
-        backoff = config.non_blocking_poll_timeout
-        max_backoff = max(config.socks_pump_backoff_max, backoff)
+        wait_time = 0.0
+        base_backoff, max_backoff = _pump_poll_bounds(config)
+        backoff = base_backoff
         last_stats = time.time()
         fatal_error = False
         while not stop_event.is_set():
-            try:
-                if not pending:
-                    available = config.channel_max_send_buf - channel.send_buf_size
-                    if available <= 0:
-                        buffer_full_count += 1
-                        sleep_time += backoff
-                        time.sleep(backoff)
-                        backoff = min(backoff * 2.0, max_backoff)
+            if pending is not None:
+                try:
+                    written = channel.write(pending[pending_offset:])
+                    if written:
+                        pending_offset += written
+                        bytes_written += written
+                    if pending_offset >= len(pending):
+                        pending = None
+                        pending_offset = 0
+                        backoff = base_backoff
                         continue
-                    read_size = config.socks_relay_buffer_size
-                    if available < read_size:
-                        read_size = available
-                    pending = sock.recv(read_size)
-            except socket.timeout:
-                time.sleep(config.non_blocking_poll_timeout)
-                continue
-            except Exception as exc:
-                fatal_error = True
-                if not stop_event.is_set():
-                    _log_pump_error(
-                        logger, rid, ch, side, direction,
-                        '%s recv error' % recv_label, exc
-                    )
-                break
+                except ChannelError as exc:
+                    if exc.code == 'buffer_full':
+                        buffer_full_count += 1
+                        start = time.time()
+                        try:
+                            ready = channel.wait_send_space(timeout=backoff)
+                        except ChannelError:
+                            break
+                        wait_time += time.time() - start
+                        if not ready:
+                            backoff = min(backoff * 2.0, max_backoff)
+                        else:
+                            backoff = base_backoff
+                        continue
+                    if exc.code in ('not_open', 'closed'):
+                        break
+                    fatal_error = True
+                    if not stop_event.is_set():
+                        _log_pump_error(
+                            logger, rid, ch, side, direction,
+                            'Channel write error', exc
+                        )
+                    break
+                except Exception as exc:
+                    fatal_error = True
+                    if not stop_event.is_set():
+                        _log_pump_error(
+                            logger, rid, ch, side, direction,
+                            'Channel write error', exc
+                        )
+                    break
 
-            if not pending:
-                log_event(
-                    logger,
-                    logging.DEBUG,
-                    'sock.relay_eof',
-                    'Relay EOF',
-                    lambda: {'rid': rid, 'ch': ch, 'label': recv_label, 'side': side},
-                )
-                break
-
-            bytes_recv += len(pending)
-            try:
-                written = channel.write(pending)
-                if written < len(pending):
-                    pending = pending[written:]
-                else:
-                    pending = b''
-                bytes_written += written
-                backoff = config.non_blocking_poll_timeout
-            except ChannelError as exc:
-                if exc.code == 'buffer_full':
-                    buffer_full_count += 1
-                    sleep_time += backoff
-                    time.sleep(backoff)
+            available = config.channel_max_send_buf - channel.send_buf_size
+            if available <= 0:
+                buffer_full_count += 1
+                start = time.time()
+                try:
+                    ready = channel.wait_send_space(timeout=backoff)
+                except ChannelError:
+                    break
+                wait_time += time.time() - start
+                if not ready:
                     backoff = min(backoff * 2.0, max_backoff)
-                    continue
-                fatal_error = True
-                if not stop_event.is_set():
-                    _log_pump_error(
-                        logger, rid, ch, side, direction,
-                        'Channel write error', exc
+                else:
+                    backoff = base_backoff
+                continue
+
+            rlist, _ = _select([sock], [], backoff)
+            if not rlist:
+                backoff = min(backoff * 2.0, max_backoff)
+            else:
+                backoff = base_backoff
+
+            while rlist and not stop_event.is_set():
+                available = config.channel_max_send_buf - channel.send_buf_size
+                if available <= 0:
+                    buffer_full_count += 1
+                    break
+                read_size = config.socks_relay_buffer_size
+                if available < read_size:
+                    read_size = available
+                try:
+                    data = sock.recv(read_size)
+                except socket.error as exc:
+                    if _is_would_block(exc):
+                        break
+                    fatal_error = True
+                    if not stop_event.is_set():
+                        _log_pump_error(
+                            logger, rid, ch, side, direction,
+                            '%s recv error' % recv_label, exc
+                        )
+                    break
+                except Exception as exc:
+                    fatal_error = True
+                    if not stop_event.is_set():
+                        _log_pump_error(
+                            logger, rid, ch, side, direction,
+                            '%s recv error' % recv_label, exc
+                        )
+                    break
+
+                if not data:
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        'sock.relay_eof',
+                        'Relay EOF',
+                        lambda: {'rid': rid, 'ch': ch, 'label': recv_label, 'side': side},
                     )
-                break
-            except Exception as exc:
-                fatal_error = True
-                if not stop_event.is_set():
-                    _log_pump_error(
-                        logger, rid, ch, side, direction,
-                        'Channel write error', exc
-                    )
-                break
+                    channel.close()
+                    return
+
+                bytes_recv += len(data)
+                try:
+                    written = channel.write(data)
+                    bytes_written += written
+                    if written < len(data):
+                        pending = data
+                        pending_offset = written
+                        break
+                except ChannelError as exc:
+                    if exc.code == 'buffer_full':
+                        pending = data
+                        pending_offset = 0
+                        buffer_full_count += 1
+                        break
+                    if exc.code in ('not_open', 'closed'):
+                        return
+                    fatal_error = True
+                    if not stop_event.is_set():
+                        _log_pump_error(
+                            logger, rid, ch, side, direction,
+                            'Channel write error', exc
+                        )
+                    break
+                except Exception as exc:
+                    fatal_error = True
+                    if not stop_event.is_set():
+                        _log_pump_error(
+                            logger, rid, ch, side, direction,
+                            'Channel write error', exc
+                        )
+                    break
 
             now = time.time()
             if now - last_stats >= 1.0:
@@ -130,7 +275,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         'bytes_recv': bytes_recv,
                         'bytes_written': bytes_written,
                         'buffer_full': buffer_full_count,
-                        'sleep_time': round(sleep_time, 3),
+                        'sleep_time': round(wait_time, 3),
                         'send_buf_size': channel.send_buf_size,
                         'side': side,
                     },
@@ -138,7 +283,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 bytes_recv = 0
                 bytes_written = 0
                 buffer_full_count = 0
-                sleep_time = 0.0
+                wait_time = 0.0
                 last_stats = now
     finally:
         if fatal_error:
@@ -150,50 +295,123 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
     """
     Pump data from a tunnel channel to a socket.
 
-    TCP backpressure applies naturally via sendall blocking.
+    Uses non-blocking sends with select-driven backpressure.
     """
     try:
+        sock.setblocking(False)
+        outbound = collections.deque()
+        outbound_size = 0
+        outbound_offset = 0
+        outbound_limit = _outbound_cap(config)
         bytes_read = 0
         bytes_sent = 0
         last_stats = time.time()
+        base_backoff, max_backoff = _pump_poll_bounds(config)
+        backoff = base_backoff
+        write_timeout = config.socks_relay_write_timeout
+        last_send = None
+        channel_closed = False
+        fatal_error = False
         while not stop_event.is_set():
-            try:
-                data = channel.read(
-                    config.socks_relay_buffer_size,
-                    timeout=config.socks_relay_channel_timeout
-                )
-            except Exception as exc:
-                if not stop_event.is_set():
-                    _log_pump_error(
-                        logger, rid, ch, side, direction,
-                        'Channel read error', exc
-                    )
+            progress = False
+
+            if outbound_size:
+                now = time.time()
+                if last_send is None:
+                    last_send = now
+                if write_timeout is not None and now - last_send > write_timeout:
+                    fatal_error = True
+                    if not stop_event.is_set():
+                        _log_pump_error(
+                            logger, rid, ch, side, direction,
+                            '%s send timeout' % send_label, socket.timeout()
+                        )
+                    break
+                _, wlist = _select([], [sock], backoff)
+                if wlist:
+                    chunk = outbound[0]
+                    try:
+                        sent = sock.send(chunk[outbound_offset:])
+                    except socket.error as exc:
+                        if _is_would_block(exc):
+                            sent = 0
+                        else:
+                            fatal_error = True
+                            if not stop_event.is_set():
+                                _log_pump_error(
+                                    logger, rid, ch, side, direction,
+                                    '%s send error' % send_label, exc
+                                )
+                            break
+                    except Exception as exc:
+                        fatal_error = True
+                        if not stop_event.is_set():
+                            _log_pump_error(
+                                logger, rid, ch, side, direction,
+                                '%s send error' % send_label, exc
+                            )
+                        break
+
+                    if sent:
+                        bytes_sent += sent
+                        last_send = time.time()
+                        progress = True
+                        if sent < len(chunk) - outbound_offset:
+                            outbound_offset += sent
+                        else:
+                            outbound.popleft()
+                            outbound_size -= len(chunk)
+                            outbound_offset = 0
+                            if outbound_size == 0:
+                                last_send = None
+
+            if not channel_closed and outbound_size < outbound_limit:
+                space = outbound_limit - outbound_size
+                read_size = config.socks_relay_buffer_size
+                if space < read_size:
+                    read_size = space
+                if read_size > 0:
+                    if outbound_size:
+                        read_timeout = 0.0
+                    else:
+                        read_timeout = min(config.socks_relay_channel_timeout, backoff)
+                    try:
+                        data = channel.read(read_size, timeout=read_timeout)
+                    except Exception as exc:
+                        if not stop_event.is_set():
+                            _log_pump_error(
+                                logger, rid, ch, side, direction,
+                                'Channel read error', exc
+                            )
+                        fatal_error = True
+                        break
+                    if data is None:
+                        pass
+                    elif data == b'':
+                        log_event(
+                            logger,
+                            logging.DEBUG,
+                            'sock.relay_eof',
+                            'Channel EOF',
+                            lambda: {'rid': rid, 'ch': ch, 'side': side},
+                        )
+                        channel_closed = True
+                        _shutdown_socket_write(sock)
+                    else:
+                        outbound.append(data)
+                        outbound_size += len(data)
+                        bytes_read += len(data)
+                        progress = True
+                        if last_send is None:
+                            last_send = time.time()
+
+            if channel_closed and outbound_size == 0:
                 break
 
-            if data is None:
-                time.sleep(config.non_blocking_poll_timeout)
-                continue
-            if data == b'':
-                log_event(
-                    logger,
-                    logging.DEBUG,
-                    'sock.relay_eof',
-                    'Channel EOF',
-                    lambda: {'rid': rid, 'ch': ch, 'side': side},
-                )
-                break
-
-            bytes_read += len(data)
-            try:
-                sock.sendall(data)
-                bytes_sent += len(data)
-            except Exception as exc:
-                if not stop_event.is_set():
-                    _log_pump_error(
-                        logger, rid, ch, side, direction,
-                        '%s send error' % send_label, exc
-                    )
-                break
+            if progress:
+                backoff = base_backoff
+            else:
+                backoff = min(backoff * 2.0, max_backoff)
 
             now = time.time()
             if now - last_stats >= 1.0:
@@ -216,4 +434,5 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                 bytes_sent = 0
                 last_stats = now
     finally:
-        stop_event.set()
+        if fatal_error:
+            stop_event.set()

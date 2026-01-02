@@ -211,7 +211,7 @@ def parse_args():
     )
     parser.add_argument(
         '--socks-pump-backoff-max', type=float, default=None,
-        help='Override socks_pump_backoff_max (seconds)'
+        help='Override socks_pump_backoff_max poll backoff (seconds)'
     )
     parser.add_argument(
         '--non-blocking-poll-timeout', type=float, default=None,

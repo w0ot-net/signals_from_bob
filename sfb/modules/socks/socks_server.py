@@ -576,6 +576,11 @@ class _ServerConnection(object):
 
     def start_relay(self):
         """Start bidirectional relay threads."""
+        try:
+            self.sock.setblocking(False)
+        except Exception:
+            pass
+
         # Client -> Channel
         t1 = threading.Thread(
             target=self._relay_client_to_channel,

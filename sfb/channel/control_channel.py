@@ -66,6 +66,11 @@ class ControlChannel(Channel):
         return data
 
     def recv_message(self, timeout=None):
+        import time
+        deadline = None
+        if timeout is not None:
+            deadline = time.time() + timeout
+
         while True:
             line = self._pop_line()
             if line is not None:
@@ -81,7 +86,14 @@ class ControlChannel(Channel):
             if len(self._line_buf) > CONTROL_MESSAGE_MAX_LENGTH:
                 raise ChannelError('invalid', 'Control message too long')
 
-            chunk = self.read(self._read_chunk_size, timeout=timeout)
+            if deadline is not None:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    return None
+            else:
+                remaining = None
+
+            chunk = self.read(self._read_chunk_size, timeout=remaining)
             if chunk is None:
                 return None
             if chunk == b'':

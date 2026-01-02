@@ -229,15 +229,15 @@ class Config:
     socks_connect_timeout: float = 30.0
     # Target connect timeout for SOCKS relay (seconds)
     socks_connect_target_timeout: float = 30.0
-    # SOCKS relay socket timeout (seconds)
+    # SOCKS relay socket timeout during handshake/connect (seconds)
     socks_relay_socket_timeout: float = 5.0
-    # SOCKS relay channel read timeout (seconds)
+    # SOCKS relay channel read poll timeout (seconds)
     socks_relay_channel_timeout: float = 0.5
-    # SOCKS relay channel write timeout (seconds)
+    # SOCKS relay send stall timeout for non-blocking pumps (seconds)
     socks_relay_write_timeout: Optional[float] = None
     # SOCKS relay buffer size (bytes)
     socks_relay_buffer_size: int = 2048
-    # Maximum backoff for SOCKS pump when channel buffer is full (seconds)
+    # Maximum poll backoff for SOCKS pump select/wait loops (seconds)
     socks_pump_backoff_max: float = 0.05
     # SOCKS thread join timeout (seconds)
     socks_thread_join_timeout: float = 2.0

@@ -117,7 +117,7 @@ def add_common_args(parser, config, require_domain=True):
     parser.add_argument(
         '--socks_pump_backoff_max', type=float,
         default=config.socks_pump_backoff_max,
-        help='SOCKS pump backoff max in seconds (default: %s)' %
+        help='SOCKS pump max poll backoff in seconds (default: %s)' %
              config.socks_pump_backoff_max
     )
     parser.add_argument(

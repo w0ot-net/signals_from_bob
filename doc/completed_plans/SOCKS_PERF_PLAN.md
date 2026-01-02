@@ -151,3 +151,16 @@ preserving protocol behavior and cross platform support.
 - CPU usage does not spike with many idle or backpressured connections.
 - Throughput and latency are equal or better than baseline.
 - New unit tests pass on Windows and Linux with python3.
+
+## Execution Notes
+- Implemented non-blocking, select-driven SOCKS pumps with per-socket outbound
+  buffering, EOF/half-close handling, and stop-event aware waits.
+- Added channel send-space wait signaling and updated write_wait to avoid
+  repeated slicing while waiting on backpressure.
+- Trimmed channel manager hot paths, gated drain stats by debug logging, and
+  enforced total timeout budgets in ControlChannel.recv_message.
+- Updated SOCKS documentation and config/CLI descriptions for timeout and poll
+  semantics; documented the two-thread pump model.
+- Tests: `python3 -m unittest tests.test_channel tests.test_socks`
+  (4 skipped: socket creation not permitted in sandbox).
+- Baseline profiling not run in this environment.

@@ -2,6 +2,8 @@
 from __future__ import absolute_import
 
 import json
+import threading
+import time
 import unittest
 
 import sfb.channel.channel_manager as channel_manager_module
@@ -189,6 +191,48 @@ class ChannelTests(unittest.TestCase):
             ch.write_all(b'b', timeout=0.01)
         self.assertEqual(ctx.exception.code, 'timeout')
 
+    def test_wait_send_space_drains(self):
+        ch = Channel(1, max_send_buf=4)
+        ch._set_state(STATE_OPEN)
+        ch.write(b'abcd')
+
+        def drain():
+            time.sleep(0.02)
+            ch._take_send_data(2)
+
+        t = threading.Thread(target=drain)
+        t.start()
+        try:
+            self.assertTrue(ch.wait_send_space(timeout=0.5))
+        finally:
+            t.join(timeout=0.2)
+
+    def test_wait_send_space_timeout(self):
+        ch = Channel(1, max_send_buf=4)
+        ch._set_state(STATE_OPEN)
+        ch.write(b'abcd')
+        self.assertFalse(ch.wait_send_space(timeout=0.02))
+
+    def test_wait_send_space_unblocks_on_abort(self):
+        ch = Channel(1, max_send_buf=4)
+        ch._set_state(STATE_OPEN)
+        ch.write(b'abcd')
+        result = {}
+
+        def wait_for_space():
+            try:
+                ch.wait_send_space(timeout=0.5)
+                result['ok'] = True
+            except ChannelError as exc:
+                result['err'] = exc.code
+
+        t = threading.Thread(target=wait_for_space)
+        t.start()
+        time.sleep(0.02)
+        ch.abort(code='aborted', message='boom')
+        t.join(timeout=0.2)
+        self.assertEqual(result.get('err'), 'not_open')
+
 
 class ControlChannelTests(unittest.TestCase):
     def test_send_recv_message_roundtrip(self):
@@ -242,6 +286,33 @@ class ControlChannelTests(unittest.TestCase):
         self.assertEqual(data, b'aaaaa')
         data = ctrl._take_send_data(5)
         self.assertEqual(data, b'a\n')
+
+    def test_recv_message_total_timeout_budget(self):
+        ctrl = ControlChannel()
+        ctrl._set_state(STATE_OPEN)
+        ctrl._deliver(b'{"t":"tun"')
+        start = time.time()
+        msg = ctrl.recv_message(timeout=0.05)
+        elapsed = time.time() - start
+        self.assertIsNone(msg)
+        self.assertLess(elapsed, 0.2)
+
+    def test_recv_message_partial_within_budget(self):
+        ctrl = ControlChannel()
+        ctrl._set_state(STATE_OPEN)
+        ctrl._deliver(b'{"t":"tun","c":')
+
+        def finish():
+            time.sleep(0.02)
+            ctrl._deliver(b'"noop"}\n')
+
+        t = threading.Thread(target=finish)
+        t.start()
+        try:
+            msg = ctrl.recv_message(timeout=0.2)
+        finally:
+            t.join(timeout=0.2)
+        self.assertEqual(msg, {'t': 'tun', 'c': 'noop'})
 
 
 class ChannelManagerTests(unittest.TestCase):
@@ -363,9 +434,9 @@ class ChannelManagerTests(unittest.TestCase):
         self.assertEqual(msgs[0]['ch'], 1)
 
     def test_deliver_segment_overflow_aborts(self):
-        cfg = make_test_config(channel_max_recv_buf=4)
+        cfg = make_test_config()
         mgr = ChannelManager(is_alice=True, config=cfg)
-        ch = Channel(1, max_recv_buf=cfg.channel_max_recv_buf)
+        ch = Channel(1, max_recv_buf=4)
         ch._set_state(STATE_OPEN)
         mgr._register_channel(ch)
         mgr.deliver_segment(Segment(1, b'abcde'))

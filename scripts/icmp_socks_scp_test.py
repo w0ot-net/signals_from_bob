@@ -42,7 +42,7 @@ from sfb import time_provider
 LOG_DIR = os.path.join(ROOT_DIR, 'logs')
 SERVER_DB_LOG = os.path.join(LOG_DIR, 'icmp_scp_server_log.db')
 CLIENT_DB_LOG = os.path.join(LOG_DIR, 'icmp_scp_client_log.db')
-DEFAULT_PROXYCHAINS_CONFIG = os.path.join(LOG_DIR, 'proxychains_icmp_socks.conf')
+DEFAULT_PROXYCHAINS_CONFIG = '/tmp/proxychains_icmp_socks.conf'
 DEFAULT_PROXYCHAINS_CONNECT_TIMEOUT_MS = 15000
 DEFAULT_PROXYCHAINS_READ_TIMEOUT_MS = 600000
 DEFAULT_SOCKS_PORT = 1080
@@ -98,7 +98,7 @@ def parse_args():
     parser.add_argument(
         '--proxychains-config', default=None,
         help='Write proxychains config to PATH '
-             '(default: logs/proxychains_icmp_socks.conf)'
+             '(default: /tmp/proxychains_icmp_socks.conf)'
     )
     parser.add_argument(
         '--proxychains-chain',

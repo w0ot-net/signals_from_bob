@@ -28,12 +28,14 @@ from .tunnel_control_messages import (
 )
 from ..protocol import (
     Packet,
+    PacketHeader,
     Segment,
     FLAG_SYN,
     FLAG_ACK,
     FLAG_KEEPALIVE,
     PACKET_HEADER_SIZE,
     seq_diff,
+    log_control_segments,
 )
 from ..reliability import SendWindow, RecvWindow, ReliabilityStats, NoopReliabilityStats
 from ..logging_util import get_logger, log_event
@@ -235,13 +237,26 @@ class BaseTunnel(object):
         """Generate initial sequence number."""
         return 1
 
-    def _encrypt(self, data):
+    def _encrypt(self, data, seq=None, direction=None):
         """Encrypt data using configured cipher."""
-        return self._crypto.encrypt(data)
+        return self._crypto.encrypt(data, seq=seq, direction=direction)
 
-    def _decrypt(self, data):
+    def _decrypt(self, data, seq=None, direction=None):
         """Decrypt data using configured cipher."""
-        return self._crypto.decrypt(data)
+        return self._crypto.decrypt(data, seq=seq, direction=direction)
+
+    def _direction_outbound(self):
+        return 0 if self._is_initiator else 1
+
+    def _direction_inbound(self):
+        return 1 if self._is_initiator else 0
+
+    @staticmethod
+    def _encode_segments(segments):
+        parts = []
+        for seg in segments:
+            parts.append(seg.encode())
+        return b''.join(parts)
 
     def _build_packet(self, flags=0, segments=None):
         """
@@ -313,10 +328,17 @@ class BaseTunnel(object):
 
         return packet
 
-    def _encode_packet(self, packet):
+    def _encode_packet(self, packet, encrypted_body=None):
         """Encode and encrypt a packet."""
-        raw = packet.encode()
-        return self._encrypt(raw)
+        header = packet.header.encode()
+        if encrypted_body is None:
+            body = self._encode_segments(packet.segments)
+            encrypted_body = self._encrypt(
+                body,
+                seq=packet.seq,
+                direction=self._direction_outbound(),
+            )
+        return header + encrypted_body
 
     def _close_protocol_violation(self, reason, packet=None):
         def build_fields():
@@ -376,8 +398,22 @@ class BaseTunnel(object):
         if max_size is None:
             max_size = self._max_packet_size
         try:
-            decrypted = self._decrypt(data)
-            packet = Packet.decode(decrypted, max_size=max_size)
+            if max_size is not None and len(data) > max_size:
+                raise ValueError(
+                    'Packet size %d exceeds max %d' % (len(data), max_size)
+                )
+            header = PacketHeader.decode(data)
+            body = data[PACKET_HEADER_SIZE:]
+            decrypted_body = self._decrypt(
+                body,
+                seq=header.seq,
+                direction=self._direction_inbound(),
+            )
+            segments = Segment.decode_all(decrypted_body)
+            log_control_segments(segments)
+            packet = Packet()
+            packet.header = header
+            packet.segments = segments
             if not self._validate_keepalive_packet(packet):
                 if return_size:
                     return (None, None)

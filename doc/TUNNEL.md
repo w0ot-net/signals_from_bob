@@ -90,7 +90,7 @@ and sends new packets using `send()`/`recv()`:
 3. Send new packets (while capacity remains)
    ├─▶ Collect outgoing segments
    ├─▶ Build packet with seq/ack/sack
-   └─▶ transport.send(encrypt(packet.encode()))
+   └─▶ transport.send(header + encrypt(segments))
 ```
 
 ### Bob's Request Handler
@@ -120,7 +120,7 @@ then calls `responder(response_data)` to send the reply:
    └─▶ sack = recv_window.sack
 
 6. Send response
-   └─▶ responder(encrypt(packet.encode()))
+   └─▶ responder(header + encrypt(segments))
 ```
 
 ### Correlation IDs
@@ -282,13 +282,13 @@ transport limits. The packet header (8 bytes) must also be accounted for.
 
 ## Encryption
 
-All packets pass through the configured cipher before transmission:
+Only the packet body (segments) is encrypted. The header remains in the clear:
 
 ```
 ┌─────────────────────────────────────────┐
-│              Packet                     │
+│ Header (clear)                          │
 ├─────────────────────────────────────────┤
-│  cipher(header + segment1 + segment2)   │
+│ cipher(segment1 + segment2 + ...)       │
 └─────────────────────────────────────────┘
 ```
 
@@ -298,7 +298,8 @@ Supported ciphers:
 - `RC4`: RC4 stream cipher
 
 Cipher is configured at tunnel creation. Both sides must use the same cipher
-and key. Use `Plain` only for debugging; production should use `RC4` or better.
+and key. RC4 derives a per-packet key from (seq, direction) to keep retransmits
+deterministic. Keystreams repeat if seq wraps under a static PSK.
 
 ---
 

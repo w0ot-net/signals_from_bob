@@ -25,8 +25,8 @@ class SendWindow(object):
     Tracks packets that have been sent but not yet acknowledged.
     Handles retransmission timing and SACK processing.
 
-    Stores segments (not encoded bytes) so packets can be rebuilt
-    with fresh ACK/SACK on retransmit.
+    Stores segments and encrypted body so packets can be rebuilt
+    with fresh ACK/SACK while reusing ciphertext on retransmit.
     """
 
     def __init__(self, max_in_flight=DEFAULT_MAX_IN_FLIGHT, stats=None):
@@ -54,13 +54,14 @@ class SendWindow(object):
         """Number of unacked packets."""
         return len(self._unacked)
 
-    def send(self, segments, flags=0, now=None):
+    def send(self, segments, flags=0, encrypted_body=None, now=None):
         """
         Record a packet being sent.
 
         Args:
             segments: List of Segment instances to store for retransmit
             flags: Packet flags to preserve for retransmit
+            encrypted_body: Cached encrypted body for retransmit
 
         Returns:
             int: Sequence number assigned to this packet
@@ -78,6 +79,7 @@ class SendWindow(object):
             seq=seq,
             segments=segments,
             flags=flags,
+            encrypted_body=encrypted_body,
             send_time=now,
             retransmit_count=0,
         )
@@ -122,7 +124,7 @@ class SendWindow(object):
         Returns in send order (oldest first) for consistent behavior.
 
         Returns:
-            list: List of (seq, segments, flags) to retransmit
+            list: List of (seq, segments, flags, encrypted_body) to retransmit
         """
         if now is None:
             now = time_provider.now()
@@ -131,7 +133,9 @@ class SendWindow(object):
         for seq in self._send_order:
             pkt = self._unacked.get(seq)
             if pkt is not None and now - pkt.send_time >= rto_sec:
-                retransmits.append((seq, pkt.segments, pkt.flags))
+                retransmits.append(
+                    (seq, pkt.segments, pkt.flags, pkt.encrypted_body)
+                )
 
         return retransmits
 
@@ -140,7 +144,7 @@ class SendWindow(object):
         Get oldest unacked packet for retransmission (Bob, opportunity-driven).
 
         Returns:
-            tuple: (seq, segments, flags) or None if no unacked packets
+            tuple: (seq, segments, flags, encrypted_body) or None if no unacked packets
         """
         if not self._unacked:
             return None
@@ -149,7 +153,7 @@ class SendWindow(object):
             seq = self._send_order[0]
             pkt = self._unacked.get(seq)
             if pkt is not None:
-                return (seq, pkt.segments, pkt.flags)
+                return (seq, pkt.segments, pkt.flags, pkt.encrypted_body)
             self._send_order.popleft()
         return None
 
@@ -158,7 +162,7 @@ class SendWindow(object):
         Get oldest unacked packet with timing info (Bob, opportunity-driven).
 
         Returns:
-            tuple: (seq, segments, flags, send_time, retransmit_count) or None
+            tuple: (seq, segments, flags, encrypted_body, send_time, retransmit_count) or None
         """
         if not self._unacked:
             return None
@@ -171,6 +175,7 @@ class SendWindow(object):
                     seq,
                     pkt.segments,
                     pkt.flags,
+                    pkt.encrypted_body,
                     pkt.send_time,
                     pkt.retransmit_count,
                 )
@@ -240,11 +245,19 @@ class SendWindow(object):
 class _UnackedPacket(object):
     """Tracking data for an unacked packet."""
 
-    __slots__ = ('seq', 'segments', 'flags', 'send_time', 'retransmit_count')
+    __slots__ = (
+        'seq',
+        'segments',
+        'flags',
+        'encrypted_body',
+        'send_time',
+        'retransmit_count',
+    )
 
-    def __init__(self, seq, segments, flags, send_time, retransmit_count):
+    def __init__(self, seq, segments, flags, encrypted_body, send_time, retransmit_count):
         self.seq = seq
         self.segments = segments
         self.flags = flags
+        self.encrypted_body = encrypted_body
         self.send_time = send_time
         self.retransmit_count = retransmit_count

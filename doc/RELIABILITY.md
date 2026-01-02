@@ -33,7 +33,7 @@ ACK behavior:
 
 ## Receive Path
 
-1. Decrypt the packet (if crypto is enabled).
+1. Parse the header, then decrypt the body (if crypto is enabled).
 2. Validate structure and flags. If invalid, drop silently.
 3. If the packet is a duplicate, ignore it.
 4. If in order, deliver to the next layer and advance `ack`.

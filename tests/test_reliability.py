@@ -33,30 +33,30 @@ class RttEstimatorTests(unittest.TestCase):
 class SendWindowTests(unittest.TestCase):
     def test_send_assigns_seq(self):
         win = SendWindow(max_in_flight=4)
-        seq1 = win.send(b'a', now=1.0)
-        seq2 = win.send(b'b', now=2.0)
+        seq1 = win.send([b'a'], now=1.0)
+        seq2 = win.send([b'b'], now=2.0)
         self.assertEqual(seq1, 0)
         self.assertEqual(seq2, 1)
         self.assertEqual(win.unacked_count, 2)
 
     def test_cumulative_ack_uses_send_order(self):
         win = SendWindow(max_in_flight=4)
-        win.send(b'a', now=1.0)
-        win.send(b'b', now=2.0)
-        win.send(b'c', now=3.0)
+        win.send([b'a'], now=1.0)
+        win.send([b'b'], now=2.0)
+        win.send([b'c'], now=3.0)
         samples, acked, data_acked = win.process_ack(ack=2, sack=0, now=5.0)
         self.assertEqual(len(samples), 2)
         self.assertEqual(acked, 2)
         self.assertEqual(data_acked, 2)
         self.assertEqual(win.unacked_count, 1)
         oldest = win.get_oldest_unacked()
-        self.assertEqual(oldest[1], b'c')
+        self.assertEqual(oldest[1], [b'c'])
 
     def test_sack_ack(self):
         win = SendWindow(max_in_flight=4)
-        win.send(b'a', now=1.0)  # seq 0
-        win.send(b'b', now=2.0)  # seq 1
-        win.send(b'c', now=3.0)  # seq 2
+        win.send([b'a'], now=1.0)  # seq 0
+        win.send([b'b'], now=2.0)  # seq 1
+        win.send([b'c'], now=3.0)  # seq 2
         sack = 1 << 0  # ack+1 (seq 1)
         samples, acked, data_acked = win.process_ack(ack=1, sack=sack, now=5.0)
         self.assertEqual(len(samples), 2)
@@ -66,30 +66,30 @@ class SendWindowTests(unittest.TestCase):
 
     def test_oldest_unacked_skips_acked(self):
         win = SendWindow(max_in_flight=4)
-        win.send(b'a', now=1.0)  # seq 0
-        win.send(b'b', now=2.0)  # seq 1
+        win.send([b'a'], now=1.0)  # seq 0
+        win.send([b'b'], now=2.0)  # seq 1
         win.process_ack(ack=1, sack=0, now=3.0)
         oldest = win.get_oldest_unacked()
         self.assertEqual(oldest[0], 1)
 
     def test_mark_retransmit_does_not_block_window(self):
         win = SendWindow(max_in_flight=1)
-        win.send(b'a', now=1.0)
+        win.send([b'a'], now=1.0)
         self.assertFalse(win.can_send)
         win.mark_retransmit(0, now=2.0)
         self.assertFalse(win.can_send)
 
     def test_get_retransmits(self):
         win = SendWindow(max_in_flight=2)
-        win.send(b'a', now=1.0)
+        win.send([b'a'], now=1.0)
         retransmits = win.get_retransmits(rto_sec=0.5, now=1.4)
         self.assertEqual(retransmits, [])
         retransmits = win.get_retransmits(rto_sec=0.5, now=1.6)
-        self.assertEqual(retransmits, [(0, b'a', 0)])
+        self.assertEqual(retransmits, [(0, [b'a'], 0, None)])
 
     def test_ack_retransmit_has_no_rtt_sample(self):
         win = SendWindow(max_in_flight=1)
-        seq = win.send(b'a', now=1.0)
+        seq = win.send([b'a'], now=1.0)
         win.mark_retransmit(seq, now=2.0)
         samples, acked, data_acked = win.process_ack(ack=1, sack=0, now=3.0)
         self.assertEqual(samples, [])

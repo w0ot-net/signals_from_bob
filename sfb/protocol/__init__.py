@@ -242,6 +242,7 @@ __all__ = [
     'pack_segments',
     'is_alice_channel',
     'is_bob_channel',
+    'log_control_segments',
 ]
 
 
@@ -266,3 +267,7 @@ def _log_control_segments(segments):
                 'Control message line',
                 lambda: {'line': line.decode('ascii', 'replace')},
             )
+
+
+def log_control_segments(segments):
+    _log_control_segments(segments)

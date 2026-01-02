@@ -15,9 +15,11 @@
 Protocol max packet size: 1450 bytes (configurable per transport)
 Pre-negotiation packet size limit is 100 bytes for all transports until MTU_OK.
 
-Packet encryption is optional. When enabled, the entire packet is encrypted
-with PSK before transmission. Transports may impose a smaller MTU than the
-protocol max packet size.
+Packet encryption is optional. When enabled, the header is sent in cleartext
+and only the body (segments) is encrypted with the PSK. Transports may impose
+a smaller MTU than the protocol max packet size.
+RC4 derives a per-packet key from (seq, direction); keystreams repeat if seq
+wraps under a static PSK.
 
 ---
 

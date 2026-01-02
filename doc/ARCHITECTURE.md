@@ -70,8 +70,8 @@ All transports start with a 100-byte packet limit until MTU_OK completes.
 
 ### Crypto
 
-PSK-based encryption. When enabled, the entire packet is encrypted before
-handoff to transport.
+PSK-based encryption. When enabled, the header stays in the clear and only
+the packet body (segments) is encrypted before handoff to transport.
 
 Modes: none, xor, rc4
 

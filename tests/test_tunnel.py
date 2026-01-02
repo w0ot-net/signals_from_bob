@@ -357,15 +357,15 @@ class BaseTunnelTests(unittest.TestCase):
     def test_encrypt_decrypt_roundtrip(self):
         tunnel = BaseTunnel(make_test_config(), crypto=XOR(b'secret'))
         data = b'hello world'
-        encrypted = tunnel._encrypt(data)
-        decrypted = tunnel._decrypt(encrypted)
+        encrypted = tunnel._encrypt(data, seq=1, direction=0)
+        decrypted = tunnel._decrypt(encrypted, seq=1, direction=0)
         self.assertEqual(decrypted, data)
         self.assertNotEqual(encrypted, data)
 
     def test_plain_crypto_passthrough(self):
         tunnel = BaseTunnel(make_test_config(), crypto=Plain())
         data = b'hello world'
-        encrypted = tunnel._encrypt(data)
+        encrypted = tunnel._encrypt(data, seq=1, direction=0)
         self.assertEqual(encrypted, data)
 
 
@@ -548,7 +548,7 @@ class BobRetransmitTests(unittest.TestCase):
         bob.control.send_message({'t': 'tun', 'c': 'test'})
 
         # Manually trigger a send to record in send_window
-        from sfb.protocol import Packet, Segment, PACKET_HEADER_SIZE
+        from sfb.protocol import PacketHeader, Segment, PACKET_HEADER_SIZE
         segments = bob._collect_segments(200 - PACKET_HEADER_SIZE)
         packet, seq = bob._build_packet(segments=segments)
         bob._send_window.send(
@@ -560,10 +560,11 @@ class BobRetransmitTests(unittest.TestCase):
         # Now verify there's an unacked packet with segments
         oldest = bob._send_window.get_oldest_unacked()
         self.assertIsNotNone(oldest)
-        stored_seq, stored_segments, stored_flags = oldest
+        stored_seq, stored_segments, stored_flags, stored_body = oldest
         self.assertEqual(stored_seq, 101)
         self.assertEqual(stored_segments, segments)
         self.assertEqual(stored_flags, packet.flags)
+        self.assertIsNone(stored_body)
 
         # Simulate receiving a packet (to change ack state)
         bob._recv_window.set_initial_seq(202)  # Simulate ack advancement
@@ -580,13 +581,13 @@ class BobRetransmitTests(unittest.TestCase):
         self.assertEqual(len(sent_responses), 1)
 
         # Decode and verify the retransmit has fresh ack
-        response_packet = Packet.decode(sent_responses[0])
-        self.assertEqual(response_packet.seq, 101)  # Same seq as original
-        self.assertEqual(response_packet.ack, 202)  # Fresh ack value
+        response_header = PacketHeader.decode(sent_responses[0])
+        self.assertEqual(response_header.seq, 101)  # Same seq as original
+        self.assertEqual(response_header.ack, 202)  # Fresh ack value
 
     def test_retransmit_preserves_flags(self):
         """Verify retransmits preserve packet flags."""
-        from sfb.protocol import Packet, FLAG_KEEPALIVE
+        from sfb.protocol import FLAG_KEEPALIVE, PACKET_HEADER_SIZE, PacketHeader
         server = MockServer()
         bob = BobTunnel(server, make_test_config(), crypto=Plain())
 
@@ -608,9 +609,10 @@ class BobRetransmitTests(unittest.TestCase):
         bob._send_response(mock_responder, time_provider.now())
 
         self.assertEqual(len(sent_responses), 1)
-        response_packet = Packet.decode(sent_responses[0])
-        self.assertEqual(response_packet.flags, FLAG_KEEPALIVE)
-        self.assertEqual(len(response_packet.segments), 0)
+        response_data = sent_responses[0]
+        response_header = PacketHeader.decode(response_data)
+        self.assertEqual(response_header.flags, FLAG_KEEPALIVE)
+        self.assertEqual(len(response_data), PACKET_HEADER_SIZE)
 
 
 class WindowEnforcementTests(unittest.TestCase):
@@ -824,9 +826,11 @@ class KeepaliveFlagTests(unittest.TestCase):
         bob._send_response(responder, time_provider.now())
 
         self.assertEqual(len(sent_responses), 1)
-        response_packet = Packet.decode(sent_responses[0])
-        self.assertEqual(response_packet.flags, FLAG_KEEPALIVE)
-        self.assertEqual(len(response_packet.segments), 0)
+        from sfb.protocol import PacketHeader, PACKET_HEADER_SIZE
+        response_data = sent_responses[0]
+        response_header = PacketHeader.decode(response_data)
+        self.assertEqual(response_header.flags, FLAG_KEEPALIVE)
+        self.assertEqual(len(response_data), PACKET_HEADER_SIZE)
 
 
 class NegotiationTests(unittest.TestCase):

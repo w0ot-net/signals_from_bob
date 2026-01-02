@@ -390,10 +390,10 @@ class AliceTunnel(BaseTunnel):
         retransmits = self._send_window.get_retransmits(
             self._rtt.rto_sec, now=now
         )
-        for seq, segments, flags in retransmits:
+        for seq, segments, flags, encrypted_body in retransmits:
             if not self._can_send_retransmit():
                 break
-            self._send_retransmit(seq, segments, flags, now)
+            self._send_retransmit(seq, segments, flags, encrypted_body, now)
 
         # 3. Send new packets if we can
         while True:
@@ -657,7 +657,13 @@ class AliceTunnel(BaseTunnel):
     def _send_new_packet(self, segments, now, flags=0):
         """Send a new packet with given segments."""
         packet, seq = self._build_packet(flags=flags, segments=segments)
-        packet_data = self._encode_packet(packet)
+        body = self._encode_segments(packet.segments)
+        encrypted_body = self._encrypt(
+            body,
+            seq=packet.seq,
+            direction=self._direction_outbound(),
+        )
+        packet_data = self._encode_packet(packet, encrypted_body=encrypted_body)
 
         if self._send_limiter is not None and not self._send_limiter.consume(now=now):
             log_event(
@@ -673,7 +679,12 @@ class AliceTunnel(BaseTunnel):
             )
             return
 
-        self._send_window.send(segments, flags=flags, now=now)
+        self._send_window.send(
+            segments,
+            flags=flags,
+            encrypted_body=encrypted_body,
+            now=now,
+        )
         self._transport.send(packet_data)
         if self._pacer.enabled:
             cap = self._pacer_cap()
@@ -699,10 +710,17 @@ class AliceTunnel(BaseTunnel):
             },
         )
 
-    def _send_retransmit(self, seq, segments, flags, now):
+    def _send_retransmit(self, seq, segments, flags, encrypted_body, now):
         """Retransmit a packet."""
         packet = self._rebuild_packet(seq, segments, flags=flags)
-        packet_data = self._encode_packet(packet)
+        if encrypted_body is None:
+            body = self._encode_segments(packet.segments)
+            encrypted_body = self._encrypt(
+                body,
+                seq=seq,
+                direction=self._direction_outbound(),
+            )
+        packet_data = self._encode_packet(packet, encrypted_body=encrypted_body)
 
         if self._send_limiter is not None and not self._send_limiter.consume(now=time_provider.now()):
             log_event(

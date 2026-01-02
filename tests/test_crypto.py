@@ -65,9 +65,31 @@ class CryptoTests(unittest.TestCase):
     def test_rc4_roundtrip(self):
         key = b'secret'
         data = b'hello world'
-        enc = RC4(key).encrypt(data)
-        dec = RC4(key).decrypt(enc)
+        enc = RC4(key).encrypt(data, seq=1, direction=0)
+        dec = RC4(key).decrypt(enc, seq=1, direction=0)
         self.assertEqual(dec, data)
+
+    def test_rc4_deterministic_per_packet(self):
+        key = b'secret'
+        data = b'hello world'
+        enc1 = RC4(key).encrypt(data, seq=10, direction=0)
+        enc2 = RC4(key).encrypt(data, seq=10, direction=0)
+        self.assertEqual(enc1, enc2)
+
+    def test_rc4_direction_separation(self):
+        key = b'secret'
+        data = b'hello world'
+        enc_a = RC4(key).encrypt(data, seq=5, direction=0)
+        enc_b = RC4(key).encrypt(data, seq=5, direction=1)
+        self.assertNotEqual(enc_a, enc_b)
+
+    def test_rc4_requires_seq_direction(self):
+        key = b'secret'
+        data = b'hello'
+        cipher = RC4(key)
+        self.assertRaises(ValueError, cipher.encrypt, data)
+        self.assertRaises(ValueError, cipher.encrypt, data, seq=1)
+        self.assertRaises(ValueError, cipher.encrypt, data, direction=0)
 
     def test_rejects_empty_key(self):
         self.assertRaises(ValueError, XOR, b'')
@@ -81,7 +103,7 @@ class CryptoTests(unittest.TestCase):
     def test_rejects_text_data(self):
         text = _text_value('data')
         self.assertRaises(TypeError, XOR(b'k').encrypt, text)
-        self.assertRaises(TypeError, RC4(b'k').encrypt, text)
+        self.assertRaises(TypeError, RC4(b'k').encrypt, text, seq=1, direction=0)
 
 
 if __name__ == '__main__':

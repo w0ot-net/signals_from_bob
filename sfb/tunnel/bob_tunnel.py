@@ -282,7 +282,7 @@ class BobTunnel(BaseTunnel):
         # Rebuild with fresh ack/sack to ensure current ACK state is sent
         oldest = self._send_window.get_oldest_unacked_info()
         if oldest is not None:
-            seq, segments, flags, send_time, retransmit_count = oldest
+            seq, segments, flags, encrypted_body, send_time, retransmit_count = oldest
             cooldown = self._retransmit_cooldown()
             age = None
             if send_time is not None:
@@ -315,7 +315,16 @@ class BobTunnel(BaseTunnel):
                 )
             else:
                 packet = self._rebuild_packet(seq, segments, flags=flags)
-                response_data = self._encode_packet(packet)
+                if encrypted_body is None:
+                    body = self._encode_segments(packet.segments)
+                    encrypted_body = self._encrypt(
+                        body,
+                        seq=seq,
+                        direction=self._direction_outbound(),
+                    )
+                response_data = self._encode_packet(
+                    packet, encrypted_body=encrypted_body
+                )
                 if (response_payload_cap is not None and
                         len(response_data) > response_payload_cap):
                     log_event(
@@ -483,8 +492,19 @@ class BobTunnel(BaseTunnel):
                 flags=FLAG_KEEPALIVE,
                 segments=[],
             )
-            response_data = self._encode_packet(packet)
-            self._send_window.send([], flags=FLAG_KEEPALIVE, now=now)
+            body = self._encode_segments(packet.segments)
+            encrypted_body = self._encrypt(
+                body,
+                seq=packet.seq,
+                direction=self._direction_outbound(),
+            )
+            response_data = self._encode_packet(packet, encrypted_body=encrypted_body)
+            self._send_window.send(
+                [],
+                flags=FLAG_KEEPALIVE,
+                encrypted_body=encrypted_body,
+                now=now,
+            )
             self._packets_sent += 1
             self._bytes_sent += len(response_data)
             self._log_response_cap(responder, response_data)
@@ -508,10 +528,21 @@ class BobTunnel(BaseTunnel):
 
         # Build packet
         packet, seq = self._build_packet(segments=segments)
-        response_data = self._encode_packet(packet)
+        body = self._encode_segments(packet.segments)
+        encrypted_body = self._encrypt(
+            body,
+            seq=packet.seq,
+            direction=self._direction_outbound(),
+        )
+        response_data = self._encode_packet(packet, encrypted_body=encrypted_body)
 
         # Record send (store segments for retransmit with fresh ack/sack)
-        self._send_window.send(segments, flags=packet.flags, now=now)
+        self._send_window.send(
+            segments,
+            flags=packet.flags,
+            encrypted_body=encrypted_body,
+            now=now,
+        )
         self._packets_sent += 1
         self._bytes_sent += len(response_data)
 

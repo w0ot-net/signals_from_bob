@@ -10,6 +10,9 @@ The transport interface separates `send()` and `recv()` to support pipelining -
 multiple requests in flight simultaneously. For serial operation, simply call
 `recv()` after each `send()`, or set `max_pending=1`.
 
+The tunnel passes wire packet bytes to the transport: the header is in cleartext
+and the body may be encrypted depending on the configured cipher.
+
 ---
 
 ## Transport Interface

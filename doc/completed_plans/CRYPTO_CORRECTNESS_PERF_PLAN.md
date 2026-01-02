@@ -152,3 +152,10 @@ compatibility shims.
   backward compatibility in this change.
 - When executing this plan, add execution notes and move the plan to
   `doc/completed_plans/` per project rules.
+
+## Execution Notes
+- Implemented Option B packet-scoped crypto with clear headers and per-packet
+  RC4 keys, plus cached encrypted bodies in the send window for retransmits.
+- Updated tunnel encode/decode paths, docs, and unit tests for header visibility
+  and deterministic retransmits.
+- Tests run: `python3 -m unittest tests/test_crypto.py tests/test_reliability.py tests/test_tunnel.py`.

@@ -27,9 +27,10 @@ All code must remain Python 2.7/3 compatible and use only the standard library.
 
 ## Transport Overview
 
-Alice sends ICMP Echo Requests carrying an SFB packet payload. Bob replies
-with ICMP Echo Replies carrying the response SFB packet payload. This maps
-cleanly to the existing request/response transport interface.
+Alice sends ICMP Echo Requests carrying an SFB packet payload (header clear,
+body possibly encrypted). Bob replies with ICMP Echo Replies carrying the
+response SFB packet payload. This maps cleanly to the existing
+request/response transport interface.
 
 ```
 Alice                                       Bob
@@ -110,7 +111,7 @@ ICMP Echo:
   checksum=ICMP checksum
   id=<transport identifier>
   seq=<per-request sequence>
-  data=<SFB packet bytes>
+  data=<SFB packet bytes (header clear, body possibly encrypted)>
 ```
 
 Correlation IDs:

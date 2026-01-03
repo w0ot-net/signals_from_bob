@@ -165,6 +165,13 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   except seq 17118 which appears once.
 - Bob had zero `tunnel.send_window_distance` events in this window.
 
+## Change applied (2026-01-03)
+- When Alice hits the distance cap with low `unacked` and high `buffered`,
+  she now retransmits the packet at `last_cum_ack` once per ACK stall if
+  ACK silence exceeds 0.25 * RTO (min 50ms).
+- Goal: recover the missing gap earlier than the full RTO and reduce
+  prolonged distance-cap stalls.
+
 ## Next steps from the latest logs
 - If console output still shows `tunnel.send_window_distance` spam, capture DB
   logs with a profile that includes it on both sides; the latest Alice DB had

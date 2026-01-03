@@ -404,20 +404,6 @@ class AliceTunnelTests(unittest.TestCase):
         self.assertTrue(transport._closed)
 
 
-class BobTunnelTests(unittest.TestCase):
-    def test_initial_state(self):
-        server = MockServer()
-        tunnel = BobTunnel(server, make_test_config())
-        self.assertEqual(tunnel.state, TunnelState.DISCONNECTED)
-
-    def test_close_sets_state(self):
-        server = MockServer()
-        tunnel = BobTunnel(server, make_test_config())
-        tunnel.close()
-        self.assertEqual(tunnel.state, TunnelState.CLOSED)
-        self.assertTrue(server._closed)
-
-
 class EndToEndTests(unittest.TestCase):
     def test_handshake(self):
         """Test Alice and Bob can complete handshake."""

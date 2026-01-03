@@ -59,6 +59,26 @@ class Config:
     # Timeout before considering an ICMP request stale (seconds)
     icmp_pending_timeout: float = 10.0
 
+    # --- TLS ClientHello Transport ---
+    # Alice target host:port
+    tls_target: str = "127.0.0.1:8443"
+    # Bob listen host:port
+    tls_listen_addr: str = "0.0.0.0:8443"
+    # Timeout before considering a TLS request stale (seconds)
+    tls_pending_timeout: float = 5.0
+    # TLS connect timeout (seconds)
+    tls_connect_timeout: float = 3.0
+    # TLS handshake timeout (seconds)
+    tls_handshake_timeout: float = 5.0
+    # Max on-wire ClientHello record size (bytes, includes 5-byte header)
+    tls_max_clienthello_bytes: int = 1400
+    # Max on-wire ServerHello record size (bytes, includes 5-byte header)
+    tls_max_serverhello_bytes: int = 1400
+    # Optional SNI cover name
+    tls_sni: Optional[str] = None
+    # Optional comma-separated ALPN list
+    tls_alpn: Optional[str] = None
+
     # --- Crypto ---
     # Encryption mode: 'none', 'xor', 'rc4'
     crypto_mode: str = "none"
@@ -174,6 +194,8 @@ class Config:
     log_component_transport_dns: bool = False
     # Enable ICMP transport logging (stdout + SQLite)
     log_component_transport_icmp: bool = False
+    # Enable TLS transport logging (stdout + SQLite)
+    log_component_transport_tls: bool = False
     # Enable tunnel logging (stdout + SQLite)
     log_component_tunnel: bool = True
     # Enable channel logging (stdout + SQLite)
@@ -204,6 +226,8 @@ class Config:
         'dns.recv',
         'icmp.send',
         'icmp.recv',
+        'tls.send',
+        'tls.recv',
     )
     # Enable SOCKS module logging (stdout + SQLite)
     log_component_module_socks: bool = True

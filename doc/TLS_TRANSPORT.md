@@ -24,6 +24,16 @@ This preserves the transport asymmetry:
 - Alice initiates all connections and polls for data.
 - Bob only responds to incoming polls.
 
+Connection churn can hit TIME_WAIT and ephemeral port limits at high rates.
+Use `max_in_flight` and `tunnel_send_rate` to cap new connections. A rough
+upper bound is:
+
+```
+max_new_conns_per_sec ~= ephemeral_port_range / time_wait_sec
+```
+
+Example: with a 16k ephemeral range and 60s TIME_WAIT, budget ~266 connects/sec.
+
 ---
 
 ## Wire Format
@@ -81,7 +91,7 @@ struct {
 ```
 
 Constraints:
-- `session_id_len` MUST be <= 32.
+- `session_id_len` MUST be 0 in phase 1.
 - `cipher_suites_len` MUST be even and >= 2.
 - `compression_methods_len` MUST be 1 and value MUST be 0x00.
 - Extensions are encoded as standard TLS 1.2 extensions (see below).
@@ -269,6 +279,17 @@ Required fields:
 - `tls_max_serverhello_bytes`: ServerHello on-wire size cap.
 - `tls_sni`: optional cover host name.
 - `tls_alpn`: optional cover protocol list (comma-separated).
+
+Defaults:
+- `tls_target`: `127.0.0.1:8443`
+- `tls_listen_addr`: `0.0.0.0:8443`
+- `tls_pending_timeout`: `5.0`
+- `tls_connect_timeout`: `3.0`
+- `tls_handshake_timeout`: `5.0`
+- `tls_max_clienthello_bytes`: `1400`
+- `tls_max_serverhello_bytes`: `1400`
+- `tls_sni`: `None`
+- `tls_alpn`: `None`
 
 Validation:
 - Timeouts MUST be positive.

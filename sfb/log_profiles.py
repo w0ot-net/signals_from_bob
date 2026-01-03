@@ -124,6 +124,10 @@ LOG_PROFILES = {
     'dns_transport': {
         'log_component_transport_dns': True,
     },
+    # Enable TLS transport logs (keeps default event blacklist).
+    'tls_transport': {
+        'log_component_transport_tls': True,
+    },
     # DNS troubleshooting with tunnel, channel, and SOCKS context.
     'dns_troubleshoot': {
         'log_component_transport_dns': True,

@@ -361,3 +361,8 @@ CLI:
 - Alice and Bob can exchange SFB packets over the TLS handshake transport.
 - Transport respects asymmetric MTU negotiation and max_in_flight limits.
 - Unit tests validate codec correctness and basic client/server exchange.
+
+## Execution Notes
+- Implemented TLS codec, client, and server transports with config validation.
+- Updated transport registry, config/CLI, logging filters/profiles, and docs.
+- Added TLS codec and transport unit tests (socket-based tests skip when sockets are unavailable).

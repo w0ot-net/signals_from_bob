@@ -185,6 +185,7 @@ transport uses it internally to match responses:
 |-----------|---------------------|
 | DNS | Maps to DNS query ID (16-bit) |
 | ICMP | Maps to ICMP sequence number |
+| TLS ClientHello | Maps to per-connection correlation ID |
 | HTTP | Maps to request context |
 | In-memory | Incrementing integer per transport instance |
 | Lossy (wrapper) | Wrapper IDs map to inner corr_id(s) per send |

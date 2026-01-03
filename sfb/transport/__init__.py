@@ -36,6 +36,7 @@ from .memory import (
 
 from .dns import DnsClient, DnsServer
 from .icmp import IcmpClient, IcmpServer
+from .tls import TlsClient, TlsServer
 
 
 def get_transport_class(name, role):
@@ -71,6 +72,10 @@ TRANSPORTS = {
         'client': IcmpClient,
         'server': IcmpServer,
     },
+    'tls': {
+        'client': TlsClient,
+        'server': TlsServer,
+    },
     'memory': {
         'client': InMemoryTransport,
         'server': InMemoryServer,
@@ -97,6 +102,8 @@ __all__ = [
     'create_inmemory_transport_pair',
     'IcmpClient',
     'IcmpServer',
+    'TlsClient',
+    'TlsServer',
     'TRANSPORTS',
     'get_transport_class',
 ]

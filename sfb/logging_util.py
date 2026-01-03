@@ -102,6 +102,12 @@ class ComponentFilter(logging.Filter):
             'sfb.transport.icmp.',
             'sfb.transport.icmp',
         )
+        self._tls_enabled = bool(getattr(config, 'log_component_transport_tls', True))
+        self._tls_event_prefix = 'tls.'
+        self._tls_logger_prefixes = (
+            'sfb.transport.tls.',
+            'sfb.transport.tls',
+        )
         self._tunnel_enabled = bool(getattr(config, 'log_component_tunnel', True))
         self._tunnel_event_prefix = 'tunnel.'
         self._tunnel_logger_prefixes = (
@@ -146,6 +152,8 @@ class ComponentFilter(logging.Filter):
             event_text = _coerce_text(event)
             if not self._dns_enabled and event_text.startswith(self._dns_event_prefix):
                 return False
+            if not self._tls_enabled and event_text.startswith(self._tls_event_prefix):
+                return False
             if not self._tunnel_enabled and event_text.startswith(self._tunnel_event_prefix):
                 return False
             if not self._channel_enabled and event_text.startswith(self._channel_event_prefix):
@@ -160,6 +168,8 @@ class ComponentFilter(logging.Filter):
         if not self._dns_enabled and name.startswith(self._dns_logger_prefixes):
             return False
         if not self._icmp_enabled and name.startswith(self._icmp_logger_prefixes):
+            return False
+        if not self._tls_enabled and name.startswith(self._tls_logger_prefixes):
             return False
         if not self._tunnel_enabled and name.startswith(self._tunnel_logger_prefixes):
             return False

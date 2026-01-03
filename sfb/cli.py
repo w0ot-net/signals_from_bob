@@ -193,6 +193,34 @@ def add_icmp_client_args(parser, config, require_target=True):
     )
 
 
+def add_tls_client_args(parser, config):
+    """Add TLS client-specific arguments."""
+    parser.add_argument(
+        '--tls-target',
+        default=config.tls_target,
+        help='TLS target host:port for client'
+    )
+    parser.add_argument(
+        '--tls-sni',
+        default=config.tls_sni,
+        help='TLS SNI host name (optional cover)'
+    )
+    parser.add_argument(
+        '--tls-alpn',
+        default=config.tls_alpn,
+        help='TLS ALPN list (comma-separated, optional cover)'
+    )
+
+
+def add_tls_server_args(parser, config):
+    """Add TLS server-specific arguments."""
+    parser.add_argument(
+        '--tls-listen-addr',
+        default=config.tls_listen_addr,
+        help='TLS server listen host:port'
+    )
+
+
 def add_client_pacing_args(parser, config):
     """Add transport-agnostic client pacing arguments."""
     parser.add_argument(
@@ -325,6 +353,11 @@ def parse_args(args=None):
         add_icmp_common_args(parser, config_defaults)
         if role == 'client':
             add_icmp_client_args(parser, config_defaults, require_target=True)
+    elif transport == 'tls':
+        if role == 'server':
+            add_tls_server_args(parser, config_defaults)
+        else:
+            add_tls_client_args(parser, config_defaults)
     if role == 'client':
         add_client_pacing_args(parser, config_defaults)
 
@@ -367,6 +400,13 @@ def create_config(args):
         config_kwargs['icmp_payload_mtu'] = getattr(args, 'icmp_mtu', None)
         if args.role == 'client':
             config_kwargs['icmp_target'] = getattr(args, 'icmp_target', None)
+    elif args.transport == 'tls':
+        if args.role == 'client':
+            config_kwargs['tls_target'] = getattr(args, 'tls_target', None)
+            config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
+            config_kwargs['tls_alpn'] = getattr(args, 'tls_alpn', None)
+        else:
+            config_kwargs['tls_listen_addr'] = getattr(args, 'tls_listen_addr', None)
 
     if args.role == 'client':
         config_kwargs['tunnel_send_rate'] = getattr(args, 'send_rate', None)

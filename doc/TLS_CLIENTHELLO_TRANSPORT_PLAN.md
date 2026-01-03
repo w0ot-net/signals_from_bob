@@ -183,6 +183,15 @@ calculation for common OS defaults.
 - Implement `reserve_send()` with `PendingTracker` as a safety net plus a
   separate pending-state dict for per-connection deadlines; implement
   `_send_impl()` only (do not override `send()`).
+- Pending state per correlation ID:
+  - `sock`: non-blocking TCP socket
+  - `send_buf`: full ClientHello bytes
+  - `send_off`: bytes already sent
+  - `recv_buf`: accumulated response bytes
+  - `record_len`: expected TLS record payload length (None until parsed)
+  - `connect_deadline`: `now + tls_connect_timeout`
+  - `handshake_deadline`: `now + tls_handshake_timeout` after full send
+  - `send_complete`: bool, set once ClientHello fully sent
 - Non-blocking TCP sockets with `select` for connect/send/recv.
 - Resolve `tls_target` to IPv4 on init using `socket.getaddrinfo(AF_INET)`;
   raise `TransportError` if resolution fails.
@@ -242,6 +251,14 @@ calculation for common OS defaults.
 - Bind with `AF_INET`; raise `TransportError` on bind failure.
 - Accept connections and track active sockets with per-connection buffers and
   deadlines.
+- Pending state per socket:
+  - `sock`: accepted non-blocking TCP socket
+  - `recv_buf`: accumulated request bytes
+  - `record_len`: expected TLS record payload length (None until parsed)
+  - `handshake_deadline`: `now + tls_handshake_timeout`
+  - `ready_to_respond`: bool, set after valid ClientHello decode
+  - `response_buf`: ServerHello bytes to flush
+  - `response_off`: bytes already sent
 - Enforce a hard cap on active sockets using `max_in_flight`. If at capacity,
   accept then immediately close new connections to avoid busy-looping.
 - `recv()` should poll both the listening socket and active sockets so one slow

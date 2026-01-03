@@ -659,8 +659,6 @@ class AliceTunnel(BaseTunnel):
 
     def _maybe_send_gap_retransmit(self, now, distance_info, keepalive_only=False,
                                    pre_cap=False):
-        if keepalive_only:
-            return False
         if distance_info is None:
             return False
         if self._last_cum_ack_time is None:

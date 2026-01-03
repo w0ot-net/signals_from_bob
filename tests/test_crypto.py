@@ -64,6 +64,17 @@ class CryptoTests(unittest.TestCase):
         self.assertEqual(result, b'abc')
         self.assertIsInstance(result, bytes)
 
+    def test_plain_accepts_buffer_with_length(self):
+        if not PY2:
+            return
+        buf = buffer(b'abcdef', 1, 3)
+        result = Plain().encrypt(buf)
+        self.assertEqual(result, b'bcd')
+        self.assertIsInstance(result, bytes)
+        result = Plain().decrypt(buf)
+        self.assertEqual(result, b'bcd')
+        self.assertIsInstance(result, bytes)
+
     def test_accepts_bytes_like_key(self):
         key = bytearray(b'key')
         data = b'hello'
@@ -80,6 +91,22 @@ class CryptoTests(unittest.TestCase):
             enc = _rc4_encrypt(RC4(view), data)
             self.assertEqual(len(enc), len(data))
 
+    def test_xor_key_is_copied(self):
+        key = bytearray(b'key')
+        cipher = XOR(key)
+        key[0] = ord('K')
+        data = b'hello'
+        expected = XOR(b'key').encrypt(data)
+        self.assertEqual(cipher.encrypt(data), expected)
+
+    def test_rc4_key_is_copied(self):
+        key = bytearray(b'key')
+        cipher = RC4(key)
+        key[0] = ord('K')
+        data = b'hello'
+        expected = RC4(b'key').encrypt(data, seq=1, direction=0)
+        self.assertEqual(cipher.encrypt(data, seq=1, direction=0), expected)
+
     def test_xor_accepts_bytearray_data(self):
         data = bytearray(b'hello')
         enc = XOR(b'k').encrypt(data)
@@ -91,6 +118,41 @@ class CryptoTests(unittest.TestCase):
         enc = RC4(b'k').encrypt(data, seq=1, direction=0)
         self.assertEqual(len(enc), len(data))
         self.assertIsInstance(enc, bytes)
+
+    def test_encrypt_does_not_mutate_bytearray_data(self):
+        data = bytearray(b'hello')
+        original = bytes(data)
+        XOR(b'k').encrypt(data)
+        self.assertEqual(bytes(data), original)
+        RC4(b'k').encrypt(data, seq=1, direction=0)
+        self.assertEqual(bytes(data), original)
+        Plain().encrypt(data)
+        self.assertEqual(bytes(data), original)
+        XOR(b'k').decrypt(data)
+        self.assertEqual(bytes(data), original)
+        RC4(b'k').decrypt(data, seq=1, direction=0)
+        self.assertEqual(bytes(data), original)
+        Plain().decrypt(data)
+        self.assertEqual(bytes(data), original)
+
+    def test_encrypt_does_not_mutate_memoryview_data(self):
+        if PY2:
+            return
+        raw = bytearray(b'hello')
+        view = memoryview(raw)
+        original = bytes(raw)
+        XOR(b'k').encrypt(view)
+        self.assertEqual(bytes(raw), original)
+        RC4(b'k').encrypt(view, seq=1, direction=0)
+        self.assertEqual(bytes(raw), original)
+        Plain().encrypt(view)
+        self.assertEqual(bytes(raw), original)
+        XOR(b'k').decrypt(view)
+        self.assertEqual(bytes(raw), original)
+        RC4(b'k').decrypt(view, seq=1, direction=0)
+        self.assertEqual(bytes(raw), original)
+        Plain().decrypt(view)
+        self.assertEqual(bytes(raw), original)
 
     def test_xor_roundtrip(self):
         key = b'key'
@@ -119,6 +181,14 @@ class CryptoTests(unittest.TestCase):
         data = b'hello world'
         enc1 = RC4(key).encrypt(data, seq=10, direction=0)
         enc2 = RC4(key).encrypt(data, seq=10, direction=0)
+        self.assertEqual(enc1, enc2)
+
+    def test_rc4_instance_is_stateless(self):
+        key = b'secret'
+        data = b'hello world'
+        cipher = RC4(key)
+        enc1 = cipher.encrypt(data, seq=10, direction=0)
+        enc2 = cipher.encrypt(data, seq=10, direction=0)
         self.assertEqual(enc1, enc2)
 
     def test_rc4_direction_separation(self):
@@ -213,6 +283,9 @@ class CryptoTests(unittest.TestCase):
         self.assertRaises(TypeError, XOR(b'k').decrypt, 1)
         self.assertRaises(TypeError, RC4(b'k').decrypt, 1, seq=1, direction=0)
         self.assertRaises(TypeError, Plain().decrypt, 1)
+        self.assertRaises(TypeError, XOR(b'k').decrypt, object())
+        self.assertRaises(TypeError, RC4(b'k').decrypt, object(), seq=1, direction=0)
+        self.assertRaises(TypeError, Plain().decrypt, object())
 
     def test_cipher_modes_mapping(self):
         self.assertEqual(CIPHER_MODES['none'], Plain)
@@ -258,6 +331,20 @@ class CryptoTests(unittest.TestCase):
         self.assertEqual(len(enc), len(data))
         self.assertIsInstance(enc, bytes)
 
+    def test_accepts_memoryview_slice_data(self):
+        if PY2:
+            return
+        data = bytearray(b'abcdef')
+        view = memoryview(data)[1:4]
+        enc = XOR(b'k').encrypt(view)
+        self.assertEqual(len(enc), 3)
+        self.assertIsInstance(enc, bytes)
+        enc = RC4(b'k').encrypt(view, seq=1, direction=0)
+        self.assertEqual(len(enc), 3)
+        self.assertIsInstance(enc, bytes)
+        enc = Plain().encrypt(view)
+        self.assertEqual(enc, b'bcd')
+
     def test_rejects_non_byte_itemsize_views(self):
         if PY2:
             return
@@ -265,6 +352,14 @@ class CryptoTests(unittest.TestCase):
         self.assertRaises(TypeError, XOR(b'k').encrypt, data)
         self.assertRaises(TypeError, RC4(b'k').encrypt, data, seq=1, direction=0)
         self.assertRaises(TypeError, Plain().encrypt, data)
+
+    def test_rejects_non_byte_itemsize_views_decrypt(self):
+        if PY2:
+            return
+        data = memoryview(array('H', [1, 2, 3]))
+        self.assertRaises(TypeError, XOR(b'k').decrypt, data)
+        self.assertRaises(TypeError, RC4(b'k').decrypt, data, seq=1, direction=0)
+        self.assertRaises(TypeError, Plain().decrypt, data)
 
     def test_rejects_non_byte_itemsize_key_views(self):
         if PY2:

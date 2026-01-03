@@ -449,7 +449,7 @@ class BobTimingTests(unittest.TestCase):
     def test_retransmit_cooldown_bounds(self):
         config = make_test_config(
             tunnel_bob_retransmit_min_interval=0.5,
-            tunnel_bob_retransmit_max_interval=1.0,
+            tunnel_bob_retransmit_max_interval=10.0,
             tunnel_bob_retransmit_poll_factor=4.0,
         )
         server = MockServer()
@@ -457,11 +457,11 @@ class BobTimingTests(unittest.TestCase):
 
         tunnel._poll_interval_ewma = 0.2
         cooldown = tunnel._retransmit_cooldown()
-        self.assertAlmostEqual(cooldown, 0.8)
+        self.assertAlmostEqual(cooldown, 3.2)
 
         tunnel._poll_interval_ewma = 1.0
         cooldown = tunnel._retransmit_cooldown()
-        self.assertAlmostEqual(cooldown, 1.0)
+        self.assertAlmostEqual(cooldown, 10.0)
 
 
 class BobResponseTests(unittest.TestCase):

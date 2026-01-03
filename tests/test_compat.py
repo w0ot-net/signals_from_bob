@@ -9,8 +9,11 @@ from sfb.compat import (
     array_frombytes,
     buffer_view,
     byte_at,
+    integer_types,
+    queue,
     require_bytes_like,
     require_bytes_like_or_bytearray,
+    text_type,
     to_bytes,
     to_native_str,
 )
@@ -24,10 +27,37 @@ def _text_value(value):
 
 
 class CompatTests(unittest.TestCase):
+    def test_text_and_integer_types(self):
+        text = _text_value('hello')
+        self.assertTrue(isinstance(text, text_type))
+        self.assertTrue(isinstance(1, integer_types))
+        if PY2:
+            self.assertTrue(isinstance(long(1), integer_types))
+
+    def test_queue_alias(self):
+        self.assertTrue(hasattr(queue, 'Queue'))
+
     def test_array_frombytes_appends_data(self):
         data = array.array('B', [1, 2])
         array_frombytes(data, b'\x03\x04')
         self.assertEqual(data.tolist(), [1, 2, 3, 4])
+
+    def test_array_frombytes_accepts_bytearray(self):
+        data = array.array('B')
+        array_frombytes(data, bytearray(b'\x01\x02'))
+        self.assertEqual(data.tolist(), [1, 2])
+
+    def test_array_frombytes_accepts_memoryview(self):
+        data = array.array('B')
+        array_frombytes(data, memoryview(b'\x01\x02'))
+        self.assertEqual(data.tolist(), [1, 2])
+
+    def test_array_frombytes_accepts_non_byte_array(self):
+        data = array.array('H', [1, 2])
+        payload = data.tostring() if PY2 else data.tobytes()
+        other = array.array('H')
+        array_frombytes(other, payload)
+        self.assertEqual(other.tolist(), [1, 2])
 
     def test_to_bytes_accepts_bytearray_and_memoryview(self):
         data = b'hello'
@@ -45,6 +75,13 @@ class CompatTests(unittest.TestCase):
         data = b'hello'
         buf = buffer(data)
         self.assertEqual(to_bytes(buf), data)
+
+    def test_to_bytes_accepts_memoryview_py2(self):
+        if not PY2:
+            return
+        data = b'hello'
+        view = memoryview(data)
+        self.assertEqual(to_bytes(view), data)
 
     def test_to_bytes_rejects_text(self):
         text = _text_value('hello')
@@ -88,6 +125,12 @@ class CompatTests(unittest.TestCase):
         self.assertRaises(TypeError, require_bytes_like, text)
         self.assertRaises(TypeError, require_bytes_like, object())
 
+    def test_require_bytes_like_rejects_memoryview_py2(self):
+        if not PY2:
+            return
+        self.assertRaises(TypeError, require_bytes_like, memoryview(b'hi'))
+        self.assertRaises(TypeError, require_bytes_like, buffer(b'hi'))
+
     def test_require_bytes_like_or_bytearray_accepts_bytearray(self):
         data = bytearray(b'hi')
         result = require_bytes_like_or_bytearray(data)
@@ -117,6 +160,14 @@ class CompatTests(unittest.TestCase):
         result = require_bytes_like_or_bytearray(view)
         self.assertIs(result, view)
         self.assertEqual(result.tobytes(), b'hi')
+
+    def test_require_bytes_like_or_bytearray_accepts_array_py3(self):
+        if PY2:
+            return
+        data = array.array('B', [1, 2])
+        result = require_bytes_like_or_bytearray(data)
+        self.assertIsInstance(result, memoryview)
+        self.assertEqual(result.tobytes(), b'\x01\x02')
 
     def test_require_bytes_like_or_bytearray_rejects_text(self):
         text = _text_value('hi')
@@ -169,6 +220,14 @@ class CompatTests(unittest.TestCase):
         self.assertEqual(view.tobytes(), data)
         self.assertEqual(len(view), len(data))
 
+    def test_buffer_view_length_longer_py3(self):
+        if PY2:
+            return
+        data = b'abc'
+        view = buffer_view(data, length=10)
+        self.assertEqual(view.tobytes(), data)
+        self.assertEqual(len(view), len(data))
+
     def test_buffer_view_accepts_memoryview_py2(self):
         if not PY2:
             return
@@ -201,6 +260,11 @@ class CompatTests(unittest.TestCase):
         self.assertEqual(byte_at(data, -1), 255)
         self.assertEqual(byte_at(bytearray(data), -2), 16)
         self.assertEqual(byte_at(memoryview(data), -3), 0)
+
+    def test_byte_at_out_of_range(self):
+        data = b'\x00'
+        self.assertRaises(IndexError, byte_at, data, 1)
+        self.assertRaises(IndexError, byte_at, data, -2)
 
     def test_to_native_str_text_and_bytes(self):
         text = _text_value('hello')

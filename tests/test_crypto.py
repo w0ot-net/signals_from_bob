@@ -3,7 +3,8 @@ from __future__ import absolute_import
 
 import unittest
 
-from sfb.crypto import RC4, XOR, Plain
+from sfb.crypto import (RC4, XOR, Plain, CIPHER_MODES, _derive_rc4_key,
+                        _require_key, _rc4_crypt)
 from sfb.compat import PY2
 
 
@@ -104,6 +105,45 @@ class CryptoTests(unittest.TestCase):
         text = _text_value('data')
         self.assertRaises(TypeError, XOR(b'k').encrypt, text)
         self.assertRaises(TypeError, RC4(b'k').encrypt, text, seq=1, direction=0)
+
+    def test_cipher_modes_mapping(self):
+        self.assertEqual(CIPHER_MODES['none'], Plain)
+        self.assertEqual(CIPHER_MODES['xor'], XOR)
+        self.assertEqual(CIPHER_MODES['rc4'], RC4)
+
+    def test_rc4_derive_key_contents(self):
+        base_key = _require_key(b'k')
+        derived = _derive_rc4_key(base_key, 1, 0)
+        expected = base_key + bytearray(b'\x00\x01\x00')
+        self.assertEqual(derived, expected)
+
+    def test_rc4_derive_key_validation(self):
+        base_key = _require_key(b'k')
+        self.assertRaises(TypeError, _derive_rc4_key, base_key, '1', 0)
+        self.assertRaises(TypeError, _derive_rc4_key, base_key, 1, '0')
+        self.assertRaises(ValueError, _derive_rc4_key, base_key, -1, 0)
+        self.assertRaises(ValueError, _derive_rc4_key, base_key, 0x10000, 0)
+        self.assertRaises(ValueError, _derive_rc4_key, base_key, 1, -1)
+        self.assertRaises(ValueError, _derive_rc4_key, base_key, 1, 2)
+
+    def test_rc4_rejects_empty_key(self):
+        self.assertRaises(ValueError, _rc4_crypt, bytearray(), b'hi')
+
+    def test_xor_accepts_memoryview_data(self):
+        if PY2:
+            return
+        data = memoryview(bytearray(b'hello'))
+        enc = XOR(b'k').encrypt(data)
+        self.assertEqual(len(enc), len(data))
+        self.assertIsInstance(enc, bytes)
+
+    def test_rc4_accepts_memoryview_data(self):
+        if PY2:
+            return
+        data = memoryview(bytearray(b'hello'))
+        enc = RC4(b'k').encrypt(data, seq=1, direction=0)
+        self.assertEqual(len(enc), len(data))
+        self.assertIsInstance(enc, bytes)
 
 
 if __name__ == '__main__':

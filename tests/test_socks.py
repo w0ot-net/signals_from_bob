@@ -4,14 +4,18 @@ from __future__ import absolute_import
 import errno
 import logging
 import socket
+import struct
 import threading
 import unittest
 
 from sfb.config import Config
 from sfb.channel import Channel, STATE_CLOSED, STATE_OPEN
 from sfb.modules.socks import socks_server
+from sfb.modules.socks import socks_relay
 from sfb.modules.socks import data_pump
+from sfb.modules.socks import relay_connection
 from sfb.modules.socks.socks_server import SocksServerModule
+from sfb.modules.socks.relay_connection import RelayConnection
 from sfb import time_provider
 
 
@@ -32,12 +36,37 @@ class DummyTunnel(object):
         self._config = config
         self.control = DummyControl()
         self._modules = {}
+        self.channel_manager = None
 
     def register_module(self, module_type, handler):
         self._modules[module_type] = handler
 
     def unregister_module(self, module_type):
         self._modules.pop(module_type, None)
+
+
+class DummyChannelManager(object):
+    def __init__(self, channel):
+        self._channel = channel
+
+    def open_channel(self):
+        self._channel._set_state(STATE_OPEN)
+        return self._channel
+
+    def get_channel(self, ch_id):
+        if self._channel.id == ch_id:
+            return self._channel
+        return None
+
+
+def capture_log_events(module, events):
+    original = module.log_event
+
+    def fake_log_event(logger, level, event, message, fields, **kwargs):
+        events.append((event, fields()))
+
+    module.log_event = fake_log_event
+    return original
 
 
 class FakeServerSocket(object):
@@ -339,6 +368,161 @@ class SocksLoopTests(unittest.TestCase):
                 sock.close()
             except Exception:
                 pass
+
+
+class SocksInstrumentationTests(unittest.TestCase):
+    def test_server_handshake_logs_event(self):
+        events = []
+        original_log = capture_log_events(socks_server, events)
+        original_relay = socks_server.RelayConnection
+
+        class DummyRelayConnection(object):
+            def __init__(self, rid, ch, channel, sock, logger, config, side,
+                         peer_label, socket_to_channel_label,
+                         channel_to_socket_label, thread_names=None):
+                self.rid = rid
+                self.ch = ch
+
+            def start_relay(self):
+                return None
+
+            def wait(self, timeout=None):
+                return None
+
+            def stop(self):
+                return None
+
+        try:
+            socks_server.RelayConnection = DummyRelayConnection
+            config = Config(
+                dns_base_domain='test.local',
+                socks_channel_open_timeout=0.1,
+                socks_connect_timeout=0.1,
+            )
+            tunnel = DummyTunnel(config)
+            channel = Channel(2, max_send_buf=4096, max_recv_buf=4096)
+            channel._set_state(STATE_OPEN)
+            tunnel.channel_manager = DummyChannelManager(channel)
+            module = SocksServerModule(tunnel, logger=make_test_logger())
+
+            def fake_send_message(msg):
+                if hasattr(msg, 'to_dict'):
+                    msg = msg.to_dict()
+                if msg.get('c') == 'connect':
+                    module.handle_connect_ok({
+                        'rid': msg.get('rid'),
+                        'ch': msg.get('ch'),
+                        'bhost': '127.0.0.1',
+                        'bport': 8080,
+                    })
+                return msg
+
+            module.send_message = fake_send_message
+            client, server = make_socket_pair()
+            try:
+                client.settimeout(1.0)
+                host = b'example.com'
+                client.sendall(b'\x05\x01\x00')
+                request = b'\x05\x01\x00\x03' + struct.pack('!B', len(host))
+                request += host + struct.pack('!H', 80)
+                client.sendall(request)
+                module._handle_client(server, ('127.0.0.1', 5555))
+                try:
+                    client.recv(2)
+                    client.recv(10)
+                except socket.timeout:
+                    pass
+            finally:
+                try:
+                    server.close()
+                except Exception:
+                    pass
+                try:
+                    client.close()
+                except Exception:
+                    pass
+        finally:
+            socks_server.log_event = original_log
+            socks_server.RelayConnection = original_relay
+
+        event_names = [entry[0] for entry in events]
+        self.assertIn('sock.server_handshake', event_names)
+        self.assertIn('sock.connect_send', event_names)
+
+    def test_relay_connect_error_logs_event(self):
+        events = []
+        original_log = capture_log_events(socks_relay, events)
+        try:
+            config = Config(dns_base_domain='test.local')
+            tunnel = DummyTunnel(config)
+            channel = Channel(2, max_send_buf=4096, max_recv_buf=4096)
+            channel._set_state(STATE_OPEN)
+            tunnel.channel_manager = DummyChannelManager(channel)
+            module = socks_relay.SocksRelayModule(tunnel, logger=make_test_logger())
+
+            def fake_send_message(msg):
+                return msg
+
+            def refused(host, port, timeout=None):
+                raise socket.error(errno.ECONNREFUSED, 'refused')
+
+            module.send_message = fake_send_message
+            module._connect_target = refused
+            module.handle_connect({
+                'rid': 1,
+                'ch': channel.id,
+                'host': 'example.com',
+                'port': 80,
+            })
+        finally:
+            socks_relay.log_event = original_log
+
+        event_names = [entry[0] for entry in events]
+        self.assertIn('sock.connect_err_send', event_names)
+        self.assertIn('sock.relay_target_connect', event_names)
+
+    def test_relay_stop_logs_event(self):
+        events = []
+        original_log = capture_log_events(relay_connection, events)
+        config = Config(
+            dns_base_domain='test.local',
+            non_blocking_poll_timeout=0.001,
+            socks_pump_backoff_max=0.01,
+            socks_relay_buffer_size=256,
+            socks_relay_channel_timeout=0.01,
+        )
+        channel = Channel(1, max_send_buf=4096, max_recv_buf=4096)
+        channel._set_state(STATE_OPEN)
+        sock, peer = make_socket_pair()
+        try:
+            conn = RelayConnection(
+                1,
+                channel.id,
+                channel,
+                sock,
+                make_test_logger(),
+                config,
+                side='bob',
+                peer_label='Client',
+                socket_to_channel_label='client_to_channel',
+                channel_to_socket_label='channel_to_client',
+            )
+            conn.start_relay()
+            time_provider.sleep(0.05)
+            conn.stop()
+        finally:
+            relay_connection.log_event = original_log
+            try:
+                peer.close()
+            except Exception:
+                pass
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+        event_names = [entry[0] for entry in events]
+        self.assertIn('sock.relay_stop', event_names)
 
 
 if __name__ == '__main__':

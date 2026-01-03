@@ -22,6 +22,11 @@ from .socks_control_messages import (
     sock_connect_ok,
     sock_err,
 )
+from .socks_logging import (
+    add_fields,
+    duration_secs,
+    sock_fields,
+)
 
 
 class SocksRelayModule(BaseModule):
@@ -44,7 +49,7 @@ class SocksRelayModule(BaseModule):
             logging.INFO,
             'sock.relay_ready',
             'SOCKS relay ready',
-            lambda: None,
+            lambda: sock_fields(side='alice', peer='target'),
         )
         try:
             # Wait for tunnel to close
@@ -86,13 +91,35 @@ class SocksRelayModule(BaseModule):
         host = msg.get('host')
         port = msg.get('port')
 
+        log_event(
+            self._logger,
+            logging.INFO,
+            'sock.connect_recv',
+            'SOCKS connect recv',
+            lambda: add_fields(sock_fields(
+                rid=rid,
+                ch=ch,
+                side='alice',
+                peer='target',
+            ), {'host': host, 'port': port}),
+        )
+
         if not all([rid is not None, ch is not None, host, port]):
             log_event(
                 self._logger,
                 logging.WARNING,
                 'sock.connect_invalid',
                 'Invalid connect request',
-                lambda: {'msg': msg},
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {
+                    'host': host,
+                    'port': port,
+                    'reason': 'missing_fields',
+                }),
             )
             return
 
@@ -101,7 +128,12 @@ class SocksRelayModule(BaseModule):
             logging.INFO,
             'sock.connect',
             'SOCKS connect request received',
-            lambda: {'rid': rid, 'ch': ch, 'host': host, 'port': port, 'side': 'alice'},
+            lambda: add_fields(sock_fields(
+                rid=rid,
+                ch=ch,
+                side='alice',
+                peer='target',
+            ), {'host': host, 'port': port}),
         )
 
         # Get channel
@@ -112,9 +144,31 @@ class SocksRelayModule(BaseModule):
                 logging.WARNING,
                 'sock.connect_channel_missing',
                 'Channel not found for connect request',
-                lambda: {'ch': ch},
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {'host': host, 'port': port}),
             )
             self.send_message(sock_err(rid, ch, 'general', 'channel not found'))
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect_err_send',
+                'SOCKS connect err send',
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {
+                    'host': host,
+                    'port': port,
+                    'code': 'general',
+                    'reason': 'channel not found',
+                }),
+            )
             return
 
         # Deduplicate connect requests per channel
@@ -139,9 +193,31 @@ class SocksRelayModule(BaseModule):
                 logging.DEBUG,
                 'sock.connect_duplicate',
                 'Duplicate connect, reusing session',
-                lambda: {'ch': ch},
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {'state': 'reuse', 'host': host, 'port': port}),
             )
             self.send_message(sock_connect_ok(rid, ch, bind_host, bind_port))
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect_ok_send',
+                'SOCKS connect ok send',
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {
+                    'host': host,
+                    'port': port,
+                    'bhost': bind_host,
+                    'bport': bind_port,
+                }),
+            )
             return
         if pending:
             log_event(
@@ -149,118 +225,149 @@ class SocksRelayModule(BaseModule):
                 logging.DEBUG,
                 'sock.connect_duplicate',
                 'Duplicate connect while pending',
-                lambda: {'ch': ch},
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {'state': 'pending', 'host': host, 'port': port}),
             )
             return
 
         # Wait for channel to open
+        channel_wait_start = time_provider.now()
         if not channel.wait_open(timeout=self._config.socks_channel_open_timeout):
+            channel_wait_time = duration_secs(channel_wait_start)
             log_event(
                 self._logger,
                 logging.WARNING,
                 'sock.connect_channel_failed',
                 'Channel failed to open',
-                lambda: {'ch': ch},
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {
+                    'host': host,
+                    'port': port,
+                    'wait_time': channel_wait_time,
+                }),
             )
             self.send_message(sock_err(rid, ch, 'general', 'channel open failed'))
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect_err_send',
+                'SOCKS connect err send',
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {
+                    'host': host,
+                    'port': port,
+                    'code': 'general',
+                    'reason': 'channel open failed',
+                }),
+            )
             channel.close()
             with self._connections_lock:
                 self._pending_connects.discard(ch)
             return
+        channel_wait_time = duration_secs(channel_wait_start)
 
         # Make TCP connection to target
         target_sock = None
+        target_connect_start = time_provider.now()
+
+        def _send_connect_error(code, reason, level=logging.INFO, exc_info=False):
+            target_connect_time = duration_secs(target_connect_start)
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.relay_target_connect',
+                'SOCKS relay target connect',
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {
+                    'host': host,
+                    'port': port,
+                    'result': 'error',
+                    'code': code,
+                    'reason': reason,
+                    'duration': target_connect_time,
+                }),
+            )
+            log_event(
+                self._logger,
+                level,
+                'sock.connect_err',
+                'SOCKS connect error',
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {
+                    'host': host,
+                    'port': port,
+                    'code': code,
+                    'reason': reason,
+                    'target_connect_time': target_connect_time,
+                    'channel_wait_time': channel_wait_time,
+                }),
+                exc_info=exc_info,
+            )
+            self.send_message(sock_err(rid, ch, code, reason))
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect_err_send',
+                'SOCKS connect err send',
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {
+                    'host': host,
+                    'port': port,
+                    'code': code,
+                    'reason': reason,
+                }),
+            )
+            channel.close()
+            with self._connections_lock:
+                self._pending_connects.discard(ch)
+
         try:
             target_sock = self._connect_target(host, port)
         except socket.gaierror as e:
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.connect_err',
-                'SOCKS connect error',
-                lambda: {'rid': rid, 'ch': ch, 'code': 'unreachable_host', 'reason': str(e), 'side': 'alice'},
-            )
-            self.send_message(sock_err(rid, ch, 'unreachable_host', str(e)))
-            channel.close()
-            with self._connections_lock:
-                self._pending_connects.discard(ch)
+            _send_connect_error('unreachable_host', str(e))
             return
         except socket.timeout:
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.connect_err',
-                'SOCKS connect error',
-                lambda: {'rid': rid, 'ch': ch, 'code': 'timeout', 'reason': 'connection timeout', 'side': 'alice'},
-            )
-            self.send_message(sock_err(rid, ch, 'timeout', 'connection timeout'))
-            channel.close()
-            with self._connections_lock:
-                self._pending_connects.discard(ch)
+            _send_connect_error('timeout', 'connection timeout')
             return
         except socket.error as e:
             if e.errno == errno.ECONNREFUSED:
-                log_event(
-                    self._logger,
-                    logging.INFO,
-                    'sock.connect_err',
-                    'SOCKS connect error',
-                    lambda: {'rid': rid, 'ch': ch, 'code': 'refused', 'reason': 'connection refused', 'side': 'alice'},
-                )
-                self.send_message(sock_err(rid, ch, 'refused', 'connection refused'))
+                _send_connect_error('refused', 'connection refused')
             elif e.errno == errno.ENETUNREACH:
-                log_event(
-                    self._logger,
-                    logging.INFO,
-                    'sock.connect_err',
-                    'SOCKS connect error',
-                    lambda: {'rid': rid, 'ch': ch, 'code': 'unreachable_net', 'reason': str(e), 'side': 'alice'},
-                )
-                self.send_message(sock_err(rid, ch, 'unreachable_net', str(e)))
+                _send_connect_error('unreachable_net', str(e))
             elif e.errno == errno.EHOSTUNREACH:
-                log_event(
-                    self._logger,
-                    logging.INFO,
-                    'sock.connect_err',
-                    'SOCKS connect error',
-                    lambda: {'rid': rid, 'ch': ch, 'code': 'unreachable_host', 'reason': str(e), 'side': 'alice'},
-                )
-                self.send_message(sock_err(rid, ch, 'unreachable_host', str(e)))
+                _send_connect_error('unreachable_host', str(e))
             else:
-                log_event(
-                    self._logger,
-                    logging.INFO,
-                    'sock.connect_err',
-                    'SOCKS connect error',
-                    lambda: {'rid': rid, 'ch': ch, 'code': 'general', 'reason': str(e), 'side': 'alice'},
-                )
-                self.send_message(sock_err(rid, ch, 'general', str(e)))
-            channel.close()
-            with self._connections_lock:
-                self._pending_connects.discard(ch)
+                _send_connect_error('general', str(e))
             return
         except Exception as e:
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'sock.connect_err',
-                'Unexpected SOCKS connect error',
-                lambda: {
-                    'rid': rid,
-                    'ch': ch,
-                    'code': 'general',
-                    'reason': str(e),
-                    'side': 'alice',
-                    'host': host,
-                    'port': port,
-                },
-                exc_info=True,
-            )
-            self.send_message(sock_err(rid, ch, 'general', str(e)))
-            channel.close()
-            with self._connections_lock:
-                self._pending_connects.discard(ch)
+            _send_connect_error('general', str(e), level=logging.ERROR, exc_info=True)
             return
+
+        target_connect_time = duration_secs(target_connect_start)
 
         # Get bound address for SOCKS reply
         try:
@@ -272,9 +379,40 @@ class SocksRelayModule(BaseModule):
         log_event(
             self._logger,
             logging.INFO,
+            'sock.relay_target_connect',
+            'SOCKS relay target connect',
+            lambda: add_fields(sock_fields(
+                rid=rid,
+                ch=ch,
+                side='alice',
+                peer='target',
+            ), {
+                'host': host,
+                'port': port,
+                'result': 'ok',
+                'duration': target_connect_time,
+                'bhost': bind_host,
+                'bport': bind_port,
+            }),
+        )
+        log_event(
+            self._logger,
+            logging.INFO,
             'sock.connect_ok',
             'SOCKS connect ok',
-            lambda: {'rid': rid, 'ch': ch, 'bhost': bind_host, 'bport': bind_port, 'side': 'alice'},
+            lambda: add_fields(sock_fields(
+                rid=rid,
+                ch=ch,
+                side='alice',
+                peer='target',
+            ), {
+                'host': host,
+                'port': port,
+                'bhost': bind_host,
+                'bport': bind_port,
+                'target_connect_time': target_connect_time,
+                'channel_wait_time': channel_wait_time,
+            }),
         )
 
         # Create and register connection
@@ -295,6 +433,23 @@ class SocksRelayModule(BaseModule):
 
         # Send success response
         self.send_message(sock_connect_ok(rid, ch, bind_host, bind_port))
+        log_event(
+            self._logger,
+            logging.INFO,
+            'sock.connect_ok_send',
+            'SOCKS connect ok send',
+            lambda: add_fields(sock_fields(
+                rid=rid,
+                ch=ch,
+                side='alice',
+                peer='target',
+            ), {
+                'host': host,
+                'port': port,
+                'bhost': bind_host,
+                'bport': bind_port,
+            }),
+        )
 
         # Start relay and wait for completion
         try:
@@ -335,10 +490,28 @@ class SocksRelayModule(BaseModule):
             return
 
         conn.stop()
+        summary = conn.get_summary()
+        log_event(
+            self._logger,
+            logging.INFO,
+            'sock.relay_complete',
+            'SOCKS relay complete',
+            lambda: add_fields(sock_fields(
+                rid=conn.rid,
+                ch=conn.ch,
+                side='alice',
+                peer='target',
+            ), summary),
+        )
         log_event(
             self._logger,
             logging.DEBUG,
             'sock.cleanup',
             'Cleaned up connection',
-            lambda: {'ch': ch},
+            lambda: add_fields(sock_fields(
+                rid=conn.rid,
+                ch=conn.ch,
+                side='alice',
+                peer='target',
+            ), {'connections': len(self._connections)}),
         )

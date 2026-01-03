@@ -18,6 +18,11 @@ from ...logging_util import log_event
 from ... import time_provider
 from .relay_connection import RelayConnection
 from .socks_control_messages import T_SOCK, sock_connect
+from .socks_logging import (
+    add_fields,
+    duration_secs,
+    sock_fields,
+)
 
 
 # SOCKS5 constants
@@ -147,6 +152,14 @@ class SocksServerModule(BaseModule):
         self._pending = {}  # rid -> _PendingConnect
         self._pending_lock = threading.Lock()
 
+    def _pending_count(self):
+        with self._pending_lock:
+            return len(self._pending)
+
+    def _connection_count(self):
+        with self._connections_lock:
+            return len(self._connections)
+
     def start(self, listen_addr=None, listen_port=None):
         """
         Start the SOCKS5 server.
@@ -181,7 +194,14 @@ class SocksServerModule(BaseModule):
             logging.INFO,
             'sock.server_listen',
             'SOCKS5 server listening',
-            lambda: {'host': listen_addr, 'port': listen_port},
+            lambda: add_fields(sock_fields(
+                side='bob',
+                peer='client',
+            ), {
+                'host': listen_addr,
+                'port': listen_port,
+                'backlog': self._config.socks_listen_backlog,
+            }),
         )
 
     def stop(self):
@@ -211,7 +231,13 @@ class SocksServerModule(BaseModule):
             logging.INFO,
             'sock.server_stop',
             'SOCKS5 server stopped',
-            lambda: None,
+            lambda: add_fields(sock_fields(
+                side='bob',
+                peer='client',
+            ), {
+                'connections': self._connection_count(),
+                'pending': self._pending_count(),
+            }),
         )
 
     def shutdown(self):
@@ -224,7 +250,23 @@ class SocksServerModule(BaseModule):
         with self._rid_lock:
             rid = self._next_rid
             self._next_rid += 1
-            return rid
+            next_rid = self._next_rid
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'sock.server_rid_alloc',
+            'Allocated SOCKS request id',
+            lambda: add_fields(sock_fields(
+                rid=rid,
+                side='bob',
+                peer='client',
+            ), {
+                'next_rid': next_rid,
+                'connections': self._connection_count(),
+                'pending': self._pending_count(),
+            }),
+        )
+        return rid
 
     def _accept_loop(self):
         """Accept incoming connections."""
@@ -245,7 +287,13 @@ class SocksServerModule(BaseModule):
                     logging.DEBUG,
                     'sock.server_accept',
                     'Accepted connection',
-                    lambda: {'host': addr[0], 'port': addr[1]},
+                    lambda: add_fields(sock_fields(
+                        side='bob',
+                        peer='client',
+                    ), {
+                        'host': addr[0],
+                        'port': addr[1],
+                    }),
                 )
 
                 # Spawn handler thread
@@ -264,7 +312,10 @@ class SocksServerModule(BaseModule):
                         logging.ERROR,
                         'sock.server_accept_error',
                         'Accept error',
-                        lambda: {'error': str(e)},
+                        lambda: add_fields(sock_fields(
+                            side='bob',
+                            peer='client',
+                        ), {'error': str(e)}),
                         exc_info=True,
                     )
                     time_provider.sleep(backoff)
@@ -275,35 +326,71 @@ class SocksServerModule(BaseModule):
         rid = self._alloc_rid()
         channel = None
         conn = None
+        pending = None
+        host = None
+        port = None
+        ch_id = None
+        cleanup_reason = 'unknown'
+        connect_result = None
+        connect_error = None
+        handshake_start = time_provider.now()
+        method_time = None
+        request_time = None
+        channel_wait_time = None
+        connect_latency = None
+        connect_request_time = None
 
         try:
             sock.settimeout(self._config.socks_relay_socket_timeout)
             # SOCKS5 handshake
+            method_start = time_provider.now()
             self._socks5_negotiate_method(sock)
+            method_time = duration_secs(method_start)
+            request_start = time_provider.now()
             host, port = self._socks5_read_connect(sock)
+            request_time = duration_secs(request_start)
 
             log_event(
                 self._logger,
                 logging.INFO,
                 'sock.server_connect',
                 'SOCKS connect requested',
-                lambda: {'host': host, 'port': port, 'client_host': addr[0],
-                 'client_port': addr[1], 'rid': rid},
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    side='bob',
+                    peer='client',
+                ), {
+                    'host': host,
+                    'port': port,
+                    'client_host': addr[0],
+                    'client_port': addr[1],
+                }),
             )
 
             # Open tunnel channel
             channel = self._tunnel.channel_manager.open_channel()
+            ch_id = channel.id
+            channel_wait_start = time_provider.now()
             if not channel.wait_open(timeout=self._config.socks_channel_open_timeout):
+                channel_wait_time = duration_secs(channel_wait_start)
+                cleanup_reason = 'channel_open_failed'
+                connect_result = 'channel_open_failed'
                 log_event(
                     self._logger,
                     logging.WARNING,
                     'sock.server_channel_failed',
                     'Channel open failed',
-                    lambda: {'rid': rid},
+                    lambda: add_fields(sock_fields(
+                        rid=rid,
+                        ch=ch_id,
+                        side='bob',
+                        peer='client',
+                    ), {'host': host, 'port': port}),
                 )
                 self._socks5_send_reply(sock, SOCKS5_REP_GENERAL_FAILURE)
                 channel.close()
                 return
+            channel_wait_time = duration_secs(channel_wait_start)
 
             # Create connection tracker
             conn = RelayConnection(
@@ -324,36 +411,84 @@ class SocksServerModule(BaseModule):
             pending = _PendingConnect()
             with self._pending_lock:
                 self._pending[rid] = pending
+                pending_count = len(self._pending)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'sock.server_pending_add',
+                'SOCKS connect pending',
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=channel.id,
+                    side='bob',
+                    peer='client',
+                ), {'pending': pending_count}),
+            )
 
             log_event(
                 self._logger,
                 logging.INFO,
                 'sock.connect',
                 'SOCKS connect requested',
-                lambda: {'rid': rid, 'ch': channel.id, 'host': host, 'port': port, 'side': 'bob'},
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=channel.id,
+                    side='bob',
+                    peer='client',
+                ), {'host': host, 'port': port}),
             )
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect_send',
+                'SOCKS connect send',
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=channel.id,
+                    side='bob',
+                    peer='client',
+                ), {'host': host, 'port': port}),
+            )
+            connect_request_time = time_provider.now()
             self.send_message(sock_connect(rid, channel.id, host, port))
 
             # Wait for response
             if not pending.event.wait(timeout=self._config.socks_connect_timeout):
+                connect_latency = duration_secs(connect_request_time)
+                cleanup_reason = 'connect_timeout'
+                connect_result = 'timeout'
                 log_event(
                     self._logger,
                     logging.WARNING,
                     'sock.server_connect_timeout',
                     'Connect timeout',
-                    lambda: {'rid': rid},
+                    lambda: add_fields(sock_fields(
+                        rid=rid,
+                        ch=channel.id,
+                        side='bob',
+                        peer='client',
+                    ), {'host': host, 'port': port}),
                 )
                 self._socks5_send_reply(sock, SOCKS5_REP_TTL_EXPIRED)
                 return
 
+            connect_latency = duration_secs(connect_request_time)
             if pending.error:
                 error_code = ERROR_TO_SOCKS5.get(pending.error, SOCKS5_REP_GENERAL_FAILURE)
+                cleanup_reason = 'connect_failed'
+                connect_result = 'error'
+                connect_error = pending.error
                 log_event(
                     self._logger,
                     logging.INFO,
                     'sock.server_connect_failed',
                     'Connect failed',
-                    lambda: {'rid': rid, 'error': pending.error},
+                    lambda: add_fields(sock_fields(
+                        rid=rid,
+                        ch=channel.id,
+                        side='bob',
+                        peer='client',
+                    ), {'host': host, 'port': port, 'error': pending.error}),
                 )
                 self._socks5_send_reply(sock, error_code)
                 return
@@ -362,43 +497,93 @@ class SocksServerModule(BaseModule):
             bind_host = pending.bind_host or '0.0.0.0'
             bind_port = pending.bind_port or 0
             self._socks5_send_reply(sock, SOCKS5_REP_SUCCESS, bind_host, bind_port)
+            connect_result = 'ok'
 
             log_event(
                 self._logger,
                 logging.INFO,
                 'sock.server_connected',
                 'Connected',
-                lambda: {'host': host, 'port': port, 'rid': rid},
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=channel.id,
+                    side='bob',
+                    peer='client',
+                ), {'host': host, 'port': port, 'bhost': bind_host, 'bport': bind_port}),
             )
 
             # Start relay and wait for completion
             conn.start_relay()
             conn.wait()
+            cleanup_reason = 'relay_complete'
 
         except Socks5Error as e:
+            cleanup_reason = 'socks5_error'
+            connect_result = 'protocol_error'
+            connect_error = str(e)
             log_event(
                 self._logger,
                 logging.WARNING,
                 'sock.server_error',
                 'SOCKS5 error',
-                lambda: {'rid': rid, 'error': str(e)},
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch_id,
+                    side='bob',
+                    peer='client',
+                ), {'error': str(e)}),
             )
         except Exception as e:
+            cleanup_reason = 'client_handler_error'
+            connect_result = 'handler_error'
+            connect_error = str(e)
             log_event(
                 self._logger,
                 logging.ERROR,
                 'sock.server_client_error',
                 'Client handler error',
-                lambda: {'rid': rid, 'error': str(e)},
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch_id,
+                    side='bob',
+                    peer='client',
+                ), {'error': str(e)}),
                 exc_info=True,
             )
         finally:
-            self._cleanup_connection(rid)
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.server_handshake',
+                'SOCKS server handshake',
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=ch_id,
+                    side='bob',
+                    peer='client',
+                ), {
+                    'host': host,
+                    'port': port,
+                    'client_host': addr[0],
+                    'client_port': addr[1],
+                    'method_time': method_time,
+                    'request_time': request_time,
+                    'channel_wait_time': channel_wait_time,
+                    'connect_latency': connect_latency,
+                    'handshake_time': duration_secs(handshake_start),
+                    'connect_result': connect_result,
+                    'connect_error': connect_error,
+                }),
+            )
+            self._cleanup_connection(rid, reason=cleanup_reason)
 
-    def _cleanup_connection(self, rid):
+    def _cleanup_connection(self, rid, reason=None):
         """Clean up connection resources."""
+        pending_removed = False
         # Remove from pending
         with self._pending_lock:
+            if rid in self._pending:
+                pending_removed = True
             self._pending.pop(rid, None)
 
         # Remove from connections
@@ -412,7 +597,17 @@ class SocksServerModule(BaseModule):
                 logging.DEBUG,
                 'sock.server_cleanup',
                 'Cleaned up connection',
-                lambda: {'rid': rid},
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=conn.ch,
+                    side='bob',
+                    peer='client',
+                ), {
+                    'reason': reason,
+                    'pending_removed': pending_removed,
+                    'connections': self._connection_count(),
+                    'pending': self._pending_count(),
+                }),
             )
 
     # --- SOCKS5 Protocol Implementation ---
@@ -531,9 +726,32 @@ class SocksServerModule(BaseModule):
             log_event(
                 self._logger,
                 logging.INFO,
+                'sock.connect_ok_recv',
+                'SOCKS connect ok recv',
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=msg.get('ch'),
+                    side='bob',
+                    peer='client',
+                ), {
+                    'bhost': msg.get('bhost'),
+                    'bport': msg.get('bport'),
+                }),
+            )
+            log_event(
+                self._logger,
+                logging.INFO,
                 'sock.connect_ok',
                 'SOCKS connect ok',
-                lambda: {'rid': rid, 'ch': msg.get('ch'), 'side': 'bob'},
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=msg.get('ch'),
+                    side='bob',
+                    peer='client',
+                ), {
+                    'bhost': msg.get('bhost'),
+                    'bport': msg.get('bport'),
+                }),
             )
 
     def handle_err(self, msg):
@@ -551,13 +769,30 @@ class SocksServerModule(BaseModule):
             log_event(
                 self._logger,
                 logging.INFO,
-                'sock.connect_err',
-                'SOCKS connect error',
-                lambda: {
-                    'rid': rid,
-                    'ch': msg.get('ch'),
+                'sock.connect_err_recv',
+                'SOCKS connect err recv',
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=msg.get('ch'),
+                    side='bob',
+                    peer='client',
+                ), {
                     'code': msg.get('code'),
                     'reason': msg.get('reason'),
-                    'side': 'bob',
-                },
+                }),
+            )
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect_err',
+                'SOCKS connect error',
+                lambda: add_fields(sock_fields(
+                    rid=rid,
+                    ch=msg.get('ch'),
+                    side='bob',
+                    peer='client',
+                ), {
+                    'code': msg.get('code'),
+                    'reason': msg.get('reason'),
+                }),
             )

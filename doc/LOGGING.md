@@ -57,6 +57,7 @@ Available profiles (current):
 - `scp_stalled_icmp_socks` (default)
 - `socks_starvation`
 - `socks_throughput_debug`
+- `socks_instrumentation`
 - `tls_transport`
 - `tunnel_pacing`
 - `tunnel_reliability_verbose`
@@ -173,6 +174,26 @@ Current structured events (non-exhaustive):
 - `sock.connect`
 - `sock.connect_ok`
 - `sock.connect_err`
+- `sock.connect_send`
+- `sock.connect_recv`
+- `sock.connect_ok_send`
+- `sock.connect_ok_recv`
+- `sock.connect_err_send`
+- `sock.connect_err_recv`
+- `sock.relay_start`
+- `sock.relay_stop`
+- `sock.relay_complete`
+- `sock.relay_target_connect`
+- `sock.pump_start`
+- `sock.pump_stop`
+- `sock.pump_stop_event`
+- `sock.pump_timeout`
+- `sock.pump_socket_eof`
+- `sock.pump_channel_eof`
+- `sock.pump_stats`
+- `sock.server_listen`
+- `sock.server_stop`
+- `sock.server_handshake`
 - `dns.send`
 - `dns.recv`
 - `dns.send_empty` (reason: `qtype_mismatch`, `decode_failed`)
@@ -186,6 +207,18 @@ Current structured events (non-exhaustive):
 - `dns.prune_stale`
 - `tunnel.send_blocked`
 - `tunnel.send_window_distance`
+
+## SOCKS Events
+
+Common `sock.*` fields (presence varies by event):
+- `rid`, `ch`, `side`, `peer`, `direction`, `label`
+- `bytes_in`, `bytes_out`, `bytes_in_total`, `bytes_out_total`
+- `send_buf_size`, `recv_buf_size`, `buffer_full`, `outbound_size`
+- `wait_time`, `select_wait_time`, `channel_timeouts`, `select_timeouts`
+- `duration`, `stop_event`, `stop_cause`, `clean_shutdown`
+- `host`, `port`, `bhost`, `bport`, `code`, `reason`
+- `result` (for `sock.relay_target_connect`)
+- `threads`, `direction_in`, `direction_out` (for `sock.relay_start`)
 
 ## Useful Queries
 

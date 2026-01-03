@@ -85,3 +85,12 @@
 - Pump stats expose bytes, buffer sizes, and wait/timeout behavior with
   minimal overhead and clear stop reasons.
 - Default behavior and wire protocol remain unchanged.
+
+## Execution Notes
+- Added SOCKS logging helpers plus standardized pump stats/stop events and
+  explicit EOF/timeout/stop_event signals.
+- Instrumented RelayConnection, SocksServerModule, and SocksRelayModule for
+  lifecycle timing, control message send/recv, and target connect latency.
+- Updated SOCKS log profiles and documented new event names/fields.
+- Added unit tests in tests/test_socks.py and ran:
+  `python3 -m unittest tests.test_socks`.

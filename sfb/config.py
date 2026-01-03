@@ -121,7 +121,7 @@ class Config:
     # Bob: min seconds between retransmits of the oldest unacked packet
     tunnel_bob_retransmit_min_interval: float = 0.05
     # Bob: max seconds between retransmits of the oldest unacked packet
-    tunnel_bob_retransmit_max_interval: float = 5.0
+    tunnel_bob_retransmit_max_interval: float = 3.0
     # Bob: multiplier for poll EWMA to derive retransmit cooldown
     tunnel_bob_retransmit_poll_factor: float = 4.0
     # Bob: EWMA alpha for poll interval smoothing (0-1)

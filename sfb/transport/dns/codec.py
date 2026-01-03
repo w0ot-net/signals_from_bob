@@ -174,6 +174,11 @@ def skip_name(data, offset):
         if length == 0:
             return offset + 1
         if (length & 0xC0) == 0xC0:
+            if offset + 1 >= len(data):
+                raise ValueError('Truncated compression pointer')
+            pointer = ((length & 0x3F) << 8) | byte_at(data, offset + 1)
+            if pointer >= len(data):
+                raise ValueError('Compression pointer out of range')
             return offset + 2
         if length & 0xC0:
             raise ValueError('Invalid label length')

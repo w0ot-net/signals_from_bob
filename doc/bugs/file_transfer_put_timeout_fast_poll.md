@@ -99,3 +99,7 @@ transport details for ICMP/DNS.
   `file.upload_complete` event. The hash exchange is not completing, which
   points to the control message phase not making it across after the bulk
   transfer (poll throttling or control-channel starvation still possible).
+- Latest console output shows `Upload complete` plus stats and then the tunnel
+  closes. `logs/server_log.db` still only shows `file.upload` and the `put_ok`
+  exchange with no `hash`/`hash_ok`, which implies the successful run did not
+  write to the default DB log path or used a different log profile.

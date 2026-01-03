@@ -5,7 +5,7 @@ Send window tracking unacked packets.
 
 from __future__ import absolute_import
 
-from collections import OrderedDict
+from collections import OrderedDict, deque
 
 from .. import time_provider
 from ..protocol import (
@@ -40,6 +40,13 @@ class SendWindow(object):
         self._unacked = OrderedDict()  # seq -> _UnackedPacket
         self._retransmit_count = 0  # Total retransmits
         self._stats = stats or NoopReliabilityStats()
+        self._ack_history = deque(maxlen=16)
+        self._ack_miss_count = 0
+        self._ack_miss_last_seq = None
+        self._ack_miss_last_is_sack = None
+        self._ack_miss_last_time = None
+        self._ack_miss_last_ack = None
+        self._ack_miss_last_sack = None
         self._last_keepalive_drop_seq = None
         self._last_keepalive_drop_time = None
         self._last_keepalive_drop_reason = None
@@ -314,7 +321,7 @@ class SendWindow(object):
             if not seq_lt(seq, ack):
                 break
             acked_delta, data_acked_delta = self._ack_seq(
-                seq, now, rtt_samples, is_sack=False
+                seq, now, rtt_samples, is_sack=False, ack=ack, sack=None
             )
             acked_count += acked_delta
             data_acked_count += data_acked_delta
@@ -329,16 +336,18 @@ class SendWindow(object):
             if sack & (1 << (offset - 1)):
                 seq = (ack + offset) & SEQ_MAX
                 acked_delta, data_acked_delta = self._ack_seq(
-                    seq, now, rtt_samples, is_sack=True
+                    seq, now, rtt_samples, is_sack=True, ack=ack, sack=sack
                 )
                 acked_count += acked_delta
                 data_acked_count += data_acked_delta
         return (acked_count, data_acked_count)
 
-    def _ack_seq(self, seq, now, rtt_samples, is_sack):
+    def _ack_seq(self, seq, now, rtt_samples, is_sack, ack=None, sack=None):
         pkt = self._unacked.pop(seq, None)
         if pkt is None:
+            self._record_ack_miss(seq, is_sack, now, ack, sack)
             return (0, 0)
+        self._record_ack_event(seq, pkt, now, is_sack, ack, sack)
         self._stats.on_ack(is_sack)
         if pkt.retransmit_count == 0:
             self._stats.on_ack_first_tx()
@@ -362,6 +371,82 @@ class SendWindow(object):
                 oldest = (seq, pkt)
                 oldest_time = pkt_time
         return oldest
+
+    def get_ack_debug_info(self, seq=None, now=None):
+        if now is None:
+            now = time_provider.now()
+        info = {
+            'ack_history_len': len(self._ack_history),
+            'ack_miss_count': self._ack_miss_count,
+            'ack_miss_last_seq': self._ack_miss_last_seq,
+            'ack_miss_last_is_sack': self._ack_miss_last_is_sack,
+            'ack_miss_last_ack': self._ack_miss_last_ack,
+            'ack_miss_last_sack': self._ack_miss_last_sack,
+        }
+        if self._ack_miss_last_time is not None:
+            miss_age = now - self._ack_miss_last_time
+            if miss_age < 0:
+                miss_age = 0.0
+            info['ack_miss_last_age'] = round(miss_age, 6)
+        last = self._ack_history[-1] if self._ack_history else None
+        if last is not None:
+            info['ack_history_last_seq'] = last['seq']
+            info['ack_history_last_is_sack'] = last['is_sack']
+            info['ack_history_last_ack'] = last['ack']
+            info['ack_history_last_sack'] = last['sack']
+            info['ack_history_last_flags'] = last['flags']
+            info['ack_history_last_seg_count'] = last['seg_count']
+            info['ack_history_last_retransmit_count'] = (
+                last['retransmit_count']
+            )
+            if last.get('acked_time') is not None:
+                age = now - last['acked_time']
+                if age < 0:
+                    age = 0.0
+                info['ack_history_last_age'] = round(age, 6)
+        if seq is not None:
+            missing = None
+            for item in self._ack_history:
+                if item['seq'] == seq:
+                    missing = item
+                    break
+            info['ack_history_missing_hit'] = missing is not None
+            if missing is not None:
+                info['ack_history_missing_is_sack'] = missing['is_sack']
+                info['ack_history_missing_ack'] = missing['ack']
+                info['ack_history_missing_sack'] = missing['sack']
+                info['ack_history_missing_flags'] = missing['flags']
+                info['ack_history_missing_seg_count'] = missing['seg_count']
+                info['ack_history_missing_retransmit_count'] = (
+                    missing['retransmit_count']
+                )
+                if missing.get('acked_time') is not None:
+                    age = now - missing['acked_time']
+                    if age < 0:
+                        age = 0.0
+                    info['ack_history_missing_age'] = round(age, 6)
+        return info
+
+    def _record_ack_event(self, seq, pkt, now, is_sack, ack, sack):
+        entry = {
+            'seq': seq,
+            'is_sack': is_sack,
+            'ack': ack,
+            'sack': sack,
+            'flags': pkt.flags,
+            'seg_count': len(pkt.segments) if pkt.segments is not None else 0,
+            'retransmit_count': pkt.retransmit_count,
+            'acked_time': now,
+        }
+        self._ack_history.append(entry)
+
+    def _record_ack_miss(self, seq, is_sack, now, ack, sack):
+        self._ack_miss_count += 1
+        self._ack_miss_last_seq = seq
+        self._ack_miss_last_is_sack = is_sack
+        self._ack_miss_last_time = now
+        self._ack_miss_last_ack = ack
+        self._ack_miss_last_sack = sack
 
 
 class _UnackedPacket(object):

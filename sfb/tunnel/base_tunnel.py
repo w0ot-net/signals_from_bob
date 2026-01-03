@@ -381,6 +381,11 @@ class BaseTunnel(object):
                 if age < 0:
                     age = 0.0
                 details['oldest_unacked_age'] = round(age, 6)
+        ack_info = self._send_window.get_ack_debug_info(
+            seq=last_cum_ack, now=now
+        )
+        if ack_info is not None:
+            details.update(ack_info)
         drop_info = self._send_window.get_keepalive_drop_info(now=now)
         if drop_info is not None:
             details.update(drop_info)

@@ -289,6 +289,12 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   threshold, even if `unacked` is above the previous threshold. Pre-cap
   behavior remains unchanged.
 
+## Change applied (2026-01-03)
+- Added ACK/SACK instrumentation to the send window. Each distance-stall
+  event now includes recent ACK history and ack-miss metadata so we can see
+  whether the missing seq was removed by cumulative ACK, SACK, or some other
+  path.
+
 ## Latest findings (2026-01-03, post cap-gate change)
 - Sources: `logs/client_log.db` (Alice) had 22474 rows (~11:41:35-11:41:49 UTC).
 - `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`

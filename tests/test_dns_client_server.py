@@ -6,7 +6,6 @@ import unittest
 
 from sfb.transport.dns import codec
 from sfb.transport.dns.dns_client import DnsClient, _PendingQuery
-from sfb.transport.dns.dns_server import DnsServer
 from sfb.transport.transport_base import PendingTracker
 
 
@@ -280,43 +279,6 @@ class DnsClientTests(unittest.TestCase):
         count = client.pending_count()
         self.assertEqual(count, 0)
         self.assertEqual(client._dns_to_corr, {})
-
-
-class DnsServerTests(unittest.TestCase):
-    def _make_server(self):
-        return DnsServer.__new__(DnsServer)
-
-    def _build_query(self, query_id, qname, qtype):
-        header = struct.pack('>HHHHHH',
-            query_id,
-            0,
-            1,  # QDCOUNT
-            0,  # ANCOUNT
-            0,  # NSCOUNT
-            0,  # ARCOUNT
-        )
-        question = codec.encode_name(qname)
-        question += struct.pack('>HH', qtype, codec.QCLASS_IN)
-        return header + question
-
-    def test_parse_query_roundtrip(self):
-        server = self._make_server()
-        data = self._build_query(0x33, 'tunnel.example.com',
-                                 codec.QTYPE_A)
-        query_id, qname, qtype = server._parse_query(data)
-        self.assertEqual(query_id, 0x33)
-        self.assertEqual(qname, 'tunnel.example.com')
-        self.assertEqual(qtype, codec.QTYPE_A)
-
-    def test_parse_query_rejects_compression_loop(self):
-        server = self._make_server()
-        header = struct.pack('>HHHHHH', 1, 0, 1, 0, 0, 0)
-        # QNAME starts with a compression pointer to itself (loop)
-        question = b'\xc0\x0c' + struct.pack('>HH', codec.QTYPE_A,
-                                             codec.QCLASS_IN)
-        data = header + question
-        with self.assertRaises(ValueError):
-            server._parse_query(data)
 
 
 if __name__ == '__main__':

@@ -135,6 +135,22 @@ nameserver 1.2.3.4#inline
             [('8.8.4.4', 53), ('9.9.9.9', 53), ('1.2.3.4', 53)],
         )
 
+    def test_load_unix_resolvers_accepts_non_ipv4_tokens(self):
+        resolv_conf = u"""
+nameserver ::1
+nameserver localhost
+"""
+
+        def fake_open(path, mode='r', *args, **kwargs):
+            self.assertEqual(path, '/etc/resolv.conf')
+            return StringIO(resolv_conf)
+
+        self._patch_attr(dns_utils, 'open', fake_open)
+        self.assertEqual(
+            dns_utils._load_unix_resolvers(),
+            [('::1', 53), ('localhost', 53)],
+        )
+
     def test_load_windows_resolvers_parses_output(self):
         self._ensure_subprocess_error()
         output = (
@@ -153,6 +169,34 @@ nameserver 1.2.3.4#inline
             dns_utils._load_windows_resolvers(),
             [('10.0.0.243', 53)],
         )
+
+    def test_run_nslookup_uses_expected_kwargs(self):
+        self._ensure_subprocess_error()
+        called = {}
+
+        def fake_run(args, **kwargs):
+            called['args'] = args
+            called['kwargs'] = kwargs
+            return _DummyResult('ok')
+
+        def fail_popen(*args, **kwargs):
+            self.fail('unexpected popen fallback')
+
+        self._patch_attr(dns_utils.subprocess, 'run', fake_run)
+        self._patch_attr(dns_utils, '_run_nslookup_with_popen', fail_popen)
+        result = dns_utils._run_nslookup()
+        self.assertEqual(result.stdout, 'ok')
+        self.assertEqual(called['args'], ['nslookup', 'google.com'])
+        self.assertEqual(
+            called['kwargs']['stdout'],
+            dns_utils.subprocess.PIPE,
+        )
+        self.assertEqual(
+            called['kwargs']['stderr'],
+            dns_utils.subprocess.PIPE,
+        )
+        self.assertEqual(called['kwargs']['timeout'], 5)
+        self.assertEqual(called['kwargs']['universal_newlines'], True)
 
     def test_load_windows_resolvers_parse_failure(self):
         self._ensure_subprocess_error()
@@ -238,6 +282,78 @@ nameserver 1.2.3.4#inline
             dns_utils._load_windows_resolvers(),
             [('10.0.0.243', 53)],
         )
+
+    def test_run_nslookup_with_popen_typeerror_fallback(self):
+        output = 'Server:  UnKnown\nAddress:  10.0.0.243\n'
+
+        class DummyProc(object):
+            def __init__(self, stdout):
+                self._stdout = stdout
+
+            def communicate(self, *args, **kwargs):
+                if args or kwargs:
+                    raise TypeError('no timeout')
+                return self._stdout, ''
+
+        def fake_popen(args, **kwargs):
+            self.assertEqual(args, ['nslookup', 'google.com'])
+            return DummyProc(output)
+
+        self._patch_attr(dns_utils.subprocess, 'Popen', fake_popen)
+        result = dns_utils._run_nslookup_with_popen(['nslookup', 'google.com'])
+        self.assertEqual(result.stdout, output)
+
+    def test_run_nslookup_with_popen_timeout_cleanup(self):
+        self._ensure_timeout_expired()
+
+        class DummyProc(object):
+            def __init__(self):
+                self.kill_calls = 0
+                self.communicate_calls = []
+
+            def kill(self):
+                self.kill_calls += 1
+
+            def communicate(self, *args, **kwargs):
+                self.communicate_calls.append((args, kwargs))
+                if kwargs.get('timeout') == 5:
+                    raise dns_utils.subprocess.TimeoutExpired('nslookup', 5)
+                return '', ''
+
+        dummy = DummyProc()
+
+        def fake_popen(args, **kwargs):
+            self.assertEqual(args, ['nslookup', 'google.com'])
+            return dummy
+
+        self._patch_attr(dns_utils.subprocess, 'Popen', fake_popen)
+        with self.assertRaises(dns_utils.subprocess.TimeoutExpired):
+            dns_utils._run_nslookup_with_popen(['nslookup', 'google.com'])
+        self.assertEqual(dummy.kill_calls, 1)
+        self.assertEqual(len(dummy.communicate_calls), 2)
+        self.assertEqual(dummy.communicate_calls[0][1].get('timeout'), 5)
+
+    def test_parse_nslookup_output_missing_server(self):
+        output = 'Address:  10.0.0.1\n'
+        self.assertEqual(dns_utils._parse_nslookup_output(output), None)
+
+    def test_parse_nslookup_output_ignores_answer_block(self):
+        output = (
+            'Server:  UnKnown\n'
+            'Non-authoritative answer:\n'
+            'Address:  10.0.0.1\n'
+        )
+        self.assertEqual(dns_utils._parse_nslookup_output(output), None)
+
+    def test_parse_nslookup_output_handles_spacing(self):
+        output = (
+            'Server:  UnKnown\n'
+            '   Address:   10.0.0.1\n'
+        )
+        self.assertEqual(dns_utils._parse_nslookup_output(output), '10.0.0.1')
+
+    def test_coerce_output_none(self):
+        self.assertEqual(dns_utils._coerce_output(None), '')
 
     def test_load_windows_resolvers_timeout_expired(self):
         self._ensure_subprocess_error()

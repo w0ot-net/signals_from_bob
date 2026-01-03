@@ -93,15 +93,15 @@ class SendWindowTests(unittest.TestCase):
         win = SendWindow(max_in_flight=3)
         seq0 = win.send([], flags=FLAG_KEEPALIVE, now=1.0)
         seq1 = win.send([], flags=FLAG_KEEPALIVE, now=2.0)
-        self.assertTrue(win.drop_oldest_keepalive())
+        self.assertEqual(win.drop_oldest_keepalive(), seq0)
         self.assertNotIn(seq0, win._unacked)
         self.assertIn(seq1, win._unacked)
-        self.assertTrue(win.drop_oldest_keepalive())
+        self.assertEqual(win.drop_oldest_keepalive(), seq1)
         self.assertEqual(win.unacked_count, 0)
 
         win = SendWindow(max_in_flight=1)
         win.send([b'a'], now=1.0)
-        self.assertFalse(win.drop_oldest_keepalive())
+        self.assertIsNone(win.drop_oldest_keepalive())
 
     def test_get_unacked_info(self):
         win = SendWindow(max_in_flight=2)

@@ -422,7 +422,9 @@ class AliceTunnel(BaseTunnel):
             )
             for seq, segments, flags, encrypted_body in retransmits:
                 if flags & FLAG_KEEPALIVE:
-                    self._send_window.drop_keepalive(seq)
+                    self._send_window.drop_keepalive(
+                        seq, reason='rto_keepalive', now=now
+                    )
                     continue
                 if not self._can_send_retransmit(now=now):
                     break
@@ -459,7 +461,10 @@ class AliceTunnel(BaseTunnel):
             if not should_poll:
                 break
             if keepalive_due and not self._send_window.can_send:
-                if not self._send_window.drop_oldest_keepalive():
+                dropped_seq = self._send_window.drop_oldest_keepalive(
+                    reason='window_full', now=now
+                )
+                if dropped_seq is None:
                     break
             if not self._can_send_new(
                     now=now,

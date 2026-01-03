@@ -40,6 +40,12 @@ class SendWindow(object):
         self._unacked = OrderedDict()  # seq -> _UnackedPacket
         self._retransmit_count = 0  # Total retransmits
         self._stats = stats or NoopReliabilityStats()
+        self._last_keepalive_drop_seq = None
+        self._last_keepalive_drop_time = None
+        self._last_keepalive_drop_reason = None
+        self._last_keepalive_drop_unacked_before = None
+        self._last_keepalive_drop_unacked_after = None
+        self._keepalive_drop_count = 0
 
     @property
     def next_seq(self):
@@ -221,27 +227,41 @@ class SendWindow(object):
         self._retransmit_count += 1
         self._stats.on_retransmit()
 
-    def drop_keepalive(self, seq):
+    def drop_keepalive(self, seq, reason=None, now=None):
         """
         Drop an unacked keepalive-only packet.
         """
+        if now is None:
+            now = time_provider.now()
         pkt = self._unacked.get(seq)
         if pkt is None:
             return False
         if not (pkt.flags & FLAG_KEEPALIVE):
             return False
+        count_before = len(self._unacked)
         del self._unacked[seq]
+        count_after = len(self._unacked)
+        self._record_keepalive_drop(
+            seq, reason, now, count_before, count_after
+        )
         return True
 
-    def drop_oldest_keepalive(self):
+    def drop_oldest_keepalive(self, reason=None, now=None):
         """
         Drop the oldest unacked keepalive-only packet.
         """
+        if now is None:
+            now = time_provider.now()
         for seq, pkt in self._unacked.items():
             if pkt.flags & FLAG_KEEPALIVE:
+                count_before = len(self._unacked)
                 del self._unacked[seq]
-                return True
-        return False
+                count_after = len(self._unacked)
+                self._record_keepalive_drop(
+                    seq, reason, now, count_before, count_after
+                )
+                return seq
+        return None
 
     def get_unacked_in_sack_window(self, ack, max_offset=None):
         """
@@ -257,6 +277,34 @@ class SendWindow(object):
             candidates.append((diff, seq))
         candidates.sort()
         return [seq for _, seq in candidates]
+
+    def get_keepalive_drop_info(self, now=None):
+        if self._last_keepalive_drop_seq is None:
+            return None
+        if now is None:
+            now = time_provider.now()
+        age = None
+        if self._last_keepalive_drop_time is not None:
+            age = now - self._last_keepalive_drop_time
+            if age < 0:
+                age = 0.0
+            age = round(age, 6)
+        return {
+            'keepalive_drop_seq': self._last_keepalive_drop_seq,
+            'keepalive_drop_reason': self._last_keepalive_drop_reason,
+            'keepalive_drop_age': age,
+            'keepalive_drop_unacked_before': self._last_keepalive_drop_unacked_before,
+            'keepalive_drop_unacked_after': self._last_keepalive_drop_unacked_after,
+            'keepalive_drop_count': self._keepalive_drop_count,
+        }
+
+    def _record_keepalive_drop(self, seq, reason, now, count_before, count_after):
+        self._last_keepalive_drop_seq = seq
+        self._last_keepalive_drop_reason = reason
+        self._last_keepalive_drop_time = now
+        self._last_keepalive_drop_unacked_before = count_before
+        self._last_keepalive_drop_unacked_after = count_after
+        self._keepalive_drop_count += 1
 
     def _ack_cumulative(self, ack, now, rtt_samples):
         acked_count = 0

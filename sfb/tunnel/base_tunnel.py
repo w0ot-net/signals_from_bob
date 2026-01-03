@@ -381,6 +381,12 @@ class BaseTunnel(object):
                 if age < 0:
                     age = 0.0
                 details['oldest_unacked_age'] = round(age, 6)
+        drop_info = self._send_window.get_keepalive_drop_info(now=now)
+        if drop_info is not None:
+            details.update(drop_info)
+            details['missing_matches_keepalive_drop'] = (
+                drop_info['keepalive_drop_seq'] == last_cum_ack
+            )
         return details
 
     def _rebuild_packet(self, seq, segments, flags=0):

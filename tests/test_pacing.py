@@ -109,6 +109,81 @@ class AdaptivePacerTests(unittest.TestCase):
         pacer.on_retransmit(now=3.2)
         self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 1)
 
+    def test_on_ack_non_positive_dt_ignored(self):
+        pacer = make_pacer(ack_ewma_alpha=1.0)
+        pacer.on_ack(1, now=1.0)
+        pacer.on_ack(1, now=1.0)
+        self.assertIsNone(pacer._ack_rate_ewma)
+        self.assertEqual(pacer._last_ack_time, 1.0)
+        pacer.on_ack(1, now=0.5)
+        self.assertIsNone(pacer._ack_rate_ewma)
+        self.assertEqual(pacer._last_ack_time, 0.5)
+
+    def test_rtt_floor_limits_probe_step(self):
+        pacer = make_pacer(
+            target_inflight_ratio=0.1,
+            ack_ewma_alpha=1.0,
+            ack_idle_reset_sec=100.0,
+            rtt_floor_ms=1000.0,
+        )
+        pacer.on_ack(1, now=1.0)
+        pacer.on_ack(1, now=2.0, srtt_ms=1.0)
+        self.assertEqual(pacer._probe_extra, 0)
+        pacer.on_ack(1, now=3.1, srtt_ms=1.0)
+        self.assertEqual(pacer._probe_extra, 1)
+
+    def test_target_uses_rtt_floor_for_feedback(self):
+        pacer = make_pacer(
+            target_inflight_ratio=0.0,
+            min_inflight=1,
+            ack_ewma_alpha=1.0,
+            rtt_floor_ms=1000.0,
+        )
+        pacer.on_ack(2, now=1.0)
+        pacer.on_ack(2, now=2.0)
+        self.assertEqual(pacer.target_inflight(10, srtt_ms=1.0), 2)
+
+    def test_feedback_lower_than_base_uses_base(self):
+        pacer = make_pacer(target_inflight_ratio=0.9, ack_ewma_alpha=1.0)
+        pacer.on_ack(1, now=1.0)
+        pacer.on_ack(1, now=3.0)
+        self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 9)
+
+    def test_cap_normalization_and_max_floor(self):
+        pacer = make_pacer(target_inflight_ratio=0.5, min_inflight=1, max_inflight=0)
+        self.assertEqual(pacer.target_inflight(0), 1)
+
+    def test_state_fields_base_and_rate_limit(self):
+        pacer = make_pacer(target_inflight_ratio=0.5, min_inflight=1)
+        fields = pacer.state_fields(unacked_count=2, cap=4, rate_limit=123)
+        self.assertEqual(fields['target_inflight'], 2)
+        self.assertEqual(fields['base_target'], 2)
+        self.assertIsNone(fields['feedback_target'])
+        self.assertEqual(fields['baseline_target'], 2)
+        self.assertEqual(fields['probe_extra'], 0)
+        self.assertIsNone(fields['probe_target'])
+        self.assertEqual(fields['target_mode'], 'base')
+        self.assertEqual(fields['rate_limit'], 123)
+
+    def test_state_fields_feedback_and_probe(self):
+        pacer = make_pacer(
+            target_inflight_ratio=0.1,
+            ack_ewma_alpha=1.0,
+            ack_idle_reset_sec=100.0,
+            rtt_floor_ms=1000.0,
+        )
+        pacer.on_ack(5, now=1.0)
+        pacer.on_ack(5, now=2.0, srtt_ms=1000.0)
+        fields = pacer.state_fields(unacked_count=1, cap=10, srtt_ms=1000.0)
+        self.assertEqual(fields['target_inflight'], 5)
+        self.assertEqual(fields['target_mode'], 'feedback')
+        self.assertIsNone(fields['probe_target'])
+        pacer.on_ack(5, now=3.0, srtt_ms=1000.0)
+        fields = pacer.state_fields(unacked_count=1, cap=10, srtt_ms=1000.0)
+        self.assertEqual(fields['target_inflight'], 6)
+        self.assertEqual(fields['probe_target'], 6)
+        self.assertEqual(fields['target_mode'], 'probe')
+
 
 if __name__ == '__main__':
     unittest.main()

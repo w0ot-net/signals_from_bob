@@ -80,6 +80,18 @@ class CryptoTests(unittest.TestCase):
             enc = _rc4_encrypt(RC4(view), data)
             self.assertEqual(len(enc), len(data))
 
+    def test_xor_accepts_bytearray_data(self):
+        data = bytearray(b'hello')
+        enc = XOR(b'k').encrypt(data)
+        self.assertEqual(len(enc), len(data))
+        self.assertIsInstance(enc, bytes)
+
+    def test_rc4_accepts_bytearray_data(self):
+        data = bytearray(b'hello')
+        enc = RC4(b'k').encrypt(data, seq=1, direction=0)
+        self.assertEqual(len(enc), len(data))
+        self.assertIsInstance(enc, bytes)
+
     def test_xor_roundtrip(self):
         key = b'key'
         data = b'hello'
@@ -156,6 +168,16 @@ class CryptoTests(unittest.TestCase):
         self.assertRaises(ValueError, cipher.encrypt, data, seq=0x10000, direction=0)
         self.assertRaises(ValueError, cipher.encrypt, data, seq=1, direction=-1)
         self.assertRaises(ValueError, cipher.encrypt, data, seq=1, direction=2)
+
+    def test_rc4_decrypt_rejects_invalid_seq_direction(self):
+        cipher = RC4(b'k')
+        data = b'hi'
+        self.assertRaises(TypeError, cipher.decrypt, data, seq='1', direction=0)
+        self.assertRaises(TypeError, cipher.decrypt, data, seq=1, direction='0')
+        self.assertRaises(ValueError, cipher.decrypt, data, seq=-1, direction=0)
+        self.assertRaises(ValueError, cipher.decrypt, data, seq=0x10000, direction=0)
+        self.assertRaises(ValueError, cipher.decrypt, data, seq=1, direction=-1)
+        self.assertRaises(ValueError, cipher.decrypt, data, seq=1, direction=2)
 
     def test_rejects_empty_key(self):
         self.assertRaises(ValueError, XOR, b'')
@@ -244,6 +266,13 @@ class CryptoTests(unittest.TestCase):
         self.assertRaises(TypeError, RC4(b'k').encrypt, data, seq=1, direction=0)
         self.assertRaises(TypeError, Plain().encrypt, data)
 
+    def test_rejects_non_byte_itemsize_key_views(self):
+        if PY2:
+            return
+        key = memoryview(array('H', [1, 2, 3]))
+        self.assertRaises(TypeError, XOR, key)
+        self.assertRaises(TypeError, RC4, key)
+
     def test_xor_vector(self):
         key = b'\x01\x02'
         data = b'\x10\x20\x30'
@@ -268,6 +297,11 @@ class CryptoTests(unittest.TestCase):
         empty = b''
         self.assertEqual(XOR(b'k').encrypt(empty), empty)
         self.assertEqual(RC4(b'k').encrypt(empty, seq=1, direction=0), empty)
+
+    def test_plain_empty_payloads(self):
+        empty = b''
+        self.assertEqual(Plain().encrypt(empty), empty)
+        self.assertEqual(Plain().decrypt(empty), empty)
 
 
 if __name__ == '__main__':

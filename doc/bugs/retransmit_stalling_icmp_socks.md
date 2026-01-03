@@ -267,6 +267,11 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   `buffered` 177 and `unacked` 79 in the latest event; `missing_in_unacked`
   remains True with `missing_age` ~1.54s and `missing_seq` == `last_cum_ack`
   2004. Keepalive-drop fields were not present in these events.
+- Alice `tunnel.packet_recv` shows a very large SACK bitmap while `ack` stays
+  pinned, consistent with Bob holding most of the 256-window beyond the
+  missing seq. The gap-retransmit gate does not trigger here because
+  `unacked` (79) exceeds the current threshold (distance_limit / 4 = 64),
+  so the missing packet waits for RTO instead of an early gap retransmit.
 - Alice `tunnel.send_blocked` reasons: `window_distance` 833,
   `transport_headroom` 499, `retransmit_budget` 2.
 - Sources: `logs/server_log.db` (Bob) had 16579 rows (~11:32:46-11:33:03 UTC).

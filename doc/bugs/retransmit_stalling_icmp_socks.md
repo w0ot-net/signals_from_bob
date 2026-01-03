@@ -328,3 +328,15 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   acked/removed packets.
 - Latest Alice retransmit event is `reason=gap` for seq 2110 (earlier gap), not
   the current missing seq 2112.
+
+## Latest findings (2026-01-03, window negotiated to 1)
+- Sources: `logs/client_log.db` (Alice) had 7781 rows (~12:24:30-12:24:47 UTC).
+- Alice has no `tunnel.send_window_distance` events in this snapshot.
+- Latest `tunnel.packet_recv` shows `negotiated_window` 1 with `unacked` 1,
+  and `tunnel.send_blocked` reports window full (`max_in_flight` 1).
+- Alice `tunnel.retransmit_skip` is firing with `reason=ack_silence`
+  (`ack_silence` ~0.498s, `rto_sec` 0.5s) while `unacked` remains 1.
+- Sources: `logs/server_log.db` (Bob) had 1362 rows (~12:24:26-12:24:44 UTC).
+- Bob latest `tunnel.packet_recv` shows `negotiated_window` 128 with
+  `unacked` 47 and a non-zero SACK bitmap, indicating the sides disagree on
+  window size in this run.

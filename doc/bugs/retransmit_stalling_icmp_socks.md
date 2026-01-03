@@ -159,6 +159,10 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   SACKed gaps.
 - Alice `tunnel.send_window_distance` stalls cluster into 10 runs, each
   lasting ~0.59s with ~380-407 events (per-run ack stays fixed).
+- The `last_cum_ack` values in those runs map to data packets
+  (`flags=0`, `seg_count=1`), not keepalive-only packets. Most of those
+  sequences show two `tunnel.packet_send` entries (initial + retransmit),
+  except seq 17118 which appears once.
 - Bob had zero `tunnel.send_window_distance` events in this window.
 
 ## Next steps from the latest logs

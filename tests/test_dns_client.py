@@ -47,6 +47,11 @@ class FailingSock(object):
         raise socket.error('fail')
 
 
+class FailingRecvSock(object):
+    def recvfrom(self, bufsize):
+        raise socket.error('fail')
+
+
 class DnsClientTests(unittest.TestCase):
     def _make_client(self, qtype=codec.QTYPE_A, rtype=codec.QTYPE_CNAME,
                      edns_size=512):
@@ -330,6 +335,38 @@ class DnsClientTests(unittest.TestCase):
         finally:
             client.close()
 
+    def test_init_rejects_non_config(self):
+        with self.assertRaises(TypeError):
+            DnsClient(object())
+
+    def test_init_rejects_unknown_qtype(self):
+        config = Config()
+        config.dns_base_domain = 'example.com'
+        config.dns_resolver = '1.1.1.1'
+        config.dns_query_type = 'NOPE'
+        with self.assertRaises(KeyError):
+            DnsClient(config)
+
+    def test_init_rejects_unknown_rtype(self):
+        config = Config()
+        config.dns_base_domain = 'example.com'
+        config.dns_resolver = '1.1.1.1'
+        config.dns_response_type = 'NOPE'
+        with self.assertRaises(KeyError):
+            DnsClient(config)
+
+    def test_init_uses_min_recv_bufsize(self):
+        config = Config()
+        config.dns_base_domain = 'example.com'
+        config.dns_edns_size = 512
+        config.dns_recv_bufsize_min = 2048
+        config.dns_resolver = '1.1.1.1'
+        client = DnsClient(config)
+        try:
+            self.assertEqual(client._recv_bufsize, 2048)
+        finally:
+            client.close()
+
     def test_parse_response_cname(self):
         client = self._make_client()
         payload = b'hello'
@@ -428,6 +465,26 @@ class DnsClientTests(unittest.TestCase):
                                              codec.QCLASS_IN)
         result = client._parse_response(header + question)
         self.assertEqual(result, (0x7, None, None, None, 'question_parse'))
+
+    def test_parse_response_skips_extra_questions(self):
+        client = self._make_client()
+        header = struct.pack('>HHHHHH',
+            0x17,
+            codec.FLAG_QR | codec.FLAG_AA,
+            2,  # QDCOUNT
+            0,  # ANCOUNT
+            0,
+            0,
+        )
+        question1 = codec.encode_name('example.com')
+        question1 += struct.pack('>HH', codec.QTYPE_A, codec.QCLASS_IN)
+        question2 = codec.encode_name('other.example.com')
+        question2 += struct.pack('>HH', codec.QTYPE_A, codec.QCLASS_IN)
+        result = client._parse_response(header + question1 + question2)
+        self.assertEqual(
+            result,
+            (0x17, 'example.com', None, codec.RCODE_NOERROR, 'no_answer'),
+        )
 
     def test_parse_response_no_question(self):
         client = self._make_client()
@@ -779,6 +836,46 @@ class DnsClientTests(unittest.TestCase):
         finally:
             dns_client.select.select = original_select
 
+    def test_recv_timeout_select_empty(self):
+        client = DnsClient.__new__(DnsClient)
+        client._sock = object()
+        client._pending = PendingTracker(1.0)
+        client._dns_to_corr = {}
+
+        def fake_select(rlist, wlist, xlist, timeout):
+            return ([], [], [])
+
+        original_select = dns_client.select.select
+        dns_client.select.select = fake_select
+        try:
+            self.assertEqual(client.recv(timeout=1.0), (None, None))
+        finally:
+            dns_client.select.select = original_select
+
+    def test_recv_retries_after_empty_result(self):
+        client = DnsClient.__new__(DnsClient)
+        client._sock = object()
+        client._pending = PendingTracker(1.0)
+        client._dns_to_corr = {}
+        calls = []
+        results = [(None, None), (2, b'ok')]
+
+        def fake_select(rlist, wlist, xlist, timeout):
+            calls.append(timeout)
+            return (rlist, [], [])
+
+        def fake_try_recv():
+            return results.pop(0)
+
+        original_select = dns_client.select.select
+        dns_client.select.select = fake_select
+        client._try_recv = fake_try_recv
+        try:
+            self.assertEqual(client.recv(timeout=None), (2, b'ok'))
+            self.assertEqual(len(calls), 2)
+        finally:
+            dns_client.select.select = original_select
+
     def test_try_recv_success(self):
         payload = b'hello'
         data = self._build_response(0x10, 'q.example.com', codec.QTYPE_CNAME,
@@ -869,6 +966,15 @@ class DnsClientTests(unittest.TestCase):
         self.assertEqual(result, (None, None))
         self.assertIsNone(client._pending.get(7))
         self.assertEqual(client._dns_to_corr, {})
+
+    def test_try_recv_socket_error_raises(self):
+        client = self._make_client()
+        client._sock = FailingRecvSock()
+        client._recv_bufsize = 512
+        client._pending = PendingTracker(1.0)
+        client._dns_to_corr = {}
+        with self.assertRaises(TransportError):
+            client._try_recv()
 
     def test_close_clears_pending(self):
         client = DnsClient.__new__(DnsClient)

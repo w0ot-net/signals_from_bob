@@ -197,6 +197,26 @@ class BobHandshakeTests(unittest.TestCase):
         self.assertFalse(tunnel._handshake_complete)
         self.assertEqual(responses, [])
 
+    def test_ack_ignored_when_disconnected(self):
+        server = MockServer()
+        tunnel = BobTunnel(server, make_test_config())
+        responses = []
+
+        def responder(data):
+            responses.append(data)
+
+        ack = Packet(
+            seq=1,
+            ack=1,
+            sack=0,
+            flags=FLAG_ACK,
+        )
+        tunnel.handle_request(_encode_for_bob(tunnel, ack), responder)
+
+        self.assertEqual(tunnel.state, TunnelState.DISCONNECTED)
+        self.assertFalse(tunnel._handshake_complete)
+        self.assertEqual(responses, [])
+
     def test_syn_sends_synack(self):
         server = MockServer()
         tunnel = BobTunnel(server, make_test_config())
@@ -382,6 +402,53 @@ class BobResponseTests(unittest.TestCase):
         header = PacketHeader.decode(responses[0])
         self.assertEqual(header.flags & FLAG_KEEPALIVE, 0)
 
+    def test_send_response_sends_keepalive_when_idle(self):
+        server = MockServer()
+        tunnel = BobTunnel(server, make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._recv_window.set_initial_seq(1)
+        tunnel._send_window._next_seq = 1
+
+        responses = []
+
+        def responder(data):
+            responses.append(data)
+
+        tunnel._send_response(responder, time_provider.now())
+
+        self.assertEqual(len(responses), 1)
+        header = PacketHeader.decode(responses[0])
+        self.assertEqual(header.flags & FLAG_KEEPALIVE, FLAG_KEEPALIVE)
+
+        body = responses[0][PACKET_HEADER_SIZE:]
+        segments = Segment.decode_all(body)
+        self.assertEqual(segments, [])
+
+    def test_send_response_ack_only_when_pending_data_no_space(self):
+        server = MockServer()
+        tunnel = BobTunnel(server, make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._recv_window.set_initial_seq(1)
+        tunnel._send_window._next_seq = 1
+        tunnel._send_mtu = SEGMENT_HEADER_SIZE
+
+        tunnel.control.send_message({'t': 'tun', 'c': 'ping'})
+
+        responses = []
+
+        def responder(data):
+            responses.append(data)
+
+        tunnel._send_response(responder, time_provider.now())
+
+        self.assertEqual(len(responses), 1)
+        header = PacketHeader.decode(responses[0])
+        self.assertEqual(header.flags & FLAG_KEEPALIVE, 0)
+
+        body = responses[0][PACKET_HEADER_SIZE:]
+        segments = Segment.decode_all(body)
+        self.assertEqual(segments, [])
+
     def test_send_response_retransmits_oldest(self):
         server = MockServer()
         tunnel = BobTunnel(server, make_test_config())
@@ -401,6 +468,66 @@ class BobResponseTests(unittest.TestCase):
             responses.append(data)
 
         tunnel._send_response(responder, time_provider.now())
+
+        self.assertEqual(len(responses), 1)
+        header = PacketHeader.decode(responses[0])
+        self.assertEqual(header.seq, seq)
+
+        info = tunnel._send_window.get_unacked_info(seq)
+        self.assertEqual(info[-1], 1)
+
+    def test_send_response_window_full_retransmits_oldest(self):
+        server = MockServer()
+        tunnel = BobTunnel(server, make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._recv_window.set_initial_seq(1)
+        tunnel._send_window._max_in_flight = 1
+
+        now = time_provider.now()
+        segment = Segment(channel=0, data=b'x')
+        seq = tunnel._send_window.send(
+            [segment],
+            flags=0,
+            now=now,
+        )
+
+        responses = []
+
+        def responder(data):
+            responses.append(data)
+
+        tunnel._send_response(responder, now)
+
+        self.assertEqual(len(responses), 1)
+        header = PacketHeader.decode(responses[0])
+        self.assertEqual(header.seq, seq)
+
+        info = tunnel._send_window.get_unacked_info(seq)
+        self.assertEqual(info[-1], 1)
+
+    def test_send_response_window_distance_retransmits_oldest(self):
+        server = MockServer()
+        tunnel = BobTunnel(server, make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._recv_window.set_initial_seq(1)
+        tunnel._send_window._max_in_flight = 2
+
+        now = time_provider.now()
+        segment = Segment(channel=0, data=b'x')
+        seq = tunnel._send_window.send(
+            [segment],
+            flags=0,
+            now=now,
+        )
+        tunnel._send_window._next_seq = 5
+        tunnel._last_cum_ack = 0
+
+        responses = []
+
+        def responder(data):
+            responses.append(data)
+
+        tunnel._send_response(responder, now)
 
         self.assertEqual(len(responses), 1)
         header = PacketHeader.decode(responses[0])
@@ -434,6 +561,37 @@ class BobResponseTests(unittest.TestCase):
         self.assertEqual(len(responses), 1)
         header = PacketHeader.decode(responses[0])
         self.assertEqual(header.seq, next_seq)
+
+        info = tunnel._send_window.get_unacked_info(seq)
+        self.assertEqual(info[-1], 0)
+
+    def test_send_response_skips_retransmit_on_ack_progress(self):
+        server = MockServer()
+        tunnel = BobTunnel(server, make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._recv_window.set_initial_seq(1)
+        tunnel._send_window._max_in_flight = 2
+
+        now = time_provider.now()
+        segment = Segment(channel=0, data=b'x')
+        seq = tunnel._send_window.send(
+            [segment],
+            flags=0,
+            now=now - 1.0,
+        )
+        tunnel._last_cum_ack = 0
+        tunnel._last_cum_ack_time = now - 0.01
+
+        responses = []
+
+        def responder(data):
+            responses.append(data)
+
+        tunnel._send_response(responder, now)
+
+        self.assertEqual(len(responses), 1)
+        header = PacketHeader.decode(responses[0])
+        self.assertNotEqual(header.seq, seq)
 
         info = tunnel._send_window.get_unacked_info(seq)
         self.assertEqual(info[-1], 0)

@@ -215,6 +215,8 @@ class BobTunnel(BaseTunnel):
             )
 
         elif packet.flags & FLAG_ACK:
+            if self._state != TunnelState.CONNECTING or self._local_isn is None:
+                return
             # ACK from Alice - handshake complete
             if packet.ack == (self._local_isn + 1) & 0xFFFF:
                 self._send_window._next_seq = (self._local_isn + 1) & 0xFFFF

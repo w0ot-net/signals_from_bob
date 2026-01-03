@@ -197,6 +197,9 @@ class CompatTests(unittest.TestCase):
         self.assertIsInstance(result, memoryview)
         self.assertEqual(result.tobytes(), b'\x01\x02')
 
+    def test_require_bytes_like_or_bytearray_rejects_non_bytes_like(self):
+        self.assertRaises(TypeError, require_bytes_like_or_bytearray, object())
+
     def test_require_bytes_like_or_bytearray_rejects_text(self):
         text = _text_value('hi')
         self.assertRaises(TypeError, require_bytes_like_or_bytearray, text)
@@ -206,6 +209,13 @@ class CompatTests(unittest.TestCase):
             return
         self.assertRaises(TypeError, require_bytes_like_or_bytearray, memoryview(b'hi'))
         self.assertRaises(TypeError, require_bytes_like_or_bytearray, buffer(b'hi'))
+
+    def test_require_bytes_like_or_bytearray_rejects_itemsize_py3(self):
+        if PY2:
+            return
+        data = array.array('H', [1, 2, 3])
+        view = memoryview(data)
+        self.assertRaises(TypeError, require_bytes_like_or_bytearray, view)
 
     def test_require_bytes_like_itemsize_py3(self):
         if PY2:
@@ -276,6 +286,14 @@ class CompatTests(unittest.TestCase):
         self.assertEqual(str(view), b'abcd')
         self.assertEqual(len(view), 4)
 
+    def test_buffer_view_accepts_memoryview_full_length_py2(self):
+        if not PY2:
+            return
+        data = memoryview(b'abcdef')
+        view = buffer_view(data)
+        self.assertEqual(str(view), b'abcdef')
+        self.assertEqual(len(view), 6)
+
     def test_buffer_view_accepts_memoryview_py3(self):
         if PY2:
             return
@@ -320,6 +338,11 @@ class CompatTests(unittest.TestCase):
 
     def test_buffer_view_rejects_non_bytes_like_py3(self):
         if PY2:
+            return
+        self.assertRaises(TypeError, buffer_view, object())
+
+    def test_buffer_view_rejects_non_bytes_like_py2(self):
+        if not PY2:
             return
         self.assertRaises(TypeError, buffer_view, object())
 

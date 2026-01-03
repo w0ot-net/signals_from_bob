@@ -51,6 +51,9 @@ Alice                                         Bob
 Pipelining is supported by opening multiple concurrent connections up to
 `max_in_flight`. Correlation IDs are internal; each in-flight socket maps to
 one request.
+Connection-per-poll can hit TIME_WAIT/ephemeral port limits at high rates; rely
+on `max_in_flight`, `tunnel_send_rate`, and `tunnel_keepalive_interval` to cap
+connect churn and document recommended polling rates.
 
 ## Encoding Plan
 
@@ -93,6 +96,8 @@ one request.
 - Each connection carries exactly one record; after parsing, close the socket.
 - If EOF occurs before header or body completes, treat as malformed and close.
 - If extra bytes remain after the single record, treat as malformed and close.
+- Track write progress separately; only attempt to read after the full
+  ClientHello has been sent.
 
 ### SFB Payload Carrier
 - Primary carrier: a dedicated extension, `EXT_SFB_DATA` (type 0xFF00).
@@ -155,19 +160,23 @@ one request.
   - Open socket in non-blocking mode, start `connect_ex`.
   - If connect completes immediately, send record and track as pending.
   - If connect is in progress, store state (socket, send buffer, offset,
-    connect deadline) and return a correlation ID immediately; send occurs when
-    the socket becomes writable in `recv()`.
+    connect deadline, handshake deadline) and return a correlation ID
+    immediately; send occurs when the socket becomes writable in `recv()`.
+  - If `connect_ex` returns an immediate error (not in-progress), close and
+    raise `TransportError`.
   - Return a monotonic correlation ID.
 - For `recv()`:
-  - Pump pending sockets: finish connects, flush pending sends, then read.
-  - Poll pending sockets for readable data.
+  - Use `select` over pending sockets for writable and readable events.
+  - For writable sockets: finish connects with `getsockopt(SO_ERROR)`, then
+    flush pending sends (partial sends advance the offset).
+  - Only after a full ClientHello is sent, poll for readable data.
   - Read and buffer until a full TLS record is available.
   - Parse ServerHello and extract payload.
   - Close the socket and return `(corr_id, payload)`.
-- Prune stale sockets using `PendingTracker` and `tls_pending_timeout`.
-- Enforce `tls_connect_timeout` and `tls_handshake_timeout` per socket.
-- Use `connect_ex` + `select` and check `getsockopt(SO_ERROR)` to complete
-  non-blocking connects before sending.
+- Prune stale sockets via `PendingTracker` using per-connection deadlines
+  derived from `tls_connect_timeout` and `tls_handshake_timeout`. Use
+  `tls_pending_timeout` as a safety net only; require it to be >= both
+  timeouts (or default it to the larger of the two).
 - Track per-connection deadlines using `time_provider.now()`; do not rely on
   wall-clock timeouts.
 
@@ -175,6 +184,8 @@ one request.
 - Listen on a TCP socket with configurable host/port.
 - Accept connections and track active sockets with per-connection buffers and
   deadlines.
+- Enforce a hard cap on active sockets using `max_in_flight`. If at capacity,
+  accept then immediately close new connections to avoid busy-looping.
 - `recv()` should poll both the listening socket and active sockets so one slow
   client does not block others (preserves `max_in_flight` behavior).
 - When a full ClientHello record is available, decode payload.
@@ -203,6 +214,8 @@ Proposed config fields:
 - `tls_alpn` (optional comma-separated list for cover)
 - Validate max record sizes and timeouts in config (positive values and within
   TLS record limits).
+- Require `tls_pending_timeout` to be >= `tls_connect_timeout` and
+  `tls_handshake_timeout`, or default it to the larger value when unset.
 - Validate configured max sizes against minimum handshake overhead (including
   SNI/ALPN if enabled) and reject configurations that cannot carry a packet.
 - Validate `tls_sni` as ASCII, 1-253 chars, labels 1-63 with only
@@ -227,6 +240,9 @@ CLI:
 - Fragmented read handling (header then body across multiple reads).
 - Oversize record length rejection.
 - Early EOF and extra-bytes handling (drop and close).
+- Connect failure and timeout handling (including `connect_ex` immediate
+  failures and deadline expiry).
+- Partial send progress with non-blocking sockets (send advances offset).
 - Client/server loopback test with real sockets (no e2e tests).
 - Multiple concurrent in-flight connections to confirm no serialization.
 - Pending timeout and pruning behavior.
@@ -236,7 +252,7 @@ CLI:
   ports and reduce flakiness.
 
 ## Implementation Order
-1. Write `doc/TLS_TRANSPORT.md` with the final wire format and constraints.
+1. Review/update `doc/TLS_TRANSPORT.md` with the final wire format and constraints.
 2. Implement `sfb/transport/tls/codec.py` and unit tests.
 3. Implement client transport (`tls_client.py`).
 4. Implement server transport (`tls_server.py`).

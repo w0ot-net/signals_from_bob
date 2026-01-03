@@ -72,6 +72,18 @@ class RttEstimatorTests(unittest.TestCase):
         rtt.add_sample(1000)
         self.assertEqual(rtt.rto_ms, 150)
 
+    def test_reset_backoff_without_srtt(self):
+        rtt = RttEstimator(initial_rto_ms=1200)
+        rtt.backoff()
+        self.assertEqual(rtt.rto_ms, 2400)
+        rtt.reset_backoff()
+        self.assertEqual(rtt.rto_ms, 2400)
+
+    def test_backoff_clamps_to_max(self):
+        rtt = RttEstimator(initial_rto_ms=MAX_RTO_MS)
+        rtt.backoff()
+        self.assertEqual(rtt.rto_ms, MAX_RTO_MS)
+
 
 
 class SendWindowTests(unittest.TestCase):
@@ -196,6 +208,15 @@ class SendWindowTests(unittest.TestCase):
         self.assertEqual(win.unacked_count, 0)
 
 
+class ReliabilityStatsTests(unittest.TestCase):
+    def test_retransmit_skip_counters(self):
+        stats = ReliabilityStats()
+        stats.on_retransmit_skip_rate_limit()
+        stats.on_retransmit_skip_rate_limit()
+        stats.on_retransmit_skip_transport()
+        self.assertEqual(stats.retransmit_skipped_rate_limit, 2)
+        self.assertEqual(stats.retransmit_skipped_transport, 1)
+
 
 class RecvWindowTests(unittest.TestCase):
     def test_in_order_delivery(self):
@@ -218,6 +239,15 @@ class RecvWindowTests(unittest.TestCase):
         ready = win.receive(1, b'b')
         self.assertEqual(ready, [])
         self.assertEqual(len(win._buffer), 1)
+
+    def test_duplicate_below_ack_counts(self):
+        stats = ReliabilityStats()
+        win = RecvWindow(max_buffer=4, stats=stats)
+        ready = win.receive(0, b'a')
+        self.assertEqual(ready, [(0, b'a')])
+        ready = win.receive(0, b'a')
+        self.assertEqual(ready, [])
+        self.assertEqual(stats.recv_duplicates, 1)
 
     def test_duplicate_before_buffer_full(self):
         stats = ReliabilityStats()
@@ -252,7 +282,7 @@ class RecvWindowTests(unittest.TestCase):
         self.assertEqual(stats.recv_buffered, 0)
         self.assertEqual(stats.recv_delivered, 0)
 
-    def test_buffered_and_delivered_stats(self):
+    def test_buffered_and_delivered_stats_out_of_order(self):
         stats = ReliabilityStats()
         win = RecvWindow(max_buffer=4, stats=stats)
         ready = win.receive(1, b'b')
@@ -274,6 +304,20 @@ class RecvWindowTests(unittest.TestCase):
         win.receive(2, b'c')
         self.assertEqual(win.ack, 1)
         self.assertEqual(win.sack, 1 << 0)
+
+    def test_sack_bitmap_multiple_entries(self):
+        win = RecvWindow(max_buffer=4)
+        win.receive(2, b'c')
+        win.receive(4, b'e')
+        self.assertEqual(win.sack, (1 << 1) | (1 << 3))
+
+    def test_sack_bitmap_wraparound(self):
+        win = RecvWindow(max_buffer=4)
+        win.set_initial_seq(SEQ_MAX)
+        win.receive(0, b'a')
+        win.receive(1, b'b')
+        self.assertEqual(win.ack, SEQ_MAX)
+        self.assertEqual(win.sack, (1 << 0) | (1 << 1))
 
     def test_set_initial_seq_clears_buffer(self):
         win = RecvWindow(max_buffer=4)
@@ -299,6 +343,15 @@ class RecvWindowTests(unittest.TestCase):
         win.set_max_buffer(2)
         self.assertEqual(sorted(win._buffer.keys()), [1, 2])
 
+    def test_set_max_buffer_trims_wraparound_farthest(self):
+        win = RecvWindow(max_buffer=4)
+        win.set_initial_seq((SEQ_MAX - 1) & SEQ_MAX)
+        win.receive(SEQ_MAX, b'a')
+        win.receive(0, b'b')
+        win.receive(1, b'c')
+        win.set_max_buffer(2)
+        self.assertEqual(sorted(win._buffer.keys()), [0, SEQ_MAX])
+
     def test_max_buffer_cap(self):
         win = RecvWindow()
         self.assertRaises(ValueError, win.set_max_buffer, MAX_IN_FLIGHT + 1)
@@ -322,14 +375,13 @@ class RecvWindowTests(unittest.TestCase):
         win.receive(SACK_BITS + 1, b'oob')
         self.assertEqual(stats.recv_out_of_window, 1)
 
-    def test_buffered_and_delivered_stats(self):
+    def test_delivered_stats_in_order(self):
         stats = ReliabilityStats()
         win = RecvWindow(max_buffer=4, stats=stats)
-        win.receive(1, b'b')
-        self.assertEqual(stats.recv_buffered, 1)
         ready = win.receive(0, b'a')
-        self.assertEqual(ready, [(0, b'a'), (1, b'b')])
-        self.assertEqual(stats.recv_delivered, 2)
+        self.assertEqual(ready, [(0, b'a')])
+        self.assertEqual(stats.recv_buffered, 0)
+        self.assertEqual(stats.recv_delivered, 1)
 
     def test_wraparound_delivery(self):
         win = RecvWindow(max_buffer=4)

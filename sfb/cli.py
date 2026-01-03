@@ -859,6 +859,36 @@ def main(args=None):
         )
     add_component_filters(logging.getLogger(), config)
     logger = logging.getLogger('sfb')
+    log_event(
+        logger,
+        logging.INFO,
+        'cli.log_startup',
+        'Log configuration snapshot',
+        lambda: {
+            'role': parsed.role,
+            'transport': parsed.transport,
+            'log_profile': parsed.log_profile,
+            'log_profile_explicit': bool(
+                getattr(parsed, 'log_profile_explicit', False)
+            ),
+            'db_log_path': parsed.db_log,
+            'db_log_flush': parsed.db_log_flush,
+            'db_log_queue': parsed.db_log_queue,
+            'cwd': os.getcwd(),
+            'log_event_whitelist': config.log_event_whitelist,
+            'log_event_blacklist': config.log_event_blacklist,
+            'log_component_transport_dns': config.log_component_transport_dns,
+            'log_component_transport_icmp': config.log_component_transport_icmp,
+            'log_component_transport_tls': config.log_component_transport_tls,
+            'log_component_tunnel': config.log_component_tunnel,
+            'log_component_channel': config.log_component_channel,
+            'log_component_protocol': config.log_component_protocol,
+            'log_component_module_socks': config.log_component_module_socks,
+            'log_component_module_file_transfer': (
+                config.log_component_module_file_transfer
+            ),
+        },
+    )
 
     # Create config and crypto
     crypto = create_crypto(parsed, logger)

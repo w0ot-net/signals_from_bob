@@ -170,6 +170,11 @@ nameserver localhost
             [('10.0.0.243', 53)],
         )
 
+    def test_subprocess_error_types_without_extra_errors(self):
+        self._patch_attr(dns_utils.subprocess, 'SubprocessError', None)
+        self._patch_attr(dns_utils.subprocess, 'TimeoutExpired', None)
+        self.assertEqual(dns_utils._subprocess_error_types(), (OSError,))
+
     def test_run_nslookup_uses_expected_kwargs(self):
         self._ensure_subprocess_error()
         called = {}
@@ -333,6 +338,36 @@ nameserver localhost
         self.assertEqual(len(dummy.communicate_calls), 2)
         self.assertEqual(dummy.communicate_calls[0][1].get('timeout'), 5)
 
+    def test_run_nslookup_with_popen_timeout_terminate_cleanup(self):
+        self._ensure_timeout_expired()
+
+        class DummyProc(object):
+            def __init__(self):
+                self.terminate_calls = 0
+                self.communicate_calls = []
+
+            def terminate(self):
+                self.terminate_calls += 1
+
+            def communicate(self, *args, **kwargs):
+                self.communicate_calls.append((args, kwargs))
+                if kwargs.get('timeout') == 5:
+                    raise dns_utils.subprocess.TimeoutExpired('nslookup', 5)
+                return '', ''
+
+        dummy = DummyProc()
+
+        def fake_popen(args, **kwargs):
+            self.assertEqual(args, ['nslookup', 'google.com'])
+            return dummy
+
+        self._patch_attr(dns_utils.subprocess, 'Popen', fake_popen)
+        with self.assertRaises(dns_utils.subprocess.TimeoutExpired):
+            dns_utils._run_nslookup_with_popen(['nslookup', 'google.com'])
+        self.assertEqual(dummy.terminate_calls, 1)
+        self.assertEqual(len(dummy.communicate_calls), 2)
+        self.assertEqual(dummy.communicate_calls[0][1].get('timeout'), 5)
+
     def test_parse_nslookup_output_missing_server(self):
         output = 'Address:  10.0.0.1\n'
         self.assertEqual(dns_utils._parse_nslookup_output(output), None)
@@ -354,6 +389,9 @@ nameserver localhost
 
     def test_coerce_output_none(self):
         self.assertEqual(dns_utils._coerce_output(None), '')
+
+    def test_coerce_output_bytes(self):
+        self.assertEqual(dns_utils._coerce_output(b'hello'), 'hello')
 
     def test_load_windows_resolvers_timeout_expired(self):
         self._ensure_subprocess_error()

@@ -108,9 +108,8 @@ class BaseTunnel(object):
             max_in_flight=self._default_window,
             stats=self._reliability_stats,
         )
-        # Allow buffering up to the full SACK bitmap width.
         self._recv_window = RecvWindow(
-            max_buffer=self.MAX_WINDOW,
+            max_buffer=self._proposed_max_in_flight,
             stats=self._reliability_stats,
         )
 
@@ -297,7 +296,7 @@ class BaseTunnel(object):
             return (False, None)
         distance = diff
         unacked = self._send_window.unacked_count
-        distance_limit = max_in_flight + unacked
+        distance_limit = max_in_flight
         if distance_limit > self.MAX_WINDOW:
             distance_limit = self.MAX_WINDOW
         if distance < distance_limit:

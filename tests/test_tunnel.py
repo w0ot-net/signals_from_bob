@@ -519,7 +519,7 @@ class BaseTunnelGapTests(unittest.TestCase):
         self.assertEqual(fields[0], seq_diff(13, 10))
         self.assertEqual(fields[1], 2)
         self.assertEqual(fields[2], 1)
-        self.assertEqual(fields[3], 3)
+        self.assertEqual(fields[3], 2)
         self.assertEqual(fields[4], 10)
         self.assertEqual(fields[5], 13)
 

@@ -97,9 +97,9 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   (ack_progress 1611, cooldown 236).
 
 ## Change applied (2026-01-03)
-- Expand recv window buffer to the full SACK width (256 packets).
-- Goal: prevent out-of-order drops when cumulative ACK stalls and SACK
-  advances, reducing retransmits and `tunnel.send_window_distance` stalls.
+- Clamp send-window distance to `max_in_flight` (not `max_in_flight + unacked`).
+- Goal: prevent senders from getting ahead of the receiver's reorder buffer
+  and reduce out-of-window drops that trigger retransmits/stalls.
 
 ## Next steps from the latest logs
 - Re-run with the same profile to confirm retransmit rate drops with the

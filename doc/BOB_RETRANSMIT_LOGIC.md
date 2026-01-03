@@ -166,7 +166,7 @@ If `send_window.can_send` is False:
 
 If `_send_window_distance_exceeded()` returns True:
 - Uses `seq_diff(next_seq, last_cum_ack)` to compute distance with wraparound.
-- Distance limit is `max_in_flight + unacked` and is capped at 256.
+- Distance limit is `max_in_flight` and is capped at 256.
 - When exceeded, Bob logs `tunnel.send_window_distance` and `tunnel.send_blocked`.
 - He retransmits the oldest unacked packet with:
   - `context='window_distance'`

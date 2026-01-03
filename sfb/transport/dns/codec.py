@@ -169,6 +169,7 @@ def decode_name(data, offset, allow_compression=True):
 
 def skip_name(data, offset):
     """Skip a DNS name in wire format, return new offset."""
+    data = to_bytes(data)
     while offset < len(data):
         length = byte_at(data, offset)
         if length == 0:

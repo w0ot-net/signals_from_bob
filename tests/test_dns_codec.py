@@ -50,6 +50,10 @@ class TestBase32(unittest.TestCase):
         with self.assertRaises(binascii.Error):
             codec.base32_decode('!@#$')
 
+    def test_decode_invalid_length(self):
+        with self.assertRaises(binascii.Error):
+            codec.base32_decode('A')
+
     def test_decode_rejects_non_ascii_text(self):
         with self.assertRaises(UnicodeEncodeError):
             codec.base32_decode(u'\u00ff')
@@ -89,6 +93,10 @@ class TestBase64(unittest.TestCase):
         with self.assertRaises(TypeError):
             codec.base64_decode(b'AAAA')
 
+    def test_decode_invalid_length(self):
+        with self.assertRaises(binascii.Error):
+            codec.base64_decode('A')
+
     def test_decode_invalid_chars(self):
         self.assertEqual(codec.base64_decode(u'!!!!'), b'')
 
@@ -124,6 +132,10 @@ class TestDnsName(unittest.TestCase):
     def test_encode_rejects_non_text(self):
         with self.assertRaises(TypeError):
             codec.encode_name(b'example.com')
+
+    def test_encode_non_ascii_label(self):
+        with self.assertRaises(UnicodeEncodeError):
+            codec.encode_name(u'\u00ff.com')
 
     def test_encode_label_max_len(self):
         name = '%s.com' % ('a' * 63)
@@ -164,6 +176,10 @@ class TestDnsName(unittest.TestCase):
         name, offset = codec.decode_name(b'\x00', 0)
         self.assertEqual(name, '')
         self.assertEqual(offset, 1)
+
+    def test_decode_rejects_text(self):
+        with self.assertRaises(TypeError):
+            codec.decode_name(u'\x00', 0)
 
     def test_decode_with_offset(self):
         wire = b'\x00\x00\x07example\x03com\x00'
@@ -252,6 +268,10 @@ class TestDnsName(unittest.TestCase):
         with self.assertRaises(ValueError):
             codec.skip_name(b'\x03ab', 0)
 
+    def test_skip_name_rejects_text(self):
+        with self.assertRaises(TypeError):
+            codec.skip_name(u'\x00', 0)
+
 
 class TestQueryName(unittest.TestCase):
     """Tests for query name encoding/decoding."""
@@ -294,6 +314,14 @@ class TestQueryName(unittest.TestCase):
     def test_base_domain_required(self):
         with self.assertRaises(ValueError):
             codec.encode_query_name(b'test', '', 0)
+
+    def test_encode_base_domain_rejects_non_text(self):
+        with self.assertRaises(TypeError):
+            codec.encode_query_name(b'test', b'example.com', 0)
+
+    def test_decode_base_domain_rejects_non_text(self):
+        with self.assertRaises(TypeError):
+            codec.decode_query_name('abcd.example.com', b'example.com')
 
     def test_base_domain_trailing_dot(self):
         data = b'test'
@@ -449,6 +477,11 @@ class TestTxtRdata(unittest.TestCase):
         with self.assertRaises(TypeError):
             codec.decode_txt_rdata(u'text')
 
+    def test_decode_invalid_base64_length(self):
+        rdata = b'\x01A'
+        with self.assertRaises(binascii.Error):
+            codec.decode_txt_rdata(rdata)
+
     def test_decode_invalid_ascii_base64(self):
         rdata = b'\x04!!!!'
         self.assertEqual(codec.decode_txt_rdata(rdata), b'')
@@ -477,6 +510,10 @@ class TestCnameTarget(unittest.TestCase):
         with self.assertRaises(TypeError):
             codec.encode_cname_target(u'test', 'c.example.com')
 
+    def test_encode_rejects_non_text_suffix(self):
+        with self.assertRaises(TypeError):
+            codec.encode_cname_target(b'test', b'c.example.com')
+
     def test_empty_data(self):
         encoded = codec.encode_cname_target(b'', 'c.example.com')
         with self.assertRaises(ValueError):
@@ -485,6 +522,10 @@ class TestCnameTarget(unittest.TestCase):
     def test_decode_rejects_non_text(self):
         with self.assertRaises(TypeError):
             codec.decode_cname_target(b'abcd.c.example.com', 'c.example.com')
+
+    def test_decode_rejects_non_text_suffix(self):
+        with self.assertRaises(TypeError):
+            codec.decode_cname_target('abcd.c.example.com', b'c.example.com')
 
     def test_case_insensitive(self):
         data = b'test'
@@ -512,6 +553,11 @@ class TestCnameTarget(unittest.TestCase):
         with self.assertRaises(ValueError):
             codec.decode_cname_target('abcd.c.example.com', 'c.example.com',
                                       label_max_len=70)
+
+    def test_decode_label_max_len_too_small(self):
+        with self.assertRaises(ValueError):
+            codec.decode_cname_target('abcd.c.example.com', 'c.example.com',
+                                      label_max_len=3)
 
     def test_decode_label_too_long(self):
         target = '%s.c.example.com' % ('a' * 51)
@@ -555,6 +601,15 @@ class TestMtuCalculation(unittest.TestCase):
         mtu_dot = codec.calc_query_mtu('.')
         self.assertEqual(mtu_empty, mtu_dot)
         self.assertGreater(mtu_empty, 0)
+
+    def test_query_mtu_base_domain_label_too_long(self):
+        base_domain = '%s.com' % ('a' * 64)
+        with self.assertRaises(ValueError):
+            codec.calc_query_mtu(base_domain)
+
+    def test_query_mtu_base_domain_too_long(self):
+        base_domain = '.'.join(['a' * 63] * 4)
+        self.assertEqual(codec.calc_query_mtu(base_domain), 0)
 
     def test_query_mtu_custom_label_max_len(self):
         mtu_default = codec.calc_query_mtu('example.com')
@@ -621,6 +676,13 @@ class TestMtuCalculation(unittest.TestCase):
         )
         self.assertGreater(mtu, 100)
 
+    def test_response_mtu_cname_suffix_too_long(self):
+        suffix = 'a' * codec.MAX_NAME_LEN
+        self.assertEqual(
+            codec.calc_response_mtu(codec.QTYPE_CNAME, 512, suffix),
+            0
+        )
+
     def test_response_mtu_cname_label_max_len(self):
         mtu_default = codec.calc_response_mtu(
             codec.QTYPE_CNAME, 512, 'c.example.com'
@@ -670,6 +732,18 @@ class TestMtuCalculation(unittest.TestCase):
             codec.calc_cname_payload_cap(
                 'example.com', 'c.example.com', label_max_len=3
             )
+
+    def test_cname_payload_cap_base_domain_label_too_long(self):
+        base_domain = '%s.com' % ('a' * 64)
+        with self.assertRaises(ValueError):
+            codec.calc_cname_payload_cap(base_domain, 'c.example.com')
+
+    def test_cname_payload_cap_base_domain_too_long(self):
+        base_domain = '.'.join(['a' * 63] * 4)
+        self.assertEqual(
+            codec.calc_cname_payload_cap(base_domain, 'c.example.com'),
+            0
+        )
 
     def test_cname_payload_cap_suffix_label_too_long(self):
         suffix = '%s.com' % ('a' * 64)

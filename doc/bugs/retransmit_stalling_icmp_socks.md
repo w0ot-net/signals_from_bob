@@ -140,6 +140,13 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Bob `distance` and `distance_limit` pinned at 128; `unacked` median 103
   (max 112), `buffered` median 25 (max 37).
 
+## Latest findings (2026-01-03, default logs snapshot after profile update)
+- Sources: `logs/client_log.db` (Alice) had 32300 rows (~09:58:19-09:58:31 UTC);
+  `logs/server_log.db` (Bob) had 86307 rows (~09:58:16-09:58:45 UTC).
+- Both sides show zero `tunnel.send_window_distance` events in the DB logs.
+- Alice `tunnel.send_blocked`: 2156, mostly `transport_headroom` (2096/2156).
+- Bob `tunnel.retransmit`: 28; `tunnel.retransmit_skip`: 10805.
+
 ## Next steps from the latest logs
 - If console output still shows `tunnel.send_window_distance` spam, capture DB
   logs with a profile that includes it on both sides; the latest Alice DB had

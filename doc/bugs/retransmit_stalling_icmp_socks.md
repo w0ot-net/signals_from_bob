@@ -373,3 +373,13 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Alice now runs serial control-only sends until `window_ok` is applied:
   only one in-flight packet is allowed and only control segments are sent
   (data is suppressed).
+
+## Latest findings (2026-01-03, serial negotiation with window_ok tracing)
+- Sources: `logs/client_log.db` (Alice) had 4463 rows (~22:26:46-22:27:05 UTC).
+- Alice shows no `tunnel.window_ok_recv` or `tunnel.window_ok_apply` events in
+  this snapshot, and `negotiated_window` remains 1 with `unacked` 1.
+- Alice has no `tunnel.send_window_distance` events; `tunnel.retransmit_skip`
+  continues due to `ack_silence` near the 0.5s RTO.
+- Sources: `logs/server_log.db` (Bob) had 1733 rows (~22:26:37-22:27:02 UTC).
+- Bob `tunnel.packet_recv` shows `negotiated_window` 128 with `seg_count` 1 and
+  non-zero SACK; Bob continues retransmitting (132).

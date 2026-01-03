@@ -237,6 +237,27 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   `reason=cooldown` with `cooldown` ~0.23-0.25s.
 - No `tunnel.send_window_distance` events appear in the sampled Bob window.
 
+## Latest findings (2026-01-03, socks startup failed)
+- Sources: `logs/client_log.db` (Alice) ~12:24:30-12:24:47 UTC;
+  `logs/server_log.db` (Bob) ~12:24:26-12:24:44 UTC.
+- Transport: ICMP with `log_profile` "all_events" on both sides.
+- Bob logged `cli.module_load` and `module_loader.send_load` for
+  `socks_relay`, but there is no `cli.module_loaded`,
+  `module_loader.remote_loaded`, or `module_loader.remote_failed`.
+- Alice logged no `module_loader.*` or `sock.*` events, so the relay module
+  never loaded and no SOCKS connect handling started.
+- Alice received `ch open/close` control messages (channels 2/4/6/8) but no
+  `mod` control messages; suggests module load control traffic never arrived.
+- Alice reliability state shows the tunnel stuck at initial negotiation:
+  `negotiated_window` 1 (`send_max_in_flight` 1) and
+  `negotiated_{send,recv}_mtu` 100 while `send_mtu` remains 1312.
+- Alice repeatedly logs `tunnel.send_blocked` (window full) with
+  `send_unacked` 1 (keepalive) and drops incoming packets as
+  `recv_action=out_of_window` (example offset 434, seq 437), leaving
+  `recv_ack` pinned at 3.
+- Bob shows `last_cum_ack` stuck at 3, high `send_keepalive_unacked` (40-46),
+  and steady retransmits; no errors or protocol violations logged.
+
 ## Latest findings (2026-01-03, max-in-flight 256 stall)
 - Sources: `logs/client_log.db` (Alice) had 30200 rows (~11:02:57-11:03:12 UTC).
 - `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`

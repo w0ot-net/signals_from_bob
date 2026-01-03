@@ -350,6 +350,8 @@ def main():
     bob_proc.start()
     print('Starting local Alice...')
     alice_proc.start()
+    print('Waiting 5 seconds before proxychains commands...')
+    time.sleep(5)
     print('Starting remote wget...')
     wget_proc.start()
     print('Starting remote scp...')

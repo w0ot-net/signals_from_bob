@@ -340,3 +340,6 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Bob latest `tunnel.packet_recv` shows `negotiated_window` 128 with
   `unacked` 47 and a non-zero SACK bitmap, indicating the sides disagree on
   window size in this run.
+- Alice logs show repeated `tunnel.window_propose` retries for size 128.
+- Bob logs show `tunnel.window_ok` with `agreed` 128 for each proposal, which
+  suggests Alice is not applying or receiving the window OK messages.

@@ -258,6 +258,23 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Bob shows `last_cum_ack` stuck at 3, high `send_keepalive_unacked` (40-46),
   and steady retransmits; no errors or protocol violations logged.
 
+## Latest findings (2026-01-03, window_ok responses not applied)
+- Sources: `logs/client_log.db` (Alice) had 4463 rows
+  (~22:26:46-22:27:05 UTC); `logs/server_log.db` (Bob) had 1733 rows
+  (~22:26:37-22:27:02 UTC).
+- Transport: ICMP with `log_profile` "all_events" on both sides.
+- Bob logged `tunnel.window_ok` 11 times and `tunnel.control_dispatch` 12
+  times; Alice logged `tunnel.window_propose` 11 times but zero
+  `tunnel.window_ok`, `tunnel.control_dispatch`, or `tunnel.deliver_segments`.
+- Alice `protocol.control` lines include `{"t":"tun","c":"window_ok","size":128}`
+  but none were dispatched to the tunnel control handler.
+- Alice `tunnel.recv_window` shows `recv_ack` pinned at 2 with 159
+  `recv_action=out_of_window` entries (recv_seq 4-490, recv_offset 2-488) and
+  33 buffered entries; no segments were delivered.
+- Bob logged `cli.module_load` and `module_loader.send_load` for `socks_relay`;
+  Alice logged no `module_loader.*` or `sock.*` events, so the SOCKS relay
+  never initialized.
+
 ## Latest findings (2026-01-03, max-in-flight 256 stall)
 - Sources: `logs/client_log.db` (Alice) had 30200 rows (~11:02:57-11:03:12 UTC).
 - `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`

@@ -189,6 +189,8 @@ calculation for common OS defaults.
   - Build ClientHello with payload via codec.
   - Enforce `len(data) <= send_mtu` and coerce input to bytes.
   - Open socket in non-blocking mode, start `connect_ex`.
+  - Allocate correlation ID and add a pending entry immediately so connecting
+    sockets count toward `max_in_flight`.
   - Set `connect_deadline = now + tls_connect_timeout`.
   - If connect completes immediately, send record and track as pending.
     On full send, set `handshake_deadline = now + tls_handshake_timeout`.
@@ -225,7 +227,8 @@ calculation for common OS defaults.
 - Prune stale sockets via `PendingTracker` using per-connection deadlines
   derived from `tls_connect_timeout` and `tls_handshake_timeout`. Use
   `tls_pending_timeout` as a safety net only; require it to be >= both
-  timeouts.
+  timeouts. Do not rely on the fixed timeout to enforce per-connection
+  deadlines.
 - Track per-connection deadlines using `time_provider.now()`; do not rely on
   wall-clock timeouts.
 
@@ -239,12 +242,12 @@ calculation for common OS defaults.
 - `recv()` should poll both the listening socket and active sockets so one slow
   client does not block others (preserves `max_in_flight` behavior).
 - When a full ClientHello record is available, decode payload.
-- Once decoded, remove the connection from the active read set and transfer
-  ownership to the responder (responder owns the socket until close).
+- Once decoded, remove the connection from the active read set and mark it as
+  ready-to-respond; keep ownership in the server loop to avoid blocking.
 - On accept, set `handshake_deadline = now + tls_handshake_timeout`.
 - `recv()` returns `(payload, responder)` where responder:
-  - Builds ServerHello with response payload.
-  - Sends it (handling partial sends) and closes the connection.
+  - Enqueues the response payload and returns immediately (no blocking send).
+  - Server loop flushes pending responses with non-blocking sends, then closes.
   - Enforces the per-connection handshake deadline; on timeout, close and log.
   - Rejects multiple calls (second call raises `TransportError`).
 - Use non-blocking sockets and `select` to avoid blocking on partial reads.
@@ -279,6 +282,9 @@ Proposed config fields:
   letters/digits/hyphen/dot. Reject invalid characters.
 - Validate `tls_alpn` entries as ASCII, 1-255 bytes each, no empty tokens, and
   total extension length within limits; reject invalid values.
+- Implement a shared TLS config validation helper and call it from both
+  client/server transports (and CLI config creation if needed) so programmatic
+  usage is validated consistently.
 
 CLI:
 - `--transport tls`
@@ -311,6 +317,8 @@ CLI:
 - Partial send progress with non-blocking sockets (send advances offset).
 - Client/server loopback test with real sockets (no e2e tests).
 - Multiple concurrent in-flight connections to confirm no serialization.
+- Server max_in_flight enforcement (accept then close when over capacity).
+- Connecting sockets count toward `max_in_flight`.
 - Pending timeout and pruning behavior.
 - MTU calculation for configured max handshake sizes.
 - Config validation for `tls_pending_timeout` smaller than connect/handshake.

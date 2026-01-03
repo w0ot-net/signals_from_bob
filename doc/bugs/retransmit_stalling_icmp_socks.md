@@ -174,8 +174,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 
 ## Latest findings (2026-01-03, post gap retransmit)
 - Sources: `logs/client_log.db` (Alice) had 94600 rows (~10:31:49-10:32:18 UTC).
-  `logs/server_log.db` shows an earlier window (~10:20:31-10:22:34 UTC), so Bob
-  data did not match this run.
+-  `logs/server_log.db` (Bob) had 232506 rows (~10:31:44-10:32:58 UTC).
 - Alice `tunnel.send_window_distance`: 6407; `tunnel.send_blocked`: 11135
   (`window_distance` 6407, `transport_headroom` 4670).
 - Alice distance metrics pinned at 128 with low `unacked` (median 5, p90 12)
@@ -183,6 +182,14 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Alice `tunnel.retransmit`: 44, all `reason=gap` (new gap retransmits firing).
 - `tunnel.send_window_distance` stalls split into 50 runs; longest runs are
   ~0.24-0.26s with ~156-177 events (shorter than the pre-change ~0.59s runs).
+- Bob `tunnel.send_window_distance`: 336; `tunnel.send_blocked`: 336
+  (`window_distance` only).
+- Bob `tunnel.retransmit`: 344 (`window_distance` 336), `tunnel.retransmit_skip`:
+  28908.
+- Bob distance metrics pinned at 128; `unacked` median 57 (p90 101), `buffered`
+  median 71 (p90 116).
+- Bob `tunnel.send_window_distance` stalls split into 3 runs with max duration
+  ~0.28s (105-118 events).
 
 ## Next steps from the latest logs
 - If console output still shows `tunnel.send_window_distance` spam, capture DB

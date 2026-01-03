@@ -149,7 +149,7 @@ class Config:
     # Maximum file size to transfer (bytes), None = unlimited
     file_transfer_max_size: Optional[int] = None
     # Chunk size for file I/O (bytes)
-    file_transfer_chunk_size: int = 8192
+    file_transfer_chunk_size: int = 1024
     # Timeout waiting for hash verification (seconds)
     file_transfer_hash_timeout: float = 10.0
     # File transfer root for Bob

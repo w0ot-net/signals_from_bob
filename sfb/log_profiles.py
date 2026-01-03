@@ -302,6 +302,19 @@ LOG_PROFILES = {
         'log_component_protocol': True,
         'log_event_blacklist': (),
     },
+    # Log everything from all components without event filtering.
+    'all_events': {
+        'log_component_transport_dns': True,
+        'log_component_transport_icmp': True,
+        'log_component_transport_tls': True,
+        'log_component_tunnel': True,
+        'log_component_channel': True,
+        'log_component_protocol': True,
+        'log_component_module_socks': True,
+        'log_component_module_file_transfer': True,
+        'log_event_whitelist': (),
+        'log_event_blacklist': (),
+    },
     # Focused SOCKS+ICMP throughput debugging.
     'socks_throughput_debug': {
         'log_component_transport_icmp': True,

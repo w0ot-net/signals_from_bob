@@ -45,11 +45,20 @@ toggle `log_component_*` flags or override `log_event_whitelist` and
 `log_event_blacklist` settings.
 
 Available profiles (current):
-- `scp_stalled_icmp_socks` (default)
+- `all_events`
+- `channel_close_debug`
+- `dns_socks_stall_debug`
+- `dns_transport`
+- `dns_troubleshoot`
+- `file_transfer_put_debug`
 - `icmp_retransmit_debug`
 - `icmp_transport`
-- `dns_transport`
-- `socks_starvation` (focused SOCKS channel fairness signals)
+- `no_logging`
+- `scp_stalled_icmp_socks` (default)
+- `socks_starvation`
+- `socks_throughput_debug`
+- `tls_transport`
+- `tunnel_pacing`
 - `tunnel_verbose`
 
 ## Event Whitelist/Blacklist (structured events only)

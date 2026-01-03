@@ -176,6 +176,16 @@ class CryptoTests(unittest.TestCase):
         dec = RC4(key).decrypt(enc, seq=1, direction=0)
         self.assertEqual(dec, data)
 
+    def test_rc4_seq_boundary_roundtrip(self):
+        key = b'secret'
+        data = b'boundary'
+        cipher = RC4(key)
+        for seq in (0, 0xFFFF):
+            for direction in (0, 1):
+                enc = cipher.encrypt(data, seq=seq, direction=direction)
+                dec = cipher.decrypt(enc, seq=seq, direction=direction)
+                self.assertEqual(dec, data)
+
     def test_rc4_deterministic_per_packet(self):
         key = b'secret'
         data = b'hello world'
@@ -331,6 +341,14 @@ class CryptoTests(unittest.TestCase):
         self.assertEqual(len(enc), len(data))
         self.assertIsInstance(enc, bytes)
 
+    def test_xor_accepts_array_byte_data(self):
+        if PY2:
+            return
+        data = array('B', [1, 2, 3])
+        enc = XOR(b'k').encrypt(data)
+        self.assertEqual(len(enc), 3)
+        self.assertIsInstance(enc, bytes)
+
     def test_accepts_memoryview_slice_data(self):
         if PY2:
             return
@@ -361,6 +379,14 @@ class CryptoTests(unittest.TestCase):
         self.assertRaises(TypeError, RC4(b'k').decrypt, data, seq=1, direction=0)
         self.assertRaises(TypeError, Plain().decrypt, data)
 
+    def test_plain_accepts_array_byte_data(self):
+        if PY2:
+            return
+        data = array('B', [1, 2, 3])
+        enc = Plain().encrypt(data)
+        self.assertEqual(enc, b'\x01\x02\x03')
+        self.assertIsInstance(enc, bytes)
+
     def test_rejects_non_byte_itemsize_key_views(self):
         if PY2:
             return
@@ -382,6 +408,14 @@ class CryptoTests(unittest.TestCase):
         self.assertEqual(len(enc), len(data))
         self.assertIsInstance(enc, bytes)
 
+    def test_rc4_accepts_array_byte_data(self):
+        if PY2:
+            return
+        data = array('B', [1, 2, 3])
+        enc = RC4(b'k').encrypt(data, seq=1, direction=0)
+        self.assertEqual(len(enc), 3)
+        self.assertIsInstance(enc, bytes)
+
     def test_plain_ignores_psk(self):
         text = _text_value('ignored')
         data = b'hi'
@@ -397,6 +431,49 @@ class CryptoTests(unittest.TestCase):
         empty = b''
         self.assertEqual(Plain().encrypt(empty), empty)
         self.assertEqual(Plain().decrypt(empty), empty)
+
+    def test_decrypt_bytearray_returns_bytes(self):
+        data = b'hello'
+        xor = XOR(b'k')
+        enc = xor.encrypt(data)
+        dec = xor.decrypt(bytearray(enc))
+        self.assertEqual(dec, data)
+        self.assertIsInstance(dec, bytes)
+        rc4 = RC4(b'k')
+        enc = rc4.encrypt(data, seq=1, direction=0)
+        dec = rc4.decrypt(bytearray(enc), seq=1, direction=0)
+        self.assertEqual(dec, data)
+        self.assertIsInstance(dec, bytes)
+        dec = Plain().decrypt(bytearray(data))
+        self.assertEqual(dec, data)
+        self.assertIsInstance(dec, bytes)
+
+    def test_decrypt_memoryview_returns_bytes(self):
+        if PY2:
+            return
+        data = b'hello'
+        xor = XOR(b'k')
+        enc = xor.encrypt(data)
+        dec = xor.decrypt(memoryview(bytearray(enc)))
+        self.assertEqual(dec, data)
+        self.assertIsInstance(dec, bytes)
+        rc4 = RC4(b'k')
+        enc = rc4.encrypt(data, seq=1, direction=0)
+        dec = rc4.decrypt(memoryview(bytearray(enc)), seq=1, direction=0)
+        self.assertEqual(dec, data)
+        self.assertIsInstance(dec, bytes)
+        dec = Plain().decrypt(memoryview(bytearray(data)))
+        self.assertEqual(dec, data)
+        self.assertIsInstance(dec, bytes)
+
+    def test_rejects_buffer_data_for_xor_rc4(self):
+        if not PY2:
+            return
+        buf = buffer(b'abc')
+        self.assertRaises(TypeError, XOR(b'k').encrypt, buf)
+        self.assertRaises(TypeError, XOR(b'k').decrypt, buf)
+        self.assertRaises(TypeError, RC4(b'k').encrypt, buf, seq=1, direction=0)
+        self.assertRaises(TypeError, RC4(b'k').decrypt, buf, seq=1, direction=0)
 
 
 if __name__ == '__main__':

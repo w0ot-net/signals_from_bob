@@ -94,30 +94,33 @@ def build_echo_reply(ident, seq, payload):
 def _extract_icmp(data):
     """
     Extract ICMP bytes from a raw IP packet if present.
+
+    Returns:
+        tuple: (icmp_bytes, reason) where icmp_bytes is None on failure.
     """
     data = require_bytes_like(data)
-    if len(data) < ICMP_HEADER_LEN:
-        return None
-
+    if not data:
+        return None, 'empty'
     first = byte_at(data, 0)
     version = first >> 4
     if version == 4:
         if len(data) < 20:
-            return None
+            return None, 'short_ipv4_header'
         ihl = first & 0x0F
         ip_header_len = ihl * 4
         if ip_header_len < 20:
-            return None
+            return None, 'ipv4_header_len_invalid'
         if len(data) < ip_header_len + ICMP_HEADER_LEN:
-            return None
+            return None, 'short_ipv4_payload'
         proto = byte_at(data, 9)
         if proto != socket.IPPROTO_ICMP:
-            return None
-        return data[ip_header_len:]
+            return None, 'not_icmp'
+        return data[ip_header_len:], None
     if version == 6:
-        return None
-
-    return data
+        return None, 'ipv6_not_supported'
+    if len(data) < ICMP_HEADER_LEN:
+        return None, 'short_packet'
+    return data, None
 
 
 def parse_icmp_echo(data, expect_type=None, expect_ident=None,
@@ -131,21 +134,24 @@ def parse_icmp_echo(data, expect_type=None, expect_ident=None,
         validate_checksum: True to reject packets with bad ICMP checksums.
 
     Returns:
-        tuple: (icmp_type, ident, seq, payload) or None on parse failure.
+        tuple: ((icmp_type, ident, seq, payload), None) on success or
+               (None, reason) on parse failure.
     """
-    icmp = _extract_icmp(data)
-    if icmp is None or len(icmp) < ICMP_HEADER_LEN:
-        return None
+    icmp, reason = _extract_icmp(data)
+    if icmp is None:
+        return None, reason or 'no_icmp'
+    if len(icmp) < ICMP_HEADER_LEN:
+        return None, 'short_icmp'
     icmp_type, code, _, ident, seq = struct.unpack(
         '>BBHHH', icmp[:ICMP_HEADER_LEN]
     )
     if code != ICMP_CODE:
-        return None
+        return None, 'code_mismatch'
     if expect_type is not None and icmp_type != expect_type:
-        return None
+        return None, 'type_mismatch'
     if expect_ident is not None and ident != expect_ident:
-        return None
+        return None, 'ident_mismatch'
     if validate_checksum and checksum(icmp) != 0:
-        return None
+        return None, 'bad_checksum'
     payload = to_bytes(icmp[ICMP_HEADER_LEN:])
-    return icmp_type, ident, seq, payload
+    return (icmp_type, ident, seq, payload), None

@@ -39,6 +39,16 @@ class IcmpServer(Server):
         self._recv_mtu = config.icmp_payload_mtu
         self._send_mtu = config.icmp_payload_mtu
         self._recv_bufsize = 65535
+        log_event(
+            _LOG,
+            logging.INFO,
+            'icmp.server_config',
+            'ICMP server config',
+            lambda: {
+                'recv_mtu': self._recv_mtu,
+                'send_mtu': self._send_mtu,
+            },
+        )
 
     @property
     def recv_mtu(self):
@@ -72,20 +82,57 @@ class IcmpServer(Server):
                     return (None, None)
                 packet, addr = self._sock.recvfrom(self._recv_bufsize)
             except select.error as e:
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'icmp.select_failed',
+                    'ICMP select failed',
+                    lambda: {'error': str(e)},
+                )
                 raise TransportError('Select failed: %s' % e)
             except socket.error as e:
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'icmp.recv_failed',
+                    'ICMP receive failed',
+                    lambda: {'error': str(e)},
+                )
                 raise TransportError('Receive failed: %s' % e)
 
-            result = parse_icmp_echo(
+            result, reason = parse_icmp_echo(
                 packet,
                 expect_type=ICMP_ECHO_REQUEST,
                 validate_checksum=False,
             )
             if result is None:
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'icmp.malformed_request',
+                    'ICMP request malformed',
+                    lambda: {
+                        'addr': '%s:%d' % (addr[0], addr[1]),
+                        'bytes': len(packet),
+                        'reason': reason,
+                    },
+                )
                 continue
 
             _, ident, seq, payload = result
             if len(payload) > self._recv_mtu:
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'icmp.oversize_request',
+                    'ICMP request oversized',
+                    lambda: {
+                        'addr': '%s:%d' % (addr[0], addr[1]),
+                        'bytes': len(payload),
+                        'recv_mtu': self._recv_mtu,
+                        'corr_id': seq,
+                    },
+                )
                 continue
 
             responder = self._make_responder(addr, ident, seq)
@@ -97,6 +144,7 @@ class IcmpServer(Server):
                 lambda: {
                     'addr': '%s:%d' % (addr[0], addr[1]),
                     'bytes': len(payload),
+                    'corr_id': seq,
                 },
             )
             return (payload, responder)
@@ -105,6 +153,18 @@ class IcmpServer(Server):
         def responder(data):
             data = require_bytes_like(data)
             if len(data) > self._send_mtu:
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'icmp.send_oversize',
+                    'ICMP response oversized',
+                    lambda: {
+                        'addr': '%s:%d' % (addr[0], addr[1]),
+                        'bytes': len(data),
+                        'send_mtu': self._send_mtu,
+                        'corr_id': seq,
+                    },
+                )
                 raise TransportError(
                     'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
                 )
@@ -112,6 +172,19 @@ class IcmpServer(Server):
             try:
                 self._sock.sendto(packet, addr)
             except socket.error as e:
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'icmp.send_failed',
+                    'ICMP echo reply send failed',
+                    lambda: {
+                        'addr': '%s:%d' % (addr[0], addr[1]),
+                        'bytes': len(packet),
+                        'payload_bytes': len(data),
+                        'corr_id': seq,
+                        'error': str(e),
+                    },
+                )
                 raise TransportError('Send failed: %s' % e)
             log_event(
                 _LOG,
@@ -122,14 +195,29 @@ class IcmpServer(Server):
                     'addr': '%s:%d' % (addr[0], addr[1]),
                     'bytes': len(packet),
                     'payload_bytes': len(data),
+                    'corr_id': seq,
                 },
             )
         return responder
 
     def _require_privileges(self):
         if os.name != 'posix':
+            log_event(
+                _LOG,
+                logging.WARNING,
+                'icmp.unsupported_os',
+                'ICMP transport requires Linux raw sockets',
+                lambda: {'os': os.name},
+            )
             raise TransportError('ICMP transport requires Linux raw sockets')
         if not hasattr(os, 'geteuid') or os.geteuid() != 0:
+            log_event(
+                _LOG,
+                logging.WARNING,
+                'icmp.privileges_required',
+                'ICMP transport requires root privileges',
+                lambda: None,
+            )
             raise TransportError('ICMP transport requires root privileges')
 
     def _require_kernel_echo_disabled(self):
@@ -137,10 +225,24 @@ class IcmpServer(Server):
         try:
             handle = open(path, 'r')
         except (IOError, OSError):
+            log_event(
+                _LOG,
+                logging.WARNING,
+                'icmp.kernel_echo_check_failed',
+                'Unable to read kernel ICMP echo setting',
+                lambda: {'path': path},
+            )
             raise TransportError('Unable to read %s' % path)
         with handle:
             value = handle.read().strip()
         if value == '0':
+            log_event(
+                _LOG,
+                logging.WARNING,
+                'icmp.kernel_echo_enabled',
+                'Kernel ICMP echo replies are enabled',
+                lambda: {'path': path},
+            )
             raise TransportError(
                 'Kernel ICMP echo replies are enabled.\n'
                 'Disable them with:\n'

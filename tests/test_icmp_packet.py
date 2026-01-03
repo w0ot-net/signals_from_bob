@@ -46,7 +46,11 @@ class IcmpPacketTests(unittest.TestCase):
         seq = 0x0001
         payload = b'hello'
         packet = build_echo_request(ident, seq, payload)
-        result = parse_icmp_echo(packet, expect_type=ICMP_ECHO_REQUEST)
+        result, reason = parse_icmp_echo(
+            packet,
+            expect_type=ICMP_ECHO_REQUEST,
+        )
+        self.assertIsNone(reason)
         self.assertIsNotNone(result)
         icmp_type, parsed_ident, parsed_seq, parsed_payload = result
         self.assertEqual(icmp_type, ICMP_ECHO_REQUEST)
@@ -61,7 +65,11 @@ class IcmpPacketTests(unittest.TestCase):
         icmp = build_echo_reply(ident, seq, payload)
         ip_header = self._build_ipv4_header(len(icmp), socket.IPPROTO_ICMP)
         packet = ip_header + to_bytes(icmp)
-        result = parse_icmp_echo(packet, expect_type=ICMP_ECHO_REPLY)
+        result, reason = parse_icmp_echo(
+            packet,
+            expect_type=ICMP_ECHO_REPLY,
+        )
+        self.assertIsNone(reason)
         self.assertIsNotNone(result)
         icmp_type, parsed_ident, parsed_seq, parsed_payload = result
         self.assertEqual(icmp_type, ICMP_ECHO_REPLY)
@@ -73,24 +81,50 @@ class IcmpPacketTests(unittest.TestCase):
         packet = build_echo_request(0x1, 0x2, b'data')
         bad = bytearray(packet)
         bad[-1] ^= 0xFF
-        result = parse_icmp_echo(bytes(bad), expect_type=ICMP_ECHO_REQUEST)
+        result, reason = parse_icmp_echo(
+            bytes(bad),
+            expect_type=ICMP_ECHO_REQUEST,
+        )
+        self.assertIsNone(reason)
         self.assertIsNotNone(result)
-        result = parse_icmp_echo(
+        result, reason = parse_icmp_echo(
             bytes(bad),
             expect_type=ICMP_ECHO_REQUEST,
             validate_checksum=True,
         )
         self.assertIsNone(result)
+        self.assertEqual(reason, 'bad_checksum')
 
     def test_parse_rejects_wrong_type(self):
         packet = build_echo_reply(0x1, 0x2, b'data')
-        result = parse_icmp_echo(packet, expect_type=ICMP_ECHO_REQUEST)
+        result, reason = parse_icmp_echo(
+            packet,
+            expect_type=ICMP_ECHO_REQUEST,
+        )
         self.assertIsNone(result)
+        self.assertEqual(reason, 'type_mismatch')
 
     def test_parse_rejects_wrong_ident(self):
         packet = build_echo_request(0x1111, 0x2, b'data')
-        result = parse_icmp_echo(packet, expect_ident=0x2222)
+        result, reason = parse_icmp_echo(
+            packet,
+            expect_ident=0x2222,
+        )
         self.assertIsNone(result)
+        self.assertEqual(reason, 'ident_mismatch')
+
+    def test_parse_short_packet_reason(self):
+        result, reason = parse_icmp_echo(b'\x08\x00')
+        self.assertIsNone(result)
+        self.assertEqual(reason, 'short_packet')
+
+    def test_parse_not_icmp_reason(self):
+        payload_len = 8
+        ip_header = self._build_ipv4_header(payload_len, socket.IPPROTO_TCP)
+        packet = ip_header + (b'\x00' * payload_len)
+        result, reason = parse_icmp_echo(packet)
+        self.assertIsNone(result)
+        self.assertEqual(reason, 'not_icmp')
 
     def test_checksum_known_vector_even(self):
         header = struct.pack('>BBHHH', ICMP_ECHO_REQUEST, 0, 0, 0x1234, 0x0001)

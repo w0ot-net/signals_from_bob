@@ -515,9 +515,22 @@ class AliceTunnel(BaseTunnel):
                 self._send_window._max_in_flight,
                 self._pacer.target_inflight(cap, srtt_ms=self._rtt.srtt_ms),
             )
-        exceeded, distance_info = self._send_window_distance_exceeded(
+        distance_info = self._send_window_distance_info(
             cap_override=effective_cap
         )
+        if distance_info is not None:
+            self._maybe_send_gap_retransmit(
+                now,
+                distance_info,
+                keepalive_only=keepalive_only,
+                pre_cap=True,
+            )
+        exceeded = False
+        if distance_info is not None:
+            distance = distance_info[0]
+            distance_limit = distance_info[4]
+            if distance >= distance_limit:
+                exceeded = True
         if exceeded:
             (distance, max_in_flight, effective_cap, unacked,
              distance_limit, last_cum_ack, next_seq) = distance_info
@@ -567,6 +580,7 @@ class AliceTunnel(BaseTunnel):
                 now,
                 distance_info,
                 keepalive_only=keepalive_only,
+                pre_cap=False,
             )
             return False
         if self._send_limiter is not None and not self._send_limiter.can_send(now=now):
@@ -643,7 +657,8 @@ class AliceTunnel(BaseTunnel):
         if self._retransmit_budget > 0:
             self._retransmit_budget -= 1
 
-    def _maybe_send_gap_retransmit(self, now, distance_info, keepalive_only=False):
+    def _maybe_send_gap_retransmit(self, now, distance_info, keepalive_only=False,
+                                   pre_cap=False):
         if keepalive_only:
             return False
         if distance_info is None:
@@ -661,6 +676,10 @@ class AliceTunnel(BaseTunnel):
         if distance_limit < 1:
             return False
         buffered = distance - unacked
+        if pre_cap:
+            pre_cap_slack = max(4, distance_limit // 8)
+            if distance < distance_limit - pre_cap_slack:
+                return False
         buffered_min = max(4, (distance_limit * 3) // 4)
         unacked_max = max(4, distance_limit // 4)
         if buffered < buffered_min or unacked > unacked_max:

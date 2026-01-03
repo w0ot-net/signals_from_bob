@@ -281,15 +281,16 @@ class BaseTunnel(object):
 
         return packet, seq
 
-    def _send_window_distance_exceeded(self, cap_override=None):
+    def _send_window_distance_info(self, cap_override=None):
         """
-        Check if next_seq is too far ahead of peer's cumulative ACK.
+        Return distance info for send-window checks.
 
         Returns:
-            tuple: (exceeded, fields) where fields is a tuple or None.
+            tuple: (distance, max_in_flight, effective_cap, unacked,
+            distance_limit, last_cum_ack, next_seq) or None.
         """
         if self._last_cum_ack is None:
-            return (False, None)
+            return None
         max_in_flight = self._send_window._max_in_flight
         effective_cap = max_in_flight
         if cap_override is not None and cap_override < effective_cap:
@@ -299,15 +300,13 @@ class BaseTunnel(object):
         next_seq = self._send_window.next_seq
         diff = seq_diff(next_seq, self._last_cum_ack)
         if diff < 0:
-            return (False, None)
+            return None
         distance = diff
         unacked = self._send_window.unacked_count
         distance_limit = effective_cap
         if distance_limit > self.MAX_WINDOW:
             distance_limit = self.MAX_WINDOW
-        if distance < distance_limit:
-            return (False, None)
-        return (True, (
+        return (
             distance,
             max_in_flight,
             effective_cap,
@@ -315,7 +314,23 @@ class BaseTunnel(object):
             distance_limit,
             self._last_cum_ack,
             next_seq,
-        ))
+        )
+
+    def _send_window_distance_exceeded(self, cap_override=None):
+        """
+        Check if next_seq is too far ahead of peer's cumulative ACK.
+
+        Returns:
+            tuple: (exceeded, fields) where fields is a tuple or None.
+        """
+        info = self._send_window_distance_info(cap_override=cap_override)
+        if info is None:
+            return (False, None)
+        distance = info[0]
+        distance_limit = info[4]
+        if distance < distance_limit:
+            return (False, None)
+        return (True, info)
 
     def _send_window_distance_details(self, now, last_cum_ack):
         """

@@ -191,6 +191,11 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Bob `tunnel.send_window_distance` stalls split into 3 runs with max duration
   ~0.28s (105-118 events).
 
+## Change applied (2026-01-03)
+- Alice now attempts a gap retransmit before the distance cap when the window
+  is within ~12.5% of the limit, `buffered` is high, and `unacked` is low.
+- Goal: clear gaps before the hard distance block to keep throughput smoother.
+
 ## Latest findings (2026-01-03, instrumented send-window distance fields)
 - Sources: `logs/client_log.db` (Alice) had 117000 rows (~10:40:18 UTC);
   `logs/server_log.db` (Bob) had 318053 rows (~10:41:19 UTC).

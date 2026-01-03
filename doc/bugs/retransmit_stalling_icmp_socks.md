@@ -128,7 +128,22 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Goal: reduce opportunistic retransmit spam under fast polling with high
   Bob->Alice reordering while keeping the opportunity-driven model intact.
 
+## Latest findings (2026-01-03, default logs snapshot after 5s cap)
+- Sources: `logs/client_log.db` (Alice) had 100107 rows (~09:47:31-09:48:02 UTC);
+  `logs/server_log.db` (Bob) had 284809 rows (~09:47:32-09:48:54 UTC).
+- Alice had no `tunnel.send_window_distance` events in the DB logs; her
+  `tunnel.send_blocked` was dominated by `transport_headroom` (6482/6537).
+- Bob `tunnel.send_window_distance`: 17 and `tunnel.send_blocked`: 17
+  (`window_distance` only).
+- Bob `tunnel.retransmit`: 39; `tunnel.retransmit_skip`: 34499
+  (`cooldown` 23949, `ack_progress` 10550).
+- Bob `distance` and `distance_limit` pinned at 128; `unacked` median 103
+  (max 112), `buffered` median 25 (max 37).
+
 ## Next steps from the latest logs
+- If console output still shows `tunnel.send_window_distance` spam, capture DB
+  logs with a profile that includes it on both sides; the latest Alice DB had
+  zero `tunnel.send_window_distance` events.
 - Re-run with the same profile to confirm retransmit rate drops with the
   response-silence gate and to quantify any remaining stalls.
 - The dominant block is now `tunnel.send_window_distance`; investigate why

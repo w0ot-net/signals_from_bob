@@ -162,6 +162,82 @@ class OneShotServer(Server):
         self._closed = True
 
 
+class CloseOnRespondServer(Server):
+    """Server that closes the tunnel after responding once."""
+
+    def __init__(self):
+        self._closed = False
+        self._request = None
+        self._served = False
+        self._responses = []
+        self.tunnel = None
+
+    def set_request(self, data):
+        self._request = data
+
+    def recv(self, timeout=None):
+        if self._closed:
+            return None, None
+        if self._served or self._request is None:
+            return None, None
+        self._served = True
+
+        def responder(data):
+            self._responses.append(data)
+            if self.tunnel is not None:
+                self.tunnel.close()
+
+        return self._request, responder
+
+    @property
+    def send_mtu(self):
+        return 200
+
+    @property
+    def recv_mtu(self):
+        return 200
+
+    def close(self):
+        self._closed = True
+
+
+class RecordingBob(BobTunnel):
+    def __init__(self, transport, config, crypto=None, logger=None):
+        super(RecordingBob, self).__init__(
+            transport,
+            config,
+            crypto=crypto,
+            logger=logger,
+        )
+        self.process_calls = []
+        self.response_calls = []
+
+    def _process_incoming_packet(self, packet, now=None, packet_size=None):
+        self.process_calls.append((packet, now, packet_size))
+        return ([], 0, 0)
+
+    def _send_response(self, responder, now):
+        self.response_calls.append((responder, now))
+
+
+class DispatchRecordingBob(BobTunnel):
+    def __init__(self, transport, config, crypto=None, logger=None):
+        super(DispatchRecordingBob, self).__init__(
+            transport,
+            config,
+            crypto=crypto,
+            logger=logger,
+        )
+        self.tun_calls = 0
+        self.ch_calls = 0
+
+    def _handle_tunnel_message(self, cmd, msg):
+        self.tun_calls += 1
+
+    def _handle_channel_message(self, cmd, msg):
+        self.ch_calls += 1
+
+
 class BobTunnelTests(unittest.TestCase):
     def test_initial_state(self):
         server = MockServer()
@@ -332,6 +408,16 @@ class BobControlMessageTests(unittest.TestCase):
         tunnel._dispatch_control_message({'t': 'x', 'c': 'noop'})
         self.assertEqual(len(calls), 1)
 
+    def test_default_message_types_allowed(self):
+        server = MockServer()
+        tunnel = DispatchRecordingBob(server, make_test_config())
+
+        tunnel._dispatch_control_message({'t': 'tun', 'c': 'ping'})
+        tunnel._dispatch_control_message({'t': 'ch', 'c': 'open', 'ch': 1})
+
+        self.assertEqual(tunnel.tun_calls, 1)
+        self.assertEqual(tunnel.ch_calls, 1)
+
 
 class BobTimingTests(unittest.TestCase):
     def test_poll_ewma_updates(self):
@@ -424,6 +510,34 @@ class BobResponseTests(unittest.TestCase):
         segments = Segment.decode_all(body)
         self.assertEqual(segments, [])
 
+    def test_send_response_payload_cap_small_sends_keepalive(self):
+        server = MockServer()
+        tunnel = BobTunnel(server, make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._recv_window.set_initial_seq(1)
+
+        responses = []
+
+        class Responder(object):
+            def __init__(self, payload_cap):
+                self.payload_cap = payload_cap
+
+            def __call__(self, data):
+                responses.append(data)
+
+        tunnel._send_response(
+            Responder(PACKET_HEADER_SIZE - 1),
+            time_provider.now(),
+        )
+
+        self.assertEqual(len(responses), 1)
+        header = PacketHeader.decode(responses[0])
+        self.assertEqual(header.flags & FLAG_KEEPALIVE, FLAG_KEEPALIVE)
+
+        body = responses[0][PACKET_HEADER_SIZE:]
+        segments = Segment.decode_all(body)
+        self.assertEqual(segments, [])
+
     def test_send_response_ack_only_when_pending_data_no_space(self):
         server = MockServer()
         tunnel = BobTunnel(server, make_test_config())
@@ -440,6 +554,36 @@ class BobResponseTests(unittest.TestCase):
             responses.append(data)
 
         tunnel._send_response(responder, time_provider.now())
+
+        self.assertEqual(len(responses), 1)
+        header = PacketHeader.decode(responses[0])
+        self.assertEqual(header.flags & FLAG_KEEPALIVE, 0)
+
+        body = responses[0][PACKET_HEADER_SIZE:]
+        segments = Segment.decode_all(body)
+        self.assertEqual(segments, [])
+
+    def test_send_response_payload_cap_small_ack_only(self):
+        server = MockServer()
+        tunnel = BobTunnel(server, make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._recv_window.set_initial_seq(1)
+
+        tunnel.control.send_message({'t': 'tun', 'c': 'ping'})
+
+        responses = []
+
+        class Responder(object):
+            def __init__(self, payload_cap):
+                self.payload_cap = payload_cap
+
+            def __call__(self, data):
+                responses.append(data)
+
+        tunnel._send_response(
+            Responder(PACKET_HEADER_SIZE - 1),
+            time_provider.now(),
+        )
 
         self.assertEqual(len(responses), 1)
         header = PacketHeader.decode(responses[0])
@@ -475,6 +619,35 @@ class BobResponseTests(unittest.TestCase):
 
         info = tunnel._send_window.get_unacked_info(seq)
         self.assertEqual(info[-1], 1)
+
+    def test_send_response_retransmit_cap_closes(self):
+        server = MockServer()
+        tunnel = BobTunnel(server, make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._recv_window.set_initial_seq(1)
+
+        now = time_provider.now()
+        segment = Segment(channel=0, data=b'x')
+        tunnel._send_window.send(
+            [segment],
+            flags=0,
+            now=now - 1.0,
+        )
+
+        responses = []
+
+        class Responder(object):
+            def __init__(self, payload_cap):
+                self.payload_cap = payload_cap
+
+            def __call__(self, data):
+                responses.append(data)
+
+        tunnel._send_response(Responder(1), now)
+
+        self.assertEqual(tunnel.state, TunnelState.CLOSED)
+        self.assertEqual(responses, [])
+        self.assertTrue(server._closed)
 
     def test_send_response_window_full_retransmits_oldest(self):
         server = MockServer()
@@ -658,6 +831,19 @@ class BobResponseTests(unittest.TestCase):
 
 
 class BobRequestHandlingTests(unittest.TestCase):
+    def test_handle_request_connected_processes_packet(self):
+        server = MockServer()
+        tunnel = RecordingBob(server, make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._recv_window.set_initial_seq(1)
+
+        packet = Packet(seq=1, ack=0, sack=0, flags=0)
+        tunnel.handle_request(_encode_for_bob(tunnel, packet), lambda data: None)
+
+        self.assertEqual(len(tunnel.process_calls), 1)
+        self.assertEqual(tunnel.process_calls[0][0].seq, 1)
+        self.assertEqual(len(tunnel.response_calls), 1)
+
     def test_handle_request_ignores_invalid_packet(self):
         server = MockServer()
         tunnel = BobTunnel(server, make_test_config())
@@ -695,6 +881,16 @@ class BobIdleTimeoutTests(unittest.TestCase):
         self.assertFalse(result)
         self.assertEqual(tunnel.state, TunnelState.CONNECTED)
 
+    def test_idle_timeout_closes_when_connected(self):
+        server = MockServer()
+        tunnel = BobTunnel(server, make_test_config(tunnel_idle_timeout=0.1))
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._last_request_time = time_provider.now() - 1.0
+
+        result = tunnel._check_idle_timeout()
+        self.assertTrue(result)
+        self.assertEqual(tunnel.state, TunnelState.CLOSED)
+
 
 class BobLoopTests(unittest.TestCase):
     def test_serve_forever_times_out_idle(self):
@@ -707,6 +903,23 @@ class BobLoopTests(unittest.TestCase):
         tunnel.serve_forever()
 
         self.assertEqual(tunnel.state, TunnelState.CLOSED)
+
+    def test_serve_forever_processes_request(self):
+        server = CloseOnRespondServer()
+        tunnel = BobTunnel(server, make_test_config())
+        server.tunnel = tunnel
+
+        syn = Packet(seq=5, ack=0, sack=0, flags=FLAG_SYN)
+        server.set_request(_encode_for_bob(tunnel, syn))
+
+        tunnel.serve_forever()
+
+        self.assertEqual(tunnel.state, TunnelState.CLOSED)
+        self.assertEqual(len(server._responses), 1)
+
+        header = PacketHeader.decode(server._responses[0])
+        self.assertTrue(header.flags & FLAG_SYN)
+        self.assertTrue(header.flags & FLAG_ACK)
 
     def test_run_loop_processes_request(self):
         server = OneShotServer()

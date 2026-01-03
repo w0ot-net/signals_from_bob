@@ -236,3 +236,23 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Bob `tunnel.retransmit`: 1; `tunnel.retransmit_skip`: 22359, mostly
   `reason=cooldown` with `cooldown` ~0.23-0.25s.
 - No `tunnel.send_window_distance` events appear in the sampled Bob window.
+
+## Latest findings (2026-01-03, max-in-flight 256 stall)
+- Sources: `logs/client_log.db` (Alice) had 30200 rows (~11:02:57-11:03:12 UTC).
+- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+  "./logs/client_log.db".
+- Alice `tunnel.send_window_distance`: 7457; `tunnel.send_blocked`: 7962;
+  `tunnel.retransmit`: 23; `tunnel.packet_recv`: 2049.
+- Alice `tunnel.send_blocked` reasons: `window_distance` 7456,
+  `transport_headroom` 426 (`headroom` 16, `pending` 240, `limit` 240,
+  `max_in_flight` 256), `retransmit_budget` 11.
+- Alice distance metrics pinned at 256 (`distance_limit` 256) with
+  `buffered` median 224 (max 256) and `unacked` median 32 (min 0). Latest
+  event shows `missing_in_unacked` False and `missing_age` null while
+  `missing_seq` equals `last_cum_ack` 1822 and `unacked` is 0.
+- Sources: `logs/server_log.db` (Bob) had 14501 rows (~11:02:53-11:03:13 UTC).
+- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+  "/var/www/html/server_log.db".
+- Bob `tunnel.retransmit`: 8; `tunnel.retransmit_skip`: 2028
+  (`reason=cooldown`, `cooldown` 3.0s); `tunnel.packet_recv`: 2049.
+- No `tunnel.send_window_distance` events appear in the sampled Bob window.

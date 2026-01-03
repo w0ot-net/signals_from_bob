@@ -44,6 +44,12 @@ class AdaptivePacerTests(unittest.TestCase):
         pacer = make_pacer(enabled=False, target_inflight_ratio=0.5, min_inflight=1)
         self.assertTrue(pacer.can_send(10, 1))
 
+    def test_enabled_property_reflects_constructor(self):
+        pacer = make_pacer(enabled='yes')
+        self.assertTrue(pacer.enabled)
+        pacer = make_pacer(enabled=0)
+        self.assertFalse(pacer.enabled)
+
     def test_ack_ewma_updates(self):
         pacer = make_pacer(ack_ewma_alpha=0.5)
         pacer.on_ack(1, now=1.0)
@@ -52,6 +58,12 @@ class AdaptivePacerTests(unittest.TestCase):
         self.assertAlmostEqual(pacer._ack_rate_ewma, 1.0)
         pacer.on_ack(3, now=3.0)
         self.assertAlmostEqual(pacer._ack_rate_ewma, 2.0)
+
+    def test_on_ack_initial_sets_last_ack_time(self):
+        pacer = make_pacer()
+        pacer.on_ack(1, now=1.5)
+        self.assertEqual(pacer._last_ack_time, 1.5)
+        self.assertIsNone(pacer._ack_rate_ewma)
 
     def test_ack_ewma_alpha_zero_holds_value(self):
         pacer = make_pacer(ack_ewma_alpha=0.0, ack_idle_reset_sec=100.0)
@@ -153,6 +165,7 @@ class AdaptivePacerTests(unittest.TestCase):
         self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 4)
         pacer.on_ack(1, now=4.1, srtt_ms=1000.0)
         self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 1)
+        self.assertEqual(pacer._last_probe_time, 4.1)
 
     def test_rate_drop_equal_threshold_does_not_reset_probe(self):
         pacer = make_pacer(ack_ewma_alpha=1.0, ack_idle_reset_sec=100.0)

@@ -99,7 +99,8 @@ calculation for common OS defaults.
   record payload length.
 - Do not parse until the full record is available; partial reads are normal
   and should be treated as incomplete.
-- Each connection carries exactly one record; after parsing, close the socket.
+- Each connection carries exactly one record; Alice closes after parsing the
+  ServerHello, Bob closes after sending the ServerHello.
 - If EOF occurs before header or body completes, treat as malformed and close.
 - If extra bytes remain after the single record, treat as malformed and close.
 - If the record length exceeds 16384 or `record_length + 5` exceeds the
@@ -155,11 +156,12 @@ calculation for common OS defaults.
 ## MTU Strategy
 - Define `max_clienthello_bytes` and `max_serverhello_bytes` as the on-wire TLS
   record size including the 5-byte record header.
-- Compute `send_mtu` and `recv_mtu` as payload caps for SFB packet bytes, using
-  codec helpers that build a minimal Hello and subtract the record, handshake,
-  and extension overhead (including the `EXT_SFB_DATA` header).
-- `send_mtu` and `recv_mtu` are transport payload MTUs (SFB packet bytes), not
-  TLS record sizes.
+- Compute payload caps for SFB packet bytes using codec helpers that build a
+  minimal Hello and subtract the record, handshake, and extension overhead
+  (including the `EXT_SFB_DATA` header).
+- `send_mtu` and `recv_mtu` exposed by the transport are packet MTUs in bytes
+  (SFB header + payload) so the tunnel can subtract `PACKET_HEADER_SIZE`.
+- Payload caps are the MTU values minus `PACKET_HEADER_SIZE`.
 - Directional mapping:
   - Alice: `send_mtu` derived from `tls_max_clienthello_bytes`,
     `recv_mtu` derived from `tls_max_serverhello_bytes`.

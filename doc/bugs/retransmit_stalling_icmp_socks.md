@@ -122,6 +122,12 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Bob `tunnel.recv_window` ready=0 in 12832/34273 (37.4%).
 - Bob `tunnel.packet_recv` SACK non-zero in 385/34273 (~1.1%), highest offset 127.
 
+## Change applied (2026-01-03)
+- Bob retransmit cooldown now floors to `poll_ewma * max_in_flight` (one window
+  of polls) and remains capped by `tunnel_bob_retransmit_max_interval`.
+- Goal: reduce opportunistic retransmit spam under fast polling with high
+  Bob->Alice reordering while keeping the opportunity-driven model intact.
+
 ## Next steps from the latest logs
 - Re-run with the same profile to confirm retransmit rate drops with the
   response-silence gate and to quantify any remaining stalls.

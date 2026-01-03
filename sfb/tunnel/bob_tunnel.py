@@ -737,8 +737,13 @@ class BobTunnel(BaseTunnel):
     def _retransmit_cooldown(self):
         cooldown = self._config.tunnel_bob_retransmit_min_interval
         factor = self._config.tunnel_bob_retransmit_poll_factor
-        if self._poll_interval_ewma is not None and factor > 0:
-            cooldown = max(cooldown, self._poll_interval_ewma * factor)
+        poll_ewma = self._poll_interval_ewma
+        if poll_ewma is not None and poll_ewma > 0:
+            if factor > 0:
+                cooldown = max(cooldown, poll_ewma * factor)
+            window = getattr(self._send_window, '_max_in_flight', None)
+            if window is not None and window > 0:
+                cooldown = max(cooldown, poll_ewma * window)
         max_interval = self._config.tunnel_bob_retransmit_max_interval
         if max_interval is not None and max_interval > 0:
             cooldown = min(cooldown, max_interval)

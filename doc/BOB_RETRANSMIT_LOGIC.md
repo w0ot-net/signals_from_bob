@@ -90,6 +90,9 @@ Cooldown is computed in `_retransmit_cooldown()`:
 - Start with `config.tunnel_bob_retransmit_min_interval`.
 - If `poll_ewma` exists and `config.tunnel_bob_retransmit_poll_factor > 0`,
   then `cooldown = max(cooldown, poll_ewma * factor)`.
+- If `poll_ewma` exists and `max_in_flight > 0`, then
+  `cooldown = max(cooldown, poll_ewma * max_in_flight)` to allow one window's
+  worth of polls before retransmitting the oldest packet.
 - If `config.tunnel_bob_retransmit_max_interval` is set and > 0, clamp:
   `cooldown = min(cooldown, max_interval)`.
 
@@ -246,6 +249,7 @@ Key configuration fields that affect Bob retransmit behavior:
 - `tunnel_bob_poll_ewma_alpha`: EWMA alpha for poll interval smoothing.
 - `tunnel_bob_poll_interval` / `tunnel_bob_poll_interval_bg`: poll timeouts
   that shape the observed request cadence.
-- `max_in_flight` and negotiated window size (cap retransmit backlog).
+- `max_in_flight` and negotiated window size (cap retransmit backlog and set
+  the poll-window cooldown floor).
 
 No Bob-side RTT or RTO configuration exists; retransmits are opportunity-driven.

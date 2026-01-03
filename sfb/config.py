@@ -144,6 +144,8 @@ class Config:
     tunnel_pace_feedback_gain: float = 1.0
     # Alice: adaptive pacing ACK rate EWMA alpha
     tunnel_pace_ack_ewma_alpha: float = 0.2
+    # Alice: adaptive pacing retransmit penalty (0 = disable)
+    tunnel_pace_retransmit_penalty: float = 1.0
     # Alice: adaptive pacing RTT floor in milliseconds
     tunnel_pace_rtt_floor_ms: float = 5.0
     # Alice: adaptive pacing ACK idle reset seconds
@@ -358,6 +360,8 @@ class Config:
         if (self.tunnel_pace_ack_ewma_alpha <= 0 or
                 self.tunnel_pace_ack_ewma_alpha > 1):
             raise ValueError("tunnel_pace_ack_ewma_alpha must be > 0 and <= 1")
+        if self.tunnel_pace_retransmit_penalty < 0:
+            raise ValueError("tunnel_pace_retransmit_penalty must be >= 0")
         if self.tunnel_pace_rtt_floor_ms <= 0:
             raise ValueError("tunnel_pace_rtt_floor_ms must be > 0")
         if self.tunnel_pace_ack_idle_reset_sec <= 0:

@@ -108,6 +108,7 @@ class AliceTunnel(BaseTunnel):
             config.tunnel_pace_max_inflight,
             config.tunnel_pace_feedback_gain,
             config.tunnel_pace_ack_ewma_alpha,
+            config.tunnel_pace_retransmit_penalty,
             config.tunnel_pace_rtt_floor_ms,
             config.tunnel_pace_ack_idle_reset_sec,
         )

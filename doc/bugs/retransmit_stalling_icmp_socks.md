@@ -364,3 +364,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Alice logs show repeated `tunnel.window_propose` retries for size 128.
 - Bob logs show `tunnel.window_ok` with `agreed` 128 for each proposal, which
   suggests Alice is not applying or receiving the window OK messages.
+
+## Change applied (2026-01-03)
+- Added `tunnel.window_ok_recv` and `tunnel.window_ok_apply` debug events on
+  Alice to record window_ok receipt and application state.

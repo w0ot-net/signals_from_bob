@@ -1173,6 +1173,20 @@ class BaseTunnel(object):
         Updates negotiated_window and send_window limit.
         """
         agreed = msg.get('size', self._default_window)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.window_ok_recv',
+            'Window response received',
+            lambda: {
+                'size': agreed,
+                'msg': msg,
+                'negotiated_window': self._negotiated_window,
+                'window_negotiated': self._window_negotiated,
+                'send_window_max': self._send_window._max_in_flight,
+                'side': 'alice' if self._is_initiator else 'bob',
+            },
+        )
         if not isinstance(agreed, integer_types) or agreed < 1:
             log_event(
                 self._logger,
@@ -1186,11 +1200,28 @@ class BaseTunnel(object):
             )
             return
 
+        prev_negotiated = self._negotiated_window
+        prev_window_negotiated = self._window_negotiated
+        prev_send_window = self._send_window._max_in_flight
+
         self._negotiated_window = agreed
         self._window_negotiated = True
 
         # Update send window limit
         self._send_window._max_in_flight = agreed
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.window_ok_apply',
+            'Window response applied',
+            lambda: {
+                'agreed': agreed,
+                'prev_negotiated_window': prev_negotiated,
+                'prev_window_negotiated': prev_window_negotiated,
+                'prev_send_window_max': prev_send_window,
+                'side': 'alice' if self._is_initiator else 'bob',
+            },
+        )
         log_event(
             self._logger,
             logging.INFO,

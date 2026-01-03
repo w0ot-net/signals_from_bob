@@ -192,6 +192,10 @@ Keepalive interval is configurable (default: 5 seconds).
 Keepalive responses are suppressed when any channel data is queued; real data
 replaces the keepalive.
 
+When Alice's send window is full or the send-window distance cap is exceeded,
+she may send an untracked ACK-only poll (no segments, no keepalive flag) to keep
+responses flowing. These probes do not consume send-window capacity.
+
 ---
 
 ## Control Message Dispatch

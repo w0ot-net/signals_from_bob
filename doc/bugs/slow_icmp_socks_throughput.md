@@ -172,3 +172,21 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Takeaways:
   - Aggregate throughput remains ~0.09 MB/s regardless of client count; per-client rate halves when doubling clients.
   - The system appears capped at a global throughput ceiling rather than per-client limits.
+
+## Experiment Log: Choppy Throughput Baseline (Jan 3, 2026)
+- Logs: `logs/client_log.db`, `logs/server_log.db`.
+- Observed stalls:
+  - Alice `icmp.send` and `icmp.recv` show max inter-arrival gaps near 1.0s (median ~0.0006s, p95 ~0.004s).
+  - `tunnel.ack` intervals show the same ~1.0s max gap, indicating periodic poll/response stalls.
+- Window/backpressure:
+  - Alice `tunnel.send_blocked` reasons split between `transport_headroom` (1,343) and `window_distance` (625).
+  - `tunnel.send_window_distance` is constant at 128 (min/max/avg 128), matching the max-in-flight cap.
+  - `tunnel.pacer_state` shows `target_inflight` capped at 128 with `target_mode` always `base`; no dynamic increase observed.
+- Pump stats:
+  - Alice `sock.pump_stats` (target_to_channel) shows high `buffer_full` counts and `sleep_time` around 0.94s during throughput plateaus.
+  - Channel drain logs show 0.48-0.76 MB per 1.0s interval with bursty cadence.
+- Retransmit gating:
+  - Alice `tunnel.retransmit_skip` dominated by `ack_silence` (2,562) with max `ack_silence` ~0.49s (rto 0.5s), suggesting retransmit gating is not the primary stall source.
+- Takeaways:
+  - Throughput choppiness aligns with periodic ~1s gaps in poll/response cadence plus a fixed 128 in-flight cap that keeps the send window saturated.
+  - Next step: test higher `max_in_flight` (if safe), or smooth the poll cadence to avoid 1s gaps; re-run with the same logging profile to confirm gap reduction.

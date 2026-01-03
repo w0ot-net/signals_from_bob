@@ -251,7 +251,7 @@ Retransmit-related settings in `Config`:
 - `tunnel_timeout_packets` (default 257)
 - `tunnel_retransmit_cap` (default 2)
 - `tunnel_keepalive_interval` (default 1.0)
-- `tunnel_pong_grace_polls` (default 5)
+- `tunnel_pong_grace_polls` (default 5, Alice floors to 2 * max_in_flight)
 - `tunnel_send_rate` (default 0.0, unlimited)
 - `tunnel_send_burst` (default None, equals rate)
 - `tunnel_adaptive_pacing_enabled` (default True)

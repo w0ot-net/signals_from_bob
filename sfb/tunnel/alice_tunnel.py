@@ -81,6 +81,9 @@ class AliceTunnel(BaseTunnel):
         # Track keepalive-only responses (legacy "pong" terminology)
         self._last_was_pong_only = False
         self._pong_grace_polls = config.tunnel_pong_grace_polls
+        min_grace = self._proposed_max_in_flight * 2
+        if self._pong_grace_polls < min_grace:
+            self._pong_grace_polls = min_grace
         self._pong_grace_remaining = self._pong_grace_polls
         # Track if we have real data packets awaiting ACKs (not just keepalives)
         self._has_pending_data_acks = False

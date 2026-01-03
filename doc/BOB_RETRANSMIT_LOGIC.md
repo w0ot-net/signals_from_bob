@@ -204,6 +204,14 @@ Bob processes ACK/SACK on every valid request:
 RTT samples are computed for first-transmission packets in `send_window`, but
 Bob does not use them for retransmit decisions.
 
+## Potential Enhancements
+
+- Guard against ACK regression from out-of-order polls: update
+  `_last_cum_ack` and `_last_cum_ack_time` only when ACK advances in sequence
+  space (or when unset). This prevents stale polls from resetting the
+  ACK-progress cooldown and from skewing the window-distance check. This
+  matters with pipelined polls.
+
 ## Sequence Number And Window Semantics
 
 Retransmits reuse the original sequence number:

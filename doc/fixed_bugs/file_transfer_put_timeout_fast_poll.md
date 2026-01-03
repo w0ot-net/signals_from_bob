@@ -123,3 +123,12 @@ transport details for ICMP/DNS.
   in that run. `logs/client_log.db` around the same timestamp only shows the
   initial `put` and `put_ok`, so the client-side hash messages either logged
   to a different DB path or were filtered by profile.
+- Latest DNS logs also show repeated ack-only responses from Bob reusing the
+  same sequence number (Alice sees multiple `tunnel.packet_recv` entries with
+  `seg_count=0` for `seq=4856`), followed by a data packet reusing `seq=4856`
+  that is dropped (`tunnel.recv_window` reports `ready=0`). This matches the
+  seq-reuse correctness bug where ack-only responses are emitted without being
+  tracked in the send window.
+- In the same window, `logs/server_log.db` shows `tunnel.send_window_distance`
+  with `next_seq=4856` and repeated `tunnel.send_blocked` responses, which is
+  the code path that emits ack-only replies while the send window is blocked.

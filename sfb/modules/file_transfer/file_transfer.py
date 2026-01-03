@@ -86,6 +86,17 @@ class TransferStats(object):
         """Update transferred bytes."""
         self.transferred += delta
 
+    def as_dict(self):
+        """Return stats as a JSON-serializable dict."""
+        return {
+            'size_bytes': int(self.size),
+            'transferred_bytes': int(self.transferred),
+            'duration_sec': round(self.duration, 3),
+            'rate_bytes_per_sec': round(self.bytes_per_sec, 2),
+            'rate': self.format_rate(),
+            'size': self.format_size(),
+        }
+
     def __repr__(self):
         return 'TransferStats(%s in %.2fs, %s)' % (
             self.format_size(), self.duration, self.format_rate()
@@ -159,12 +170,13 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 )
                 module.get(args.remote, local_path, timeout=timeout)
                 stats = module.last_stats
+                stats_fields = stats.as_dict() if stats is not None else None
                 log_event(
                     logger,
                     logging.INFO,
                     'file.download_complete',
                     'Download complete',
-                    lambda: {'local': local_path, 'stats': stats},
+                    lambda: {'local': local_path, 'stats': stats_fields},
                 )
 
             elif args.command == 'put':
@@ -187,12 +199,13 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 )
                 module.put(args.local, args.remote, timeout=timeout)
                 stats = module.last_stats
+                stats_fields = stats.as_dict() if stats is not None else None
                 log_event(
                     logger,
                     logging.INFO,
                     'file.upload_complete',
                     'Upload complete',
-                    lambda: {'remote': args.remote, 'stats': stats},
+                    lambda: {'remote': args.remote, 'stats': stats_fields},
                 )
 
             else:

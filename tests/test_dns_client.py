@@ -355,6 +355,13 @@ class DnsClientTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             DnsClient(config)
 
+    def test_init_rejects_invalid_resolver_port(self):
+        config = Config()
+        config.dns_base_domain = 'example.com'
+        config.dns_resolver = '1.2.3.4:bad'
+        with self.assertRaises(ValueError):
+            DnsClient(config)
+
     def test_init_uses_min_recv_bufsize(self):
         config = Config()
         config.dns_base_domain = 'example.com'
@@ -874,6 +881,42 @@ class DnsClientTests(unittest.TestCase):
             self.assertEqual(client.recv(timeout=None), (2, b'ok'))
             self.assertEqual(len(calls), 2)
         finally:
+            dns_client.select.select = original_select
+
+    def test_recv_timed_retries_until_deadline(self):
+        client = DnsClient.__new__(DnsClient)
+        client._sock = object()
+        client._pending = PendingTracker(1.0)
+        client._dns_to_corr = {}
+        calls = []
+        results = [(None, None)]
+
+        def fake_select(rlist, wlist, xlist, timeout):
+            calls.append(timeout)
+            return (rlist, [], [])
+
+        def fake_try_recv():
+            if results:
+                return results.pop(0)
+            return (None, None)
+
+        times = [0.0, 0.4, 1.2]
+
+        def fake_now():
+            if times:
+                return times.pop(0)
+            return 1.2
+
+        original_select = dns_client.select.select
+        dns_client.select.select = fake_select
+        client._try_recv = fake_try_recv
+        time_provider.set_time_source(fake_now, clamp=False)
+        try:
+            self.assertEqual(client.recv(timeout=1.0), (None, None))
+            self.assertEqual(len(calls), 1)
+            self.assertTrue(calls[0] <= 1.0)
+        finally:
+            time_provider.reset_time_source()
             dns_client.select.select = original_select
 
     def test_try_recv_success(self):

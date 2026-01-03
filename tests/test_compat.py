@@ -65,6 +65,13 @@ class CompatTests(unittest.TestCase):
         view = memoryview(bytearray(data))
         self.assertEqual(to_bytes(view), data)
 
+    def test_to_bytes_accepts_readonly_memoryview_py3(self):
+        if PY2:
+            return
+        data = b'hello'
+        view = memoryview(data)
+        self.assertEqual(to_bytes(view), data)
+
     def test_to_bytes_accepts_bytes(self):
         data = b'hello'
         self.assertEqual(to_bytes(data), data)
@@ -119,6 +126,15 @@ class CompatTests(unittest.TestCase):
         if PY2:
             return
         data = bytearray(b'hello')
+        view = memoryview(data)
+        result = require_bytes_like(view)
+        self.assertIs(result, view)
+        self.assertEqual(result.tobytes(), b'hello')
+
+    def test_require_bytes_like_accepts_readonly_memoryview_py3(self):
+        if PY2:
+            return
+        data = b'hello'
         view = memoryview(data)
         result = require_bytes_like(view)
         self.assertIs(result, view)
@@ -246,6 +262,12 @@ class CompatTests(unittest.TestCase):
         self.assertEqual(view.tobytes(), data)
         self.assertEqual(len(view), len(data))
 
+    def test_buffer_view_length_longer_py2(self):
+        if not PY2:
+            return
+        data = b'abc'
+        self.assertRaises(ValueError, buffer_view, data, length=10)
+
     def test_buffer_view_accepts_memoryview_py2(self):
         if not PY2:
             return
@@ -278,9 +300,28 @@ class CompatTests(unittest.TestCase):
         self.assertEqual(view.tobytes(), b'')
         self.assertEqual(len(view), 0)
 
+    def test_buffer_view_negative_length_py3(self):
+        if PY2:
+            return
+        data = b'abcdef'
+        view = buffer_view(data, length=-1)
+        self.assertEqual(view.tobytes(), b'abcde')
+        self.assertEqual(len(view), 5)
+
+    def test_buffer_view_negative_length_py2(self):
+        if not PY2:
+            return
+        data = b'abcdef'
+        self.assertRaises(ValueError, buffer_view, data, length=-1)
+
     def test_buffer_view_rejects_text(self):
         text = _text_value('hello')
         self.assertRaises(TypeError, buffer_view, text)
+
+    def test_buffer_view_rejects_non_bytes_like_py3(self):
+        if PY2:
+            return
+        self.assertRaises(TypeError, buffer_view, object())
 
     def test_byte_at_returns_int(self):
         data = b'\x00\x10\xff'
@@ -288,6 +329,16 @@ class CompatTests(unittest.TestCase):
         self.assertEqual(byte_at(data, 1), 16)
         self.assertEqual(byte_at(bytearray(data), 2), 255)
         self.assertEqual(byte_at(memoryview(data), 2), 255)
+
+    def test_byte_at_accepts_array(self):
+        data = array.array('B', [1, 2, 3])
+        self.assertEqual(byte_at(data, 1), 2)
+
+    def test_byte_at_accepts_buffer_py2(self):
+        if not PY2:
+            return
+        data = buffer(b'\x01\x02\x03')
+        self.assertEqual(byte_at(data, 2), 3)
 
     def test_byte_at_negative_index(self):
         data = b'\x00\x10\xff'
@@ -350,6 +401,19 @@ class CompatTests(unittest.TestCase):
             self.assertEqual(result, b'BadStr()')
         else:
             self.assertEqual(result, 'BadStr()')
+
+    def test_to_native_str_str_unicode_error_py2(self):
+        if not PY2:
+            return
+        class _UnicodeStr(object):
+            def __str__(self):
+                return u'\u2603'
+
+            def __repr__(self):
+                return 'UnicodeStr()'
+
+        result = to_native_str(_UnicodeStr())
+        self.assertEqual(result, b'UnicodeStr()')
 
     def test_to_native_str_replacement_py3(self):
         if PY2:

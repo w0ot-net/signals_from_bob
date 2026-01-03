@@ -242,8 +242,6 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         self._chunk_size = config.file_transfer_chunk_size
         self._channel_open_timeout = config.channel_open_timeout
         self._hash_timeout = config.file_transfer_hash_timeout
-        self._transfer_timeout = config.file_transfer_timeout
-        self._transfer_idle_timeout = config.tunnel_idle_timeout
 
         # Single active transfer enforcement
         self._active_lock = threading.Lock()
@@ -328,17 +326,8 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             stats.start()
             self._current_stats = stats
             hash_obj = hashlib.sha256()
-            self._recv_to_file(
-                channel,
-                out_fp,
-                size,
-                timeout,
-                hash_obj=hash_obj,
-                stats=stats,
-                idle_timeout=self._transfer_idle_timeout,
-            )
-            hash_timeout = timeout if timeout is not None else self._hash_timeout
-            expected = self._wait_hash_value(rid, hash_timeout)
+            self._recv_to_file(channel, out_fp, size, timeout, hash_obj=hash_obj, stats=stats)
+            expected = self._wait_hash_value(rid, timeout)
             if expected != hash_obj.hexdigest():
                 self.send_message(
                     file_err(rid, 'hash', 'hash mismatch', channel.id)
@@ -393,8 +382,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
 
             pending = self._register_pending(rid)
             self.send_message(file_hash(rid, channel.id, hash_obj.hexdigest()))
-            hash_timeout = timeout if timeout is not None else self._hash_timeout
-            response = self._wait_response(rid, pending, hash_timeout)
+            response = self._wait_response(rid, pending, timeout)
             if response.get('c') == 'err':
                 raise FileTransferError(
                     response.get('code', 'io'),
@@ -574,14 +562,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             out_fp = open(dest_path, 'wb')
             self.send_message(file_put_ok(rid, ch))
             hash_obj = hashlib.sha256()
-            self._recv_to_file(
-                channel,
-                out_fp,
-                size,
-                timeout=self._transfer_timeout,
-                hash_obj=hash_obj,
-                idle_timeout=self._transfer_idle_timeout,
-            )
+            self._recv_to_file(channel, out_fp, size, timeout=None, hash_obj=hash_obj)
             expected = self._wait_hash_value(rid, timeout=self._hash_timeout)
             if expected != hash_obj.hexdigest():
                 self.send_message(file_err(rid, 'hash', 'hash mismatch', ch))
@@ -637,8 +618,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             if stats is not None:
                 stats.update(len(chunk))
 
-    def _recv_to_file(self, channel, fp, total_size, timeout, hash_obj=None,
-                      stats=None, idle_timeout=None):
+    def _recv_to_file(self, channel, fp, total_size, timeout, hash_obj=None, stats=None):
         """Receive file contents from channel."""
         remaining = total_size
         deadline = None
@@ -647,19 +627,13 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         while remaining > 0:
             chunk_size = min(self._chunk_size, remaining)
             try:
-                read_timeout = None
-                if deadline is not None:
+                if deadline is None:
+                    chunk = channel.read_exact(chunk_size)
+                else:
                     remaining_time = deadline - time_provider.now()
                     if remaining_time <= 0:
                         raise FileTransferError('io', 'timeout')
-                    read_timeout = remaining_time
-                if idle_timeout is not None:
-                    if read_timeout is None or idle_timeout < read_timeout:
-                        read_timeout = idle_timeout
-                if read_timeout is None:
-                    chunk = channel.read_exact(chunk_size)
-                else:
-                    chunk = channel.read_exact(chunk_size, timeout=read_timeout)
+                    chunk = channel.read_exact(chunk_size, timeout=remaining_time)
             except ChannelError as e:
                 if e.code == 'timeout':
                     raise FileTransferError('io', 'timeout')

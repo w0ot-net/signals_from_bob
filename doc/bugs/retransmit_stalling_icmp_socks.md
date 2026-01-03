@@ -218,3 +218,21 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - The dominant block is now `tunnel.send_window_distance`; investigate why
   cumulative ACK stalls while `next_seq` advances.
 - Re-run with a longer Alice log window to match Bob's timeframe.
+
+## Latest findings (2026-01-03, newest logs copied locally)
+- Sources: `logs/client_log.db` (Alice) had 73200 rows (~10:56:22-10:56:36 UTC).
+- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+  "./logs/client_log.db".
+- Alice `tunnel.send_window_distance`: 4 (all at startup). Latest shows
+  `distance` 128 (`distance_limit` 128, `effective_cap` 128) with `unacked` 113,
+  `buffered` 15, and `missing_seq` == `last_cum_ack` 105
+  (`missing_in_unacked` True).
+- Alice `tunnel.send_blocked`: 3476, all `reason=transport_headroom` with
+  `headroom` 8, `pending` 120, `limit` 120, `max_in_flight` 128.
+- Sources: `logs/server_log.db` (Bob) sampled the most recent 200000 rows
+  (ids 33384-233383, ~10:56:28-10:57:14 UTC).
+- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+  "/var/www/html/server_log.db".
+- Bob `tunnel.retransmit`: 1; `tunnel.retransmit_skip`: 22359, mostly
+  `reason=cooldown` with `cooldown` ~0.23-0.25s.
+- No `tunnel.send_window_distance` events appear in the sampled Bob window.

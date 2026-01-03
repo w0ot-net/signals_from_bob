@@ -446,14 +446,6 @@ class AliceTunnel(BaseTunnel):
             should_poll, keepalive_due, consume_pong_grace = self._poll_decision(now)
             if not should_poll:
                 break
-            window_blocked = not self._send_window.can_send
-            distance_exceeded, _ = self._send_window_distance_exceeded()
-            if window_blocked or distance_exceeded:
-                reason = 'window_full' if window_blocked else 'window_distance'
-                if self._send_probe_poll(now, reason=reason):
-                    if consume_pong_grace and self._pong_grace_remaining > 0:
-                        self._pong_grace_remaining -= 1
-                break
             if not self._can_send_new(
                     now=now,
                     keepalive_only=keepalive_due,
@@ -876,63 +868,6 @@ class AliceTunnel(BaseTunnel):
                 'side': 'alice',
             },
         )
-
-    def _send_probe_poll(self, now, reason=None):
-        """
-        Send an untracked ACK-only poll when the send window is blocked.
-
-        This keeps responses flowing without consuming send window capacity.
-        """
-        packet, _ = self._build_packet(flags=0, segments=[])
-        packet_data = self._encode_packet(packet)
-
-        if self._send_limiter is not None and not self._send_limiter.consume(now=now):
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Send rate limited before probe poll',
-                lambda: {
-                    'side': 'alice',
-                    'rate': self._config.tunnel_send_rate,
-                    'burst': self._config.tunnel_send_burst,
-                    'reason': 'probe',
-                },
-            )
-            return False
-
-        permit = self._reserve_transport_permit(now)
-        if permit is None:
-            return False
-
-        self._transport.send(packet_data, permit)
-        self._last_send_time = now
-        self._packets_sent += 1
-        self._bytes_sent += len(packet_data)
-        self._packets_since_response += 1
-
-        def build_fields():
-            fields = {
-                'seq': packet.seq,
-                'ack': packet.ack,
-                'sack': packet.sack,
-                'flags': packet.flags,
-                'seg_count': 0,
-                'bytes': len(packet_data),
-                'side': 'alice',
-                'probe': True,
-            }
-            if reason is not None:
-                fields['reason'] = reason
-            return fields
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.packet_send',
-            'Packet sent',
-            build_fields,
-        )
-        return True
 
     def _send_retransmit(self, seq, segments, flags, encrypted_body, now, reason=None):
         """Retransmit a packet."""

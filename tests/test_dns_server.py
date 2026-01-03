@@ -218,6 +218,18 @@ class DnsServerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             server._parse_query(data)
 
+    def test_parse_query_accepts_compression_pointer(self):
+        server = self._make_server()
+        # Header bytes encode "a.com" at offset 0 for compression pointer use.
+        header = struct.pack('>HHHHHH', 0x0161, 0x0363, 0x6f6d, 1, 0, 0)
+        question = b'\x06tunnel\xc0\x00'
+        question += struct.pack('>HH', codec.QTYPE_A, codec.QCLASS_IN)
+        data = header + question
+        query_id, qname, qtype = server._parse_query(data)
+        self.assertEqual(query_id, 0x0161)
+        self.assertEqual(qname, 'tunnel.a.com')
+        self.assertEqual(qtype, codec.QTYPE_A)
+
     def test_parse_query_rejects_non_query(self):
         server = self._make_server()
         data = self._build_query(0x1, 'tunnel.example.com',
@@ -343,6 +355,28 @@ class DnsServerTests(unittest.TestCase):
                 max_packet_size=None,
             )
 
+    def test_send_response_includes_edns_opt(self):
+        server = self._make_server(edns_size=1232)
+        server._edns_size = 1232
+        server._opt_record = codec.build_opt_record(server._edns_size)
+        server._opt_arcount = 1
+        server._opt_record_len = len(server._opt_record)
+        server._send_response(
+            0x14,
+            'tunnel.example.com',
+            codec.QTYPE_A,
+            b'hi',
+            ('127.0.0.1', 5353),
+            payload_cap=None,
+            qname_wire_len=None,
+            max_packet_size=None,
+        )
+        response, _ = server._sock.sent[0]
+        _, _, _, _, _, arcount = struct.unpack('>HHHHHH', response[:12])
+        self.assertEqual(arcount, 1)
+        self.assertGreater(len(server._opt_record), 0)
+        self.assertTrue(response.endswith(server._opt_record))
+
     def test_send_empty_response_includes_soa(self):
         server = self._make_server()
         server._send_empty_response(
@@ -390,6 +424,25 @@ class DnsServerTests(unittest.TestCase):
                 ('127.0.0.1', 5353),
                 reason='test',
             )
+
+    def test_send_empty_response_includes_edns_opt(self):
+        server = self._make_server(edns_size=1232)
+        server._edns_size = 1232
+        server._opt_record = codec.build_opt_record(server._edns_size)
+        server._opt_arcount = 1
+        server._opt_record_len = len(server._opt_record)
+        server._send_empty_response(
+            0x24,
+            'tunnel.example.com',
+            codec.QTYPE_A,
+            ('127.0.0.1', 5353),
+            reason='test',
+        )
+        response, _ = server._sock.sent[0]
+        _, _, _, _, _, arcount = struct.unpack('>HHHHHH', response[:12])
+        self.assertEqual(arcount, 1)
+        self.assertGreater(len(server._opt_record), 0)
+        self.assertTrue(response.endswith(server._opt_record))
 
     def test_send_cname_followup_returns_a_record(self):
         server = self._make_server()
@@ -442,6 +495,24 @@ class DnsServerTests(unittest.TestCase):
                 codec.QTYPE_A,
                 ('127.0.0.1', 5353),
             )
+
+    def test_send_cname_followup_includes_edns_opt(self):
+        server = self._make_server(edns_size=1232)
+        server._edns_size = 1232
+        server._opt_record = codec.build_opt_record(server._edns_size)
+        server._opt_arcount = 1
+        server._opt_record_len = len(server._opt_record)
+        server._send_cname_followup(
+            0x25,
+            'c.example.com',
+            codec.QTYPE_A,
+            ('127.0.0.1', 5353),
+        )
+        response, _ = server._sock.sent[0]
+        _, _, _, _, _, arcount = struct.unpack('>HHHHHH', response[:12])
+        self.assertEqual(arcount, 1)
+        self.assertGreater(len(server._opt_record), 0)
+        self.assertTrue(response.endswith(server._opt_record))
 
     def test_response_payload_cap_non_cname(self):
         server = self._make_server(rtype=codec.QTYPE_A)
@@ -575,6 +646,55 @@ class DnsServerTests(unittest.TestCase):
         self.assertIsNone(data)
         self.assertIsNone(responder)
 
+    def test_recv_domain_case_insensitive(self):
+        server = self._make_server()
+        packet = self._build_query(0x45, 'TuNnEl.ExAmPlE.cOm', codec.QTYPE_A)
+        sock = QueueSock([(packet, ('127.0.0.1', 5353))])
+        server._sock = sock
+        self._patch(dns_server.select, 'select', self._select_for_sock(sock))
+        self._patch(codec, 'decode_query_name',
+                    lambda *args, **kwargs: b'data')
+        server._response_payload_cap = lambda qname: (1, 2, 3)
+        data, responder = server.recv(timeout=0)
+        self.assertEqual(data, b'data')
+        self.assertTrue(callable(responder))
+
+    def test_recv_base_domain_sends_empty(self):
+        server = self._make_server()
+        packet = self._build_query(0x46, 'example.com', codec.QTYPE_A)
+        sock = QueueSock([(packet, ('127.0.0.1', 5353))])
+        server._sock = sock
+        self._patch(dns_server.select, 'select', self._select_for_sock(sock))
+        calls = []
+
+        def fake_send_empty(*args, **kwargs):
+            calls.append((args, kwargs))
+
+        server._send_empty_response = fake_send_empty
+        data, responder = server.recv(timeout=0)
+        self.assertIsNone(data)
+        self.assertIsNone(responder)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1].get('reason'), 'decode_failed')
+
+    def test_recv_nonce_only_sends_empty(self):
+        server = self._make_server()
+        packet = self._build_query(0x47, 'nonce.example.com', codec.QTYPE_A)
+        sock = QueueSock([(packet, ('127.0.0.1', 5353))])
+        server._sock = sock
+        self._patch(dns_server.select, 'select', self._select_for_sock(sock))
+        calls = []
+
+        def fake_send_empty(*args, **kwargs):
+            calls.append((args, kwargs))
+
+        server._send_empty_response = fake_send_empty
+        data, responder = server.recv(timeout=0)
+        self.assertIsNone(data)
+        self.assertIsNone(responder)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1].get('reason'), 'decode_failed')
+
     def test_recv_qtype_mismatch_sends_empty(self):
         server = self._make_server()
         packet = self._build_query(0x41, 'tunnel.example.com',
@@ -611,6 +731,24 @@ class DnsServerTests(unittest.TestCase):
         self.assertIsNone(responder)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0][1], 'c.example.com')
+
+    def test_recv_cname_followup_subdomain_sends_a_record(self):
+        server = self._make_server()
+        packet = self._build_query(0x48, 'sub.c.example.com', codec.QTYPE_A)
+        sock = QueueSock([(packet, ('127.0.0.1', 5353))])
+        server._sock = sock
+        self._patch(dns_server.select, 'select', self._select_for_sock(sock))
+        calls = []
+
+        def fake_followup(*args, **kwargs):
+            calls.append((args, kwargs))
+
+        server._send_cname_followup = fake_followup
+        data, responder = server.recv(timeout=0)
+        self.assertIsNone(data)
+        self.assertIsNone(responder)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0][1], 'sub.c.example.com')
 
     def test_recv_decode_failed_sends_empty(self):
         server = self._make_server()

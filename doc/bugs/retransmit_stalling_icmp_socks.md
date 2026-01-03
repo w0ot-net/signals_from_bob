@@ -256,3 +256,24 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Bob `tunnel.retransmit`: 8; `tunnel.retransmit_skip`: 2028
   (`reason=cooldown`, `cooldown` 3.0s); `tunnel.packet_recv`: 2049.
 - No `tunnel.send_window_distance` events appear in the sampled Bob window.
+
+## Latest findings (2026-01-03, post keepalive-drop instrumentation)
+- Sources: `logs/client_log.db` (Alice) had 18300 rows (~11:32:53-11:32:58 UTC).
+- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+  "./logs/client_log.db".
+- Alice `tunnel.send_window_distance`: 833; `tunnel.send_blocked`: 1400;
+  `tunnel.retransmit`: 4; `tunnel.packet_recv`: 2178.
+- Alice distance metrics pinned at 256 (`distance_limit` 256) with
+  `buffered` 177 and `unacked` 79 in the latest event; `missing_in_unacked`
+  remains True with `missing_age` ~1.54s and `missing_seq` == `last_cum_ack`
+  2004. Keepalive-drop fields were not present in these events.
+- Alice `tunnel.send_blocked` reasons: `window_distance` 833,
+  `transport_headroom` 499, `retransmit_budget` 2.
+- Sources: `logs/server_log.db` (Bob) had 16579 rows (~11:32:46-11:33:03 UTC).
+- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+  "/var/www/html/server_log.db".
+- Bob `tunnel.send_window_distance`: 208; `tunnel.send_blocked`: 208;
+  `tunnel.retransmit`: 263; `tunnel.retransmit_skip`: 2147.
+- Bob latest distance event shows `distance` 256, `buffered` 255, `unacked` 1,
+  `missing_in_unacked` True with `missing_age` ~0.0025s and
+  `missing_retransmit_count` 4. Keepalive-drop fields were not present.

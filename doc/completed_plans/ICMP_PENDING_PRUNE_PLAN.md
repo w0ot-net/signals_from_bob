@@ -100,6 +100,6 @@ consistent and avoiding redundant O(n) work.
   shared timestamp; DNS uses `on_prune` to clean `_dns_to_corr`.
 - Updated `doc/DNS_TRANSPORT.md` to document the single-prune-per-send behavior.
 - Added unit tests in `tests/test_icmp_client.py` and
-  `tests/test_dns_client_server.py` to verify one prune per send and that
+  `tests/test_dns_client.py` to verify one prune per send and that
   `pending_count()` prunes stale entries.
 - Tests not run here.

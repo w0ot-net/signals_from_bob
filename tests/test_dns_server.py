@@ -377,6 +377,30 @@ class DnsServerTests(unittest.TestCase):
         self.assertGreater(len(server._opt_record), 0)
         self.assertTrue(response.endswith(server._opt_record))
 
+    def test_send_response_logs_oversize(self):
+        server = self._make_server()
+        calls = []
+
+        def fake_log_event(logger, level, event, message, data_func):
+            if event == 'dns.send':
+                calls.append(data_func())
+
+        self._patch(dns_server, 'log_event', fake_log_event)
+        server._send_response(
+            0x15,
+            'tunnel.example.com',
+            codec.QTYPE_A,
+            b'hi',
+            ('127.0.0.1', 5353),
+            payload_cap=1,
+            qname_wire_len=1,
+            max_packet_size=20,
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0]['oversize'])
+        self.assertEqual(calls[0]['max_packet_size'], 20)
+        self.assertGreater(calls[0]['bytes'], 20)
+
     def test_send_empty_response_includes_soa(self):
         server = self._make_server()
         server._send_empty_response(
@@ -412,6 +436,19 @@ class DnsServerTests(unittest.TestCase):
         self.assertEqual(rclass, codec.QCLASS_IN)
         self.assertEqual(ttl, 0)
         self.assertEqual(len(response) - (offset + 10), rdlength)
+
+        rdata_start = offset + 10
+        rdata = response[rdata_start:rdata_start + rdlength]
+        mname, rdata_offset = codec.decode_name(rdata, 0)
+        rname, rdata_offset = codec.decode_name(rdata, rdata_offset)
+        serial, refresh, retry, expire, minimum = struct.unpack(
+            '>IIIII', rdata[rdata_offset:rdata_offset + 20]
+        )
+        self.assertEqual(mname, 'ns.' + server._base_domain)
+        self.assertEqual(rname, 'hostmaster.' + server._base_domain)
+        self.assertEqual((serial, refresh, retry, expire, minimum),
+                         (1, 0, 0, 0, 0))
+        self.assertEqual(rdata_offset + 20, len(rdata))
 
     def test_send_empty_response_send_error(self):
         server = self._make_server()
@@ -602,6 +639,21 @@ class DnsServerTests(unittest.TestCase):
         self.assertIsNone(data)
         self.assertIsNone(responder)
 
+    def test_recv_timeout_none_uses_blocking_select(self):
+        server = self._make_server()
+        server._sock = QueueSock()
+        waits = []
+
+        def fake_select(read_list, write_list, exc_list, timeout):
+            waits.append(timeout)
+            return ([], [], [])
+
+        self._patch(dns_server.select, 'select', fake_select)
+        data, responder = server.recv(timeout=None)
+        self.assertEqual(waits, [None])
+        self.assertIsNone(data)
+        self.assertIsNone(responder)
+
     def test_recv_timeout_zero_returns_none(self):
         server = self._make_server()
         server._sock = QueueSock()
@@ -680,6 +732,26 @@ class DnsServerTests(unittest.TestCase):
     def test_recv_nonce_only_sends_empty(self):
         server = self._make_server()
         packet = self._build_query(0x47, 'nonce.example.com', codec.QTYPE_A)
+        sock = QueueSock([(packet, ('127.0.0.1', 5353))])
+        server._sock = sock
+        self._patch(dns_server.select, 'select', self._select_for_sock(sock))
+        calls = []
+
+        def fake_send_empty(*args, **kwargs):
+            calls.append((args, kwargs))
+
+        server._send_empty_response = fake_send_empty
+        data, responder = server.recv(timeout=0)
+        self.assertIsNone(data)
+        self.assertIsNone(responder)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1].get('reason'), 'decode_failed')
+
+    def test_recv_label_too_long_sends_empty(self):
+        server = self._make_server()
+        long_label = 'a' * (server._label_max_len + 1)
+        qname = 'abcd.' + long_label + '.example.com'
+        packet = self._build_query(0x49, qname, codec.QTYPE_A)
         sock = QueueSock([(packet, ('127.0.0.1', 5353))])
         server._sock = sock
         self._patch(dns_server.select, 'select', self._select_for_sock(sock))

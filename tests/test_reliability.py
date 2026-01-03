@@ -244,6 +244,25 @@ class RecvWindowTests(unittest.TestCase):
         self.assertIn(1, win._buffer)
         self.assertNotIn(2, win._buffer)
 
+    def test_out_of_window_increments_stats(self):
+        stats = ReliabilityStats()
+        win = RecvWindow(max_buffer=4, stats=stats)
+        win.receive(257, b't')
+        self.assertEqual(stats.recv_out_of_window, 1)
+        self.assertEqual(stats.recv_buffered, 0)
+        self.assertEqual(stats.recv_delivered, 0)
+
+    def test_buffered_and_delivered_stats(self):
+        stats = ReliabilityStats()
+        win = RecvWindow(max_buffer=4, stats=stats)
+        ready = win.receive(1, b'b')
+        self.assertEqual(ready, [])
+        self.assertEqual(stats.recv_buffered, 1)
+        self.assertEqual(stats.recv_delivered, 0)
+        ready = win.receive(0, b'a')
+        self.assertEqual(ready, [(0, b'a'), (1, b'b')])
+        self.assertEqual(stats.recv_delivered, 2)
+
     def test_sack_ignores_beyond_window(self):
         win = RecvWindow(max_buffer=4)
         win.receive(257, b't')  # Beyond ack+256, can't represent in SACK

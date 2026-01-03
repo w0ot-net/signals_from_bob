@@ -3,8 +3,8 @@ from __future__ import absolute_import
 
 import unittest
 
-from sfb.reliability import SendWindow
-from sfb.protocol import MAX_IN_FLIGHT, SEQ_MAX, FLAG_KEEPALIVE
+from sfb.reliability import SendWindow, ReliabilityStats
+from sfb.protocol import MAX_IN_FLIGHT, SEQ_MAX, FLAG_KEEPALIVE, SACK_BITS
 
 
 class SendWindowTests(unittest.TestCase):
@@ -135,6 +135,73 @@ class SendWindowTests(unittest.TestCase):
         self.assertNotIn(seq_a, win._unacked)
         self.assertNotIn(seq_b, win._unacked)
 
+    def test_sack_ack_wraps_sequence_space(self):
+        win = SendWindow(max_in_flight=2)
+        win._next_seq = SEQ_MAX
+        seq_max = win.send([b'a'], now=1.0)
+        seq_zero = win.send([b'b'], now=2.0)
+        sack = 1 << 0  # ack+1 -> seq 0
+        samples, acked, data_acked = win.process_ack(
+            ack=SEQ_MAX, sack=sack, now=3.0
+        )
+        self.assertEqual(acked, 1)
+        self.assertEqual(data_acked, 1)
+        self.assertEqual(len(samples), 1)
+        self.assertIn(seq_max, win._unacked)
+        self.assertNotIn(seq_zero, win._unacked)
+
+    def test_stats_send_and_ack_counts(self):
+        stats = ReliabilityStats()
+        win = SendWindow(max_in_flight=4, stats=stats)
+        win.send([b'a'], now=1.0)
+        win.send([b'b'], now=2.0)
+        win.send([b'c'], now=3.0)
+        self.assertEqual(stats.sent_packets, 3)
+        sack = 1 << 0  # ack+1
+        win.process_ack(ack=1, sack=sack, now=5.0)
+        self.assertEqual(stats.acked_packets, 2)
+        self.assertEqual(stats.acked_cumulative_packets, 1)
+        self.assertEqual(stats.acked_sack_packets, 1)
+        self.assertEqual(stats.acked_first_tx_packets, 2)
+        self.assertEqual(stats.rtt_samples, 2)
+
+    def test_stats_retransmit_skips_first_tx(self):
+        stats = ReliabilityStats()
+        win = SendWindow(max_in_flight=1, stats=stats)
+        seq = win.send([b'a'], now=1.0)
+        win.mark_retransmit(seq, now=2.0)
+        self.assertEqual(stats.retransmit_packets, 1)
+        win.process_ack(ack=1, sack=0, now=3.0)
+        self.assertEqual(stats.acked_packets, 1)
+        self.assertEqual(stats.acked_cumulative_packets, 1)
+        self.assertEqual(stats.acked_first_tx_packets, 0)
+        self.assertEqual(stats.rtt_samples, 0)
+
+    def test_get_retransmits_max_count_zero(self):
+        win = SendWindow(max_in_flight=1)
+        win.send([b'a'], now=1.0)
+        retransmits = win.get_retransmits(rto_sec=0.0, now=2.0, max_count=0)
+        self.assertEqual(retransmits, [])
+        retransmits = win.get_retransmits(rto_sec=0.0, now=2.0, max_count=-1)
+        self.assertEqual(retransmits, [])
+
+    def test_empty_window_helpers(self):
+        win = SendWindow(max_in_flight=1)
+        self.assertIsNone(win.get_oldest_unacked())
+        self.assertIsNone(win.get_oldest_unacked_info())
+        self.assertIsNone(win.get_unacked_info(0))
+        self.assertFalse(win.drop_keepalive(0))
+        self.assertFalse(win.drop_oldest_keepalive())
+        self.assertEqual(win.get_retransmits(rto_sec=0.0, now=1.0), [])
+        win.mark_retransmit(0, now=1.0)
+        self.assertEqual(win._retransmit_count, 0)
+
+    def test_mark_retransmit_missing_seq_no_stats(self):
+        stats = ReliabilityStats()
+        win = SendWindow(max_in_flight=1, stats=stats)
+        win.mark_retransmit(0, now=1.0)
+        self.assertEqual(stats.retransmit_packets, 0)
+
     def test_get_unacked_in_sack_window_orders_by_offset(self):
         win = SendWindow(max_in_flight=4)
         win._next_seq = 9
@@ -147,6 +214,26 @@ class SendWindowTests(unittest.TestCase):
         self.assertEqual(unacked, [seq_ack, seq_ahead])
         self.assertNotIn(seq_behind, unacked)
         self.assertNotIn(seq_out, unacked)
+
+    def test_get_unacked_in_sack_window_default_max_offset(self):
+        win = SendWindow(max_in_flight=4)
+        ack = 10
+        win._next_seq = (ack + SACK_BITS - 1) & SEQ_MAX
+        seq_before = win.send([b'a'], now=1.0)
+        seq_edge = win.send([b'b'], now=2.0)
+        seq_out = win.send([b'c'], now=3.0)
+        unacked = win.get_unacked_in_sack_window(ack=ack)
+        self.assertEqual(unacked, [seq_before, seq_edge])
+        self.assertNotIn(seq_out, unacked)
+
+    def test_get_unacked_in_sack_window_wraps_sequence_space(self):
+        win = SendWindow(max_in_flight=3)
+        win._next_seq = SEQ_MAX
+        seq_max = win.send([b'a'], now=1.0)
+        seq_zero = win.send([b'b'], now=2.0)
+        seq_one = win.send([b'c'], now=3.0)
+        unacked = win.get_unacked_in_sack_window(ack=SEQ_MAX, max_offset=2)
+        self.assertEqual(unacked, [seq_max, seq_zero, seq_one])
 
     def test_drop_keepalive_only_removes_keepalive(self):
         win = SendWindow(max_in_flight=2)

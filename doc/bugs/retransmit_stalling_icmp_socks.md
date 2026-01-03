@@ -311,3 +311,20 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Bob logs show no `tunnel.send_window_distance` entries in this snapshot;
   retransmits remain low (`tunnel.retransmit`: 21, `tunnel.retransmit_skip`:
   2114).
+
+## Latest findings (2026-01-03, ACK/SACK instrumentation)
+- Sources: `logs/client_log.db` (Alice) had 36900 rows (~11:47:12-11:47:31 UTC).
+- Alice `tunnel.send_window_distance`: 9491; `tunnel.send_blocked`: 9937;
+  `tunnel.retransmit`: 65; `tunnel.packet_recv`: 2357.
+- Latest distance event: `distance` 256 with `buffered` 247 and `unacked` 9.
+  The missing seq is still in unacked with age ~14.56s and
+  `missing_retransmit_count` 0.
+- ACK history shows SACK acks well beyond the gap (`ack_history_last_seq` 2366,
+  `ack_history_last_is_sack` True) while cumulative `ack` remains 2112.
+  The missing seq is not in the recent ACK history
+  (`ack_history_missing_hit` False).
+- `ack_miss_count` is very high (64744) with the latest miss referencing a SACK
+  seq (2367) not present in unacked, indicating frequent SACK bits for already
+  acked/removed packets.
+- Latest Alice retransmit event is `reason=gap` for seq 2110 (earlier gap), not
+  the current missing seq 2112.

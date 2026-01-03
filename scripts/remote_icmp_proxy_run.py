@@ -348,6 +348,8 @@ def main():
 
     print('Starting remote Bob...')
     bob_proc.start()
+    print('Waiting 2 seconds before starting local Alice...')
+    time.sleep(2)
     print('Starting local Alice...')
     alice_proc.start()
     print('Waiting 5 seconds before proxychains commands...')

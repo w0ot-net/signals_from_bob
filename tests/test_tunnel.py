@@ -518,10 +518,26 @@ class BaseTunnelGapTests(unittest.TestCase):
         self.assertTrue(exceeded)
         self.assertEqual(fields[0], seq_diff(13, 10))
         self.assertEqual(fields[1], 2)
-        self.assertEqual(fields[2], 1)
-        self.assertEqual(fields[3], 2)
-        self.assertEqual(fields[4], 10)
-        self.assertEqual(fields[5], 13)
+        self.assertEqual(fields[2], 2)
+        self.assertEqual(fields[3], 1)
+        self.assertEqual(fields[4], 2)
+        self.assertEqual(fields[5], 10)
+        self.assertEqual(fields[6], 13)
+
+    def test_last_cum_ack_not_updated_on_regression(self):
+        from sfb.protocol import Packet
+
+        tunnel = BaseTunnel(make_test_config())
+        tunnel._recv_window.set_initial_seq(0)
+        last_time = 123.0
+        tunnel._last_cum_ack = 10
+        tunnel._last_cum_ack_time = last_time
+
+        packet = Packet(seq=0, ack=9, sack=0, flags=0)
+        tunnel._process_incoming_packet(packet, now=124.0)
+
+        self.assertEqual(tunnel._last_cum_ack, 10)
+        self.assertEqual(tunnel._last_cum_ack_time, last_time)
 
     def test_process_control_messages_handles_invalid_json(self):
         tunnel = BaseTunnel(make_test_config())
@@ -1105,6 +1121,44 @@ class AliceRetransmitTimingTests(unittest.TestCase):
             time_state['now'] = 4.1
             alice.tick()
             self.assertEqual(len(transport._sent), sent_before + 1)
+
+        finally:
+            time_provider.reset_time_source()
+
+    def test_retransmit_fires_on_ack_silence_with_responses(self):
+        from sfb.protocol import Packet, Segment
+
+        config = make_test_config(
+            tunnel_keepalive_interval=100.0,
+            tunnel_timeout_packets=1000,
+        )
+        transport = MockTransport()
+        alice = AliceTunnel(transport, config, crypto=Plain())
+        alice._set_state(TunnelState.CONNECTED)
+
+        time_state = {'now': 0.0}
+
+        def fake_now():
+            return time_state['now']
+
+        time_provider.set_time_source(fake_now, clamp=False)
+        try:
+            permit = transport.reserve_send(now=time_state['now'])
+            alice._send_new_packet(
+                [Segment(0, b'data')],
+                now=time_state['now'],
+                permit=permit,
+            )
+            alice._last_cum_ack = 0
+            alice._last_cum_ack_time = 0.0
+
+            time_state['now'] = alice._rtt.rto_sec + 1.0
+            response = Packet(seq=0, ack=0, sack=0, flags=0)
+            alice._handle_response(response.encode(), now=time_state['now'])
+
+            sent_before = len(transport._sent)
+            alice.tick()
+            self.assertGreater(len(transport._sent), sent_before)
 
         finally:
             time_provider.reset_time_source()

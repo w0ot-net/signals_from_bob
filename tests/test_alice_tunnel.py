@@ -458,6 +458,21 @@ class SendGateTests(unittest.TestCase):
 
         self.assertFalse(allowed)
 
+    def test_send_window_distance_respects_effective_cap(self):
+        transport = _DummyTransport()
+        config = make_test_config(
+            tunnel_initial_window=10,
+            tunnel_adaptive_pacing_enabled=True,
+            tunnel_pace_target_inflight_ratio=0.25,
+        )
+        alice = AliceTunnel(transport, config, crypto=Plain())
+        alice._last_cum_ack = 0
+        alice._send_window._next_seq = 3
+
+        allowed = alice._can_send_new(now=0.0)
+
+        self.assertFalse(allowed)
+
     def test_send_window_full_blocks_new_send(self):
         transport = _DummyTransport()
         config = make_test_config(tunnel_initial_window=1)

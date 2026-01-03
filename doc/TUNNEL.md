@@ -153,6 +153,10 @@ Alice checks `send_window.get_retransmits(rto)` each poll cycle and resends
 any packets whose time since last send exceeds RTO. Retransmits reuse the
 original sequence number and are rebuilt with current ack/sack.
 
+Retransmits are gated on cumulative ACK silence (time since ACK advanced),
+not on response silence. Responses without ACK progress do not defer RTO
+retransmits; response silence is only used for connection timeout.
+
 ### Bob (Opportunistic)
 
 Bob has no timers. On each request from Alice, Bob includes:
@@ -166,6 +170,11 @@ redundant retransmits. If faster recovery is needed, Bob can call
 
 The total number of unacked packets remains capped at max_in_flight, so the
 SACK bitmap always covers all outstanding packets.
+
+With adaptive pacing enabled, Alice applies a local effective inflight cap
+equal to min(negotiated max_in_flight, pacer target inflight). The send-window
+distance guard uses this cap to avoid outrunning SACK coverage when pacing
+tightens, without renegotiating window sizes.
 
 ---
 

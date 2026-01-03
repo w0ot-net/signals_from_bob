@@ -408,11 +408,11 @@ class AliceTunnel(BaseTunnel):
             return False
 
         # 2. Check for retransmits
-        # Avoid RTO retransmits while responses are still flowing.
-        response_silence = None
-        if self._last_recv_time:
-            response_silence = now - self._last_recv_time
-        if response_silence is None or response_silence >= self._rtt.rto_sec:
+        # Avoid RTO retransmits while ACKs are still advancing.
+        ack_silence = None
+        if self._last_cum_ack_time is not None:
+            ack_silence = now - self._last_cum_ack_time
+        if ack_silence is None or ack_silence >= self._rtt.rto_sec:
             retransmits = self._send_window.get_retransmits(
                 self._rtt.rto_sec, now=now
             )
@@ -504,9 +504,18 @@ class AliceTunnel(BaseTunnel):
                 },
             )
             return False
-        exceeded, distance_info = self._send_window_distance_exceeded()
+        effective_cap = None
+        if self._pacer.enabled:
+            cap = self._pacer_cap()
+            effective_cap = min(
+                self._send_window._max_in_flight,
+                self._pacer.target_inflight(cap, srtt_ms=self._rtt.srtt_ms),
+            )
+        exceeded, distance_info = self._send_window_distance_exceeded(
+            cap_override=effective_cap
+        )
         if exceeded:
-            (distance, max_in_flight, unacked,
+            (distance, max_in_flight, effective_cap, unacked,
              distance_limit, last_cum_ack, next_seq) = distance_info
             buffered = distance - unacked
             log_event(
@@ -520,6 +529,7 @@ class AliceTunnel(BaseTunnel):
                     'buffered': buffered,
                     'unacked': unacked,
                     'max_in_flight': max_in_flight,
+                    'effective_cap': effective_cap,
                     'last_cum_ack': last_cum_ack,
                     'next_seq': next_seq,
                     'side': 'alice',
@@ -536,6 +546,7 @@ class AliceTunnel(BaseTunnel):
                     'buffered': buffered,
                     'unacked': unacked,
                     'max_in_flight': max_in_flight,
+                    'effective_cap': effective_cap,
                     'last_cum_ack': last_cum_ack,
                     'next_seq': next_seq,
                     'side': 'alice',

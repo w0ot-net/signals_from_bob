@@ -44,3 +44,13 @@
 - `tests/test_alice_tunnel.py`
 - `doc/TUNNEL.md`
 - `doc/bugs/retransmit_stalling_icmp_socks.md`
+
+## Execution Notes
+- Updated ACK tracking to advance only on cumulative ACK progress.
+- Switched Alice RTO gating to cumulative-ACK silence and added a pacer-driven
+  local effective cap for the send-window distance guard.
+- Added unit coverage for ACK regression, ACK-silence retransmit gating, and
+  effective cap distance checks; updated send-window distance field assertions.
+- Documented ACK-silence gating and local effective inflight cap behavior.
+- Pending: update `doc/bugs/retransmit_stalling_icmp_socks.md` after user reruns
+  the ICMP repro and shares results.

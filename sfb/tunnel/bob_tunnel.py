@@ -480,7 +480,7 @@ class BobTunnel(BaseTunnel):
             return
         exceeded, distance_info = self._send_window_distance_exceeded()
         if exceeded:
-            (distance, max_in_flight, unacked,
+            (distance, max_in_flight, effective_cap, unacked,
              distance_limit, last_cum_ack, next_seq) = distance_info
             buffered = distance - unacked
             log_event(
@@ -494,6 +494,7 @@ class BobTunnel(BaseTunnel):
                     'buffered': buffered,
                     'unacked': unacked,
                     'max_in_flight': max_in_flight,
+                    'effective_cap': effective_cap,
                     'last_cum_ack': last_cum_ack,
                     'next_seq': next_seq,
                     'side': 'bob',
@@ -510,6 +511,7 @@ class BobTunnel(BaseTunnel):
                     'buffered': buffered,
                     'unacked': unacked,
                     'max_in_flight': max_in_flight,
+                    'effective_cap': effective_cap,
                     'last_cum_ack': last_cum_ack,
                     'next_seq': next_seq,
                     'side': 'bob',

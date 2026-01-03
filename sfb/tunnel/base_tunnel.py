@@ -35,6 +35,7 @@ from ..protocol import (
     FLAG_KEEPALIVE,
     PACKET_HEADER_SIZE,
     seq_diff,
+    seq_gt,
     log_control_segments,
 )
 from ..reliability import SendWindow, RecvWindow, ReliabilityStats, NoopReliabilityStats
@@ -280,7 +281,7 @@ class BaseTunnel(object):
 
         return packet, seq
 
-    def _send_window_distance_exceeded(self):
+    def _send_window_distance_exceeded(self, cap_override=None):
         """
         Check if next_seq is too far ahead of peer's cumulative ACK.
 
@@ -290,13 +291,18 @@ class BaseTunnel(object):
         if self._last_cum_ack is None:
             return (False, None)
         max_in_flight = self._send_window._max_in_flight
+        effective_cap = max_in_flight
+        if cap_override is not None and cap_override < effective_cap:
+            effective_cap = cap_override
+        if effective_cap < 1:
+            effective_cap = 1
         next_seq = self._send_window.next_seq
         diff = seq_diff(next_seq, self._last_cum_ack)
         if diff < 0:
             return (False, None)
         distance = diff
         unacked = self._send_window.unacked_count
-        distance_limit = max_in_flight
+        distance_limit = effective_cap
         if distance_limit > self.MAX_WINDOW:
             distance_limit = self.MAX_WINDOW
         if distance < distance_limit:
@@ -304,6 +310,7 @@ class BaseTunnel(object):
         return (True, (
             distance,
             max_in_flight,
+            effective_cap,
             unacked,
             distance_limit,
             self._last_cum_ack,
@@ -487,7 +494,7 @@ class BaseTunnel(object):
                 if packet_size is not None else packet.encoded_size(),
             },
         )
-        if self._last_cum_ack is None or packet.ack != self._last_cum_ack:
+        if self._last_cum_ack is None or seq_gt(packet.ack, self._last_cum_ack):
             self._last_cum_ack = packet.ack
             self._last_cum_ack_time = now
 

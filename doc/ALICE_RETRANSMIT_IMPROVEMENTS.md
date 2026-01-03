@@ -129,3 +129,31 @@ Notes:
 - Verify that keepalive-only loss does not increase data RTO.
 - Measure recovery time for single-loss and multi-loss SACK cases.
 - Ensure packet-count timeout behavior is unchanged.
+
+## Implementation Plan
+
+### Affected Components
+
+- `sfb/tunnel/alice_tunnel.py`: backoff gating, retransmit cap, keepalive resend
+  policy, handshake estimator reset.
+- `sfb/reliability/send_window.py`: retransmit selection ordering, keepalive
+  metadata, RTT sampling eligibility.
+- `sfb/reliability/rtt.py`: optional handshake estimator or reset helper.
+- `sfb/tunnel/base_tunnel.py`: ACK processing hooks for keepalive RTT filtering.
+- `sfb/reliability/stats.py` (or equivalent): add skipped-retransmit counters.
+- `sfb/config.py`: optional knobs for retransmit caps or keepalive sampling.
+
+### Plan Steps
+
+1. Decide final policy values: retransmit cap per tick, keepalive treatment,
+   and whether to reset or split RTO estimator after handshake.
+2. Update `SendWindow.get_retransmits()` to select by oldest `send_time` and
+   return a bounded list; plumb keepalive metadata to callers.
+3. Update `AliceTunnel` retransmit loop to apply backoff only for RTO-driven
+   retransmits and at most once per tick; apply cap and keepalive rules.
+4. Exclude keepalive-only packets from RTT sampling, or route those samples to
+   a separate stat that does not affect `RttEstimator`.
+5. Add metrics for retransmits skipped due to rate limiting or transport
+   permits; update logging as needed for visibility.
+6. Add or update unit tests around retransmit ordering, backoff gating, and
+   keepalive RTT handling (do not run E2E tests here).

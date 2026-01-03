@@ -39,13 +39,19 @@ duplication, reordering, and corruption on both request and response paths.
 - Implement real byte corruption when enabled:
   - Use `bytearray` and the configured `corrupt_bytes` range to flip random
     bytes.
-  - Provide a `corrupt_mode` switch (`drop` vs `mutate`) so current tests can
-    keep drop semantics until updated.
+  - Provide a `corrupt_mode` switch (`drop` vs `mutate`) and default it to
+    `drop` to preserve the current "lower-layer discard" behavior.
+  - In `mutate` mode, corruption flips bytes but still delivers the packet.
+- Stats represent impairment decisions, not guaranteed deliveries (for
+  example, duplication is counted when selected even if later suppressed by
+  capacity checks).
 - Use a min-heap (`heapq`) for delayed delivery queues to avoid O(n) scans.
 
 ### Transport Wrapper (Alice)
 - Maintain wrapper-level correlation IDs and pending tracking independent of
   inner transport IDs.
+- Use a `pending_timeout_sec` (default 5.0) for synthetic drops and stale
+  inner requests; do not reach into inner transport private timeouts.
 - `reserve_send()`:
   - Prune wrapper pending entries by timeout.
   - Enforce `max_in_flight` against wrapper pending + reserved.
@@ -58,20 +64,21 @@ duplication, reordering, and corruption on both request and response paths.
       inner transport.
     - Corrupt: mutate bytes (or drop, per `corrupt_mode`) before dispatch.
     - Delay/reorder: schedule a send event with a held inner permit.
-    - Duplicate: schedule additional send events; map all inner corr_ids to the
-      same wrapper corr_id.
+    - Duplicate: schedule at most one additional send event and map all inner
+      corr_ids to the same wrapper corr_id. Extra inner permits are required;
+      if an extra permit is not available, suppress the duplicate.
 - Dispatch scheduled sends on `recv()` and `reserve_send()` calls:
   - When due, call inner `send()` and record `inner_corr_id -> wrapper_corr_id`.
-  - Track per-wrapper corr_id completion state and an optional duplicate linger
-    window so late duplicates can still be delivered.
+  - Keep the mapping until each inner corr_id is resolved or pruned; duplicate
+    responses are delivered while their inner corr_id remains tracked.
 - `recv()`:
   - Flush due delayed sends and delayed responses before blocking.
   - Poll inner transport, map `inner_corr_id` to wrapper corr_id, and apply
     receive impairment decisions (drop/corrupt/delay/reorder/duplicate).
   - Dropped responses should keep the wrapper pending entry until timeout.
 - `pending_count()`:
-  - Report wrapper pending entries (including delayed or dropped) to preserve
-    backpressure and headroom behavior in the tunnel.
+  - Report total outstanding requests, including synthetic dropped entries,
+    delayed sends, and in-flight inner requests (including duplicates).
 
 ### Server Wrapper (Bob)
 - Incoming request impairment:
@@ -87,8 +94,8 @@ duplication, reordering, and corruption on both request and response paths.
 
 ### API Compatibility
 - Keep `LossyTransport`, `LossyServer`, and `NetworkImpairment` public names.
-- If new knobs are needed (e.g., `pending_timeout`, `corrupt_mode`,
-  `dup_linger_ms`), add them explicitly and update all call sites at once.
+- Add explicit knobs as needed (`pending_timeout_sec`, `corrupt_mode`) and
+  update all call sites at once.
 - Document the exact semantics in `doc/LOSSY_TRANSPORT.md`.
 
 ## Implementation Order
@@ -116,8 +123,8 @@ duplication, reordering, and corruption on both request and response paths.
   - No recursion loops when dropping many packets in a row.
 - `tests/test_transport_base.py` (only if shared helpers are added).
 
-## Open Questions
-- Default corruption behavior: keep drop semantics for compatibility or switch
-  to byte mutation by default.
-- Duplicate response delivery: keep mapping alive for a short linger window or
-  drop duplicates once a response has been delivered.
+## Decisions
+- Corruption defaults to `drop` (discard) for compatibility; `mutate` is
+  opt-in and flips bytes per `corrupt_bytes`.
+- Duplicate mapping is retained until each inner corr_id resolves or is pruned;
+  no extra linger window is used.

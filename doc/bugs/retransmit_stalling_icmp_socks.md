@@ -282,3 +282,9 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Bob latest distance event shows `distance` 256, `buffered` 255, `unacked` 1,
   `missing_in_unacked` True with `missing_age` ~0.0025s and
   `missing_retransmit_count` 4. Keepalive-drop fields were not present.
+
+## Change applied (2026-01-03)
+- When Alice hits the distance cap, she now allows a gap retransmit once per
+  stalled `last_cum_ack` if the missing packet age exceeds the silence
+  threshold, even if `unacked` is above the previous threshold. Pre-cap
+  behavior remains unchanged.

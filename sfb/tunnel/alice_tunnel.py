@@ -683,16 +683,26 @@ class AliceTunnel(BaseTunnel):
             pre_cap_slack = max(4, distance_limit // 8)
             if distance < distance_limit - pre_cap_slack:
                 return False
-        buffered_min = max(4, (distance_limit * 3) // 4)
-        unacked_max = max(4, distance_limit // 4)
-        if buffered < buffered_min or unacked > unacked_max:
-            return False
         if last_cum_ack == self._gap_retransmit_ack:
             return False
         info = self._send_window.get_unacked_info(last_cum_ack)
         if info is None:
             return False
         seq, segments, flags, encrypted_body, send_time, retransmit_count = info
+        missing_age = None
+        if send_time is not None:
+            missing_age = now - send_time
+            if missing_age < 0:
+                missing_age = 0.0
+        allow_on_distance = False
+        if distance >= distance_limit and missing_age is not None:
+            if missing_age >= min_silence:
+                allow_on_distance = True
+        if not allow_on_distance:
+            buffered_min = max(4, (distance_limit * 3) // 4)
+            unacked_max = max(4, distance_limit // 4)
+            if buffered < buffered_min or unacked > unacked_max:
+                return False
         if flags & FLAG_KEEPALIVE and self._channel_manager.has_pending_data():
             return False
         if not self._can_send_retransmit(now=now):

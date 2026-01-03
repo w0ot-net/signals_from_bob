@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 
+from ...compat import to_native_str
 from ...logging_util import get_logger, log_event
 
 _LOG = get_logger(__name__)
@@ -34,8 +35,14 @@ def _load_unix_resolvers():
                 line = line.strip()
                 if not line or line.startswith('#'):
                     continue
+                if '#' in line:
+                    line = line.split('#', 1)[0].strip()
+                    if not line:
+                        continue
                 parts = line.split()
-                if parts[0] != 'nameserver' or len(parts) < 2:
+                if not parts:
+                    continue
+                if parts[0].lower() != 'nameserver' or len(parts) < 2:
                     continue
                 ip = parts[1]
                 addr = (ip, 53)
@@ -46,17 +53,100 @@ def _load_unix_resolvers():
     return resolvers
 
 
+class _SimpleResult(object):
+    def __init__(self, stdout):
+        self.stdout = stdout
+
+
+def _subprocess_error_types():
+    errors = [OSError]
+    subproc_error = getattr(subprocess, 'SubprocessError', None)
+    if subproc_error is not None:
+        errors.append(subproc_error)
+    timeout_error = getattr(subprocess, 'TimeoutExpired', None)
+    if timeout_error is not None:
+        errors.append(timeout_error)
+    return tuple(errors)
+
+
+def _run_nslookup():
+    args = ['nslookup', 'google.com']
+    runner = getattr(subprocess, 'run', None)
+    if runner is not None:
+        return runner(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+            universal_newlines=True,
+        )
+    return _run_nslookup_with_popen(args)
+
+
+def _run_nslookup_with_popen(args):
+    proc = subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+    )
+    timeout_error = getattr(subprocess, 'TimeoutExpired', None)
+    try:
+        try:
+            output, _ = proc.communicate(timeout=5)
+        except TypeError:
+            output, _ = proc.communicate()
+    except Exception as e:
+        if timeout_error is not None and isinstance(e, timeout_error):
+            try:
+                if hasattr(proc, 'kill'):
+                    proc.kill()
+                else:
+                    proc.terminate()
+            except Exception:
+                pass
+            try:
+                proc.communicate()
+            except Exception:
+                pass
+        raise
+    return _SimpleResult(output)
+
+
+def _coerce_output(value):
+    if value is None:
+        return ''
+    return to_native_str(value)
+
+
+def _parse_nslookup_output(output):
+    ip_pattern = re.compile(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})')
+    lines = output.splitlines()
+    server_index = None
+    for i, line in enumerate(lines):
+        if line.startswith('Server:'):
+            server_index = i
+            break
+    if server_index is None:
+        return None
+    for line in lines[server_index + 1:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith('Non-authoritative answer:'):
+            break
+        match = ip_pattern.search(stripped)
+        if match:
+            return match.group(1)
+    return None
+
+
 def _load_windows_resolvers():
     """Get the system resolver on Windows by parsing nslookup output."""
     try:
-        result = subprocess.run(
-            ['nslookup', 'google.com'],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        output = result.stdout
-    except (subprocess.SubprocessError, OSError) as e:
+        result = _run_nslookup()
+        output = _coerce_output(getattr(result, 'stdout', ''))
+    except _subprocess_error_types() as e:
         log_event(
             _LOG,
             logging.DEBUG,
@@ -72,26 +162,16 @@ def _load_windows_resolvers():
     #
     # Non-authoritative answer:
     # ...
-    ip_pattern = re.compile(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})')
-    lines = output.splitlines()
-    for i, line in enumerate(lines):
-        if line.startswith('Server:'):
-            # The Address line follows the Server line
-            if i + 1 < len(lines):
-                addr_line = lines[i + 1]
-                if 'Address:' in addr_line:
-                    match = ip_pattern.search(addr_line)
-                    if match:
-                        ip = match.group(1)
-                        log_event(
-                            _LOG,
-                            logging.DEBUG,
-                            'dns.resolver_found',
-                            'Found system resolver',
-                            lambda: {'ip': ip},
-                        )
-                        return [(ip, 53)]
-            break
+    ip = _parse_nslookup_output(output)
+    if ip:
+        log_event(
+            _LOG,
+            logging.DEBUG,
+            'dns.resolver_found',
+            'Found system resolver',
+            lambda: {'ip': ip},
+        )
+        return [(ip, 53)]
 
     log_event(
         _LOG,

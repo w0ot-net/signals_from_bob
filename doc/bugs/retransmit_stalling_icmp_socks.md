@@ -172,6 +172,18 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Goal: recover the missing gap earlier than the full RTO and reduce
   prolonged distance-cap stalls.
 
+## Latest findings (2026-01-03, post gap retransmit)
+- Sources: `logs/client_log.db` (Alice) had 94600 rows (~10:31:49-10:32:18 UTC).
+  `logs/server_log.db` shows an earlier window (~10:20:31-10:22:34 UTC), so Bob
+  data did not match this run.
+- Alice `tunnel.send_window_distance`: 6407; `tunnel.send_blocked`: 11135
+  (`window_distance` 6407, `transport_headroom` 4670).
+- Alice distance metrics pinned at 128 with low `unacked` (median 5, p90 12)
+  and high `buffered` (median 123, p90 126).
+- Alice `tunnel.retransmit`: 44, all `reason=gap` (new gap retransmits firing).
+- `tunnel.send_window_distance` stalls split into 50 runs; longest runs are
+  ~0.24-0.26s with ~156-177 events (shorter than the pre-change ~0.59s runs).
+
 ## Next steps from the latest logs
 - If console output still shows `tunnel.send_window_distance` spam, capture DB
   logs with a profile that includes it on both sides; the latest Alice DB had

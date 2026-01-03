@@ -272,6 +272,101 @@ class BobTunnel(BaseTunnel):
         # Send response
         self._send_response(responder, now)
 
+    def _send_retransmit_response(self, responder, response_payload_cap, now,
+                                  seq, segments, flags, encrypted_body,
+                                  context='retransmit', reason=None):
+        packet = self._rebuild_packet(seq, segments, flags=flags)
+        if encrypted_body is None:
+            body = self._encode_segments(packet.segments)
+            encrypted_body = self._encrypt(
+                body,
+                seq=seq,
+                direction=self._direction_outbound(),
+            )
+        response_data = self._encode_packet(packet, encrypted_body=encrypted_body)
+        if (response_payload_cap is not None and
+                len(response_data) > response_payload_cap):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.retransmit_skip',
+                'Retransmit exceeds per-request cap',
+                lambda: {
+                    'seq': seq,
+                    'reason': 'cap',
+                    'bytes': len(response_data),
+                    'cap': response_payload_cap,
+                    'side': 'bob',
+                },
+            )
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'tunnel.retransmit_cap_fatal',
+                'Retransmit exceeds per-request cap; closing',
+                lambda: {
+                    'seq': seq,
+                    'bytes': len(response_data),
+                    'cap': response_payload_cap,
+                    'side': 'bob',
+                },
+            )
+            self.close()
+            return False
+        self._send_window.mark_retransmit(seq, now=now)
+        def build_fields():
+            fields = {'seq': seq, 'seg_count': len(segments), 'side': 'bob'}
+            if reason is not None:
+                fields['reason'] = reason
+            return fields
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.retransmit',
+            'Retransmitting packet',
+            build_fields,
+        )
+        self._log_response_cap(responder, response_data)
+
+        self._packets_sent += 1
+        self._bytes_sent += len(response_data)
+        self._respond(responder, response_data, context, packet)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.packet_send',
+            'Packet sent',
+            lambda: {
+                'seq': packet.seq,
+                'ack': packet.ack,
+                'sack': packet.sack,
+                'flags': packet.flags,
+                'seg_count': len(packet.segments),
+                'bytes': len(response_data),
+                'side': 'bob',
+            },
+        )
+        return True
+
+    def _send_ack_only_response(self, responder, now, context):
+        packet, _ = self._build_packet(segments=[])
+        body = self._encode_segments(packet.segments)
+        encrypted_body = self._encrypt(
+            body,
+            seq=packet.seq,
+            direction=self._direction_outbound(),
+        )
+        response_data = self._encode_packet(packet, encrypted_body=encrypted_body)
+        self._send_window.send(
+            [],
+            flags=packet.flags,
+            encrypted_body=encrypted_body,
+            now=now,
+        )
+        self._packets_sent += 1
+        self._bytes_sent += len(response_data)
+        self._respond(responder, response_data, context, packet)
+
     def _send_response(self, responder, now):
         """Build and send response packet."""
         response_payload_cap = None
@@ -280,9 +375,11 @@ class BobTunnel(BaseTunnel):
 
         # Opportunistic retransmit: if we have unacked packets, resend oldest
         # Rebuild with fresh ack/sack to ensure current ACK state is sent
-        oldest = self._send_window.get_oldest_unacked_info()
-        if oldest is not None:
-            seq, segments, flags, encrypted_body, send_time, retransmit_count = oldest
+        oldest_info = self._send_window.get_oldest_unacked_info()
+        if oldest_info is not None:
+            seq, segments, flags, encrypted_body, send_time, retransmit_count = (
+                oldest_info
+            )
             cooldown = self._retransmit_cooldown()
             age = None
             if send_time is not None:
@@ -314,73 +411,15 @@ class BobTunnel(BaseTunnel):
                     },
                 )
             else:
-                packet = self._rebuild_packet(seq, segments, flags=flags)
-                if encrypted_body is None:
-                    body = self._encode_segments(packet.segments)
-                    encrypted_body = self._encrypt(
-                        body,
-                        seq=seq,
-                        direction=self._direction_outbound(),
-                    )
-                response_data = self._encode_packet(
-                    packet, encrypted_body=encrypted_body
-                )
-                if (response_payload_cap is not None and
-                        len(response_data) > response_payload_cap):
-                    log_event(
-                        self._logger,
-                        logging.DEBUG,
-                        'tunnel.retransmit_skip',
-                        'Retransmit exceeds per-request cap',
-                        lambda: {
-                            'seq': seq,
-                            'reason': 'cap',
-                            'bytes': len(response_data),
-                            'cap': response_payload_cap,
-                            'side': 'bob',
-                        },
-                    )
-                    log_event(
-                        self._logger,
-                        logging.ERROR,
-                        'tunnel.retransmit_cap_fatal',
-                        'Retransmit exceeds per-request cap; closing',
-                        lambda: {
-                            'seq': seq,
-                            'bytes': len(response_data),
-                            'cap': response_payload_cap,
-                            'side': 'bob',
-                        },
-                    )
-                    self.close()
-                    return
-                self._send_window.mark_retransmit(seq, now=now)
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.retransmit',
-                    'Retransmitting packet',
-                    lambda: {'seq': seq, 'seg_count': len(segments), 'side': 'bob'},
-                )
-                self._log_response_cap(responder, response_data)
-
-                self._packets_sent += 1
-                self._bytes_sent += len(response_data)
-                self._respond(responder, response_data, 'retransmit', packet)
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.packet_send',
-                    'Packet sent',
-                    lambda: {
-                        'seq': packet.seq,
-                        'ack': packet.ack,
-                        'sack': packet.sack,
-                        'flags': packet.flags,
-                        'seg_count': len(packet.segments),
-                        'bytes': len(response_data),
-                        'side': 'bob',
-                    },
+                self._send_retransmit_response(
+                    responder,
+                    response_payload_cap,
+                    now,
+                    seq,
+                    segments,
+                    flags,
+                    encrypted_body,
+                    context='retransmit',
                 )
                 return
 
@@ -424,11 +463,18 @@ class BobTunnel(BaseTunnel):
                     'side': 'bob',
                 },
             )
-            packet, _ = self._build_packet(segments=[])
-            response_data = self._encode_packet(packet)
-            self._packets_sent += 1
-            self._bytes_sent += len(response_data)
-            self._respond(responder, response_data, 'window_full', packet)
+            if oldest_info is not None:
+                self._send_retransmit_response(
+                    responder,
+                    response_payload_cap,
+                    now,
+                    oldest_info[0],
+                    oldest_info[1],
+                    oldest_info[2],
+                    oldest_info[3],
+                    context='window_full',
+                    reason='window_full',
+                )
             return
         exceeded, distance_info = self._send_window_distance_exceeded()
         if exceeded:
@@ -468,11 +514,18 @@ class BobTunnel(BaseTunnel):
                     'reason': 'window_distance',
                 },
             )
-            packet, _ = self._build_packet(segments=[])
-            response_data = self._encode_packet(packet)
-            self._packets_sent += 1
-            self._bytes_sent += len(response_data)
-            self._respond(responder, response_data, 'window_distance', packet)
+            if oldest_info is not None:
+                self._send_retransmit_response(
+                    responder,
+                    response_payload_cap,
+                    now,
+                    oldest_info[0],
+                    oldest_info[1],
+                    oldest_info[2],
+                    oldest_info[3],
+                    context='window_distance',
+                    reason='window_distance',
+                )
             return
 
         # Collect new segments - use send MTU
@@ -490,11 +543,11 @@ class BobTunnel(BaseTunnel):
 
         if not segments:
             if pending_data:
-                packet, _ = self._build_packet(segments=[])
-                response_data = self._encode_packet(packet)
-                self._packets_sent += 1
-                self._bytes_sent += len(response_data)
-                self._respond(responder, response_data, 'pending_no_segments', packet)
+                self._send_ack_only_response(
+                    responder,
+                    now,
+                    'pending_no_segments',
+                )
                 return
             packet, seq = self._build_packet(
                 flags=FLAG_KEEPALIVE,

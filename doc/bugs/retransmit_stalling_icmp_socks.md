@@ -368,3 +368,8 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 ## Change applied (2026-01-03)
 - Added `tunnel.window_ok_recv` and `tunnel.window_ok_apply` debug events on
   Alice to record window_ok receipt and application state.
+
+## Change applied (2026-01-03)
+- Alice now runs serial control-only sends until `window_ok` is applied:
+  only one in-flight packet is allowed and only control segments are sent
+  (data is suppressed).

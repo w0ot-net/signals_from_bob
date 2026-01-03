@@ -360,6 +360,7 @@ class AliceTunnel(BaseTunnel):
         self._tick_epoch += 1
         self._retransmit_budget = self._retransmit_cap
         packets_sent_before = self._packets_sent
+        serial_window = self._serial_window_negotiation()
 
         # 1. Receive all available responses
         received_any = False
@@ -491,7 +492,7 @@ class AliceTunnel(BaseTunnel):
 
         # 3. Send new packets if we can
         while True:
-            if self._channel_manager.has_pending_data():
+            if serial_window:
                 if not self._can_send_new(
                         now=now,
                         keepalive_only=False):
@@ -499,13 +500,31 @@ class AliceTunnel(BaseTunnel):
                 permit = self._reserve_transport_permit(now)
                 if permit is None:
                     break
-                segments = self._collect_segments(self._send_mtu)
+                segments = self._collect_segments(
+                    self._send_mtu,
+                    control_only=True,
+                )
                 if segments:
                     self._has_pending_data_acks = True
                     self._send_new_packet(segments, now, permit=permit)
                     continue
                 self._transport.release_send(permit)
-                break
+            else:
+                if self._channel_manager.has_pending_data():
+                    if not self._can_send_new(
+                            now=now,
+                            keepalive_only=False):
+                        break
+                    permit = self._reserve_transport_permit(now)
+                    if permit is None:
+                        break
+                    segments = self._collect_segments(self._send_mtu)
+                    if segments:
+                        self._has_pending_data_acks = True
+                        self._send_new_packet(segments, now, permit=permit)
+                        continue
+                    self._transport.release_send(permit)
+                    break
 
             should_poll, keepalive_due, consume_pong_grace = self._poll_decision(now)
             if not should_poll:
@@ -534,11 +553,14 @@ class AliceTunnel(BaseTunnel):
             permit = self._reserve_transport_permit(now)
             if permit is None:
                 break
-            segments = self._collect_segments(self._send_mtu)
+            segments = self._collect_segments(
+                self._send_mtu,
+                control_only=serial_window,
+            )
             if segments:
                 self._send_new_packet(segments, now, permit=permit)
                 continue
-            if self._channel_manager.has_pending_data():
+            if self._channel_manager.has_pending_data() and not serial_window:
                 self._transport.release_send(permit)
                 break
             self._send_new_packet([], now, flags=FLAG_KEEPALIVE, permit=permit)
@@ -561,6 +583,9 @@ class AliceTunnel(BaseTunnel):
         """Check if we can send a new packet."""
         if now is None:
             now = time_provider.now()
+        if self._serial_window_negotiation():
+            if self._send_window.unacked_count > 0:
+                return False
         if not self._send_window.can_send:
             log_event(
                 self._logger,
@@ -784,6 +809,9 @@ class AliceTunnel(BaseTunnel):
             )
             return False
         return True
+
+    def _serial_window_negotiation(self):
+        return not self._window_negotiated
 
     def _consume_retransmit_budget(self):
         if self._retransmit_budget is None:

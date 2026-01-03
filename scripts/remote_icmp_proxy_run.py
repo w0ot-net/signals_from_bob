@@ -183,8 +183,8 @@ def parse_args():
         help='Remote wget URL'
     )
     parser.add_argument(
-        '--remote-scp-file', default='500MB-CZIPtestfile.org.zip',
-        help='Remote file to scp (default: 500MB-CZIPtestfile.org.zip)'
+        '--remote-scp-file', default='/root/500MB-CZIPtestfile.org.zip',
+        help='Remote file to scp (default: /root/500MB-CZIPtestfile.org.zip)'
     )
     parser.add_argument(
         '--remote-scp-dest', default='127.0.0.1:/tmp',

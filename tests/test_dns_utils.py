@@ -100,6 +100,13 @@ nameserver 9.9.9.9 # trailing
         self._patch_attr(dns_utils, 'open', fake_open)
         self.assertEqual(dns_utils._load_unix_resolvers(), [])
 
+    def test_load_unix_resolvers_missing_file_oserror(self):
+        def fake_open(*args, **kwargs):
+            raise OSError('missing')
+
+        self._patch_attr(dns_utils, 'open', fake_open)
+        self.assertEqual(dns_utils._load_unix_resolvers(), [])
+
     def test_load_windows_resolvers_parses_output(self):
         self._ensure_subprocess_error()
         output = (
@@ -134,6 +141,38 @@ nameserver 9.9.9.9 # trailing
 
         def fake_run(*args, **kwargs):
             raise OSError('boom')
+
+        self._patch_attr(dns_utils.subprocess, 'run', fake_run)
+        self.assertEqual(dns_utils._load_windows_resolvers(), [])
+
+    def test_load_windows_resolvers_subprocess_error(self):
+        self._ensure_subprocess_error()
+
+        def fake_run(*args, **kwargs):
+            raise dns_utils.subprocess.SubprocessError('boom')
+
+        self._patch_attr(dns_utils.subprocess, 'run', fake_run)
+        self.assertEqual(dns_utils._load_windows_resolvers(), [])
+
+    def test_load_windows_resolvers_missing_address_line(self):
+        self._ensure_subprocess_error()
+        output = 'Server:  UnKnown\n'
+
+        def fake_run(*args, **kwargs):
+            return _DummyResult(output)
+
+        self._patch_attr(dns_utils.subprocess, 'run', fake_run)
+        self.assertEqual(dns_utils._load_windows_resolvers(), [])
+
+    def test_load_windows_resolvers_address_no_ipv4(self):
+        self._ensure_subprocess_error()
+        output = (
+            'Server:  UnKnown\n'
+            'Address:  ::1\n'
+        )
+
+        def fake_run(*args, **kwargs):
+            return _DummyResult(output)
 
         self._patch_attr(dns_utils.subprocess, 'run', fake_run)
         self.assertEqual(dns_utils._load_windows_resolvers(), [])

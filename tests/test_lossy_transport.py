@@ -19,6 +19,7 @@ from sfb.transport import (
     extreme_conditions,
     chaos,
 )
+from sfb.transport.lossy import _ImpairmentEngine
 from sfb import time_provider
 
 
@@ -110,71 +111,97 @@ class MockServer(Server):
         self._responses.clear()
 
 
-class NetworkImpairmentTests(unittest.TestCase):
-    """Tests for NetworkImpairment configuration."""
+class ImpairmentEngineTests(unittest.TestCase):
+    """Tests for impairment decisions."""
 
     def test_no_impairment_never_drops(self):
-        imp = NetworkImpairment(seed=42)
+        engine = _ImpairmentEngine(NetworkImpairment(seed=42))
         for _ in range(100):
-            self.assertFalse(imp.should_drop())
+            decision = engine.decide()
+            self.assertFalse(decision.drop)
 
     def test_full_loss_always_drops(self):
-        imp = NetworkImpairment(loss_rate=1.0, seed=42)
+        engine = _ImpairmentEngine(NetworkImpairment(loss_rate=1.0, seed=42))
         for _ in range(100):
-            self.assertTrue(imp.should_drop())
+            decision = engine.decide()
+            self.assertTrue(decision.drop)
 
     def test_partial_loss_rate(self):
-        imp = NetworkImpairment(loss_rate=0.5, seed=42)
-        drops = sum(1 for _ in range(1000) if imp.should_drop())
-        # Should be roughly 50% with some variance
+        engine = _ImpairmentEngine(NetworkImpairment(loss_rate=0.5, seed=42))
+        drops = sum(1 for _ in range(1000) if engine.decide().drop)
         self.assertGreater(drops, 400)
         self.assertLess(drops, 600)
 
     def test_burst_loss(self):
-        imp = NetworkImpairment(
+        engine = _ImpairmentEngine(NetworkImpairment(
             burst_loss_prob=1.0,
             burst_loss_len=(5, 5),
-            seed=42
-        )
-        # First call triggers burst
-        self.assertTrue(imp.should_drop())
-        # Next 4 are in burst
+            seed=42,
+        ))
+        self.assertTrue(engine.decide().drop)
         for _ in range(4):
-            self.assertTrue(imp.should_drop())
-        # After burst, need to trigger again
-        # (probability is 1.0 so next call starts new burst)
+            self.assertTrue(engine.decide().drop)
 
     def test_delay_calculation(self):
-        imp = NetworkImpairment(delay_ms=100, jitter_ms=0, seed=42)
-        delay = imp.get_delay_sec()
-        self.assertAlmostEqual(delay, 0.1, places=3)
+        engine = _ImpairmentEngine(NetworkImpairment(delay_ms=100, seed=42))
+        decision = engine.decide()
+        self.assertAlmostEqual(decision.delay_sec, 0.1, places=3)
 
     def test_jitter_adds_variance(self):
-        imp = NetworkImpairment(delay_ms=100, jitter_ms=50, seed=42)
-        delays = [imp.get_delay_sec() for _ in range(100)]
-        # All delays should be in range [50ms, 150ms]
-        for d in delays:
-            self.assertGreaterEqual(d, 0.05)
-            self.assertLessEqual(d, 0.15)
-        # Should have some variance
+        engine = _ImpairmentEngine(NetworkImpairment(delay_ms=100, jitter_ms=50, seed=42))
+        delays = [engine.decide().delay_sec for _ in range(100)]
+        for delay in delays:
+            self.assertGreaterEqual(delay, 0.05)
+            self.assertLessEqual(delay, 0.15)
         self.assertGreater(max(delays) - min(delays), 0.01)
 
     def test_stats_tracking(self):
-        imp = NetworkImpairment(loss_rate=0.5, dup_rate=0.5, seed=42)
+        engine = _ImpairmentEngine(NetworkImpairment(loss_rate=0.5, dup_rate=0.5, seed=42))
         for _ in range(100):
-            imp.should_drop()
-            imp.should_duplicate()
-
-        stats = imp.stats()
+            engine.decide()
+        stats = engine.stats()
+        self.assertEqual(stats['sent'], 100)
         self.assertGreater(stats['dropped'], 0)
         self.assertGreater(stats['duplicated'], 0)
 
     def test_stats_reset(self):
-        imp = NetworkImpairment(loss_rate=1.0, seed=42)
-        imp.should_drop()
-        self.assertEqual(imp.packets_dropped, 1)
-        imp.reset_stats()
-        self.assertEqual(imp.packets_dropped, 0)
+        engine = _ImpairmentEngine(NetworkImpairment(loss_rate=1.0, seed=42))
+        engine.decide()
+        self.assertEqual(engine.stats()['dropped'], 1)
+        engine.reset_stats()
+        self.assertEqual(engine.stats()['dropped'], 0)
+
+    def test_seed_determinism(self):
+        config = NetworkImpairment(
+            loss_rate=0.2,
+            delay_ms=50,
+            jitter_ms=10,
+            dup_rate=0.1,
+            reorder_rate=0.2,
+            seed=7,
+        )
+        engine_a = _ImpairmentEngine(config)
+        engine_b = _ImpairmentEngine(config)
+        decisions_a = []
+        decisions_b = []
+        for _ in range(25):
+            decision = engine_a.decide()
+            decisions_a.append((
+                decision.drop,
+                decision.corrupt,
+                decision.delay_sec,
+                decision.duplicate_count,
+                decision.reorder,
+            ))
+            decision = engine_b.decide()
+            decisions_b.append((
+                decision.drop,
+                decision.corrupt,
+                decision.delay_sec,
+                decision.duplicate_count,
+                decision.reorder,
+            ))
+        self.assertEqual(decisions_a, decisions_b)
 
 
 class LossyTransportTests(unittest.TestCase):
@@ -196,74 +223,137 @@ class LossyTransportTests(unittest.TestCase):
         imp = NetworkImpairment(loss_rate=1.0, seed=42)
         lossy = LossyTransport(inner, imp)
 
-        # Send should "succeed" but packet is dropped
         permit = lossy.reserve_send()
         self.assertIsNotNone(permit)
         corr_id = lossy.send(b'test', permit)
         self.assertIsNotNone(corr_id)
 
-        # Inner transport should not have received anything
         self.assertEqual(len(inner._sent), 0)
-
-        # recv should return nothing
         result = lossy.recv(timeout=0)
         self.assertEqual(result, (None, None))
 
-    def test_corruption_drops_packet(self):
-        """Corruption simulates lower-layer discard (packet dropped, not modified)."""
+    def test_corruption_drop_mode(self):
         inner = MockTransport()
-        imp = NetworkImpairment(corrupt_rate=1.0, corrupt_bytes=(1, 1), seed=42)
+        imp = NetworkImpairment(
+            corrupt_rate=1.0,
+            corrupt_bytes=(1, 1),
+            corrupt_mode='drop',
+            seed=42,
+        )
         lossy = LossyTransport(inner, imp)
 
         permit = lossy.reserve_send()
         self.assertIsNotNone(permit)
         lossy.send(b'\x00' * 10, permit)
 
-        # Corrupted packets are dropped, not sent to inner
         self.assertEqual(len(inner._sent), 0)
 
-    def test_duplication(self):
+    def test_corruption_mutate_mode(self):
+        inner = MockTransport()
+        imp = NetworkImpairment(
+            corrupt_rate=1.0,
+            corrupt_bytes=(1, 1),
+            corrupt_mode='mutate',
+            seed=42,
+        )
+        lossy = LossyTransport(inner, imp)
+
+        payload = b'\x00' * 10
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        lossy.send(payload, permit)
+
+        self.assertEqual(len(inner._sent), 1)
+        self.assertNotEqual(inner._sent[0], payload)
+
+    def test_duplication_maps_same_wrapper_id(self):
         inner = MockTransport()
         imp = NetworkImpairment(dup_rate=1.0, seed=42)
-        lossy = LossyTransport(inner, imp)
+        lossy = LossyTransport(inner, send_impairment=imp,
+                               recv_impairment=no_impairment())
 
         permit = lossy.reserve_send()
         self.assertIsNotNone(permit)
-        lossy.send(b'test', permit)
+        wrapper_id = lossy.send(b'test', permit)
 
-        # Should have sent twice to inner
         self.assertEqual(len(inner._sent), 2)
 
-    def test_pending_count_includes_dropped(self):
+        first = lossy.recv(timeout=0)
+        second = lossy.recv(timeout=0)
+
+        self.assertEqual(first[0], wrapper_id)
+        self.assertEqual(second[0], wrapper_id)
+        self.assertEqual(first[1], b'test')
+        self.assertEqual(second[1], b'test')
+
+    def test_send_delay_buffers_inner_send(self):
         inner = MockTransport()
-        imp = NetworkImpairment(loss_rate=1.0, seed=42)
-        lossy = LossyTransport(inner, imp)
+        imp = NetworkImpairment(delay_ms=100, seed=42)
+        lossy = LossyTransport(inner, send_impairment=imp,
+                               recv_impairment=no_impairment())
 
         permit = lossy.reserve_send()
         self.assertIsNotNone(permit)
         lossy.send(b'test', permit)
 
-        # Dropped packet should count as pending
-        self.assertEqual(lossy.pending_count(), 1)
-
-    def test_delay_buffers_response(self):
-        inner = MockTransport()
-        imp = NetworkImpairment(delay_ms=100, seed=42)
-        lossy = LossyTransport(inner, send_impairment=no_impairment(),
-                               recv_impairment=imp)
-
-        permit = lossy.reserve_send()
-        self.assertIsNotNone(permit)
-        corr_id = lossy.send(b'test', permit)
-
-        # Immediate recv should return nothing (delayed)
+        self.assertEqual(len(inner._sent), 0)
         result = lossy.recv(timeout=0)
         self.assertEqual(result, (None, None))
 
-        # After delay, should return
         time_provider.sleep(0.15)
+        lossy.recv(timeout=0)
+        self.assertEqual(len(inner._sent), 1)
+
+    def test_send_reorder_buffers_inner_send(self):
+        inner = MockTransport()
+        imp = NetworkImpairment(reorder_rate=1.0, reorder_wait_ms=50, seed=42)
+        lossy = LossyTransport(inner, send_impairment=imp,
+                               recv_impairment=no_impairment())
+
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        lossy.send(b'test', permit)
+
+        self.assertEqual(len(inner._sent), 0)
+        time_provider.sleep(0.06)
+        lossy.recv(timeout=0)
+        self.assertEqual(len(inner._sent), 1)
+
+    def test_pending_count_includes_dropped_response(self):
+        inner = MockTransport()
+        recv_imp = NetworkImpairment(loss_rate=1.0, seed=42)
+        lossy = LossyTransport(
+            inner,
+            send_impairment=no_impairment(),
+            recv_impairment=recv_imp,
+            pending_timeout_sec=0.05,
+        )
+
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        lossy.send(b'test', permit)
+
         result = lossy.recv(timeout=0)
-        self.assertEqual(result[0], corr_id)
+        self.assertEqual(result, (None, None))
+        self.assertEqual(lossy.pending_count(), 1)
+
+        time_provider.sleep(0.1)
+        lossy.recv(timeout=0)
+        self.assertEqual(lossy.pending_count(), 0)
+
+    def test_drop_recv_does_not_recurse(self):
+        inner = MockTransport()
+        recv_imp = NetworkImpairment(loss_rate=1.0, seed=42)
+        lossy = LossyTransport(inner, send_impairment=no_impairment(),
+                               recv_impairment=recv_imp)
+
+        for _ in range(5):
+            permit = lossy.reserve_send()
+            self.assertIsNotNone(permit)
+            lossy.send(b'test', permit)
+
+        result = lossy.recv(timeout=0)
+        self.assertEqual(result, (None, None))
 
     def test_stats_accessible(self):
         inner = MockTransport()
@@ -333,19 +423,21 @@ class LossyServerTests(unittest.TestCase):
         data, responder = lossy.recv(timeout=0)
 
         responder(b'response')
-        # Response should be dropped
         self.assertEqual(inner._responses, [])
 
     def test_corruption_drops_request(self):
-        """Corruption simulates lower-layer discard (request dropped, not modified)."""
         inner = MockServer()
-        imp = NetworkImpairment(corrupt_rate=1.0, corrupt_bytes=(1, 1), seed=42)
+        imp = NetworkImpairment(
+            corrupt_rate=1.0,
+            corrupt_bytes=(1, 1),
+            corrupt_mode='drop',
+            seed=42,
+        )
         lossy = LossyServer(inner, recv_impairment=imp)
 
         inner.inject_request(b'\x00' * 10)
         result = lossy.recv(timeout=0)
 
-        # Corrupted request is dropped
         self.assertEqual(result, (None, None))
 
     def test_stats_accessible(self):
@@ -405,9 +497,10 @@ class PresetTests(unittest.TestCase):
     def test_presets_accept_seed(self):
         imp1 = chaos(seed=42)
         imp2 = chaos(seed=42)
-        # Same seed should give same random sequence
-        drops1 = [imp1.should_drop() for _ in range(10)]
-        drops2 = [imp2.should_drop() for _ in range(10)]
+        engine1 = _ImpairmentEngine(imp1)
+        engine2 = _ImpairmentEngine(imp2)
+        drops1 = [engine1.decide().drop for _ in range(10)]
+        drops2 = [engine2.decide().drop for _ in range(10)]
         self.assertEqual(drops1, drops2)
 
 

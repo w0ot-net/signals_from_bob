@@ -128,3 +128,13 @@ duplication, reordering, and corruption on both request and response paths.
   opt-in and flips bytes per `corrupt_bytes`.
 - Duplicate mapping is retained until each inner corr_id resolves or is pruned;
   no extra linger window is used.
+
+## Execution Notes
+- Rewrote `sfb/transport/lossy.py` with an impairment engine, heap-based queues,
+  wrapper corr_id mapping, and pending tracking with `pending_timeout_sec`.
+- Added `doc/LOSSY_TRANSPORT.md` to document impairment semantics and wrapper
+  behavior.
+- Updated `tests/test_lossy_transport.py` for new impairment decisions and
+  wrapper semantics.
+- Updated `doc/TRANSPORTS.md` with lossy corr_id mapping notes.
+- Ran `python3 -m unittest tests.test_lossy_transport`.

@@ -12,10 +12,11 @@ Wraps any Transport or Server to inject configurable network impairment:
 
 from __future__ import absolute_import
 
+import heapq
 import random
-from collections import deque
 
-from .transport_base import Transport, Server, TransportError
+from .transport_base import Transport, Server, TransportError, PendingTracker
+from ..compat import to_bytes
 from .. import time_provider
 
 
@@ -37,6 +38,7 @@ class NetworkImpairment(object):
                  reorder_wait_ms=50,
                  corrupt_rate=0.0,
                  corrupt_bytes=(1, 3),
+                 corrupt_mode='drop',
                  seed=None):
         """
         Configure network impairment.
@@ -52,8 +54,12 @@ class NetworkImpairment(object):
             reorder_wait_ms: How long to hold reordered packets
             corrupt_rate: Probability of corrupting packet bytes
             corrupt_bytes: (min, max) bytes to corrupt per packet
+            corrupt_mode: 'drop' to discard corrupted packets,
+                          'mutate' to flip bytes and deliver
             seed: Random seed for reproducibility
         """
+        if corrupt_mode not in ('drop', 'mutate'):
+            raise ValueError('corrupt_mode must be drop or mutate')
         self.loss_rate = loss_rate
         self.burst_loss_prob = burst_loss_prob
         self.burst_loss_len = burst_loss_len
@@ -64,108 +70,192 @@ class NetworkImpairment(object):
         self.reorder_wait_ms = reorder_wait_ms
         self.corrupt_rate = corrupt_rate
         self.corrupt_bytes = corrupt_bytes
+        self.corrupt_mode = corrupt_mode
+        self.seed = seed
 
-        self._rng = random.Random(seed)
+
+class _ImpairmentDecision(object):
+    __slots__ = ('drop', 'corrupt', 'delay_sec', 'duplicate_count', 'reorder')
+
+    def __init__(self, drop, corrupt, delay_sec, duplicate_count, reorder):
+        self.drop = drop
+        self.corrupt = corrupt
+        self.delay_sec = delay_sec
+        self.duplicate_count = duplicate_count
+        self.reorder = reorder
+
+
+class _ImpairmentEngine(object):
+    def __init__(self, config):
+        self._config = config
+        self._rng = random.Random(config.seed)
         self._burst_remaining = 0
 
-        # Stats
-        self.packets_sent = 0
-        self.packets_dropped = 0
-        self.packets_delayed = 0
-        self.packets_duplicated = 0
-        self.packets_reordered = 0
-        self.packets_corrupted = 0
+        self._packets_sent = 0
+        self._packets_dropped = 0
+        self._packets_delayed = 0
+        self._packets_duplicated = 0
+        self._packets_reordered = 0
+        self._packets_corrupted = 0
 
-    def should_drop(self):
-        """Check if packet should be dropped (loss or burst)."""
-        # Burst loss takes priority
-        if self._burst_remaining > 0:
-            self._burst_remaining -= 1
-            self.packets_dropped += 1
-            return True
+    def decide(self):
+        self._packets_sent += 1
 
-        # Check for burst start
-        if self.burst_loss_prob > 0 and self._rng.random() < self.burst_loss_prob:
-            burst_len = self._rng.randint(
-                self.burst_loss_len[0], self.burst_loss_len[1]
-            )
-            self._burst_remaining = max(0, burst_len - 1)
-            self.packets_dropped += 1
-            return True
+        drop = self._should_drop()
+        if drop:
+            return _ImpairmentDecision(True, False, 0.0, 0, False)
 
-        # Random loss
-        if self.loss_rate > 0 and self._rng.random() < self.loss_rate:
-            self.packets_dropped += 1
-            return True
+        corrupt = self._roll(self._config.corrupt_rate)
+        if corrupt:
+            self._packets_corrupted += 1
 
-        return False
+        delay_sec = self._calc_delay_sec()
+        reorder = self._roll(self._config.reorder_rate)
+        if reorder:
+            self._packets_reordered += 1
+            delay_sec += self._config.reorder_wait_ms / 1000.0
 
-    def should_duplicate(self):
-        """Check if packet should be duplicated."""
-        if self.dup_rate > 0 and self._rng.random() < self.dup_rate:
-            self.packets_duplicated += 1
-            return True
-        return False
+        duplicate_count = 1 if self._roll(self._config.dup_rate) else 0
+        if duplicate_count:
+            self._packets_duplicated += 1
 
-    def should_reorder(self):
-        """Check if packet should be held for reordering."""
-        if self.reorder_rate > 0 and self._rng.random() < self.reorder_rate:
-            self.packets_reordered += 1
-            return True
-        return False
+        return _ImpairmentDecision(drop, corrupt, delay_sec, duplicate_count, reorder)
 
-    def should_corrupt(self):
-        """Check if packet should be corrupted."""
-        if self.corrupt_rate > 0 and self._rng.random() < self.corrupt_rate:
-            self.packets_corrupted += 1
-            return True
-        return False
-
-    def get_delay_sec(self):
-        """Get delay for this packet in seconds."""
-        if self.delay_ms == 0 and self.jitter_ms == 0:
-            return 0
-        delay = self.delay_ms
-        if self.jitter_ms > 0:
-            delay += self._rng.uniform(-self.jitter_ms, self.jitter_ms)
-        if delay > 0:
-            self.packets_delayed += 1
-        return max(0, delay / 1000.0)
-
-    def get_reorder_delay_sec(self):
-        """Get delay for reordered packet."""
-        return self.reorder_wait_ms / 1000.0
+    def corrupt_bytes(self, data):
+        data = to_bytes(data)
+        length = len(data)
+        if length == 0:
+            return data
+        min_bytes, max_bytes = self._config.corrupt_bytes
+        if min_bytes < 0:
+            min_bytes = 0
+        if max_bytes < min_bytes:
+            max_bytes = min_bytes
+        if max_bytes <= 0:
+            return data
+        count = self._rng.randint(min_bytes, max_bytes)
+        if count <= 0:
+            return data
+        count = min(count, length)
+        mutated = bytearray(data)
+        for _ in range(count):
+            idx = self._rng.randint(0, length - 1)
+            mask = self._rng.randint(1, 255)
+            mutated[idx] ^= mask
+        return bytes(mutated)
 
     def reset_stats(self):
-        """Reset statistics counters."""
-        self.packets_sent = 0
-        self.packets_dropped = 0
-        self.packets_delayed = 0
-        self.packets_duplicated = 0
-        self.packets_reordered = 0
-        self.packets_corrupted = 0
+        self._packets_sent = 0
+        self._packets_dropped = 0
+        self._packets_delayed = 0
+        self._packets_duplicated = 0
+        self._packets_reordered = 0
+        self._packets_corrupted = 0
 
     def stats(self):
-        """Return statistics dictionary."""
         return {
-            'sent': self.packets_sent,
-            'dropped': self.packets_dropped,
-            'delayed': self.packets_delayed,
-            'duplicated': self.packets_duplicated,
-            'reordered': self.packets_reordered,
-            'corrupted': self.packets_corrupted,
+            'sent': self._packets_sent,
+            'dropped': self._packets_dropped,
+            'delayed': self._packets_delayed,
+            'duplicated': self._packets_duplicated,
+            'reordered': self._packets_reordered,
+            'corrupted': self._packets_corrupted,
         }
 
+    def _roll(self, rate):
+        return rate > 0 and self._rng.random() < rate
 
-class _DelayedPacket(object):
-    """A packet waiting to be delivered after a delay."""
+    def _should_drop(self):
+        if self._burst_remaining > 0:
+            self._burst_remaining -= 1
+            self._packets_dropped += 1
+            return True
 
-    __slots__ = ('corr_id', 'data', 'deliver_at')
+        if self._config.burst_loss_prob > 0:
+            if self._rng.random() < self._config.burst_loss_prob:
+                burst_len = self._rng.randint(
+                    self._config.burst_loss_len[0],
+                    self._config.burst_loss_len[1],
+                )
+                self._burst_remaining = max(0, burst_len - 1)
+                self._packets_dropped += 1
+                return True
 
-    def __init__(self, corr_id, data, deliver_at):
-        self.corr_id = corr_id
+        if self._config.loss_rate > 0 and self._rng.random() < self._config.loss_rate:
+            self._packets_dropped += 1
+            return True
+
+        return False
+
+    def _calc_delay_sec(self):
+        delay_ms = self._config.delay_ms
+        jitter_ms = self._config.jitter_ms
+        if delay_ms == 0 and jitter_ms == 0:
+            return 0.0
+        delay = delay_ms
+        if jitter_ms > 0:
+            delay += self._rng.uniform(-jitter_ms, jitter_ms)
+        if delay > 0:
+            self._packets_delayed += 1
+        return max(0.0, delay / 1000.0)
+
+
+class _EventQueue(object):
+    __slots__ = ('_heap', '_seq')
+
+    def __init__(self):
+        self._heap = []
+        self._seq = 0
+
+    def push(self, deliver_at, item):
+        heapq.heappush(self._heap, (deliver_at, self._seq, item))
+        self._seq += 1
+
+    def pop_ready(self, now):
+        if not self._heap:
+            return None
+        if self._heap[0][0] > now:
+            return None
+        return heapq.heappop(self._heap)[2]
+
+    def next_time(self):
+        if not self._heap:
+            return None
+        return self._heap[0][0]
+
+    def clear(self):
+        self._heap = []
+
+    def __len__(self):
+        return len(self._heap)
+
+
+class _ScheduledSend(object):
+    __slots__ = ('wrapper_id', 'data', 'inner_permit', 'canceled')
+
+    def __init__(self, wrapper_id, data, inner_permit):
+        self.wrapper_id = wrapper_id
         self.data = data
-        self.deliver_at = deliver_at
+        self.inner_permit = inner_permit
+        self.canceled = False
+
+
+class _ScheduledRecv(object):
+    __slots__ = ('wrapper_id', 'data', 'requires_pending')
+
+    def __init__(self, wrapper_id, data, requires_pending):
+        self.wrapper_id = wrapper_id
+        self.data = data
+        self.requires_pending = requires_pending
+
+
+class _PendingEntry(object):
+    __slots__ = ('inner_ids', 'ghost_count', 'send_events')
+
+    def __init__(self):
+        self.inner_ids = set()
+        self.ghost_count = 0
+        self.send_events = []
 
 
 class LossyTransport(Transport):
@@ -179,7 +269,8 @@ class LossyTransport(Transport):
     If only one impairment is provided, it's used for both directions.
     """
 
-    def __init__(self, transport, send_impairment=None, recv_impairment=None):
+    def __init__(self, transport, send_impairment=None, recv_impairment=None,
+                 pending_timeout_sec=5.0):
         """
         Wrap a transport with network impairment.
 
@@ -188,19 +279,26 @@ class LossyTransport(Transport):
             send_impairment: NetworkImpairment for outgoing packets
             recv_impairment: NetworkImpairment for incoming packets
                             (defaults to send_impairment if not provided)
+            pending_timeout_sec: Timeout for synthetic drops and stale requests
         """
         super(LossyTransport, self).__init__()
         self._inner = transport
         self._send_imp = send_impairment or NetworkImpairment()
         self._recv_imp = recv_impairment or self._send_imp
 
-        # Track fake corr_ids for dropped packets with timestamps
-        self._next_fake_id = 0x80000000
-        self._dropped_ids = {}  # fake_id -> drop_time
-        self._drop_timeout = 5.0  # Clean up after 5 seconds
+        self._send_engine = _ImpairmentEngine(self._send_imp)
+        if self._recv_imp is self._send_imp:
+            self._recv_engine = self._send_engine
+        else:
+            self._recv_engine = _ImpairmentEngine(self._recv_imp)
 
-        # Buffer for delayed/reordered responses
-        self._delayed = deque()
+        self._pending_timeout = pending_timeout_sec
+        self._pending = PendingTracker(self._pending_timeout)
+        self._inner_to_wrapper = {}
+        self._next_corr_id = 0
+
+        self._send_queue = _EventQueue()
+        self._recv_queue = _EventQueue()
 
     @property
     def send_mtu(self):
@@ -215,84 +313,90 @@ class LossyTransport(Transport):
         return getattr(self._inner, 'max_in_flight', None)
 
     def pending_count(self):
-        # Include packets we "sent" but dropped
-        return self._inner.pending_count() + len(self._dropped_ids)
+        return self._pending_total()
 
     def reserve_send(self, now=None):
         if now is None:
             now = time_provider.now()
-
-        inner_permit = self._inner.reserve_send(now=now)
-        self._prune_dropped(now)
+        self._prune_pending(now)
+        self._flush_send_queue(now)
 
         cap = self.max_in_flight
-        if cap is not None:
-            pending_before = self.pending_count()
-            self._ensure_reserved()
-            reserved = len(self._reserved)
-            pending_total = pending_before + reserved
-            if pending_total >= cap:
-                if inner_permit is not None:
-                    self._inner.release_send(inner_permit)
-                return None
-        else:
-            pending_before = self.pending_count()
+        pending_total = self._pending_total()
+        self._ensure_reserved()
+        reserved = len(self._reserved)
+        if cap is not None and pending_total + reserved >= cap:
+            return None
 
-        action = 'send'
-        if self._send_imp.should_drop():
-            action = 'drop'
-        elif self._send_imp.should_corrupt():
-            action = 'corrupt'
-
-        dup_permit = None
-        duplicate = False
-        if action == 'send':
-            if inner_permit is None:
-                return None
-            if self._send_imp.should_duplicate():
-                if not self._send_imp.should_corrupt():
-                    dup_permit = self._inner.reserve_send(now=now)
-                    if dup_permit is not None:
-                        duplicate = True
-        else:
-            if inner_permit is not None:
-                self._inner.release_send(inner_permit)
-                inner_permit = None
-
-        permit = self._reserve_permit(now=now, pending_before=pending_before)
-        permit.data = {
-            'action': action,
-            'inner_permit': inner_permit,
-            'dup_permit': dup_permit if duplicate else None,
-        }
+        inner_permit = self._inner.reserve_send(now=now)
+        if inner_permit is None:
+            return None
+        permit = self._reserve_permit(now=now, pending_before=pending_total)
+        permit.data = {'inner_permit': inner_permit}
         return permit
 
     def _send_impl(self, data, permit):
-        """Send with possible impairment."""
-        self._send_imp.packets_sent += 1
-        info = permit.data or {}
-        action = info.get('action', 'send')
-        inner_permit = info.get('inner_permit')
-        dup_permit = info.get('dup_permit')
+        data = to_bytes(data)
+        if len(data) > self.send_mtu:
+            raise TransportError(
+                'Data size %d exceeds send MTU %d' % (len(data), self.send_mtu)
+            )
 
-        if action in ('drop', 'corrupt'):
-            fake_id = self._next_fake_id
-            self._next_fake_id += 1
-            self._dropped_ids[fake_id] = permit.now
-            return fake_id
+        now = permit.now
+        wrapper_id = self._next_corr_id
+        self._next_corr_id = (self._next_corr_id + 1) & 0x7FFFFFFF
 
+        entry = _PendingEntry()
+        entry.ghost_count = 1
+        self._pending.add(wrapper_id, entry, now=now)
+
+        decision = self._send_engine.decide()
+        if decision.drop:
+            self._release_inner_permit(permit)
+            return wrapper_id
+
+        if decision.corrupt and self._send_imp.corrupt_mode == 'drop':
+            self._release_inner_permit(permit)
+            return wrapper_id
+
+        if decision.corrupt and self._send_imp.corrupt_mode == 'mutate':
+            data = self._send_engine.corrupt_bytes(data)
+
+        inner_permit = permit.data.get('inner_permit')
         if inner_permit is None:
             raise TransportError('Missing inner send permit')
 
-        try:
-            corr_id = self._inner.send(data, inner_permit)
-        except Exception:
+        delay_sec = decision.delay_sec
+        if delay_sec > 0:
+            self._schedule_send(wrapper_id, entry, data, inner_permit, now + delay_sec)
+        else:
+            self._send_now(wrapper_id, entry, data, inner_permit, consume_ghost=True)
+
+        if decision.duplicate_count:
+            dup_permit = self._inner.reserve_send(now=now)
             if dup_permit is not None:
-                self._inner.release_send(dup_permit)
-            raise
-        if dup_permit is not None:
-            self._inner.send(data, dup_permit)
-        return corr_id
+                if delay_sec > 0:
+                    entry.ghost_count += 1
+                    self._schedule_send(
+                        wrapper_id, entry, data, dup_permit, now + delay_sec
+                    )
+                else:
+                    self._send_now(
+                        wrapper_id, entry, data, dup_permit, consume_ghost=False
+                    )
+        return wrapper_id
+
+    def _send_now(self, wrapper_id, entry, data, inner_permit, consume_ghost):
+        inner_corr_id = self._inner.send(data, inner_permit)
+        if consume_ghost and entry.ghost_count > 0:
+            entry.ghost_count -= 1
+        entry.inner_ids.add(inner_corr_id)
+        self._inner_to_wrapper[inner_corr_id] = wrapper_id
+
+    def _schedule_send(self, wrapper_id, entry, data, inner_permit, deliver_at):
+        event = _ScheduledSend(wrapper_id, data, inner_permit)
+        entry.send_events.append(event)
+        self._send_queue.push(deliver_at, event)
 
     def release_send(self, permit):
         self._ensure_reserved()
@@ -305,131 +409,204 @@ class LossyTransport(Transport):
         if permit not in self._reserved:
             raise TransportError('Send permit not reserved')
         self._reserved.remove(permit)
-        info = permit.data or {}
-        inner_permit = info.get('inner_permit')
-        dup_permit = info.get('dup_permit')
+        inner_permit = None
+        if permit.data:
+            inner_permit = permit.data.get('inner_permit')
         if inner_permit is not None:
             self._inner.release_send(inner_permit)
-        if dup_permit is not None:
-            self._inner.release_send(dup_permit)
 
     def recv(self, timeout=None):
-        """Receive with possible impairment."""
         now = time_provider.now()
+        deadline = None if timeout is None else now + timeout
 
-        # First, check delayed buffer for ready packets
-        ready = self._check_delayed(now)
-        if ready is not None:
-            return ready
-
-        # Clean up old dropped packet IDs
-        self._prune_dropped(now)
-
-        # Calculate adjusted timeout
-        if timeout is None:
-            inner_timeout = None
-        elif timeout == 0:
-            inner_timeout = 0
-        else:
-            # Check if we have delayed packets that will be ready soon
-            next_ready = self._next_delayed_time()
-            if next_ready is not None:
-                wait_time = next_ready - now
-                if wait_time <= 0:
-                    inner_timeout = 0
-                else:
-                    inner_timeout = min(timeout, wait_time)
-            else:
-                inner_timeout = timeout
-
-        # Try to receive from inner transport
-        corr_id, data = self._inner.recv(inner_timeout)
-
-        # Check delayed again after waiting
-        if corr_id is None:
+        while True:
             now = time_provider.now()
-            ready = self._check_delayed(now)
+            self._prune_pending(now)
+            self._flush_send_queue(now)
+
+            ready = self._pop_ready_response(now)
             if ready is not None:
                 return ready
-            return (None, None)
 
-        # Apply recv impairment
-        self._recv_imp.packets_sent += 1
+            if timeout == 0:
+                inner_timeout = 0
+            else:
+                remaining = None if deadline is None else deadline - now
+                if remaining is not None and remaining <= 0:
+                    return (None, None)
+                next_due = self._next_due_time()
+                if next_due is None:
+                    inner_timeout = remaining
+                else:
+                    wait = max(0.0, next_due - now)
+                    if remaining is None:
+                        inner_timeout = wait
+                    else:
+                        inner_timeout = min(remaining, wait)
 
-        # Check for drop
-        if self._recv_imp.should_drop():
-            # Try to get another packet
-            return self.recv(timeout=0)
+            corr_id, data = self._inner.recv(inner_timeout)
+            if corr_id is None:
+                if timeout == 0:
+                    return (None, None)
+                continue
 
-        # Check for corruption (simulate lower-layer discard)
-        if self._recv_imp.should_corrupt():
-            return self.recv(timeout=0)
+            result = self._handle_inner_response(corr_id, data, time_provider.now())
+            if result is not None:
+                return result
 
-        # Check for delay/reorder
-        delay = self._recv_imp.get_delay_sec()
-        if self._recv_imp.should_reorder():
-            delay += self._recv_imp.get_reorder_delay_sec()
+    def _handle_inner_response(self, inner_corr_id, data, now):
+        wrapper_id = self._inner_to_wrapper.pop(inner_corr_id, None)
+        if wrapper_id is None:
+            return None
+        entry = self._pending.get(wrapper_id)
+        if entry is None:
+            return None
+        if inner_corr_id in entry.inner_ids:
+            entry.inner_ids.remove(inner_corr_id)
 
-        if delay > 0:
-            deliver_at = now + delay
-            self._delayed.append(_DelayedPacket(corr_id, data, deliver_at))
-            # Try to return something else
-            return self.recv(timeout=0)
-
-        # Check for duplication (queue a delayed copy)
-        if self._recv_imp.should_duplicate():
-            dup_delay = self._recv_imp.get_delay_sec()
-            if dup_delay == 0:
-                dup_delay = 0.001  # Tiny delay to ensure ordering
-            self._delayed.append(_DelayedPacket(corr_id, data, now + dup_delay))
-
-        return (corr_id, data)
-
-    def _check_delayed(self, now):
-        """Check for delayed packets ready to deliver."""
-        if not self._delayed:
+        decision = self._recv_engine.decide()
+        if decision.drop:
+            entry.ghost_count += 1
             return None
 
-        # Find earliest ready packet
-        ready_idx = None
-        for i, pkt in enumerate(self._delayed):
-            if pkt.deliver_at <= now:
-                if ready_idx is None or pkt.deliver_at < self._delayed[ready_idx].deliver_at:
-                    ready_idx = i
-
-        if ready_idx is not None:
-            pkt = self._delayed[ready_idx]
-            del self._delayed[ready_idx]
-            return (pkt.corr_id, pkt.data)
-
-        return None
-
-    def _next_delayed_time(self):
-        """Get delivery time of next delayed packet."""
-        if not self._delayed:
+        if decision.corrupt and self._recv_imp.corrupt_mode == 'drop':
+            entry.ghost_count += 1
             return None
-        return min(pkt.deliver_at for pkt in self._delayed)
 
-    def _prune_dropped(self, now):
-        if not self._dropped_ids:
+        if decision.corrupt and self._recv_imp.corrupt_mode == 'mutate':
+            data = self._recv_engine.corrupt_bytes(data)
+
+        delay_sec = decision.delay_sec
+        if delay_sec > 0:
+            entry.ghost_count += 1
+            deliver_at = now + delay_sec
+            self._recv_queue.push(
+                deliver_at, _ScheduledRecv(wrapper_id, data, True)
+            )
+            if decision.duplicate_count:
+                self._recv_queue.push(
+                    deliver_at, _ScheduledRecv(wrapper_id, data, False)
+                )
+            return None
+
+        result = (wrapper_id, data)
+        if decision.duplicate_count:
+            self._recv_queue.push(
+                now, _ScheduledRecv(wrapper_id, data, False)
+            )
+
+        if entry.ghost_count + len(entry.inner_ids) == 0:
+            self._pending.pop(wrapper_id)
+        return result
+
+    def _pop_ready_response(self, now):
+        while True:
+            event = self._recv_queue.pop_ready(now)
+            if event is None:
+                return None
+            if event.requires_pending:
+                entry = self._pending.get(event.wrapper_id)
+                if entry is None:
+                    continue
+                if entry.ghost_count > 0:
+                    entry.ghost_count -= 1
+                if entry.ghost_count + len(entry.inner_ids) == 0:
+                    self._pending.pop(event.wrapper_id)
+            return (event.wrapper_id, event.data)
+
+    def _pending_total(self):
+        total = 0
+        for entry, _ in self._pending._entries.values():
+            total += entry.ghost_count + len(entry.inner_ids)
+        return total
+
+    def _next_due_time(self):
+        next_send = self._send_queue.next_time()
+        next_recv = self._recv_queue.next_time()
+        if next_send is None:
+            return next_recv
+        if next_recv is None:
+            return next_send
+        return min(next_send, next_recv)
+
+    def _flush_send_queue(self, now):
+        while True:
+            event = self._send_queue.pop_ready(now)
+            if event is None:
+                return
+            if event.canceled:
+                self._release_scheduled_send(event)
+                continue
+            entry = self._pending.get(event.wrapper_id)
+            if entry is None:
+                self._release_scheduled_send(event)
+                continue
+            if event in entry.send_events:
+                entry.send_events.remove(event)
+            inner_permit = event.inner_permit
+            event.inner_permit = None
+            inner_corr_id = self._inner.send(event.data, inner_permit)
+            if entry.ghost_count > 0:
+                entry.ghost_count -= 1
+            entry.inner_ids.add(inner_corr_id)
+            self._inner_to_wrapper[inner_corr_id] = event.wrapper_id
+
+    def _prune_pending(self, now):
+        stale = self._pending.prune(now=now)
+        for wrapper_id, entry in stale:
+            for inner_id in entry.inner_ids:
+                self._inner_to_wrapper.pop(inner_id, None)
+            for event in entry.send_events:
+                event.canceled = True
+                self._release_scheduled_send(event)
+        return stale
+
+    def _release_scheduled_send(self, event):
+        if event.inner_permit is None:
             return
-        expired = [fid for fid, t in self._dropped_ids.items()
-                   if now - t >= self._drop_timeout]
-        for fid in expired:
-            del self._dropped_ids[fid]
+        self._inner.release_send(event.inner_permit)
+        event.inner_permit = None
+
+    def _release_inner_permit(self, permit):
+        inner_permit = None
+        if permit is not None and permit.data:
+            inner_permit = permit.data.get('inner_permit')
+        if inner_permit is not None:
+            self._inner.release_send(inner_permit)
+            permit.data['inner_permit'] = None
 
     def close(self):
-        """Close the transport."""
-        self._delayed.clear()
-        self._dropped_ids.clear()
+        for wrapper_id, entry in list(self._pending._entries.items()):
+            for event in entry[0].send_events:
+                event.canceled = True
+                self._release_scheduled_send(event)
+        self._send_queue.clear()
+        self._recv_queue.clear()
+        self._pending.clear()
+        self._inner_to_wrapper.clear()
         self._inner.close()
 
     def stats(self):
-        """Return impairment statistics."""
         return {
-            'send': self._send_imp.stats(),
-            'recv': self._recv_imp.stats(),
+            'send': self._send_engine.stats(),
+            'recv': self._recv_engine.stats(),
         }
+
+
+class _ScheduledRequest(object):
+    __slots__ = ('data', 'responder')
+
+    def __init__(self, data, responder):
+        self.data = data
+        self.responder = responder
+
+
+class _ScheduledResponse(object):
+    __slots__ = ('responder', 'data')
+
+    def __init__(self, responder, data):
+        self.responder = responder
+        self.data = data
 
 
 class LossyServer(Server):
@@ -457,8 +634,14 @@ class LossyServer(Server):
         self._recv_imp = recv_impairment or NetworkImpairment()
         self._send_imp = send_impairment or self._recv_imp
 
-        # Buffer for delayed incoming requests
-        self._delayed_requests = deque()
+        self._recv_engine = _ImpairmentEngine(self._recv_imp)
+        if self._send_imp is self._recv_imp:
+            self._send_engine = self._recv_engine
+        else:
+            self._send_engine = _ImpairmentEngine(self._send_imp)
+
+        self._request_queue = _EventQueue()
+        self._response_queue = _EventQueue()
 
     @property
     def send_mtu(self):
@@ -469,150 +652,134 @@ class LossyServer(Server):
         return self._inner.recv_mtu
 
     def recv(self, timeout=None):
-        """Receive request with possible impairment."""
         now = time_provider.now()
+        deadline = None if timeout is None else now + timeout
 
-        # Check delayed requests first
-        ready = self._check_delayed_requests(now)
-        if ready is not None:
-            return ready
-
-        # Calculate adjusted timeout
-        if timeout is None:
-            inner_timeout = None
-        elif timeout == 0:
-            inner_timeout = 0
-        else:
-            next_ready = self._next_delayed_request_time()
-            if next_ready is not None:
-                wait_time = next_ready - now
-                if wait_time <= 0:
-                    inner_timeout = 0
-                else:
-                    inner_timeout = min(timeout, wait_time)
-            else:
-                inner_timeout = timeout
-
-        # Get from inner server
-        result = self._inner.recv(inner_timeout)
-        if result is None or result[0] is None:
-            # Check delayed again
+        while True:
             now = time_provider.now()
-            ready = self._check_delayed_requests(now)
+            self._flush_response_queue(now)
+
+            ready = self._pop_ready_request(now)
             if ready is not None:
                 return ready
-            return (None, None)
 
-        data, responder = result
-        self._recv_imp.packets_sent += 1
+            if timeout == 0:
+                inner_timeout = 0
+            else:
+                remaining = None if deadline is None else deadline - now
+                if remaining is not None and remaining <= 0:
+                    return (None, None)
+                next_due = self._next_due_time()
+                if next_due is None:
+                    inner_timeout = remaining
+                else:
+                    wait = max(0.0, next_due - now)
+                    if remaining is None:
+                        inner_timeout = wait
+                    else:
+                        inner_timeout = min(remaining, wait)
 
-        # Check for drop
-        if self._recv_imp.should_drop():
-            # Silently drop - don't call responder
-            # Try to get another request
-            return self.recv(timeout=0)
+            result = self._inner.recv(inner_timeout)
+            if result is None or result[0] is None:
+                if timeout == 0:
+                    return (None, None)
+                continue
 
-        # Check for corruption (simulate lower-layer discard)
-        if self._recv_imp.should_corrupt():
-            return self.recv(timeout=0)
+            data, responder = result
+            decision = self._recv_engine.decide()
 
-        # Check for delay/reorder
-        delay = self._recv_imp.get_delay_sec()
-        if self._recv_imp.should_reorder():
-            delay += self._recv_imp.get_reorder_delay_sec()
+            if decision.drop:
+                continue
+            if decision.corrupt and self._recv_imp.corrupt_mode == 'drop':
+                continue
+            if decision.corrupt and self._recv_imp.corrupt_mode == 'mutate':
+                data = self._recv_engine.corrupt_bytes(data)
 
-        if delay > 0:
-            deliver_at = now + delay
             wrapped_responder = self._wrap_responder(responder)
-            self._delayed_requests.append(
-                _DelayedRequest(data, wrapped_responder, deliver_at)
-            )
-            return self.recv(timeout=0)
+            delay_sec = decision.delay_sec
+            if delay_sec > 0:
+                deliver_at = time_provider.now() + delay_sec
+                self._request_queue.push(
+                    deliver_at, _ScheduledRequest(data, wrapped_responder)
+                )
+                if decision.duplicate_count:
+                    self._request_queue.push(
+                        deliver_at, _ScheduledRequest(data, wrapped_responder)
+                    )
+                continue
 
-        # Wrap responder to apply send impairment
-        wrapped_responder = self._wrap_responder(responder)
-
-        # Check for duplication
-        if self._recv_imp.should_duplicate():
-            dup_delay = self._recv_imp.get_delay_sec()
-            if dup_delay == 0:
-                dup_delay = 0.001
-            self._delayed_requests.append(
-                _DelayedRequest(data, wrapped_responder, now + dup_delay)
-            )
-
-        return (data, wrapped_responder)
+            if decision.duplicate_count:
+                self._request_queue.push(
+                    now, _ScheduledRequest(data, wrapped_responder)
+                )
+            return (data, wrapped_responder)
 
     def _wrap_responder(self, responder):
-        """Wrap responder to apply send impairment."""
+        send_engine = self._send_engine
         send_imp = self._send_imp
 
         def impaired_responder(data):
-            send_imp.packets_sent += 1
+            data = to_bytes(data)
+            decision = send_engine.decide()
 
-            # Check for drop
-            if send_imp.should_drop():
-                return  # Silently drop response
+            if decision.drop:
+                return
+            if decision.corrupt and send_imp.corrupt_mode == 'drop':
+                return
+            if decision.corrupt and send_imp.corrupt_mode == 'mutate':
+                data_mut = send_engine.corrupt_bytes(data)
+            else:
+                data_mut = data
 
-            # Check for corruption (simulate lower-layer discard)
-            if send_imp.should_corrupt():
-                return  # Silently drop response
+            delay_sec = decision.delay_sec
+            if delay_sec > 0 or decision.duplicate_count:
+                deliver_at = time_provider.now() + delay_sec
+                self._response_queue.push(
+                    deliver_at, _ScheduledResponse(responder, data_mut)
+                )
+                if decision.duplicate_count:
+                    self._response_queue.push(
+                        deliver_at, _ScheduledResponse(responder, data_mut)
+                    )
+                return
 
-            # Send response
-            responder(data)
-
-            # Check for duplication
-            if send_imp.should_duplicate():
-                responder(data)
+            responder(data_mut)
 
         return impaired_responder
 
-    def _check_delayed_requests(self, now):
-        """Check for delayed requests ready to deliver."""
-        if not self._delayed_requests:
-            return None
+    def _pop_ready_request(self, now):
+        while True:
+            event = self._request_queue.pop_ready(now)
+            if event is None:
+                return None
+            return (event.data, event.responder)
 
-        ready_idx = None
-        for i, req in enumerate(self._delayed_requests):
-            if req.deliver_at <= now:
-                if ready_idx is None or req.deliver_at < self._delayed_requests[ready_idx].deliver_at:
-                    ready_idx = i
+    def _flush_response_queue(self, now):
+        while True:
+            event = self._response_queue.pop_ready(now)
+            if event is None:
+                return
+            event.responder(event.data)
 
-        if ready_idx is not None:
-            req = self._delayed_requests[ready_idx]
-            del self._delayed_requests[ready_idx]
-            return (req.data, req.responder)
-
-        return None
-
-    def _next_delayed_request_time(self):
-        """Get delivery time of next delayed request."""
-        if not self._delayed_requests:
-            return None
-        return min(req.deliver_at for req in self._delayed_requests)
+    def _next_due_time(self):
+        next_req = self._request_queue.next_time()
+        next_resp = self._response_queue.next_time()
+        if next_req is None:
+            return next_resp
+        if next_resp is None:
+            return next_req
+        return min(next_req, next_resp)
 
     def close(self):
-        """Close the server."""
-        self._delayed_requests.clear()
+        self._request_queue.clear()
+        self._response_queue.clear()
         self._inner.close()
 
     def stats(self):
-        """Return impairment statistics."""
         return {
-            'recv': self._recv_imp.stats(),
-            'send': self._send_imp.stats(),
+            'recv': self._recv_engine.stats(),
+            'send': self._send_engine.stats(),
         }
-
-
-class _DelayedRequest(object):
-    """A request waiting to be delivered after a delay."""
-
-    __slots__ = ('data', 'responder', 'deliver_at')
-
-    def __init__(self, data, responder, deliver_at):
-        self.data = data
-        self.responder = responder
-        self.deliver_at = deliver_at
 
 
 # Convenience presets for common scenarios

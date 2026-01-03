@@ -187,11 +187,16 @@ transport uses it internally to match responses:
 | ICMP | Maps to ICMP sequence number |
 | HTTP | Maps to request context |
 | In-memory | Incrementing integer per transport instance |
+| Lossy (wrapper) | Wrapper IDs map to inner corr_id(s) per send |
 
 The tunnel tracks `{corr_id: (seq, send_time, is_retransmit)}` for:
 - RTT calculation (only from first transmissions)
 - Timeout detection
 - Response processing
+
+For lossy wrappers, the wrapper correlation ID is independent of the inner
+transport. Duplicate sends can map multiple inner IDs to the same wrapper ID,
+and pending counts include synthetic drops, delayed sends, and duplicates.
 
 ---
 

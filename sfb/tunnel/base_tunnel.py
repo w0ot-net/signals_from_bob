@@ -317,6 +317,57 @@ class BaseTunnel(object):
             next_seq,
         ))
 
+    def _send_window_distance_details(self, now, last_cum_ack):
+        """
+        Build debug fields to explain send-window distance stalls.
+        """
+        if now is None:
+            now = time_provider.now()
+        details = {
+            'missing_seq': last_cum_ack,
+            'missing_in_unacked': False,
+            'missing_age': None,
+            'missing_retransmit_count': None,
+            'missing_flags': None,
+            'missing_seg_count': None,
+            'oldest_unacked_seq': None,
+            'oldest_unacked_age': None,
+            'oldest_unacked_retransmit_count': None,
+            'oldest_unacked_flags': None,
+            'oldest_unacked_seg_count': None,
+        }
+        missing_info = self._send_window.get_unacked_info(last_cum_ack)
+        if missing_info is not None:
+            (_, segments, flags, _,
+             send_time, retransmit_count) = missing_info
+            details['missing_in_unacked'] = True
+            details['missing_retransmit_count'] = retransmit_count
+            details['missing_flags'] = flags
+            details['missing_seg_count'] = (
+                len(segments) if segments is not None else 0
+            )
+            if send_time is not None:
+                age = now - send_time
+                if age < 0:
+                    age = 0.0
+                details['missing_age'] = round(age, 6)
+        oldest_info = self._send_window.get_oldest_unacked_info()
+        if oldest_info is not None:
+            (seq, segments, flags, _,
+             send_time, retransmit_count) = oldest_info
+            details['oldest_unacked_seq'] = seq
+            details['oldest_unacked_retransmit_count'] = retransmit_count
+            details['oldest_unacked_flags'] = flags
+            details['oldest_unacked_seg_count'] = (
+                len(segments) if segments is not None else 0
+            )
+            if send_time is not None:
+                age = now - send_time
+                if age < 0:
+                    age = 0.0
+                details['oldest_unacked_age'] = round(age, 6)
+        return details
+
     def _rebuild_packet(self, seq, segments, flags=0):
         """
         Rebuild a packet with specific seq and fresh ack/sack.

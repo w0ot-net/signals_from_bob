@@ -483,12 +483,8 @@ class BobTunnel(BaseTunnel):
             (distance, max_in_flight, effective_cap, unacked,
              distance_limit, last_cum_ack, next_seq) = distance_info
             buffered = distance - unacked
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_window_distance',
-                'Send window distance exceeded',
-                lambda: {
+            def build_distance_fields():
+                fields = {
                     'distance': distance,
                     'distance_limit': distance_limit,
                     'buffered': buffered,
@@ -498,7 +494,17 @@ class BobTunnel(BaseTunnel):
                     'last_cum_ack': last_cum_ack,
                     'next_seq': next_seq,
                     'side': 'bob',
-                },
+                }
+                fields.update(
+                    self._send_window_distance_details(now, last_cum_ack)
+                )
+                return fields
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_window_distance',
+                'Send window distance exceeded',
+                build_distance_fields,
             )
             log_event(
                 self._logger,

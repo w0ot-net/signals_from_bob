@@ -400,3 +400,20 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Sources: `logs/server_log.db` (Bob) had 1733 rows (~22:26:37-22:27:02 UTC).
 - Bob `tunnel.packet_recv` shows `negotiated_window` 128 with `seg_count` 1 and
   non-zero SACK; Bob continues retransmitting (132).
+
+## Latest findings (2026-01-03, negotiation succeeded but choppy throughput)
+- Sources: `logs/client_log.db` (Alice) had 36300 rows (~22:39:06-22:39:15 UTC).
+- Alice shows `tunnel.window_ok_recv` and `tunnel.window_ok_apply` (both twice),
+  so negotiation succeeded with `negotiated_window` 128.
+- Alice `tunnel.send_window_distance`: 625; `tunnel.send_blocked`: 1968
+  (`transport_headroom` 1343, `window_distance` 625).
+- Latest distance event shows `distance` 128 with `buffered` 127 and `unacked` 1;
+  missing age ~0.10s with a gap retransmit already sent
+  (`missing_retransmit_count` 1), indicating frequent cap stalls even with
+  quick gap recovery.
+- Alice `tunnel.retransmit_skip` count is high (2842) with `ack_silence`
+  gating; latest skip shows `unacked` 105 and `ack_silence` 0, suggesting
+  retransmits are being deferred while ACKs are still moving.
+- Sources: `logs/server_log.db` (Bob) had 92636 rows (~22:38:58-22:39:32 UTC).
+- Bob `tunnel.retransmit_skip` is dominated by `cooldown` with EWMA-derived
+  cooldown ~1.51s; `tunnel.retransmit` count is low (3).

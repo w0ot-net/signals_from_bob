@@ -191,6 +191,19 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Bob `tunnel.send_window_distance` stalls split into 3 runs with max duration
   ~0.28s (105-118 events).
 
+## Latest findings (2026-01-03, instrumented send-window distance fields)
+- Sources: `logs/client_log.db` (Alice) had 117000 rows (~10:40:18 UTC);
+  `logs/server_log.db` (Bob) had 318053 rows (~10:41:19 UTC).
+- Alice `tunnel.send_window_distance`: 1905; Bob: 339 (now present).
+- `missing_in_unacked` is always True on both sides, so the blocking seq is
+  still tracked in the send window (no dropped entry).
+- Alice `missing_age` median ~0.24s (max ~1.20s), `missing_retransmit_count`
+  median 0 (p90 1); Bob `missing_age` median ~0.086s (max ~0.28s),
+  `missing_retransmit_count` median 1 (p99 34, max 37).
+- `missing_seq == oldest_unacked_seq` in 65.6% of Alice events (1249/1905) and
+  13.6% of Bob events (46/339), indicating the cumulative-ACK blocker is often
+  not the oldest-by-send-time packet, especially on Bob.
+
 ## Next steps from the latest logs
 - If console output still shows `tunnel.send_window_distance` spam, capture DB
   logs with a profile that includes it on both sides; the latest Alice DB had

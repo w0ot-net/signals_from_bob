@@ -1,5 +1,20 @@
 # File transfer put timeout despite fast polling
 
+## Summary
+The transfer could stall after the bulk data finished because Alice suppressed
+control-only polls during fast recovery, so the final `file_hash`/`hash_ok`
+exchange never completed. Allowing control-only polls during fast recovery
+removes the stall and transfers complete normally.
+
+## Fix
+- Allow Alice to send control-only packets during fast recovery so the hash
+  exchange completes.
+- Print file transfer stats to stdout on completion for operator visibility.
+
+## Validation
+- Latest `logs/server_log.db` shows `hash_ok` and `file.upload_complete` with
+  stats for the transfer.
+
 ## When it happens
 - Bob runs file_transfer `put` and the transfer fails with `send timeout`.
 - Alice appears to be polling quickly (no long keepalive gaps).

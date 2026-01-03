@@ -859,6 +859,22 @@ class WindowEnforcementTests(unittest.TestCase):
         self.assertEqual(bob._send_window.unacked_count, initial_unacked)
 
 
+class AliceTimeoutTests(unittest.TestCase):
+    """Tests for Alice timeout behavior."""
+
+    def test_packets_without_response_timeout_closes(self):
+        config = make_test_config(tunnel_timeout_packets=3)
+        transport = MockTransport()
+        alice = AliceTunnel(transport, config, crypto=Plain())
+        alice._set_state(TunnelState.CONNECTED)
+        alice._packets_since_response = alice._max_packets_without_response
+
+        result = alice.tick()
+
+        self.assertFalse(result)
+        self.assertEqual(alice.state, TunnelState.CLOSED)
+
+
 class IdleTimeoutTests(unittest.TestCase):
     """Tests for idle timeout behavior."""
 
@@ -886,6 +902,18 @@ class IdleTimeoutTests(unittest.TestCase):
         result = bob._check_idle_timeout()
         self.assertFalse(result)
         self.assertEqual(bob.state, TunnelState.DISCONNECTED)
+
+    def test_connected_state_times_out(self):
+        """Verify CONNECTED state times out on idle."""
+        server = MockServer()
+        bob = BobTunnel(server, make_test_config(tunnel_idle_timeout=0.1), crypto=Plain())
+
+        bob._set_state(TunnelState.CONNECTED)
+        bob._last_request_time = time_provider.now() - 0.2  # 200ms ago
+
+        result = bob._check_idle_timeout()
+        self.assertTrue(result)
+        self.assertEqual(bob.state, TunnelState.CLOSED)
 
 
 class ControlMessageTests(unittest.TestCase):
@@ -1021,6 +1049,53 @@ class KeepaliveFlagTests(unittest.TestCase):
         self.assertEqual(response_header.flags, FLAG_KEEPALIVE)
         self.assertEqual(len(response_data), PACKET_HEADER_SIZE)
 
+    def test_bob_pending_data_suppresses_keepalive(self):
+        from sfb.protocol import PacketHeader, FLAG_KEEPALIVE
+        from sfb.tunnel.tunnel_control_messages import tun_window
+
+        server = MockServer()
+        bob = BobTunnel(server, make_test_config(), crypto=Plain())
+        bob._set_state(TunnelState.CONNECTED)
+        bob._local_isn = 100
+        bob._remote_isn = 200
+        bob._recv_window.set_initial_seq(201)
+        bob._send_window._next_seq = 101
+
+        bob._send_mtu = 0
+        bob.control.send_message(tun_window(8))
+
+        sent_responses = []
+
+        def responder(data):
+            sent_responses.append(data)
+
+        bob._send_response(responder, time_provider.now())
+
+        self.assertEqual(len(sent_responses), 1)
+        response_header = PacketHeader.decode(sent_responses[0])
+        self.assertFalse(response_header.flags & FLAG_KEEPALIVE)
+
+
+class AliceResponseClassificationTests(unittest.TestCase):
+    """Tests for Alice response classification."""
+
+    def test_control_non_pong_counts_as_real_data(self):
+        from sfb.protocol import Packet, Segment
+
+        transport = MockTransport()
+        alice = AliceTunnel(transport, make_test_config(), crypto=Plain())
+        alice._set_state(TunnelState.CONNECTED)
+        alice._recv_window.set_initial_seq(1)
+
+        packet = Packet(seq=1, ack=0, sack=0, flags=0)
+        packet.add_segment(Segment(0, b'{"t":"tun","c":"ping"}\n'))
+        data = alice._encode_packet(packet)
+
+        valid, has_real_data = alice._handle_response(data, now=time_provider.now())
+        self.assertTrue(valid)
+        self.assertTrue(has_real_data)
+        self.assertTrue(alice._got_data)
+
 
 class NegotiationTests(unittest.TestCase):
     """Tests for MTU/window negotiation."""
@@ -1053,6 +1128,22 @@ class NegotiationTests(unittest.TestCase):
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu_ack'})
         self.assertTrue(tunnel._mtu_negotiated)
         self.assertEqual(tunnel._send_mtu, 150)
+
+    def test_mtu_negotiation_invalid_ignored(self):
+        """Verify invalid MTU requests are ignored."""
+        from sfb.tunnel.base_tunnel import BaseTunnel
+
+        tunnel = BaseTunnel(make_test_config(), is_initiator=False)
+        tunnel._proposed_recv_mtu = 200
+        tunnel._proposed_send_mtu = 180
+
+        tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu', 'tx': 0, 'rx': -1})
+
+        self.assertEqual(tunnel._negotiated_recv_mtu, tunnel._default_mtu)
+        self.assertEqual(tunnel._negotiated_send_mtu, tunnel._default_mtu)
+        self.assertEqual(tunnel._send_mtu, tunnel._default_mtu)
+        self.assertIsNone(tunnel._pending_send_mtu)
+        self.assertEqual(tunnel.control.send_buf_size, 0)
 
     def test_mtu_negotiation_bob_downsizes_immediately(self):
         """Verify Bob clamps send MTU on smaller requests without waiting for ack."""
@@ -1121,6 +1212,18 @@ class NegotiationTests(unittest.TestCase):
         send_data = b''.join(tunnel.control._send_buf)
         self.assertIn(b'"c":"window_ok"', send_data)
         self.assertIn(b'"size":8', send_data)
+
+    def test_window_negotiation_invalid_ignored(self):
+        """Verify invalid window requests are ignored."""
+        from sfb.tunnel.base_tunnel import BaseTunnel
+
+        tunnel = BaseTunnel(make_test_config(max_in_flight=8), is_initiator=False)
+
+        tunnel._dispatch_control_message({'t': 'tun', 'c': 'window', 'size': 0})
+
+        self.assertEqual(tunnel._negotiated_window, tunnel._default_window)
+        self.assertEqual(tunnel._send_window._max_in_flight, tunnel._default_window)
+        self.assertEqual(tunnel.control.send_buf_size, 0)
 
     def test_window_negotiation_alice_accepts(self):
         """Verify Alice accepts window_ok and updates window limit."""
@@ -1238,6 +1341,27 @@ class ModuleRegistrationTests(unittest.TestCase):
 
         # Should not raise - error is logged
         tunnel._dispatch_control_message({'t': 'bad', 'c': 'foo'})
+
+
+class BobMessageTypeTests(unittest.TestCase):
+    """Tests for Bob message type allowlist."""
+
+    def test_rejects_unapproved_message_type(self):
+        server = MockServer()
+        bob = BobTunnel(server, make_test_config(), crypto=Plain())
+        received = []
+
+        def handler(msg):
+            received.append(msg)
+
+        bob.register_module('mod', handler)
+
+        bob._dispatch_control_message({'t': 'mod', 'c': 'noop'})
+        self.assertEqual(received, [])
+
+        bob.allow_message_type('mod')
+        bob._dispatch_control_message({'t': 'mod', 'c': 'noop'})
+        self.assertEqual(len(received), 1)
 
 
 class MessageFactoryTests(unittest.TestCase):

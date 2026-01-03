@@ -34,11 +34,20 @@ class AdaptivePacerTests(unittest.TestCase):
         pacer = make_pacer(target_inflight_ratio=0.9, min_inflight=1)
         self.assertEqual(pacer.target_inflight(3), 2)
 
+    def test_negative_target_ratio_clamps_to_min(self):
+        pacer = make_pacer(target_inflight_ratio=-0.5, min_inflight=2)
+        self.assertEqual(pacer.target_inflight(10), 2)
+
     def test_can_send_blocks_at_target(self):
         pacer = make_pacer(target_inflight_ratio=0.5, min_inflight=1)
         cap = 4
         self.assertTrue(pacer.can_send(1, cap))
         self.assertFalse(pacer.can_send(2, cap))
+
+    def test_can_send_with_non_positive_cap(self):
+        pacer = make_pacer(target_inflight_ratio=0.5, min_inflight=1)
+        self.assertTrue(pacer.can_send(0, 0))
+        self.assertFalse(pacer.can_send(1, 0))
 
     def test_disabled_allows(self):
         pacer = make_pacer(enabled=False, target_inflight_ratio=0.5, min_inflight=1)
@@ -252,11 +261,53 @@ class AdaptivePacerTests(unittest.TestCase):
         pacer.on_ack(2, now=2.0)
         self.assertEqual(pacer.target_inflight(10, srtt_ms=1.0), 2)
 
+    def test_feedback_uses_rtt_floor_for_negative_srtt(self):
+        pacer = make_pacer(
+            target_inflight_ratio=0.0,
+            min_inflight=1,
+            ack_ewma_alpha=1.0,
+            rtt_floor_ms=1000.0,
+        )
+        pacer.on_ack(10, now=1.0)
+        pacer.on_ack(10, now=2.0)
+        fields = pacer.state_fields(unacked_count=1, cap=20, srtt_ms=-5.0)
+        self.assertEqual(fields['feedback_target'], 10)
+        self.assertEqual(fields['target_inflight'], 10)
+        self.assertEqual(fields['target_mode'], 'feedback')
+
+    def test_feedback_with_negative_rtt_floor_does_not_raise_target(self):
+        pacer = make_pacer(
+            target_inflight_ratio=0.5,
+            min_inflight=1,
+            ack_ewma_alpha=1.0,
+            rtt_floor_ms=-1000.0,
+        )
+        pacer.on_ack(10, now=1.0)
+        pacer.on_ack(10, now=2.0)
+        fields = pacer.state_fields(unacked_count=1, cap=10, srtt_ms=-500.0)
+        self.assertEqual(fields['base_target'], 5)
+        self.assertEqual(fields['feedback_target'], 1)
+        self.assertEqual(fields['target_mode'], 'base')
+
     def test_feedback_lower_than_base_uses_base(self):
         pacer = make_pacer(target_inflight_ratio=0.9, ack_ewma_alpha=1.0)
         pacer.on_ack(1, now=1.0)
         pacer.on_ack(1, now=3.0)
         self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 9)
+
+    def test_feedback_target_equal_base_keeps_base_mode(self):
+        pacer = make_pacer(
+            target_inflight_ratio=0.5,
+            ack_ewma_alpha=1.0,
+            ack_idle_reset_sec=100.0,
+        )
+        pacer.on_ack(5, now=1.0)
+        pacer.on_ack(5, now=2.0)
+        fields = pacer.state_fields(unacked_count=1, cap=10, srtt_ms=1000.0)
+        self.assertEqual(fields['base_target'], 5)
+        self.assertEqual(fields['feedback_target'], 5)
+        self.assertEqual(fields['target_inflight'], 5)
+        self.assertEqual(fields['target_mode'], 'base')
 
     def test_feedback_target_clamps_to_cap(self):
         pacer = make_pacer(target_inflight_ratio=0.1, ack_ewma_alpha=1.0)

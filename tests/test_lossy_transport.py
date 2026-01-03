@@ -8,6 +8,7 @@ import unittest
 from sfb.transport import (
     Transport,
     Server,
+    TransportError,
     NetworkImpairment,
     LossyTransport,
     LossyServer,
@@ -32,6 +33,8 @@ class MockTransport(Transport):
         self._pending = {}  # corr_id -> response
         self._sent = []
         self.reserve_calls = 0
+        self.release_calls = 0
+        self.close_calls = 0
 
     def reserve_send(self, now=None):
         self.reserve_calls += 1
@@ -41,6 +44,11 @@ class MockTransport(Transport):
         if pending_before + reserved >= self.max_in_flight:
             return None
         return self._reserve_permit(now=now, pending_before=pending_before)
+
+    def release_send(self, permit):
+        result = Transport.release_send(self, permit)
+        self.release_calls += 1
+        return result
 
     def _send_impl(self, data, permit):
         corr_id = self._next_corr_id
@@ -73,6 +81,7 @@ class MockTransport(Transport):
         return 200
 
     def close(self):
+        self.close_calls += 1
         self._pending.clear()
 
 
@@ -82,6 +91,7 @@ class MockServer(Server):
     def __init__(self):
         self._requests = []
         self._responses = []
+        self.close_calls = 0
 
     def inject_request(self, data):
         """Inject a request to be received."""
@@ -107,12 +117,17 @@ class MockServer(Server):
         return 200
 
     def close(self):
+        self.close_calls += 1
         self._requests.clear()
         self._responses.clear()
 
 
 class ImpairmentEngineTests(unittest.TestCase):
     """Tests for impairment decisions."""
+
+    def test_invalid_corrupt_mode_raises(self):
+        with self.assertRaises(ValueError):
+            NetworkImpairment(corrupt_mode='invalid')
 
     def test_no_impairment_never_drops(self):
         engine = _ImpairmentEngine(NetworkImpairment(seed=42))
@@ -202,6 +217,48 @@ class ImpairmentEngineTests(unittest.TestCase):
                 decision.reorder,
             ))
         self.assertEqual(decisions_a, decisions_b)
+
+    def test_corrupt_bytes_empty_payload(self):
+        engine = _ImpairmentEngine(NetworkImpairment(seed=3))
+        self.assertEqual(engine.corrupt_bytes(b''), b'')
+
+    def test_corrupt_bytes_negative_and_zero_max(self):
+        engine = _ImpairmentEngine(NetworkImpairment(corrupt_bytes=(-5, -1), seed=2))
+        data = b'abc'
+        self.assertEqual(engine.corrupt_bytes(data), data)
+
+    def test_corrupt_bytes_clamps_max_below_min(self):
+        engine = _ImpairmentEngine(NetworkImpairment(corrupt_bytes=(1, 0), seed=5))
+        data = b'\x00'
+        self.assertNotEqual(engine.corrupt_bytes(data), data)
+
+    def test_corrupt_bytes_zero_count_no_mutation(self):
+        class _ZeroRand(object):
+            def randint(self, _a, _b):
+                return 0
+        engine = _ImpairmentEngine(NetworkImpairment(corrupt_bytes=(0, 1), seed=1))
+        engine._rng = _ZeroRand()
+        data = b'abc'
+        self.assertEqual(engine.corrupt_bytes(data), data)
+
+    def test_stats_track_delay_reorder_corrupt(self):
+        engine = _ImpairmentEngine(NetworkImpairment(
+            delay_ms=10,
+            jitter_ms=0,
+            dup_rate=1.0,
+            reorder_rate=1.0,
+            reorder_wait_ms=5,
+            corrupt_rate=1.0,
+            seed=11,
+        ))
+        decision = engine.decide()
+        stats = engine.stats()
+        self.assertEqual(stats['sent'], 1)
+        self.assertEqual(stats['delayed'], 1)
+        self.assertEqual(stats['duplicated'], 1)
+        self.assertEqual(stats['reordered'], 1)
+        self.assertEqual(stats['corrupted'], 1)
+        self.assertGreater(decision.delay_sec, 0.0)
 
 
 class LossyTransportTests(unittest.TestCase):
@@ -388,6 +445,87 @@ class LossyTransportTests(unittest.TestCase):
         lossy.send(b'test', permit)
         self.assertEqual(inner.reserve_calls, 1)
 
+    def test_send_rejects_oversized_payload(self):
+        inner = MockTransport()
+        lossy = LossyTransport(inner, no_impairment())
+
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        with self.assertRaises(TransportError):
+            lossy.send(b'a' * (inner.send_mtu + 1), permit)
+
+    def test_release_send_releases_inner_permit(self):
+        inner = MockTransport()
+        lossy = LossyTransport(inner, no_impairment())
+
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        self.assertEqual(inner.release_calls, 0)
+        lossy.release_send(permit)
+        self.assertEqual(inner.release_calls, 1)
+
+    def test_release_send_rejects_used_permit(self):
+        inner = MockTransport()
+        lossy = LossyTransport(inner, no_impairment())
+
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        lossy.send(b'test', permit)
+        with self.assertRaises(TransportError):
+            lossy.release_send(permit)
+
+    def test_recv_duplication_queues_second_copy(self):
+        inner = MockTransport()
+        recv_imp = NetworkImpairment(dup_rate=1.0, seed=42)
+        lossy = LossyTransport(inner, send_impairment=no_impairment(),
+                               recv_impairment=recv_imp)
+
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        wrapper_id = lossy.send(b'test', permit)
+
+        first = lossy.recv(timeout=0)
+        second = lossy.recv(timeout=0)
+
+        self.assertEqual(first, (wrapper_id, b'test'))
+        self.assertEqual(second, (wrapper_id, b'test'))
+
+    def test_recv_reorder_delays_response(self):
+        inner = MockTransport()
+        recv_imp = NetworkImpairment(
+            reorder_rate=1.0,
+            reorder_wait_ms=10,
+            seed=42,
+        )
+        lossy = LossyTransport(inner, send_impairment=no_impairment(),
+                               recv_impairment=recv_imp)
+
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        wrapper_id = lossy.send(b'test', permit)
+
+        result = lossy.recv(timeout=0)
+        self.assertEqual(result, (None, None))
+
+        time_provider.sleep(0.02)
+        result = lossy.recv(timeout=0)
+        self.assertEqual(result, (wrapper_id, b'test'))
+
+    def test_close_releases_scheduled_send(self):
+        inner = MockTransport()
+        imp = NetworkImpairment(delay_ms=10, seed=42)
+        lossy = LossyTransport(inner, send_impairment=imp,
+                               recv_impairment=no_impairment())
+
+        permit = lossy.reserve_send()
+        self.assertIsNotNone(permit)
+        lossy.send(b'test', permit)
+
+        self.assertEqual(inner.release_calls, 0)
+        lossy.close()
+        self.assertGreater(inner.release_calls, 0)
+        self.assertEqual(inner.close_calls, 1)
+
 
 class LossyServerTests(unittest.TestCase):
     """Tests for LossyServer wrapper."""
@@ -452,6 +590,46 @@ class LossyServerTests(unittest.TestCase):
         stats = lossy.stats()
         self.assertIn('recv', stats)
         self.assertIn('send', stats)
+
+    def test_send_delay_and_dup_queued(self):
+        inner = MockServer()
+        imp = NetworkImpairment(delay_ms=10, dup_rate=1.0, seed=42)
+        lossy = LossyServer(inner, recv_impairment=no_impairment(),
+                            send_impairment=imp)
+
+        inner.inject_request(b'request')
+        data, responder = lossy.recv(timeout=0)
+
+        self.assertEqual(data, b'request')
+        responder(b'response')
+        self.assertEqual(inner._responses, [])
+
+        time_provider.sleep(0.02)
+        lossy.recv(timeout=0)
+        self.assertEqual(inner._responses, [b'response', b'response'])
+
+    def test_close_clears_queues_and_closes_inner(self):
+        inner = MockServer()
+        recv_imp = NetworkImpairment(delay_ms=10, seed=42)
+        send_imp = NetworkImpairment(delay_ms=10, seed=43)
+        lossy = LossyServer(inner, recv_impairment=recv_imp,
+                            send_impairment=send_imp)
+
+        inner.inject_request(b'request')
+        result = lossy.recv(timeout=0)
+        self.assertEqual(result, (None, None))
+        self.assertGreater(len(lossy._request_queue), 0)
+
+        time_provider.sleep(0.02)
+        data, responder = lossy.recv(timeout=0)
+        self.assertEqual(data, b'request')
+        responder(b'response')
+        self.assertGreater(len(lossy._response_queue), 0)
+
+        lossy.close()
+        self.assertEqual(len(lossy._request_queue), 0)
+        self.assertEqual(len(lossy._response_queue), 0)
+        self.assertEqual(inner.close_calls, 1)
 
 
 class PresetTests(unittest.TestCase):

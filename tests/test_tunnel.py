@@ -593,16 +593,16 @@ class MtuNegotiationTests(unittest.TestCase):
         self.assertEqual(len(mtu_ok), 1)
         mtu_ok = mtu_ok[0]
 
-        self.assertEqual(bob._negotiated_recv_mtu, 100)
-        self.assertEqual(bob._recv_mtu, 100)
+        self.assertEqual(bob._negotiated_recv_mtu, 120)
+        self.assertEqual(bob._recv_mtu, 120)
         self.assertEqual(bob._negotiated_send_mtu, 60)
         self.assertEqual(bob._send_mtu, 60)
         self.assertEqual(mtu_ok.get('tx'), 60)
-        self.assertEqual(mtu_ok.get('rx'), 100)
+        self.assertEqual(mtu_ok.get('rx'), 120)
 
         alice._handle_mtu_ok(mtu_ok)
-        self.assertEqual(alice._negotiated_send_mtu, 100)
-        self.assertEqual(alice._send_mtu, 100)
+        self.assertEqual(alice._negotiated_send_mtu, 120)
+        self.assertEqual(alice._send_mtu, 120)
         self.assertEqual(alice._negotiated_recv_mtu, 60)
         self.assertEqual(alice._recv_mtu, 60)
 
@@ -913,7 +913,12 @@ class BobPollingTests(unittest.TestCase):
 
         bob.control.send_message({'t': 'tun', 'c': 'test'})
 
-        poll = Packet(seq=201, ack=0, sack=0, flags=FLAG_KEEPALIVE)
+        poll = Packet(
+            seq=201,
+            ack=bob._send_window._next_seq,
+            sack=0,
+            flags=FLAG_KEEPALIVE,
+        )
         poll_data = bob._encode_packet(poll)
 
         sent_responses = []

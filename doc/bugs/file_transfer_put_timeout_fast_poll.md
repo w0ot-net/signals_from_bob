@@ -103,3 +103,8 @@ transport details for ICMP/DNS.
   closes. `logs/server_log.db` still only shows `file.upload` and the `put_ok`
   exchange with no `hash`/`hash_ok`, which implies the successful run did not
   write to the default DB log path or used a different log profile.
+- Latest `logs/server_log.db` shows `file.upload_complete` with stats and
+  `module.recv` for `hash_ok`, confirming the hash exchange completed on Bob
+  in that run. `logs/client_log.db` around the same timestamp only shows the
+  initial `put` and `put_ok`, so the client-side hash messages either logged
+  to a different DB path or were filtered by profile.

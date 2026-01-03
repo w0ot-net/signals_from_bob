@@ -8,6 +8,7 @@ from __future__ import absolute_import
 import hashlib
 import logging
 import os
+import sys
 import threading
 
 from ...channel import ChannelError
@@ -85,6 +86,12 @@ class TransferStats(object):
     def update(self, delta):
         """Update transferred bytes."""
         self.transferred += delta
+
+    def format_summary(self):
+        """Format a one-line stats summary."""
+        return '%s in %.2fs, %s' % (
+            self.format_size(), self.duration, self.format_rate()
+        )
 
     def as_dict(self):
         """Return stats as a JSON-serializable dict."""
@@ -178,6 +185,9 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                     'Download complete',
                     lambda: {'local': local_path, 'stats': stats_fields},
                 )
+                if stats is not None:
+                    sys.stdout.write('Download stats: %s\n' % stats.format_summary())
+                    sys.stdout.flush()
 
             elif args.command == 'put':
                 if not os.path.isfile(args.local):
@@ -207,6 +217,9 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                     'Upload complete',
                     lambda: {'remote': args.remote, 'stats': stats_fields},
                 )
+                if stats is not None:
+                    sys.stdout.write('Upload stats: %s\n' % stats.format_summary())
+                    sys.stdout.flush()
 
             else:
                 log_event(

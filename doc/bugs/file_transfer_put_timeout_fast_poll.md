@@ -93,3 +93,9 @@ transport details for ICMP/DNS.
   show `ack` advancing (e.g. 33411 -> 33505 within ~0.3s) while still
   re-entering fast recovery for repeated SACK gaps. This implies sustained
   out-of-order responses rather than a single missing packet.
+- Latest logs show `file.upload` and `module.recv` for `put_ok` on Bob, and
+  `module.recv` for `put` with `module.send` for `put_ok` on Alice. There are
+  no `module.recv` entries for `hash` or `hash_ok` on either side, and no
+  `file.upload_complete` event. The hash exchange is not completing, which
+  points to the control message phase not making it across after the bulk
+  transfer (poll throttling or control-channel starvation still possible).

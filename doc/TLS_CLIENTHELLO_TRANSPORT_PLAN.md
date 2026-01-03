@@ -180,13 +180,16 @@ calculation for common OS defaults.
   `PACKET_HEADER_SIZE + 1`.
 
 ## Client Transport Design
-- Implement `reserve_send()` with `PendingTracker` and `time_provider.now()`;
-  implement `_send_impl()` only (do not override `send()`).
+- Implement `reserve_send()` with `PendingTracker` as a safety net plus a
+  separate pending-state dict for per-connection deadlines; implement
+  `_send_impl()` only (do not override `send()`).
 - Non-blocking TCP sockets with `select` for connect/send/recv.
 - Resolve `tls_target` to IPv4 on init using `socket.getaddrinfo(AF_INET)`;
   raise `TransportError` if resolution fails.
-- `reserve_send()` prunes stale entries, checks `max_in_flight`, and returns
-  None when capacity is exhausted (pending + reserved >= max_in_flight).
+- `reserve_send()` prunes expired per-connection deadlines (iterate pending
+  state, close sockets, and remove from both the pending dict and
+  `PendingTracker`), then checks `max_in_flight` and returns None when capacity
+  is exhausted (pending + reserved >= max_in_flight).
 - For each `send()`:
   - Build ClientHello with payload via codec.
   - Enforce `len(data) <= send_mtu` and coerce input to bytes.
@@ -202,8 +205,8 @@ calculation for common OS defaults.
   - Treat `connect_ex` returns of 0 as connected; treat EINPROGRESS /
     EWOULDBLOCK / EALREADY (and Windows WSAEINPROGRESS/WSAEWOULDBLOCK) as
     in-progress; any other code is a failure.
-  - If `connect_ex` returns an immediate error (not in-progress), close, log
-    `tls.connect_error`, and raise `TransportError`.
+  - If `connect_ex` returns an immediate error (not in-progress), close, remove
+    the pending entry, log `tls.connect_error`, and raise `TransportError`.
   - Return a monotonic correlation ID.
 - For `recv()`:
   - Track per-correlation state: socket, send buffer/offset, recv buffer,
@@ -226,11 +229,11 @@ calculation for common OS defaults.
   `tls.connect_error`, and raise `TransportError`.
 - If connect/handshake deadlines expire, close, drop the pending entry, log
   `tls.prune_stale`, and continue (do not raise).
-- Prune stale sockets via `PendingTracker` using per-connection deadlines
-  derived from `tls_connect_timeout` and `tls_handshake_timeout`. Use
-  `tls_pending_timeout` as a safety net only; require it to be >= both
-  timeouts. Do not rely on the fixed timeout to enforce per-connection
-  deadlines.
+- Enforce per-connection deadlines by iterating the pending-state dict
+  (`connect_deadline`/`handshake_deadline`), close and remove expired entries,
+  and keep `PendingTracker` pruned in lockstep. Use `tls_pending_timeout` as a
+  safety net only; require it to be >= both timeouts. Do not rely on the fixed
+  timeout to enforce per-connection deadlines.
 - Track per-connection deadlines using `time_provider.now()`; do not rely on
   wall-clock timeouts.
 

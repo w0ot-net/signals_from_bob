@@ -85,6 +85,17 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Goal: suppress spurious retransmits while polling is active, leaving only
   retransmits tied to actual response gaps.
 
+## Latest findings (2026-01-03, response-silence gate logs)
+- Timeline windows: Bob ~28.4s, Alice ~44.0s.
+- Alice `tunnel.packet_send`: 1573; `tunnel.retransmit`: 112 (~7.1%),
+  all `reason=rto`.
+- Alice `tunnel.send_blocked`: 21285 total; 20174 `window_distance`,
+  738 `send_window_full`, 317 `transport_headroom`, 56 `retransmit_budget`.
+- Alice `icmp.prune_stale`: 5 (still unexpected with 0% loss).
+- Largest response gap on Alice: ~10.1s; max repeated ACK run was 243 packets.
+- Bob `tunnel.retransmit`: 271; `tunnel.retransmit_skip`: 1847
+  (ack_progress 1611, cooldown 236).
+
 ## Next steps from the latest logs
 - Re-run with the same profile to confirm retransmit rate drops with the
   response-silence gate and to quantify any remaining stalls.

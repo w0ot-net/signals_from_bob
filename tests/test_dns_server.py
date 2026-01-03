@@ -218,6 +218,31 @@ class DnsServerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             server._parse_query(data)
 
+    def test_parse_query_rejects_truncated_compression_pointer(self):
+        server = self._make_server()
+        header = struct.pack('>HHHHHH', 1, 0, 1, 0, 0, 0)
+        data = header + b'\xc0'
+        with self.assertRaises(ValueError):
+            server._parse_query(data)
+
+    def test_parse_query_rejects_compression_pointer_out_of_range(self):
+        server = self._make_server()
+        header = struct.pack('>HHHHHH', 1, 0, 1, 0, 0, 0)
+        question = b'\xc1\x00' + struct.pack('>HH', codec.QTYPE_A,
+                                             codec.QCLASS_IN)
+        data = header + question
+        with self.assertRaises(ValueError):
+            server._parse_query(data)
+
+    def test_parse_query_rejects_invalid_label_length(self):
+        server = self._make_server()
+        header = struct.pack('>HHHHHH', 1, 0, 1, 0, 0, 0)
+        question = b'\x40' + struct.pack('>HH', codec.QTYPE_A,
+                                         codec.QCLASS_IN)
+        data = header + question
+        with self.assertRaises(ValueError):
+            server._parse_query(data)
+
     def test_parse_query_accepts_compression_pointer(self):
         server = self._make_server()
         # Header bytes encode "a.com" at offset 0 for compression pointer use.
@@ -228,6 +253,19 @@ class DnsServerTests(unittest.TestCase):
         query_id, qname, qtype = server._parse_query(data)
         self.assertEqual(query_id, 0x0161)
         self.assertEqual(qname, 'tunnel.a.com')
+        self.assertEqual(qtype, codec.QTYPE_A)
+
+    def test_parse_query_allows_multiple_questions(self):
+        server = self._make_server()
+        header = struct.pack('>HHHHHH', 0x34, 0, 2, 0, 0, 0)
+        question1 = codec.encode_name('tunnel.example.com')
+        question1 += struct.pack('>HH', codec.QTYPE_A, codec.QCLASS_IN)
+        question2 = codec.encode_name('extra.example.com')
+        question2 += struct.pack('>HH', codec.QTYPE_A, codec.QCLASS_IN)
+        data = header + question1 + question2
+        query_id, qname, qtype = server._parse_query(data)
+        self.assertEqual(query_id, 0x34)
+        self.assertEqual(qname, 'tunnel.example.com')
         self.assertEqual(qtype, codec.QTYPE_A)
 
     def test_parse_query_rejects_non_query(self):
@@ -597,6 +635,26 @@ class DnsServerTests(unittest.TestCase):
         self.assertEqual(qname_wire_len, len(codec.encode_name(qname)))
         self.assertEqual(max_packet_size, DNS_STANDARD_SIZE)
 
+    def test_response_payload_cap_zero_when_fixed_len_equals_max_packet(self):
+        server = self._make_server()
+        server._edns_size = DNS_STANDARD_SIZE
+        server._opt_record_len = 0
+        labels = [
+            'a' * 63,
+            'b' * 63,
+            'c' * 61,
+            'd' * 51,
+        ]
+        qname = '.'.join(labels)
+        payload_cap, qname_wire_len, max_packet_size = (
+            server._response_payload_cap(qname)
+        )
+        fixed_len = 12 + (qname_wire_len + 4) + qname_wire_len + 10
+        self.assertEqual(fixed_len, max_packet_size)
+        self.assertEqual(payload_cap, 0)
+        self.assertEqual(qname_wire_len, len(codec.encode_name(qname)))
+        self.assertEqual(max_packet_size, DNS_STANDARD_SIZE)
+
     def test_response_payload_cap_clamps_small_edns(self):
         server = self._make_server()
         server._edns_size = 200
@@ -786,6 +844,21 @@ class DnsServerTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1].get('reason'), 'qtype_mismatch')
 
+    def test_recv_qtype_mismatch_propagates_send_error(self):
+        server = self._make_server()
+        packet = self._build_query(0x4a, 'tunnel.example.com',
+                                   codec.QTYPE_TXT)
+        sock = QueueSock([(packet, ('127.0.0.1', 5353))])
+        server._sock = sock
+        self._patch(dns_server.select, 'select', self._select_for_sock(sock))
+
+        def fake_send_empty(*args, **kwargs):
+            raise TransportError('boom')
+
+        server._send_empty_response = fake_send_empty
+        with self.assertRaises(TransportError):
+            server.recv(timeout=0)
+
     def test_recv_cname_followup_sends_a_record(self):
         server = self._make_server()
         packet = self._build_query(0x42, 'c.example.com', codec.QTYPE_A)
@@ -803,6 +876,20 @@ class DnsServerTests(unittest.TestCase):
         self.assertIsNone(responder)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0][1], 'c.example.com')
+
+    def test_recv_cname_followup_propagates_send_error(self):
+        server = self._make_server()
+        packet = self._build_query(0x4b, 'c.example.com', codec.QTYPE_A)
+        sock = QueueSock([(packet, ('127.0.0.1', 5353))])
+        server._sock = sock
+        self._patch(dns_server.select, 'select', self._select_for_sock(sock))
+
+        def fake_followup(*args, **kwargs):
+            raise TransportError('boom')
+
+        server._send_cname_followup = fake_followup
+        with self.assertRaises(TransportError):
+            server.recv(timeout=0)
 
     def test_recv_cname_followup_subdomain_sends_a_record(self):
         server = self._make_server()

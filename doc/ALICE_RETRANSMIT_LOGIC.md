@@ -1,14 +1,14 @@
 # Alice Retransmit Logic
 
 This document captures the full retransmission behavior on Alice (client side),
-including handshake retries, data retransmits, fast retransmit/recovery, and
-all gating and side effects that influence when retransmits happen.
+including handshake retries, data retransmits, and all gating and side effects
+that influence when retransmits happen.
 
 ## Scope And Entry Points
 
 Primary implementation locations:
 - `sfb/tunnel/alice_tunnel.py`: handshake retries, tick loop, RTO scan,
-  fast retransmit, fast recovery, send path.
+  send path.
 - `sfb/reliability/send_window.py`: unacked tracking, retransmit selection,
   RTT sample eligibility, retransmit counters.
 - `sfb/reliability/rtt.py`: RTO estimator and exponential backoff.
@@ -68,7 +68,8 @@ Each `tick()` in `AliceTunnel` executes in this order:
 2. If no responses and transport pending is high, wait up to 50ms for a response.
 3. Reset packet-count timeout if any valid response was decoded.
 4. Check packet-count timeout (disconnect if exceeded).
-5. Scan RTO retransmits and send them.
+5. Scan RTO retransmits and send them if no recent responses arrived within
+   the current RTO window.
 6. Send new packets or keepalive polls if allowed.
 
 Retransmit scanning happens before new sends, so expired packets get priority.
@@ -88,6 +89,8 @@ whose `now - send_time >= rto_sec`. Details:
 - Orders by oldest `send_time` (oldest first), not initial send order.
 - Does not mutate send_time; only `mark_retransmit()` updates send_time.
 - Includes keepalive-only packets and control-only packets (no segment filter).
+- Retransmit scanning is skipped if responses arrived within the current RTO
+  window (`now - last_recv_time < rto_sec`).
 
 ### Sending
 
@@ -155,36 +158,6 @@ Effects on retransmit logic:
 - ACK progress sets `_ack_progressed` and `_last_ack_progress_time`.
 - `data_acked_count` (only packets with segments) drives pacing feedback.
 - Keepalive packets (no segments) can update RTT but do not drive pacing.
-
-## Fast Retransmit And Fast Recovery
-
-### Fast Retransmit Trigger
-
-`AliceTunnel._maybe_fast_retransmit()` triggers when:
-- Incoming packet has `sack != 0`, and
-- At least one unacked packet exists within the SACK window (gap evidence).
-
-Behavior:
-- Retransmits the lowest missing `seq` immediately (reason `fast_gap`), and
-  may retransmit one additional missing `seq` per tick.
-- Guards against repeating the same missing `seq` until ACK advances or
-  `sack == 0` resets the guard.
-- Uses the same `_send_retransmit()` path and rate/permit gating.
-
-### Fast Recovery Mode
-
-`AliceTunnel._update_fast_recovery()`:
-- Activates when a SACK gap exists (same condition as fast retransmit).
-- While active, `_can_send_new()` blocks new data sends unless
-  `allow_fast_recovery` is True.
-- Tick behavior while active:
-  - Data-path sends are control-only (no data segments).
-  - Keepalive polls are still allowed to drive ACKs.
-
-Clears fast recovery when:
-- `unacked_count == 0`, or
-- `packet.sack == 0`, or
-- `packet.ack` differs from the stored fast-recovery ACK.
 
 ## Polling And Keepalive Effects On Retransmit Timing
 
@@ -257,7 +230,7 @@ connection and logs `tunnel.timeout_packets`. Retransmissions stop once closed.
 ## Logging And Stats
 
 Key retransmit-related events:
-- `tunnel.retransmit`: emitted on each retransmit (reason `rto` or `fast_gap`).
+- `tunnel.retransmit`: emitted on each retransmit (reason `rto`).
 - `tunnel.send_blocked`: emitted when rate-limited or transport-blocked.
 - `tunnel.packet_send` and `tunnel.packet_recv`: all sends/receives.
 - `tunnel.ack`: ACK/SACK processing details.
@@ -302,4 +275,4 @@ Protocol limits:
   updates send_time and retransmit_count.
 - RTO backoff is global; repeated retransmits without new RTT samples can
   push the RTO to the max clamp.
-- Fast retransmit is triggered by SACK gaps, not duplicate ACK counts.
+- Alice retransmits only on RTO; there is no fast retransmit or fast recovery.

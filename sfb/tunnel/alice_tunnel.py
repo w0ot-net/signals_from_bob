@@ -91,11 +91,6 @@ class AliceTunnel(BaseTunnel):
         self._window_growth_interval = config.tunnel_window_growth_interval
         self._last_window_request_time = 0
         self._ack_progressed = False
-        self._fast_retransmit_ack = None
-        self._fast_retransmit_seqs = set()
-        self._fast_retransmit_sent = 0
-        self._fast_recovery_active = False
-        self._fast_recovery_ack = None
         # Transport-agnostic send rate limiter
         self._send_limiter = RateLimiter(
             config.tunnel_send_rate,
@@ -353,7 +348,6 @@ class AliceTunnel(BaseTunnel):
         now = time_provider.now()
         self._tick_epoch += 1
         self._retransmit_budget = self._retransmit_cap
-        self._fast_retransmit_sent = 0
         packets_sent_before = self._packets_sent
 
         # 1. Receive all available responses
@@ -414,50 +408,48 @@ class AliceTunnel(BaseTunnel):
             return False
 
         # 2. Check for retransmits
-        retransmits = self._send_window.get_retransmits(
-            self._rtt.rto_sec, now=now
-        )
-        for seq, segments, flags, encrypted_body in retransmits:
-            if flags & FLAG_KEEPALIVE:
-                self._send_window.drop_keepalive(seq)
-                continue
-            if not self._can_send_retransmit(now=now):
-                break
-            sent = self._send_retransmit(
-                seq,
-                segments,
-                flags,
-                encrypted_body,
-                now,
-                reason='rto',
+        # Avoid RTO retransmits while responses are still flowing.
+        response_silence = None
+        if self._last_recv_time:
+            response_silence = now - self._last_recv_time
+        if response_silence is None or response_silence >= self._rtt.rto_sec:
+            retransmits = self._send_window.get_retransmits(
+                self._rtt.rto_sec, now=now
             )
-            if sent:
-                self._backoff_rto_once()
+            for seq, segments, flags, encrypted_body in retransmits:
+                if flags & FLAG_KEEPALIVE:
+                    self._send_window.drop_keepalive(seq)
+                    continue
+                if not self._can_send_retransmit(now=now):
+                    break
+                sent = self._send_retransmit(
+                    seq,
+                    segments,
+                    flags,
+                    encrypted_body,
+                    now,
+                    reason='rto',
+                )
+                if sent:
+                    self._backoff_rto_once()
 
         # 3. Send new packets if we can
         while True:
             if self._channel_manager.has_pending_data():
-                control_only = self._fast_recovery_active
                 if not self._can_send_new(
                         now=now,
-                        keepalive_only=False,
-                        allow_fast_recovery=control_only):
+                        keepalive_only=False):
                     break
                 permit = self._reserve_transport_permit(now)
                 if permit is None:
                     break
-                segments = self._collect_segments(
-                    self._send_mtu,
-                    control_only=control_only,
-                )
+                segments = self._collect_segments(self._send_mtu)
                 if segments:
-                    if not control_only:
-                        self._has_pending_data_acks = True
+                    self._has_pending_data_acks = True
                     self._send_new_packet(segments, now, permit=permit)
                     continue
                 self._transport.release_send(permit)
-                if not control_only:
-                    break
+                break
 
             should_poll, keepalive_due, consume_pong_grace = self._poll_decision(now)
             if not should_poll:
@@ -467,21 +459,16 @@ class AliceTunnel(BaseTunnel):
                     break
             if not self._can_send_new(
                     now=now,
-                    keepalive_only=keepalive_due,
-                    allow_fast_recovery=True):
+                    keepalive_only=keepalive_due):
                 break
             permit = self._reserve_transport_permit(now)
             if permit is None:
                 break
-            segments = self._collect_segments(
-                self._send_mtu,
-                control_only=self._fast_recovery_active,
-            )
+            segments = self._collect_segments(self._send_mtu)
             if segments:
                 self._send_new_packet(segments, now, permit=permit)
                 continue
-            if (self._channel_manager.has_pending_data() and
-                    not self._fast_recovery_active):
+            if self._channel_manager.has_pending_data():
                 self._transport.release_send(permit)
                 break
             self._send_new_packet([], now, flags=FLAG_KEEPALIVE, permit=permit)
@@ -500,25 +487,10 @@ class AliceTunnel(BaseTunnel):
 
         return True
 
-    def _can_send_new(self, now=None, keepalive_only=False,
-                      allow_fast_recovery=False):
+    def _can_send_new(self, now=None, keepalive_only=False):
         """Check if we can send a new packet."""
         if now is None:
             now = time_provider.now()
-        if self._fast_recovery_active and not allow_fast_recovery:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Fast recovery active',
-                lambda: {
-                    'side': 'alice',
-                    'reason': 'fast_recovery',
-                    'ack': self._fast_recovery_ack,
-                    'unacked': self._send_window.unacked_count,
-                },
-            )
-            return False
         if not self._send_window.can_send:
             log_event(
                 self._logger,
@@ -650,77 +622,6 @@ class AliceTunnel(BaseTunnel):
             return
         self._rtt.backoff()
         self._backoff_epoch = self._tick_epoch
-
-    def _maybe_fast_retransmit(self, packet, now):
-        """
-        Fast retransmit if SACK indicates a gap at the cumulative ACK.
-        """
-        if packet.sack == 0:
-            self._fast_retransmit_ack = None
-            self._fast_retransmit_seqs = set()
-            return False
-        ack = packet.ack
-        if self._fast_retransmit_ack != ack:
-            self._fast_retransmit_ack = ack
-            self._fast_retransmit_seqs = set()
-        missing = self._send_window.get_unacked_in_sack_window(ack)
-        if not missing:
-            return False
-        remaining_fast = 2 - self._fast_retransmit_sent
-        if remaining_fast <= 0:
-            return False
-        sent_any = False
-        for seq in missing:
-            if seq in self._fast_retransmit_seqs:
-                continue
-            if remaining_fast <= 0:
-                break
-            if not self._can_send_retransmit(now=now):
-                break
-            info = self._send_window.get_unacked_info(seq)
-            if info is None:
-                continue
-            _, segments, flags, encrypted_body, _, _ = info
-            if flags & FLAG_KEEPALIVE:
-                self._send_window.drop_keepalive(seq)
-                continue
-            sent = self._send_retransmit(
-                seq,
-                segments,
-                flags,
-                encrypted_body,
-                now,
-                reason='fast_gap',
-            )
-            if sent:
-                self._fast_retransmit_seqs.add(seq)
-                sent_any = True
-                remaining_fast -= 1
-            else:
-                break
-        return sent_any
-
-    def _update_fast_recovery(self, packet):
-        """
-        Track SACK gaps and pause new sends while a gap is active.
-        """
-        gap = False
-        if packet.sack != 0:
-            if self._send_window.get_unacked_info(packet.ack) is not None:
-                gap = True
-        if gap:
-            self._fast_recovery_active = True
-            self._fast_recovery_ack = packet.ack
-            return
-        if not self._fast_recovery_active:
-            return
-        if self._send_window.unacked_count == 0:
-            self._fast_recovery_active = False
-            self._fast_recovery_ack = None
-            return
-        if packet.sack == 0 or packet.ack != self._fast_recovery_ack:
-            self._fast_recovery_active = False
-            self._fast_recovery_ack = None
 
     def _reserve_transport_permit(self, now):
         permit = self._transport.reserve_send(now=now)
@@ -979,8 +880,6 @@ class AliceTunnel(BaseTunnel):
         self._transport.send(packet_data, permit)
 
         self._consume_retransmit_budget()
-        if reason == 'fast_gap':
-            self._fast_retransmit_sent += 1
         self._last_send_time = now
         self._packets_sent += 1
         self._bytes_sent += len(packet_data)
@@ -1054,8 +953,6 @@ class AliceTunnel(BaseTunnel):
         rtt_samples, acked_count, data_acked_count = self._process_incoming_packet(
             packet, now=now, packet_size=packet_size
         )
-        self._maybe_fast_retransmit(packet, now)
-        self._update_fast_recovery(packet)
         new_unacked = self._send_window.unacked_count
         if rtt_samples or acked_count > 0:
             self._last_ack_progress_time = now

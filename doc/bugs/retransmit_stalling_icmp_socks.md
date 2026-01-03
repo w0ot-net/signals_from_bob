@@ -55,9 +55,39 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   `tunnel.retransmit_skip`: 11433 (mostly `ack_progress`).
 - No `icmp.prune_stale` or `tunnel.packet_decode_failed` events observed.
 
+## Change applied (2026-01-03)
+- Removed Alice fast retransmit and fast recovery (no `fast_gap` retransmits).
+- Expectation: retransmits should be RTO-only; compare rates after re-run.
+
+## Latest findings (2026-01-03, post fast-retransmit removal)
+- Timeline windows: Bob ~28.4s, Alice ~23.6s.
+- Alice `tunnel.packet_send`: 2091; `tunnel.retransmit`: 169 (~8.1%),
+  all `reason=rto`.
+- Alice `tunnel.send_blocked`: 12101 total; 11219 `window_distance`,
+  468 `transport_headroom`, 78 `retransmit_budget`.
+- Alice `tunnel.send_window_distance`: 11220 events with `buffered=128`;
+  typical `distance`/`distance_limit` ~236-243 and `unacked` ~108-115.
+- Alice `icmp.prune_stale`: 4 (unexpected with 0% loss).
+- SACK gaps persist: 560/2077 packet receives had non-zero SACK; highest
+  offsets include 137/153, and max repeated ACK run was 239 packets.
+- Bob retransmits: 271/2139 (~12.7%) with 1847 skips.
+
+## Additional findings (2026-01-03, post fast-retransmit removal)
+- 160/169 Alice retransmits occurred within 0.5s of the most recent response
+  (most within ~50ms), indicating RTO firing while responses were active.
+- Largest response gap on Alice was ~4.0s; during that window, only 2 packets
+  were sent while `tunnel.send_blocked` logged ~2.6k `reason=window_distance`.
+- `icmp.prune_stale` total was 9 requests, matching the remaining retransmits
+  that occurred after response gaps >= 0.5s.
+
+## Change applied (2026-01-03)
+- Gate Alice RTO retransmits on response silence (no responses within RTO).
+- Goal: suppress spurious retransmits while polling is active, leaving only
+  retransmits tied to actual response gaps.
+
 ## Next steps from the latest logs
-- The retransmits are dominated by Alice `fast_gap` in the presence of frequent
-  SACK gaps, so confirm if fast retransmit is too aggressive for ICMP reorder.
-- The transport pending queue sits at 120/128 with repeated headroom blocks,
-  so check whether headroom/poll cadence is inducing reordering.
+- Re-run with the same profile to confirm retransmit rate drops with the
+  response-silence gate and to quantify any remaining stalls.
+- The dominant block is now `tunnel.send_window_distance`; investigate why
+  cumulative ACK stalls while `next_seq` advances.
 - Re-run with a longer Alice log window to match Bob's timeframe.

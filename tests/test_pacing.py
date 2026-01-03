@@ -205,6 +205,29 @@ class AdaptivePacerTests(unittest.TestCase):
         self.assertIsNone(pacer._ack_rate_ewma)
         self.assertEqual(pacer._last_ack_time, 0.5)
 
+    def test_on_ack_non_positive_dt_preserves_ewma(self):
+        pacer = make_pacer(ack_ewma_alpha=1.0)
+        pacer.on_ack(1, now=1.0)
+        pacer.on_ack(2, now=2.0)
+        self.assertEqual(pacer._ack_rate_ewma, 2.0)
+        pacer.on_ack(1, now=2.0)
+        self.assertEqual(pacer._ack_rate_ewma, 2.0)
+        self.assertEqual(pacer._last_ack_time, 2.0)
+        pacer.on_ack(1, now=1.5)
+        self.assertEqual(pacer._ack_rate_ewma, 2.0)
+        self.assertEqual(pacer._last_ack_time, 1.5)
+
+    def test_on_ack_without_srtt_keeps_probe_state(self):
+        pacer = make_pacer(ack_ewma_alpha=1.0)
+        pacer.on_ack(2, now=1.0)
+        pacer.on_ack(2, now=2.0)
+        pacer._probe_extra = 3
+        pacer._last_probe_time = 2.0
+        pacer.on_ack(2, now=3.0, srtt_ms=None)
+        self.assertEqual(pacer._ack_rate_ewma, 2.0)
+        self.assertEqual(pacer._probe_extra, 3)
+        self.assertEqual(pacer._last_probe_time, 2.0)
+
     def test_rtt_floor_limits_probe_step(self):
         pacer = make_pacer(
             target_inflight_ratio=0.1,
@@ -234,6 +257,15 @@ class AdaptivePacerTests(unittest.TestCase):
         pacer.on_ack(1, now=1.0)
         pacer.on_ack(1, now=3.0)
         self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 9)
+
+    def test_feedback_target_clamps_to_cap(self):
+        pacer = make_pacer(target_inflight_ratio=0.1, ack_ewma_alpha=1.0)
+        pacer.on_ack(1, now=1.0)
+        pacer.on_ack(100, now=2.0)
+        self.assertEqual(pacer.target_inflight(5, srtt_ms=1000.0), 5)
+        fields = pacer.state_fields(unacked_count=1, cap=5, srtt_ms=1000.0)
+        self.assertEqual(fields['feedback_target'], 5)
+        self.assertEqual(fields['target_mode'], 'feedback')
 
     def test_max_inflight_clamps_feedback_target(self):
         pacer = make_pacer(
@@ -391,6 +423,19 @@ class AdaptivePacerTests(unittest.TestCase):
         self.assertEqual(fields['rate_limit'], 123)
         self.assertEqual(fields['unacked_count'], 2)
         self.assertEqual(fields['cap'], 4)
+
+    def test_state_fields_cap_normalizes_when_non_positive(self):
+        pacer = make_pacer(target_inflight_ratio=0.5, min_inflight=1)
+        fields = pacer.state_fields(unacked_count=0, cap=0)
+        self.assertEqual(fields['cap'], 1)
+        self.assertEqual(fields['base_target'], 1)
+        self.assertEqual(fields['target_inflight'], 1)
+        self.assertEqual(fields['target_mode'], 'base')
+
+    def test_state_fields_includes_zero_rate_limit(self):
+        pacer = make_pacer(target_inflight_ratio=0.5, min_inflight=1)
+        fields = pacer.state_fields(unacked_count=0, cap=4, rate_limit=0)
+        self.assertEqual(fields['rate_limit'], 0)
 
     def test_state_fields_srtt_without_ack_rate_uses_base(self):
         pacer = make_pacer(target_inflight_ratio=0.5, min_inflight=1)

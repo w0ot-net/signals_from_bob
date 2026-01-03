@@ -147,6 +147,20 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Alice `tunnel.send_blocked`: 2156, mostly `transport_headroom` (2096/2156).
 - Bob `tunnel.retransmit`: 28; `tunnel.retransmit_skip`: 10805.
 
+## Latest findings (2026-01-03, default logs snapshot with distance spam)
+- Sources: `logs/client_log.db` (Alice) had 144500 rows (~10:20:36-10:21:15 UTC);
+  `logs/server_log.db` (Bob) had 420277 rows (~10:20:31-10:22:34 UTC).
+- `cli.log_startup` confirms `icmp_retransmit_debug` on both sides with
+  `tunnel.send_window_distance` whitelisted and empty blacklist.
+- Alice `tunnel.send_window_distance`: 2002; `tunnel.send_blocked`: 12202
+  (`transport_headroom` 10144, `window_distance` 2002).
+- Alice distance metrics pinned at 128 with low `unacked` (median 6) and high
+  `buffered` (median 122, p90 126), indicating cumulative ACK stalls with
+  SACKed gaps.
+- Alice `tunnel.send_window_distance` stalls cluster into 10 runs, each
+  lasting ~0.59s with ~380-407 events (per-run ack stays fixed).
+- Bob had zero `tunnel.send_window_distance` events in this window.
+
 ## Next steps from the latest logs
 - If console output still shows `tunnel.send_window_distance` spam, capture DB
   logs with a profile that includes it on both sides; the latest Alice DB had

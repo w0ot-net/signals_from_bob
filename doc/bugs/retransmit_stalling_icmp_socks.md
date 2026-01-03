@@ -41,9 +41,23 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - No `tunnel.send_window_distance`, `tunnel.send_window_full`, or
   `tunnel.packet_decode_failed` events observed.
 
+## Latest findings (2026-01-03, icmp_retransmit_debug run 2)
+- Timeline windows: Bob ~32.9s, Alice ~11.5s (client log ended earlier).
+- Alice `tunnel.packet_send`: 5879; `tunnel.retransmit`: 1804 (~30.7%),
+  all `reason=fast_gap`; retransmits are data packets (`seg_count` 1/2).
+- Alice `tunnel.send_blocked`: 2323 total; 2266 `transport_headroom`
+  at `pending=120` (max_in_flight=128, headroom=8).
+- Alice `tunnel.packet_recv`: 5761 total; 2111 with non-zero SACK (~36.7%).
+  Max repeated ACK run: 118 packets at the same ACK (1210).
+- SACK highest-offset histogram: most gaps are small (offset 1 dominates),
+  suggesting frequent out-of-order by 1 rather than deep loss.
+- Bob `tunnel.packet_send`: 11910; `tunnel.retransmit`: 466 (~3.9%);
+  `tunnel.retransmit_skip`: 11433 (mostly `ack_progress`).
+- No `icmp.prune_stale` or `tunnel.packet_decode_failed` events observed.
+
 ## Next steps from the latest logs
-- Explain the Alice-side `fast_gap` retransmits: confirm if gaps align with
-  receive window drops or polling bursts.
-- Check whether `transport_headroom` is too conservative for this workload
-  (pending saturates at 120 with frequent send blocking).
+- The retransmits are dominated by Alice `fast_gap` in the presence of frequent
+  SACK gaps, so confirm if fast retransmit is too aggressive for ICMP reorder.
+- The transport pending queue sits at 120/128 with repeated headroom blocks,
+  so check whether headroom/poll cadence is inducing reordering.
 - Re-run with a longer Alice log window to match Bob's timeframe.

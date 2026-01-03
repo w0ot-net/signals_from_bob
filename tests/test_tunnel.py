@@ -572,6 +572,91 @@ class BaseTunnelGapTests(unittest.TestCase):
         self.assertIsNone(tunnel._bg_thread)
 
 
+class MtuNegotiationTests(unittest.TestCase):
+    def test_asymmetric_mtu_negotiation_applies_per_direction(self):
+        alice = BaseTunnel(make_test_config())
+        bob = BaseTunnel(make_test_config(), is_initiator=False)
+
+        alice._proposed_send_mtu = 120
+        alice._proposed_recv_mtu = 80
+        alice._send_mtu = 120
+        alice._recv_mtu = 80
+
+        bob._proposed_send_mtu = 60
+        bob._proposed_recv_mtu = 200
+        bob._send_mtu = 60
+        bob._recv_mtu = 200
+
+        bob._handle_mtu({'t': 'tun', 'c': 'mtu', 'tx': 120, 'rx': 80})
+        msgs = _control_messages(bob.control)
+        mtu_ok = [m for m in msgs if m.get('c') == 'mtu_ok']
+        self.assertEqual(len(mtu_ok), 1)
+        mtu_ok = mtu_ok[0]
+
+        self.assertEqual(bob._negotiated_recv_mtu, 100)
+        self.assertEqual(bob._recv_mtu, 100)
+        self.assertEqual(bob._negotiated_send_mtu, 60)
+        self.assertEqual(bob._send_mtu, 60)
+        self.assertEqual(mtu_ok.get('tx'), 60)
+        self.assertEqual(mtu_ok.get('rx'), 100)
+
+        alice._handle_mtu_ok(mtu_ok)
+        self.assertEqual(alice._negotiated_send_mtu, 100)
+        self.assertEqual(alice._send_mtu, 100)
+        self.assertEqual(alice._negotiated_recv_mtu, 60)
+        self.assertEqual(alice._recv_mtu, 60)
+
+        msgs = _control_messages(alice.control)
+        mtu_ack = [m for m in msgs if m.get('c') == 'mtu_ack']
+        self.assertEqual(len(mtu_ack), 1)
+        bob._handle_mtu_ack(mtu_ack[0])
+        self.assertTrue(alice._mtu_negotiated)
+        self.assertTrue(bob._mtu_negotiated)
+
+    def test_mtu_ack_applies_pending_send_mtu(self):
+        bob = BaseTunnel(make_test_config(), is_initiator=False)
+        bob._proposed_send_mtu = 120
+        bob._proposed_recv_mtu = 100
+        bob._send_mtu = 60
+        bob._recv_mtu = 100
+
+        bob._handle_mtu({'t': 'tun', 'c': 'mtu', 'tx': 100, 'rx': 120})
+        self.assertEqual(bob._pending_send_mtu, 120)
+        self.assertEqual(bob._send_mtu, 60)
+
+        bob._handle_mtu_ack({'t': 'tun', 'c': 'mtu_ack'})
+        self.assertEqual(bob._send_mtu, 120)
+        self.assertEqual(bob._negotiated_send_mtu, 120)
+        self.assertIsNone(bob._pending_send_mtu)
+        self.assertTrue(bob._mtu_negotiated)
+
+
+class WindowNegotiationTests(unittest.TestCase):
+    def test_handle_window_updates_send_window(self):
+        tunnel = BaseTunnel(make_test_config())
+        tunnel._proposed_max_in_flight = 8
+        tunnel._send_window._max_in_flight = 1
+
+        tunnel._handle_window({'t': 'tun', 'c': 'window', 'size': 6})
+        self.assertTrue(tunnel._window_negotiated)
+        self.assertEqual(tunnel._negotiated_window, 6)
+        self.assertEqual(tunnel._send_window._max_in_flight, 6)
+
+        msgs = _control_messages(tunnel.control)
+        window_ok = [m for m in msgs if m.get('c') == 'window_ok']
+        self.assertEqual(len(window_ok), 1)
+        self.assertEqual(window_ok[0].get('size'), 6)
+
+    def test_handle_window_ok_updates_send_window(self):
+        tunnel = BaseTunnel(make_test_config())
+        tunnel._send_window._max_in_flight = 1
+
+        tunnel._handle_window_ok({'t': 'tun', 'c': 'window_ok', 'size': 5})
+        self.assertTrue(tunnel._window_negotiated)
+        self.assertEqual(tunnel._negotiated_window, 5)
+        self.assertEqual(tunnel._send_window._max_in_flight, 5)
+
+
 class AliceTunnelTests(unittest.TestCase):
     def test_requires_connected_for_tick(self):
         transport = MockTransport()
@@ -657,6 +742,74 @@ class EndToEndTests(unittest.TestCase):
             bob.close()
             bob_thread.join(timeout=1.0)
 
+    def test_channel_open_data_half_close_and_close(self):
+        """Test channel open, data roundtrip, half-close, and close."""
+        pair = PairedTransport()
+        alice_transport = pair.make_alice_transport()
+        bob_server = pair.make_bob_server()
+        config = make_test_config()
+
+        alice = AliceTunnel(alice_transport, config, crypto=Plain())
+        bob = BobTunnel(bob_server, config, crypto=Plain())
+
+        bob_thread = threading.Thread(target=bob.serve_forever)
+        bob_thread.daemon = True
+        bob_thread.start()
+
+        try:
+            alice.connect(timeout=2.0)
+            self.assertEqual(alice.state, TunnelState.CONNECTED)
+            time_provider.sleep(0.05)
+            self.assertEqual(bob.state, TunnelState.CONNECTED)
+
+            channel = alice.channel_manager.open_channel()
+            deadline = time_provider.now() + 1.0
+            while time_provider.now() < deadline and not channel.is_open:
+                alice.tick()
+                time_provider.sleep(0.01)
+            self.assertTrue(channel.is_open)
+
+            bob_channel = bob.channel_manager.get_channel(channel.id)
+            self.assertIsNotNone(bob_channel)
+            self.assertTrue(bob_channel.is_open)
+
+            payload = b'hello bob'
+            channel.write(payload)
+            deadline = time_provider.now() + 1.0
+            data = None
+            while time_provider.now() < deadline:
+                alice.tick()
+                time_provider.sleep(0.01)
+                if bob_channel.recv_buf_size:
+                    data = bob_channel.read(len(payload), timeout=0.1)
+                    break
+            self.assertEqual(data, payload)
+
+            channel.close_write()
+            deadline = time_provider.now() + 1.0
+            while time_provider.now() < deadline and not bob_channel._recv_closed:
+                alice.tick()
+                time_provider.sleep(0.01)
+            self.assertTrue(bob_channel._recv_closed)
+
+            channel.close()
+            deadline = time_provider.now() + 1.0
+            while time_provider.now() < deadline and not channel.is_closed:
+                alice.tick()
+                time_provider.sleep(0.01)
+            self.assertTrue(channel.is_closed)
+
+            deadline = time_provider.now() + 1.0
+            while time_provider.now() < deadline and not bob_channel.is_closed:
+                alice.tick()
+                time_provider.sleep(0.01)
+            self.assertTrue(bob_channel.is_closed)
+
+        finally:
+            alice.close()
+            bob.close()
+            bob_thread.join(timeout=1.0)
+
 
 class RecvWindowIntegrationTests(unittest.TestCase):
     """Tests for receive window integration."""
@@ -716,6 +869,62 @@ class RecvWindowIntegrationTests(unittest.TestCase):
         # Second delivery of same seq should be filtered
         tunnel._process_incoming_packet(pkt)
         self.assertEqual(tunnel.control._recv_buf_size, first_recv_size)
+
+
+class BobPollingTests(unittest.TestCase):
+    def test_keepalive_suppressed_when_pending_data(self):
+        """Verify Bob sends ACK-only when data is pending but no segments fit."""
+        from sfb.protocol import PacketHeader, FLAG_KEEPALIVE, SEGMENT_HEADER_SIZE
+
+        server = MockServer()
+        bob = BobTunnel(server, make_test_config(), crypto=Plain())
+
+        bob._set_state(TunnelState.CONNECTED)
+        bob._local_isn = 100
+        bob._remote_isn = 200
+        bob._recv_window.set_initial_seq(201)
+        bob._send_window._next_seq = 101
+
+        bob.control.send_message({'t': 'tun', 'c': 'test'})
+        bob._send_mtu = SEGMENT_HEADER_SIZE - 1
+
+        sent_responses = []
+
+        def mock_responder(data):
+            sent_responses.append(data)
+
+        bob._send_response(mock_responder, time_provider.now())
+        self.assertEqual(len(sent_responses), 1)
+        header = PacketHeader.decode(sent_responses[0])
+        self.assertFalse(header.flags & FLAG_KEEPALIVE)
+
+    def test_response_count_matches_request_count(self):
+        """Verify Bob only responds once per request."""
+        from sfb.protocol import Packet, FLAG_KEEPALIVE
+
+        server = MockServer()
+        bob = BobTunnel(server, make_test_config(), crypto=Plain())
+
+        bob._set_state(TunnelState.CONNECTED)
+        bob._local_isn = 100
+        bob._remote_isn = 200
+        bob._recv_window.set_initial_seq(201)
+        bob._send_window._next_seq = 101
+
+        bob.control.send_message({'t': 'tun', 'c': 'test'})
+
+        poll = Packet(seq=201, ack=0, sack=0, flags=FLAG_KEEPALIVE)
+        poll_data = bob._encode_packet(poll)
+
+        sent_responses = []
+
+        def mock_responder(data):
+            sent_responses.append(data)
+
+        for _ in range(3):
+            bob.handle_request(poll_data, mock_responder)
+
+        self.assertEqual(len(sent_responses), 3)
 
 
 class BobRetransmitTests(unittest.TestCase):
@@ -857,6 +1066,43 @@ class WindowEnforcementTests(unittest.TestCase):
         # and should have sent something
         self.assertEqual(len(sent_responses), 1)
         self.assertEqual(bob._send_window.unacked_count, initial_unacked)
+
+
+class AliceRetransmitTimingTests(unittest.TestCase):
+    def test_retransmit_uses_rtt_rto(self):
+        from sfb.protocol import Segment
+
+        config = make_test_config(
+            tunnel_keepalive_interval=100.0,
+            tunnel_timeout_packets=1000,
+        )
+        transport = MockTransport()
+        alice = AliceTunnel(transport, config, crypto=Plain())
+        alice._set_state(TunnelState.CONNECTED)
+
+        time_state = {'now': 0.0}
+
+        def fake_now():
+            return time_state['now']
+
+        time_provider.set_time_source(fake_now, clamp=False)
+        try:
+            alice._rtt.add_sample(2000.0)
+            permit = transport.reserve_send(now=time_state['now'])
+            alice._send_new_packet([Segment(0, b'data')], now=time_state['now'], permit=permit)
+
+            sent_before = len(transport._sent)
+
+            time_state['now'] = 3.9
+            alice.tick()
+            self.assertEqual(len(transport._sent), sent_before)
+
+            time_state['now'] = 4.1
+            alice.tick()
+            self.assertEqual(len(transport._sent), sent_before + 1)
+
+        finally:
+            time_provider.reset_time_source()
 
 
 class AliceTimeoutTests(unittest.TestCase):

@@ -10,9 +10,11 @@ from collections import OrderedDict
 from .. import time_provider
 from ..protocol import (
     seq_lt,
+    seq_diff,
     SEQ_MAX,
     SACK_BITS,
     MAX_IN_FLIGHT,
+    FLAG_KEEPALIVE,
 )
 from .stats import NoopReliabilityStats
 
@@ -116,11 +118,11 @@ class SendWindow(object):
 
         return (rtt_samples, acked_count, data_acked_count)
 
-    def get_retransmits(self, rto_sec, now=None):
+    def get_retransmits(self, rto_sec, now=None, max_count=None):
         """
         Get packets that need retransmission (Alice, timer-driven).
 
-        Returns in send order (oldest first) for consistent behavior.
+        Returns in send_time order (oldest first) for consistent behavior.
 
         Returns:
             list: List of (seq, segments, flags, encrypted_body) to retransmit
@@ -128,14 +130,27 @@ class SendWindow(object):
         if now is None:
             now = time_provider.now()
 
+        if max_count is not None and max_count <= 0:
+            return []
+
         retransmits = []
         for seq, pkt in self._unacked.items():
             if now - pkt.send_time >= rto_sec:
                 retransmits.append(
-                    (seq, pkt.segments, pkt.flags, pkt.encrypted_body)
+                    (pkt.send_time, seq, pkt)
                 )
 
-        return retransmits
+        if not retransmits:
+            return []
+
+        retransmits.sort(key=lambda item: (item[0], item[1]))
+        if max_count is not None:
+            retransmits = retransmits[:max_count]
+
+        return [
+            (seq, pkt.segments, pkt.flags, pkt.encrypted_body)
+            for _, seq, pkt in retransmits
+        ]
 
     def get_oldest_unacked(self):
         """
@@ -206,6 +221,43 @@ class SendWindow(object):
         self._retransmit_count += 1
         self._stats.on_retransmit()
 
+    def drop_keepalive(self, seq):
+        """
+        Drop an unacked keepalive-only packet.
+        """
+        pkt = self._unacked.get(seq)
+        if pkt is None:
+            return False
+        if not (pkt.flags & FLAG_KEEPALIVE):
+            return False
+        del self._unacked[seq]
+        return True
+
+    def drop_oldest_keepalive(self):
+        """
+        Drop the oldest unacked keepalive-only packet.
+        """
+        for seq, pkt in self._unacked.items():
+            if pkt.flags & FLAG_KEEPALIVE:
+                del self._unacked[seq]
+                return True
+        return False
+
+    def get_unacked_in_sack_window(self, ack, max_offset=None):
+        """
+        Return unacked seq numbers within the SACK window, ordered by offset.
+        """
+        if max_offset is None:
+            max_offset = SACK_BITS
+        candidates = []
+        for seq in self._unacked:
+            diff = seq_diff(seq, ack)
+            if diff < 0 or diff > max_offset:
+                continue
+            candidates.append((diff, seq))
+        candidates.sort()
+        return [seq for _, seq in candidates]
+
     def _ack_cumulative(self, ack, now, rtt_samples):
         acked_count = 0
         data_acked_count = 0
@@ -241,10 +293,11 @@ class SendWindow(object):
             return (0, 0)
         self._stats.on_ack(is_sack)
         if pkt.retransmit_count == 0:
-            rtt_ms = (now - pkt.send_time) * 1000
-            rtt_samples.append(rtt_ms)
             self._stats.on_ack_first_tx()
-            self._stats.on_rtt_sample()
+            if not (pkt.flags & FLAG_KEEPALIVE):
+                rtt_ms = (now - pkt.send_time) * 1000
+                rtt_samples.append(rtt_ms)
+                self._stats.on_rtt_sample()
         data_acked = 1 if pkt.segments else 0
         return (1, data_acked)
 

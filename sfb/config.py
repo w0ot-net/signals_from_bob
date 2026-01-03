@@ -100,6 +100,8 @@ class Config:
     tunnel_connect_timeout: float = 10.0
     # Alice: packets sent without response before giving up
     tunnel_timeout_packets: int = 257
+    # Alice: max retransmits per tick (RTO + fast gap)
+    tunnel_retransmit_cap: int = 2
     # Enable reliability stats tracking
     tunnel_stats_enabled: bool = False
     # Enable dynamic window growth on Alice
@@ -319,6 +321,8 @@ class Config:
             raise ValueError("tunnel_idle_timeout must be > 0")
         if self.tunnel_initial_window < 1 or self.tunnel_initial_window > 256:
             raise ValueError("tunnel_initial_window must be 1-256")
+        if self.tunnel_retransmit_cap < 1:
+            raise ValueError("tunnel_retransmit_cap must be >= 1")
         if self.tunnel_window_growth_mode not in ("linear", "doubling"):
             raise ValueError("tunnel_window_growth_mode must be 'linear' or 'doubling'")
         if self.tunnel_window_growth_step < 1:

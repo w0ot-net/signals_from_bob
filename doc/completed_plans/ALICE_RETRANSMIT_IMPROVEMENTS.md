@@ -157,3 +157,12 @@ Notes:
    permits; update logging as needed for visibility.
 6. Add or update unit tests around retransmit ordering, backoff gating, and
    keepalive RTT handling (do not run E2E tests here).
+
+## Execution Notes
+
+- Implemented per-tick retransmit budget and single backoff per tick for RTO
+  retransmits; fast-gap retransmits no longer apply backoff.
+- Dropped keepalive-only RTO candidates, excluded keepalive RTT sampling, and
+  reset the RTT estimator after handshake completion.
+- Expanded fast retransmit to cover multiple SACK gaps, added retransmit skip
+  metrics, and updated unit tests plus retransmit logic docs.

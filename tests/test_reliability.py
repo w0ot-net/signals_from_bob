@@ -4,7 +4,7 @@ from __future__ import absolute_import
 import unittest
 
 from sfb.reliability import RttEstimator, SendWindow, RecvWindow, ReliabilityStats
-from sfb.protocol import MAX_IN_FLIGHT, MIN_RTO_MS, MAX_RTO_MS, SEQ_MAX
+from sfb.protocol import MAX_IN_FLIGHT, MIN_RTO_MS, MAX_RTO_MS, SEQ_MAX, FLAG_KEEPALIVE
 
 
 class RttEstimatorTests(unittest.TestCase):
@@ -28,6 +28,14 @@ class RttEstimatorTests(unittest.TestCase):
         rtt = RttEstimator()
         rtt.add_sample(100000)
         self.assertEqual(rtt.rto_ms, MAX_RTO_MS)
+
+    def test_reset_clears_srtt(self):
+        rtt = RttEstimator(initial_rto_ms=1200)
+        rtt.add_sample(1000)
+        rtt.backoff()
+        rtt.reset()
+        self.assertEqual(rtt.rto_ms, 1200)
+        self.assertIsNone(rtt.srtt_ms)
 
 
 class SendWindowTests(unittest.TestCase):
@@ -100,6 +108,14 @@ class SendWindowTests(unittest.TestCase):
         retransmits = win.get_retransmits(rto_sec=0.5, now=1.6)
         self.assertEqual(retransmits, [(0, [b'a'], 0, None)])
 
+    def test_get_retransmits_orders_by_send_time(self):
+        win = SendWindow(max_in_flight=2)
+        seq0 = win.send([b'a'], now=1.0)
+        seq1 = win.send([b'b'], now=2.0)
+        win.mark_retransmit(seq0, now=5.0)
+        retransmits = win.get_retransmits(rto_sec=1.0, now=6.0, max_count=1)
+        self.assertEqual(retransmits, [(seq1, [b'b'], 0, None)])
+
     def test_ack_retransmit_has_no_rtt_sample(self):
         win = SendWindow(max_in_flight=1)
         seq = win.send([b'a'], now=1.0)
@@ -108,6 +124,14 @@ class SendWindowTests(unittest.TestCase):
         self.assertEqual(samples, [])
         self.assertEqual(acked, 1)
         self.assertEqual(data_acked, 1)
+
+    def test_keepalive_ack_skips_rtt_sample(self):
+        win = SendWindow(max_in_flight=1)
+        win.send([], flags=FLAG_KEEPALIVE, now=1.0)
+        samples, acked, data_acked = win.process_ack(ack=1, sack=0, now=2.0)
+        self.assertEqual(samples, [])
+        self.assertEqual(acked, 1)
+        self.assertEqual(data_acked, 0)
 
     def test_oldest_unacked_uses_send_time(self):
         win = SendWindow(max_in_flight=4)

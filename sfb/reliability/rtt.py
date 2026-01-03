@@ -71,6 +71,12 @@ class RttEstimator(object):
         if self._srtt is not None:
             self._rto = self._clamp(self._srtt * 2)
 
+    def reset(self):
+        """Reset estimator to initial state."""
+        self._srtt = None
+        self._rto = self._initial_rto
+        self._backoff_count = 0
+
     def _clamp(self, rto):
         if rto < self._min_rto:
             return self._min_rto

@@ -85,14 +85,15 @@ is the transport's `max_in_flight` if available, otherwise the send window cap.
 `SendWindow.get_retransmits(rto_sec, now)` returns a list of all unacked packets
 whose `now - send_time >= rto_sec`. Details:
 - Uses the same `now` for all comparisons in a tick.
-- Iterates in initial send order (`OrderedDict` order), not by send_time.
+- Orders by oldest `send_time` (oldest first), not initial send order.
 - Does not mutate send_time; only `mark_retransmit()` updates send_time.
 - Includes keepalive-only packets and control-only packets (no segment filter).
 
 ### Sending
 
 For each candidate:
-- `AliceTunnel._can_send_retransmit()` checks only the rate limiter.
+- `AliceTunnel._can_send_retransmit()` checks the per-tick retransmit budget
+  and the rate limiter.
   - If rate-limited, the loop breaks (no further retransmits this tick).
 - `_send_retransmit()` performs the send:
   - Rebuilds the packet with the original `seq` and `flags`, but fresh
@@ -105,13 +106,14 @@ For each candidate:
     - Updates `send_time` to `now` (restarts the RTO timer).
     - Increments global retransmit stats.
   - Calls `AdaptivePacer.on_retransmit()` (probe reset).
-  - Calls `RttEstimator.backoff()` (global RTO doubling).
   - Increments `_packets_sent`, `_bytes_sent`, and `_packets_since_response`.
   - Logs `tunnel.retransmit` and `tunnel.packet_send`.
   - The `tunnel.retransmit` reason is `rto` for timer-driven retransmits.
 
 If the rate limiter denies `consume()` or no send permit is available, the
 retransmit is skipped (no backoff, no send_time update).
+Keepalive-only RTO candidates are dropped instead of retransmitted, so the
+next keepalive poll uses a fresh sequence number.
 
 ### Window Semantics
 
@@ -128,7 +130,8 @@ slot. Retransmissions are allowed even when the send window is full.
   - `rto = clamp(srtt * 2, min_rto_ms, max_rto_ms)`.
 - Backoff:
   - `backoff()` doubles the current RTO (clamped).
-  - Called on each retransmit and on handshake timeouts/invalid responses.
+  - Called on RTO-driven retransmits (at most once per tick) and on handshake
+    timeouts/invalid responses.
 - Global estimator:
   - One estimator per Alice tunnel, not per packet.
   - Any backoff affects all outstanding retransmit decisions.
@@ -145,6 +148,7 @@ RTT sampling (`SendWindow._ack_seq`):
 - RTT sample is recorded only if `retransmit_count == 0` (Karn's rule).
 - Sample value: `(now - send_time) * 1000` milliseconds.
 - Samples are collected for both cumulative ACKs and SACK ACKs.
+  - Keepalive-only packets are excluded from RTT sampling.
 
 Effects on retransmit logic:
 - RTT samples feed `RttEstimator.add_sample()` and reset backoff.
@@ -158,12 +162,13 @@ Effects on retransmit logic:
 
 `AliceTunnel._maybe_fast_retransmit()` triggers when:
 - Incoming packet has `sack != 0`, and
-- The packet at `seq == packet.ack` is still unacked (gap at the cumulative ACK).
+- At least one unacked packet exists within the SACK window (gap evidence).
 
 Behavior:
-- Retransmits that `seq` immediately (reason `fast_gap`).
-- Only once per distinct `ack` value; repeated packets with the same `ack`
-  are ignored until `sack == 0` resets the guard.
+- Retransmits the lowest missing `seq` immediately (reason `fast_gap`), and
+  may retransmit one additional missing `seq` per tick.
+- Guards against repeating the same missing `seq` until ACK advances or
+  `sack == 0` resets the guard.
 - Uses the same `_send_retransmit()` path and rate/permit gating.
 
 ### Fast Recovery Mode
@@ -199,8 +204,10 @@ arrive, which in turn drives RTT samples and retransmit timing.
 
 Keepalive specifics:
 - Keepalive packets have FLAG_KEEPALIVE and zero segments.
-- They still use sequence numbers, are tracked in the send window, and can
-  produce RTT samples (if not retransmitted).
+- They still use sequence numbers and are tracked in the send window, but do
+  not contribute RTT samples.
+- If a keepalive is due and the window is full, the oldest keepalive is dropped
+  so a fresh keepalive poll can be sent.
 - Keepalive responses are suppressed when any channel has pending data; real
   data replaces keepalives.
 
@@ -259,6 +266,8 @@ Key retransmit-related events:
 If `tunnel_stats_enabled`:
 - `ReliabilityStats.retransmit_packets` increments per retransmit.
 - `ReliabilityStats.rtt_samples` increments on valid RTT samples.
+- `ReliabilityStats.retransmit_skipped_rate_limit` and
+  `ReliabilityStats.retransmit_skipped_transport` track retransmit skips.
 
 ## Configuration Knobs And Defaults
 
@@ -267,6 +276,7 @@ Retransmit-related settings in `Config`:
 - `protocol_min_rto_ms` (default 500)
 - `protocol_max_rto_ms` (default 10000)
 - `tunnel_timeout_packets` (default 257)
+- `tunnel_retransmit_cap` (default 2)
 - `tunnel_keepalive_interval` (default 1.0)
 - `tunnel_pong_grace_polls` (default 5)
 - `tunnel_send_rate` (default 0.0, unlimited)

@@ -21,10 +21,10 @@ the tunnel already handles encryption.
 - IPv6 endpoint support (resolve/connect uses IPv4 only for now).
 
 ## Affected Components
-- `sfb/transport/tls/codec.py` (new TLS handshake encoder/decoder)
-- `sfb/transport/tls/tls_client.py` (new client transport)
-- `sfb/transport/tls/tls_server.py` (new server transport)
-- `sfb/transport/tls/__init__.py` (new transport package)
+- `sfb/transport/tls_handshake/tls_handshake_codec.py` (new TLS handshake encoder/decoder)
+- `sfb/transport/tls_handshake/tls_handshake_client.py` (new client transport)
+- `sfb/transport/tls_handshake/tls_handshake_server.py` (new server transport)
+- `sfb/transport/tls_handshake/__init__.py` (new transport package)
 - `sfb/transport/__init__.py` (transport registry)
 - `sfb/config.py` (TLS config defaults and validation)
 - `sfb/cli.py` (transport selection and TLS args)
@@ -351,9 +351,9 @@ CLI:
 ## Implementation Order
 1. Review/update `doc/TLS_TRANSPORT.md` with the final wire format, defaults,
    and connection-rate guidance.
-2. Implement `sfb/transport/tls/codec.py` and unit tests.
-3. Implement client transport (`tls_client.py`).
-4. Implement server transport (`tls_server.py`).
+2. Implement `sfb/transport/tls_handshake/tls_handshake_codec.py` and unit tests.
+3. Implement client transport (`tls_handshake_client.py`).
+4. Implement server transport (`tls_handshake_server.py`).
 5. Register transport and add config/CLI/logging updates.
 6. Add transport tests and update `doc/TRANSPORTS.md`.
 

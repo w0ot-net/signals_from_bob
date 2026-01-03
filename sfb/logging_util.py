@@ -105,8 +105,8 @@ class ComponentFilter(logging.Filter):
         self._tls_enabled = bool(getattr(config, 'log_component_transport_tls', True))
         self._tls_event_prefix = 'tls.'
         self._tls_logger_prefixes = (
-            'sfb.transport.tls.',
-            'sfb.transport.tls',
+            'sfb.transport.tls_handshake.',
+            'sfb.transport.tls_handshake',
         )
         self._tunnel_enabled = bool(getattr(config, 'log_component_tunnel', True))
         self._tunnel_event_prefix = 'tunnel.'

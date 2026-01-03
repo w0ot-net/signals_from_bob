@@ -8,9 +8,9 @@ import unittest
 
 from sfb.config import Config
 from sfb.transport.transport_base import PendingTracker, TransportError
-from sfb.transport.tls.config import validate_tls_config
-from sfb.transport.tls.tls_client import TlsClient, _PendingConn
-from sfb.transport.tls.tls_server import TlsServer
+from sfb.transport.tls_handshake.tls_handshake_config import validate_tls_config
+from sfb.transport.tls_handshake.tls_handshake_client import TlsClient, _PendingConn
+from sfb.transport.tls_handshake.tls_handshake_server import TlsServer
 from sfb import time_provider
 
 

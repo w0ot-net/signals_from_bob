@@ -6,7 +6,7 @@ from __future__ import absolute_import
 import struct
 import unittest
 
-from sfb.transport.tls import codec
+from sfb.transport.tls_handshake import tls_handshake_codec as codec
 from sfb.compat import to_bytes
 
 

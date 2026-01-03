@@ -36,7 +36,7 @@ from .memory import (
 
 from .dns import DnsClient, DnsServer
 from .icmp import IcmpClient, IcmpServer
-from .tls import TlsClient, TlsServer
+from .tls_handshake import TlsClient, TlsServer
 
 
 def get_transport_class(name, role):

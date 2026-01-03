@@ -39,6 +39,20 @@ class CryptoTests(unittest.TestCase):
         self.assertEqual(result, b'abc')
         self.assertIsInstance(result, bytes)
 
+    def test_plain_bytearray_returns_bytes(self):
+        data = bytearray(b'abc')
+        result = Plain().encrypt(data)
+        self.assertEqual(result, b'abc')
+        self.assertIsInstance(result, bytes)
+
+    def test_plain_buffer_returns_bytes(self):
+        if not PY2:
+            return
+        buf = buffer(b'abc')
+        result = Plain().encrypt(buf)
+        self.assertEqual(result, b'abc')
+        self.assertIsInstance(result, bytes)
+
     def test_accepts_bytes_like_key(self):
         key = bytearray(b'key')
         data = b'hello'
@@ -99,6 +113,16 @@ class CryptoTests(unittest.TestCase):
         self.assertRaises(ValueError, cipher.encrypt, data, seq=1)
         self.assertRaises(ValueError, cipher.encrypt, data, direction=0)
 
+    def test_rc4_rejects_invalid_seq_direction(self):
+        cipher = RC4(b'k')
+        data = b'hi'
+        self.assertRaises(TypeError, cipher.encrypt, data, seq='1', direction=0)
+        self.assertRaises(TypeError, cipher.encrypt, data, seq=1, direction='0')
+        self.assertRaises(ValueError, cipher.encrypt, data, seq=-1, direction=0)
+        self.assertRaises(ValueError, cipher.encrypt, data, seq=0x10000, direction=0)
+        self.assertRaises(ValueError, cipher.encrypt, data, seq=1, direction=-1)
+        self.assertRaises(ValueError, cipher.encrypt, data, seq=1, direction=2)
+
     def test_rejects_empty_key(self):
         self.assertRaises(ValueError, XOR, b'')
         self.assertRaises(ValueError, RC4, b'')
@@ -108,10 +132,20 @@ class CryptoTests(unittest.TestCase):
         self.assertRaises(TypeError, XOR, text)
         self.assertRaises(TypeError, RC4, text)
 
+    def test_require_key_rejects_non_bytes_like(self):
+        self.assertRaises(TypeError, _require_key, 1)
+        self.assertRaises(TypeError, _require_key, object())
+
     def test_rejects_text_data(self):
         text = _text_value('data')
         self.assertRaises(TypeError, XOR(b'k').encrypt, text)
         self.assertRaises(TypeError, RC4(b'k').encrypt, text, seq=1, direction=0)
+
+    def test_rejects_non_bytes_like_data(self):
+        self.assertRaises(TypeError, XOR(b'k').encrypt, 1)
+        self.assertRaises(TypeError, RC4(b'k').encrypt, 1, seq=1, direction=0)
+        self.assertRaises(TypeError, XOR(b'k').encrypt, object())
+        self.assertRaises(TypeError, RC4(b'k').encrypt, object(), seq=1, direction=0)
 
     def test_cipher_modes_mapping(self):
         self.assertEqual(CIPHER_MODES['none'], Plain)

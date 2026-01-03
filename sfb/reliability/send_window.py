@@ -305,6 +305,56 @@ class SendWindow(object):
             'keepalive_drop_count': self._keepalive_drop_count,
         }
 
+    def debug_state(self, now=None):
+        """
+        Return a snapshot of send-window state for logging.
+        """
+        if now is None:
+            now = time_provider.now()
+        state = {
+            'unacked': len(self._unacked),
+            'max_in_flight': self._max_in_flight,
+            'next_seq': self._next_seq,
+            'retransmit_total': self._retransmit_count,
+        }
+        keepalive_unacked = 0
+        empty_unacked = 0
+        data_unacked = 0
+        for pkt in self._unacked.values():
+            seg_count = len(pkt.segments) if pkt.segments is not None else 0
+            if pkt.flags & FLAG_KEEPALIVE:
+                keepalive_unacked += 1
+            elif seg_count == 0:
+                empty_unacked += 1
+            else:
+                data_unacked += 1
+        state['keepalive_unacked'] = keepalive_unacked
+        state['empty_unacked'] = empty_unacked
+        state['data_unacked'] = data_unacked
+        oldest_info = self.get_oldest_unacked_info()
+        if oldest_info is not None:
+            seq, segments, flags, _encrypted, send_time, retransmit_count = oldest_info
+            age = None
+            if send_time is not None:
+                age = now - send_time
+                if age < 0:
+                    age = 0.0
+                age = round(age, 6)
+            state.update({
+                'oldest_seq': seq,
+                'oldest_age': age,
+                'oldest_retransmit_count': retransmit_count,
+                'oldest_flags': flags,
+                'oldest_seg_count': len(segments) if segments is not None else 0,
+            })
+        ack_info = self.get_ack_debug_info(now=now)
+        if ack_info is not None:
+            state.update(ack_info)
+        drop_info = self.get_keepalive_drop_info(now=now)
+        if drop_info is not None:
+            state.update(drop_info)
+        return state
+
     def _record_keepalive_drop(self, seq, reason, now, count_before, count_after):
         self._last_keepalive_drop_seq = seq
         self._last_keepalive_drop_reason = reason

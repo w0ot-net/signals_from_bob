@@ -315,11 +315,37 @@ class BobTunnel(BaseTunnel):
             )
             self.close()
             return False
+        prev_info = self._send_window.get_unacked_info(seq)
+        prev_retransmit_count = None
+        prev_age = None
+        if prev_info is not None:
+            prev_retransmit_count = prev_info[5]
+            prev_send_time = prev_info[4]
+            if prev_send_time is not None:
+                prev_age = now - prev_send_time
+                if prev_age < 0:
+                    prev_age = 0.0
+                prev_age = round(prev_age, 6)
         self._send_window.mark_retransmit(seq, now=now)
         def build_fields():
-            fields = {'seq': seq, 'seg_count': len(segments), 'side': 'bob'}
+            fields = {
+                'seq': seq,
+                'ack': packet.ack,
+                'sack': packet.sack,
+                'flags': packet.flags,
+                'seg_count': len(segments),
+                'bytes': len(response_data),
+                'side': 'bob',
+                'send_mtu': self._send_mtu,
+                'recv_mtu': self._recv_mtu,
+            }
             if reason is not None:
                 fields['reason'] = reason
+            if prev_retransmit_count is not None:
+                fields['retransmit_count'] = prev_retransmit_count + 1
+                fields['prev_retransmit_count'] = prev_retransmit_count
+            if prev_age is not None:
+                fields['prev_send_age'] = prev_age
             return fields
         log_event(
             self._logger,
@@ -345,7 +371,27 @@ class BobTunnel(BaseTunnel):
                 'flags': packet.flags,
                 'seg_count': len(packet.segments),
                 'bytes': len(response_data),
+                'context': 'retransmit',
+                'send_mtu': self._send_mtu,
+                'recv_mtu': self._recv_mtu,
+                'negotiated_window': self._negotiated_window,
+                'unacked': self._send_window.unacked_count,
+                'max_in_flight': self._send_window._max_in_flight,
+                'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
+                'has_data': bool(packet.segments),
                 'side': 'bob',
+                'state': self._state,
+            },
+        )
+        self._log_reliability_state(
+            logging.DEBUG,
+            'tunnel.reliability_state',
+            'Reliability state after retransmit',
+            now=now,
+            extra_fields={
+                'context': 'retransmit_sent',
+                'seq': seq,
+                'reason': reason,
             },
         )
         return True
@@ -368,6 +414,30 @@ class BobTunnel(BaseTunnel):
         self._packets_sent += 1
         self._bytes_sent += len(response_data)
         self._respond(responder, response_data, context, packet)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.packet_send',
+            'Packet sent',
+            lambda: {
+                'seq': packet.seq,
+                'ack': packet.ack,
+                'sack': packet.sack,
+                'flags': packet.flags,
+                'seg_count': len(packet.segments),
+                'bytes': len(response_data),
+                'context': 'ack_only',
+                'send_mtu': self._send_mtu,
+                'recv_mtu': self._recv_mtu,
+                'negotiated_window': self._negotiated_window,
+                'unacked': self._send_window.unacked_count,
+                'max_in_flight': self._send_window._max_in_flight,
+                'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
+                'has_data': bool(packet.segments),
+                'side': 'bob',
+                'state': self._state,
+            },
+        )
 
     def _send_response(self, responder, now):
         """Build and send response packet."""
@@ -409,6 +479,9 @@ class BobTunnel(BaseTunnel):
                         if since_cum_ack is not None else None,
                         'last_cum_ack': self._last_cum_ack,
                         'retransmit_count': retransmit_count,
+                        'poll_ewma': self._poll_interval_ewma,
+                        'unacked': self._send_window.unacked_count,
+                        'max_in_flight': self._send_window._max_in_flight,
                         'side': 'bob',
                     },
                 )
@@ -463,6 +536,16 @@ class BobTunnel(BaseTunnel):
                     'unacked': self._send_window.unacked_count,
                     'max_in_flight': self._send_window._max_in_flight,
                     'side': 'bob',
+                },
+            )
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.reliability_state',
+                'Reliability state after send blocked',
+                now=now,
+                extra_fields={
+                    'context': 'send_blocked',
+                    'reason': 'window_full',
                 },
             )
             if oldest_info is not None:
@@ -524,6 +607,18 @@ class BobTunnel(BaseTunnel):
                     'reason': 'window_distance',
                 },
             )
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.reliability_state',
+                'Reliability state after send blocked',
+                now=now,
+                extra_fields={
+                    'context': 'send_blocked',
+                    'reason': 'window_distance',
+                    'distance': distance,
+                    'distance_limit': distance_limit,
+                },
+            )
             if oldest_info is not None:
                 self._send_retransmit_response(
                     responder,
@@ -553,6 +648,15 @@ class BobTunnel(BaseTunnel):
 
         if not segments:
             if pending_data:
+                self._log_reliability_state(
+                    logging.DEBUG,
+                    'tunnel.keepalive_suppressed',
+                    'Keepalive suppressed by pending data',
+                    now=now,
+                    extra_fields={
+                        'reason': 'pending_data',
+                    },
+                )
                 self._send_ack_only_response(
                     responder,
                     now,
@@ -592,7 +696,16 @@ class BobTunnel(BaseTunnel):
                     'flags': packet.flags,
                     'seg_count': len(packet.segments),
                     'bytes': len(response_data),
+                    'context': 'keepalive',
+                    'send_mtu': self._send_mtu,
+                    'recv_mtu': self._recv_mtu,
+                    'negotiated_window': self._negotiated_window,
+                    'unacked': self._send_window.unacked_count,
+                    'max_in_flight': self._send_window._max_in_flight,
+                    'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
+                    'has_data': bool(packet.segments),
                     'side': 'bob',
+                    'state': self._state,
                 },
             )
             return
@@ -632,7 +745,16 @@ class BobTunnel(BaseTunnel):
                 'flags': packet.flags,
                 'seg_count': len(packet.segments),
                 'bytes': len(response_data),
+                'context': 'segments',
+                'send_mtu': self._send_mtu,
+                'recv_mtu': self._recv_mtu,
+                'negotiated_window': self._negotiated_window,
+                'unacked': self._send_window.unacked_count,
+                'max_in_flight': self._send_window._max_in_flight,
+                'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
+                'has_data': bool(packet.segments),
                 'side': 'bob',
+                'state': self._state,
             },
         )
 

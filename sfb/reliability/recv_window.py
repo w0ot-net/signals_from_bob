@@ -44,28 +44,43 @@ class RecvWindow(object):
                 bitmap |= (1 << (offset - 1))
         return bitmap
 
-    def receive(self, seq, packet_data):
+    def receive(self, seq, packet_data, return_info=False):
         """
         Process a received packet.
 
         Returns:
             list: List of (seq, packet_data) in order, ready for delivery.
         """
+        action = None
+        offset = None
+        delivered = 0
         # Reject packets already received
         if seq_lt(seq, self._next_expected):
             self._stats.on_recv_duplicate()
-            return []
+            action = 'duplicate'
+            ready = []
+            if return_info:
+                return (ready, self._receive_info(seq, action, offset, delivered))
+            return ready
 
         # Reject packets beyond SACK window (can't represent in SACK bitmap)
         offset = seq_diff(seq, self._next_expected)
         if offset > SACK_BITS:
             self._stats.on_recv_out_of_window()
-            return []
+            action = 'out_of_window'
+            ready = []
+            if return_info:
+                return (ready, self._receive_info(seq, action, offset, delivered))
+            return ready
 
         # Reject duplicates
         if seq in self._buffer:
             self._stats.on_recv_duplicate()
-            return []
+            action = 'duplicate'
+            ready = []
+            if return_info:
+                return (ready, self._receive_info(seq, action, offset, delivered))
+            return ready
 
         if seq == self._next_expected:
             ready = [(seq, packet_data)]
@@ -76,16 +91,76 @@ class RecvWindow(object):
                 ready.append((self._next_expected, buffered))
                 self._next_expected = (self._next_expected + 1) & SEQ_MAX
 
-            self._stats.on_recv_delivered(len(ready))
+            delivered = len(ready)
+            self._stats.on_recv_delivered(delivered)
+            action = 'delivered'
+            if return_info:
+                return (ready, self._receive_info(seq, action, offset, delivered))
             return ready
 
         if len(self._buffer) >= self._max_buffer:
             self._stats.on_recv_buffer_full()
-            return []
+            action = 'buffer_full'
+            ready = []
+            if return_info:
+                return (ready, self._receive_info(seq, action, offset, delivered))
+            return ready
 
         self._buffer[seq] = packet_data
         self._stats.on_recv_buffered()
-        return []
+        action = 'buffered'
+        ready = []
+        if return_info:
+            return (ready, self._receive_info(seq, action, offset, delivered))
+        return ready
+
+    def _receive_info(self, seq, action, offset, delivered):
+        info = {
+            'action': action,
+            'seq': seq,
+            'ack': self._next_expected,
+            'sack': self.sack,
+            'buffered': len(self._buffer),
+            'max_buffer': self._max_buffer,
+        }
+        if offset is not None:
+            info['offset'] = offset
+        if delivered:
+            info['delivered'] = delivered
+        return info
+
+    def debug_state(self, include_buffered=False):
+        """
+        Return a snapshot of recv-window state for logging.
+        """
+        state = {
+            'ack': self._next_expected,
+            'sack': self.sack,
+            'buffered': len(self._buffer),
+            'max_buffer': self._max_buffer,
+        }
+        stats_fields = (
+            'recv_duplicates',
+            'recv_out_of_window',
+            'recv_buffer_full',
+            'recv_buffered',
+            'recv_delivered',
+        )
+        for name in stats_fields:
+            value = getattr(self._stats, name, None)
+            if value is not None:
+                state[name] = value
+        if include_buffered:
+            offsets = []
+            seqs = []
+            for seq in self._buffer:
+                seqs.append(seq)
+                offsets.append(seq_diff(seq, self._next_expected))
+            offsets.sort()
+            seqs.sort()
+            state['buffered_offsets'] = offsets
+            state['buffered_seqs'] = seqs
+        return state
 
     def set_initial_seq(self, seq):
         """

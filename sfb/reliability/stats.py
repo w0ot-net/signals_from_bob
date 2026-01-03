@@ -82,6 +82,24 @@ class ReliabilityStats(object):
     def on_recv_delivered(self, count):
         self.recv_delivered += count
 
+    def snapshot(self):
+        return {
+            'sent_packets': self.sent_packets,
+            'retransmit_packets': self.retransmit_packets,
+            'retransmit_skipped_rate_limit': self.retransmit_skipped_rate_limit,
+            'retransmit_skipped_transport': self.retransmit_skipped_transport,
+            'acked_packets': self.acked_packets,
+            'acked_cumulative_packets': self.acked_cumulative_packets,
+            'acked_sack_packets': self.acked_sack_packets,
+            'acked_first_tx_packets': self.acked_first_tx_packets,
+            'rtt_samples': self.rtt_samples,
+            'recv_duplicates': self.recv_duplicates,
+            'recv_out_of_window': self.recv_out_of_window,
+            'recv_buffer_full': self.recv_buffer_full,
+            'recv_buffered': self.recv_buffered,
+            'recv_delivered': self.recv_delivered,
+        }
+
 
 class NoopReliabilityStats(object):
     """No-op stats collector for disabled tracking."""
@@ -123,3 +141,6 @@ class NoopReliabilityStats(object):
 
     def on_recv_delivered(self, count):
         pass
+
+    def snapshot(self):
+        return {}

@@ -231,7 +231,11 @@ class BaseTunnel(object):
             logging.DEBUG,
             'tunnel.state',
             'Tunnel state change',
-            lambda: {'from': old_state, 'to': new_state},
+            lambda: {
+                'from': old_state,
+                'to': new_state,
+                'side': 'alice' if self._is_initiator else 'bob',
+            },
         )
 
     def _generate_isn(self):
@@ -393,6 +397,83 @@ class BaseTunnel(object):
                 drop_info['keepalive_drop_seq'] == last_cum_ack
             )
         return details
+
+    @staticmethod
+    def _prefix_fields(prefix, fields):
+        if not fields:
+            return {}
+        prefixed = {}
+        for key, value in fields.items():
+            prefixed[prefix + key] = value
+        return prefixed
+
+    def _reliability_snapshot(self, now=None, include_buffered=False):
+        if now is None:
+            now = time_provider.now()
+        fields = {
+            'side': 'alice' if self._is_initiator else 'bob',
+            'state': self._state,
+            'send_mtu': self._send_mtu,
+            'recv_mtu': self._recv_mtu,
+            'negotiated_send_mtu': self._negotiated_send_mtu,
+            'negotiated_recv_mtu': self._negotiated_recv_mtu,
+            'negotiated_window': self._negotiated_window,
+            'packets_sent': self._packets_sent,
+            'packets_received': self._packets_received,
+            'bytes_sent': self._bytes_sent,
+            'bytes_received': self._bytes_received,
+        }
+        send_state = self._send_window.debug_state(now=now)
+        fields.update(self._prefix_fields('send_', send_state))
+        recv_state = self._recv_window.debug_state(
+            include_buffered=include_buffered
+        )
+        fields.update(self._prefix_fields('recv_', recv_state))
+        if self._stats_enabled:
+            try:
+                stats_snapshot = self._reliability_stats.snapshot()
+            except Exception:
+                stats_snapshot = None
+            if stats_snapshot:
+                fields.update(self._prefix_fields('stat_', stats_snapshot))
+        if hasattr(self, '_rtt'):
+            try:
+                rtt_state = self._rtt.debug_state()
+            except Exception:
+                rtt_state = None
+            if rtt_state:
+                fields.update(self._prefix_fields('rtt_', rtt_state))
+        if self._last_cum_ack_time is not None:
+            silence = now - self._last_cum_ack_time
+            if silence < 0:
+                silence = 0.0
+            fields['ack_silence'] = round(silence, 6)
+        if self._last_ack_progress_time is not None:
+            silence = now - self._last_ack_progress_time
+            if silence < 0:
+                silence = 0.0
+            fields['ack_progress_silence'] = round(silence, 6)
+        if self._last_cum_ack is not None:
+            fields['last_cum_ack'] = self._last_cum_ack
+        return fields
+
+    def _log_reliability_state(self, level, event, message, now=None,
+                               include_buffered=False, extra_fields=None):
+        def build_fields():
+            fields = self._reliability_snapshot(
+                now=now,
+                include_buffered=include_buffered,
+            )
+            if extra_fields:
+                fields.update(extra_fields)
+            return fields
+        log_event(
+            self._logger,
+            level,
+            event,
+            message,
+            build_fields,
+        )
 
     def _rebuild_packet(self, seq, segments, flags=0):
         """
@@ -569,8 +650,16 @@ class BaseTunnel(object):
                 'seg_count': len(packet.segments),
                 'bytes': packet_size
                 if packet_size is not None else packet.encoded_size(),
+                'send_mtu': self._send_mtu,
+                'recv_mtu': self._recv_mtu,
+                'negotiated_window': self._negotiated_window,
+                'unacked': self._send_window.unacked_count,
+                'side': 'alice' if self._is_initiator else 'bob',
+                'state': self._state,
             },
         )
+        prev_cum_ack = self._last_cum_ack
+        prev_cum_ack_time = self._last_cum_ack_time
         if self._last_cum_ack is None or seq_gt(packet.ack, self._last_cum_ack):
             self._last_cum_ack = packet.ack
             self._last_cum_ack_time = now
@@ -580,6 +669,38 @@ class BaseTunnel(object):
             packet.ack, packet.sack, now=now
         )
         unacked_after = self._send_window.unacked_count
+        def build_ack_fields():
+            fields = {
+                'ack': packet.ack,
+                'sack': packet.sack,
+                'acked_count': acked_count,
+                'data_acked_count': data_acked_count,
+                'rtt_sample_count': len(rtt_samples),
+                'rtt_samples_ms': [round(sample, 3) for sample in rtt_samples],
+                'unacked_before': unacked_before,
+                'unacked_after': unacked_after,
+                'prev_cum_ack': prev_cum_ack,
+                'side': 'alice' if self._is_initiator else 'bob',
+            }
+            if prev_cum_ack_time is not None:
+                silence = now - prev_cum_ack_time
+                if silence < 0:
+                    silence = 0.0
+                fields['ack_silence'] = round(silence, 6)
+            fields.update(self._prefix_fields(
+                'send_', self._send_window.debug_state(now=now)
+            ))
+            fields.update(self._prefix_fields(
+                'recv_', self._recv_window.debug_state()
+            ))
+            return fields
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.ack_detail',
+            'ACK processed detail',
+            build_ack_fields,
+        )
         if unacked_after < unacked_before:
             self._last_ack_progress_time = now
         if unacked_before != unacked_after or unacked_after > 0:
@@ -593,19 +714,50 @@ class BaseTunnel(object):
                     'sack': packet.sack,
                     'unacked_before': unacked_before,
                     'unacked_after': unacked_after,
+                    'acked_count': acked_count,
+                    'data_acked_count': data_acked_count,
+                    'rtt_sample_count': len(rtt_samples),
+                    'side': 'alice' if self._is_initiator else 'bob',
                 },
             )
 
         # Pass through recv_window for ordering and deduplication
         # recv_window.receive() returns list of (seq, packet) ready for delivery
-        ready_packets = self._recv_window.receive(packet.seq, packet)
+        ready_packets, recv_info = self._recv_window.receive(
+            packet.seq, packet, return_info=True
+        )
         log_event(
             self._logger,
             logging.DEBUG,
             'tunnel.recv_window',
             'recv_window ready packets',
-            lambda: {'seq': packet.seq, 'ready': len(ready_packets)},
+            lambda: dict(
+                {
+                    'seq': packet.seq,
+                    'ready': len(ready_packets),
+                    'side': 'alice' if self._is_initiator else 'bob',
+                },
+                **self._prefix_fields('recv_', recv_info),
+            ),
         )
+        if recv_info is not None and recv_info.get('action') in (
+                'duplicate',
+                'out_of_window',
+                'buffer_full',
+        ):
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.reliability_state',
+                'Reliability state after recv drop',
+                now=now,
+                include_buffered=True,
+                extra_fields={
+                    'context': 'recv_drop',
+                    'recv_action': recv_info.get('action'),
+                    'recv_seq': recv_info.get('seq'),
+                    'recv_offset': recv_info.get('offset'),
+                },
+            )
 
         # Deliver segments from in-order packets only
         delivered_segments = False
@@ -780,7 +932,10 @@ class BaseTunnel(object):
             logging.DEBUG,
             'tunnel.command',
             'Tunnel command received',
-            lambda: {'cmd': cmd},
+            lambda: {
+                'cmd': cmd,
+                'side': 'alice' if self._is_initiator else 'bob',
+            },
         )
         if cmd in ('ping', 'pong'):
             return
@@ -800,7 +955,10 @@ class BaseTunnel(object):
                 logging.DEBUG,
                 'tunnel.command_unknown',
                 'Unknown tunnel command',
-                lambda: {'cmd': cmd},
+                lambda: {
+                    'cmd': cmd,
+                    'side': 'alice' if self._is_initiator else 'bob',
+                },
             )
 
     def _handle_channel_message(self, cmd, msg):
@@ -834,7 +992,10 @@ class BaseTunnel(object):
                 logging.WARNING,
                 'tunnel.mtu_invalid',
                 'Invalid MTU request',
-                lambda: {'msg': msg},
+                lambda: {
+                    'msg': msg,
+                    'side': 'alice' if self._is_initiator else 'bob',
+                },
             )
             return
         log_event(
@@ -842,7 +1003,13 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.mtu_propose',
             'MTU request received',
-            lambda: {'tx': requested_tx, 'rx': requested_rx},
+            lambda: {
+                'tx': requested_tx,
+                'rx': requested_rx,
+                'side': 'alice' if self._is_initiator else 'bob',
+                'send_mtu': self._send_mtu,
+                'recv_mtu': self._recv_mtu,
+            },
         )
 
         # Negotiate each direction independently.
@@ -872,6 +1039,7 @@ class BaseTunnel(object):
                 'recv': agreed_recv,
                 'send_applied': self._send_mtu,
                 'send_pending': self._pending_send_mtu,
+                'side': 'alice' if self._is_initiator else 'bob',
             },
         )
 
@@ -890,7 +1058,10 @@ class BaseTunnel(object):
                 logging.WARNING,
                 'tunnel.mtu_invalid',
                 'Invalid MTU response',
-                lambda: {'msg': msg},
+                lambda: {
+                    'msg': msg,
+                    'side': 'alice' if self._is_initiator else 'bob',
+                },
             )
             return
 
@@ -912,7 +1083,11 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.mtu_ok',
             'MTU negotiated',
-            lambda: {'send': agreed_send, 'recv': agreed_recv},
+            lambda: {
+                'send': agreed_send,
+                'recv': agreed_recv,
+                'side': 'alice' if self._is_initiator else 'bob',
+            },
         )
 
     def _handle_mtu_ack(self, msg):
@@ -931,7 +1106,11 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.mtu_ack',
             'MTU ack applied',
-            lambda: {'send': self._send_mtu, 'recv': self._recv_mtu},
+            lambda: {
+                'send': self._send_mtu,
+                'recv': self._recv_mtu,
+                'side': 'alice' if self._is_initiator else 'bob',
+            },
         )
 
     def _handle_window(self, msg):
@@ -947,7 +1126,10 @@ class BaseTunnel(object):
                 logging.WARNING,
                 'tunnel.window_invalid',
                 'Invalid window request',
-                lambda: {'size': requested},
+                lambda: {
+                    'size': requested,
+                    'side': 'alice' if self._is_initiator else 'bob',
+                },
             )
             return
         log_event(
@@ -955,7 +1137,11 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.window_propose',
             'Window request received',
-            lambda: {'size': requested},
+            lambda: {
+                'size': requested,
+                'side': 'alice' if self._is_initiator else 'bob',
+                'max_in_flight': self._proposed_max_in_flight,
+            },
         )
 
         # Negotiate: use minimum of requested, our proposed, and max (64)
@@ -973,7 +1159,11 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.window_ok',
             'Window negotiated',
-            lambda: {'requested': requested, 'agreed': agreed},
+            lambda: {
+                'requested': requested,
+                'agreed': agreed,
+                'side': 'alice' if self._is_initiator else 'bob',
+            },
         )
 
     def _handle_window_ok(self, msg):
@@ -989,7 +1179,10 @@ class BaseTunnel(object):
                 logging.WARNING,
                 'tunnel.window_invalid',
                 'Invalid window response',
-                lambda: {'size': agreed},
+                lambda: {
+                    'size': agreed,
+                    'side': 'alice' if self._is_initiator else 'bob',
+                },
             )
             return
 
@@ -1003,7 +1196,10 @@ class BaseTunnel(object):
             logging.INFO,
             'tunnel.window_ok',
             'Window updated',
-            lambda: {'agreed': agreed},
+            lambda: {
+                'agreed': agreed,
+                'side': 'alice' if self._is_initiator else 'bob',
+            },
         )
 
     def _collect_segments(self, max_payload, keepalive_data=None,

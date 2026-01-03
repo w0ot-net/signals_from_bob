@@ -87,3 +87,11 @@ state mismatches from logs without changing behavior.
 - Logs show asymmetric MTU/window values and keepalive suppression decisions.
 - Default logging behavior and performance are unchanged; heavy logs are gated
   behind profiles/sampling.
+
+## Execution Notes
+- Added send/recv/retransmit instrumentation in BaseTunnel, AliceTunnel, and
+  BobTunnel with structured events (`tunnel.ack_detail`, `tunnel.reliability_state`,
+  `tunnel.retransmit_scan`, `tunnel.retransmit_skip`, `tunnel.keepalive_*`).
+- Added debug snapshot helpers to reliability components and RTT estimator.
+- Added `tunnel_reliability_verbose` log profile and updated existing profiles
+  to include new events; updated logging/retransmit docs.

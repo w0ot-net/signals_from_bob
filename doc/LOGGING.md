@@ -59,6 +59,7 @@ Available profiles (current):
 - `socks_throughput_debug`
 - `tls_transport`
 - `tunnel_pacing`
+- `tunnel_reliability_verbose`
 - `tunnel_verbose`
 
 ## Event Whitelist/Blacklist (structured events only)
@@ -135,6 +136,12 @@ Current structured events (non-exhaustive):
 - `tunnel.send_window_inconsistent`
 - `tunnel.send_window_full`
 - `tunnel.ack_send_failed`
+- `tunnel.ack_detail`
+- `tunnel.reliability_state`
+- `tunnel.retransmit_scan`
+- `tunnel.retransmit_skip`
+- `tunnel.keepalive_drop`
+- `tunnel.keepalive_suppressed`
 - `tunnel.timeout_packets`
 - `tunnel.tick_error`
 - `tunnel.bg_error`

@@ -76,6 +76,19 @@ class RttEstimator(object):
         self._srtt = None
         self._rto = self._initial_rto
         self._backoff_count = 0
+ 
+    def debug_state(self):
+        """
+        Return a snapshot of RTT estimator state for logging.
+        """
+        return {
+            'srtt_ms': self._srtt,
+            'rto_ms': self._rto,
+            'initial_rto_ms': self._initial_rto,
+            'min_rto_ms': self._min_rto,
+            'max_rto_ms': self._max_rto,
+            'backoff_count': self._backoff_count,
+        }
 
     def _clamp(self, rto):
         if rto < self._min_rto:

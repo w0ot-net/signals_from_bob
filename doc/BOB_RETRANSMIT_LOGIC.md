@@ -144,7 +144,7 @@ On success:
   - Increments global retransmit stats
 - `_packets_sent` and `_bytes_sent` are incremented.
 - Events are logged:
-  - `tunnel.retransmit` (includes `seq`, `seg_count`, and optional `reason`)
+  - `tunnel.retransmit` (includes `seq`, flags, ack/sack, bytes, and reason)
   - `tunnel.packet_send`
 - The responder is called with the rebuilt packet.
 
@@ -195,6 +195,18 @@ Keepalive responses are suppressed when any channel has pending data:
 - If no segments fit but pending data exists, Bob sends an ACK-only response
   instead of keepalive.
 - This still consumes a send window slot and can later be retransmitted.
+
+## Instrumentation Events (Bob)
+
+Key structured events emitted during opportunistic retransmits:
+- `tunnel.retransmit_skip`: cooldown/ACK-progress skips with age, cooldown,
+  and poll EWMA context.
+- `tunnel.retransmit`: retransmit send details (seq, ack/sack, flags, bytes,
+  previous send age/count).
+- `tunnel.keepalive_suppressed`: pending data forced an ACK-only response.
+- `tunnel.ack_detail`: ACK/SACK processing detail and window snapshots.
+- `tunnel.reliability_state`: structured snapshot of send/recv window and
+  counters when drops or gating occur.
 
 ## ACK/SACK Effects On Retransmit Eligibility
 

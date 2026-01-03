@@ -322,7 +322,11 @@ class AliceTunnel(BaseTunnel):
             logging.INFO,
             'tunnel.mtu_propose',
             'MTU request',
-            lambda: {'tx': self._proposed_send_mtu, 'rx': self._proposed_recv_mtu},
+            lambda: {
+                'tx': self._proposed_send_mtu,
+                'rx': self._proposed_recv_mtu,
+                'side': 'alice',
+            },
         )
 
         # Queue window request
@@ -332,7 +336,10 @@ class AliceTunnel(BaseTunnel):
             logging.INFO,
             'tunnel.window_propose',
             'Window request',
-            lambda: {'size': self._proposed_max_in_flight},
+            lambda: {
+                'size': self._proposed_max_in_flight,
+                'side': 'alice',
+            },
         )
 
     def tick(self):
@@ -416,15 +423,43 @@ class AliceTunnel(BaseTunnel):
         ack_silence = None
         if self._last_cum_ack_time is not None:
             ack_silence = now - self._last_cum_ack_time
+            if ack_silence < 0:
+                ack_silence = 0.0
         if ack_silence is None or ack_silence >= self._rtt.rto_sec:
             retransmits = self._send_window.get_retransmits(
                 self._rtt.rto_sec, now=now
             )
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.retransmit_scan',
+                'Retransmit scan',
+                lambda: {
+                    'count': len(retransmits),
+                    'rto_sec': self._rtt.rto_sec,
+                    'ack_silence': round(ack_silence, 6)
+                    if ack_silence is not None else None,
+                    'unacked': self._send_window.unacked_count,
+                    'budget': self._retransmit_budget,
+                    'side': 'alice',
+                },
+            )
             for seq, segments, flags, encrypted_body in retransmits:
                 if flags & FLAG_KEEPALIVE:
-                    self._send_window.drop_keepalive(
+                    dropped = self._send_window.drop_keepalive(
                         seq, reason='rto_keepalive', now=now
                     )
+                    if dropped:
+                        self._log_reliability_state(
+                            logging.DEBUG,
+                            'tunnel.keepalive_drop',
+                            'Dropped keepalive retransmit',
+                            now=now,
+                            extra_fields={
+                                'seq': seq,
+                                'reason': 'rto_keepalive',
+                            },
+                        )
                     continue
                 if not self._can_send_retransmit(now=now):
                     break
@@ -438,6 +473,21 @@ class AliceTunnel(BaseTunnel):
                 )
                 if sent:
                     self._backoff_rto_once()
+        else:
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.retransmit_skip',
+                'Retransmit skipped due to ack silence',
+                lambda: {
+                    'reason': 'ack_silence',
+                    'rto_sec': self._rtt.rto_sec,
+                    'ack_silence': round(ack_silence, 6)
+                    if ack_silence is not None else None,
+                    'unacked': self._send_window.unacked_count,
+                    'side': 'alice',
+                },
+            )
 
         # 3. Send new packets if we can
         while True:
@@ -464,6 +514,17 @@ class AliceTunnel(BaseTunnel):
                 dropped_seq = self._send_window.drop_oldest_keepalive(
                     reason='window_full', now=now
                 )
+                if dropped_seq is not None:
+                    self._log_reliability_state(
+                        logging.DEBUG,
+                        'tunnel.keepalive_drop',
+                        'Dropped keepalive due to window full',
+                        now=now,
+                        extra_fields={
+                            'seq': dropped_seq,
+                            'reason': 'window_full',
+                        },
+                    )
                 if dropped_seq is None:
                     break
             if not self._can_send_new(
@@ -510,6 +571,17 @@ class AliceTunnel(BaseTunnel):
                     'unacked': self._send_window.unacked_count,
                     'max_in_flight': self._send_window._max_in_flight,
                     'side': 'alice',
+                },
+            )
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.reliability_state',
+                'Reliability state after send blocked',
+                now=now,
+                extra_fields={
+                    'context': 'send_blocked',
+                    'reason': 'window_full',
+                    'keepalive_only': keepalive_only,
                 },
             )
             return False
@@ -581,6 +653,19 @@ class AliceTunnel(BaseTunnel):
                     'reason': 'window_distance',
                 },
             )
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.reliability_state',
+                'Reliability state after send blocked',
+                now=now,
+                extra_fields={
+                    'context': 'send_blocked',
+                    'reason': 'window_distance',
+                    'keepalive_only': keepalive_only,
+                    'distance': distance,
+                    'distance_limit': distance_limit,
+                },
+            )
             self._maybe_send_gap_retransmit(
                 now,
                 distance_info,
@@ -600,6 +685,17 @@ class AliceTunnel(BaseTunnel):
                     'burst': self._config.tunnel_send_burst,
                 },
             )
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.reliability_state',
+                'Reliability state after send blocked',
+                now=now,
+                extra_fields={
+                    'context': 'send_blocked',
+                    'reason': 'rate_limit',
+                    'keepalive_only': keepalive_only,
+                },
+            )
             return False
         if self._pacer.enabled:
             cap = self._pacer_cap()
@@ -616,6 +712,19 @@ class AliceTunnel(BaseTunnel):
                         lambda: {
                             'side': 'alice',
                             'reason': 'pacer',
+                            'unacked': unacked,
+                            'cap': cap,
+                        },
+                    )
+                    self._log_reliability_state(
+                        logging.DEBUG,
+                        'tunnel.reliability_state',
+                        'Reliability state after send blocked',
+                        now=now,
+                        extra_fields={
+                            'context': 'send_blocked',
+                            'reason': 'pacer',
+                            'keepalive_only': keepalive_only,
                             'unacked': unacked,
                             'cap': cap,
                         },
@@ -639,6 +748,16 @@ class AliceTunnel(BaseTunnel):
                     'cap': self._retransmit_cap,
                 },
             )
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.reliability_state',
+                'Reliability state after retransmit blocked',
+                now=now,
+                extra_fields={
+                    'context': 'retransmit_blocked',
+                    'reason': 'retransmit_budget',
+                },
+            )
             return False
         if self._send_limiter is not None and not self._send_limiter.can_send(now=now):
             self._reliability_stats.on_retransmit_skip_rate_limit()
@@ -651,6 +770,16 @@ class AliceTunnel(BaseTunnel):
                     'side': 'alice',
                     'rate': self._config.tunnel_send_rate,
                     'burst': self._config.tunnel_send_burst,
+                },
+            )
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.reliability_state',
+                'Reliability state after retransmit blocked',
+                now=now,
+                extra_fields={
+                    'context': 'retransmit_blocked',
+                    'reason': 'rate_limit',
                 },
             )
             return False
@@ -666,17 +795,40 @@ class AliceTunnel(BaseTunnel):
                                    pre_cap=False):
         if distance_info is None:
             return False
+        def log_skip(reason, extra_fields=None):
+            if pre_cap:
+                return
+            fields = {
+                'reason': reason,
+                'side': 'alice',
+                'pre_cap': pre_cap,
+            }
+            if extra_fields:
+                fields.update(extra_fields)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.retransmit_skip',
+                'Gap retransmit skipped',
+                lambda: fields,
+            )
         if self._last_cum_ack_time is None:
+            log_skip('no_ack_time')
             return False
         ack_silence = now - self._last_cum_ack_time
         min_silence = self._rtt.rto_sec * 0.25
         if min_silence < 0.05:
             min_silence = 0.05
         if ack_silence < min_silence:
+            log_skip('ack_silence', {
+                'ack_silence': round(ack_silence, 6),
+                'min_silence': round(min_silence, 6),
+            })
             return False
         (distance, max_in_flight, effective_cap, unacked,
          distance_limit, last_cum_ack, next_seq) = distance_info
         if distance_limit < 1:
+            log_skip('distance_limit', {'distance_limit': distance_limit})
             return False
         buffered = distance - unacked
         if pre_cap:
@@ -684,9 +836,11 @@ class AliceTunnel(BaseTunnel):
             if distance < distance_limit - pre_cap_slack:
                 return False
         if last_cum_ack == self._gap_retransmit_ack:
+            log_skip('dup_ack', {'last_cum_ack': last_cum_ack})
             return False
         info = self._send_window.get_unacked_info(last_cum_ack)
         if info is None:
+            log_skip('missing_unacked', {'last_cum_ack': last_cum_ack})
             return False
         seq, segments, flags, encrypted_body, send_time, retransmit_count = info
         missing_age = None
@@ -702,10 +856,27 @@ class AliceTunnel(BaseTunnel):
             buffered_min = max(4, (distance_limit * 3) // 4)
             unacked_max = max(4, distance_limit // 4)
             if buffered < buffered_min or unacked > unacked_max:
+                log_skip('buffer_gate', {
+                    'buffered': buffered,
+                    'buffered_min': buffered_min,
+                    'unacked': unacked,
+                    'unacked_max': unacked_max,
+                })
                 return False
         if flags & FLAG_KEEPALIVE and self._channel_manager.has_pending_data():
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.keepalive_suppressed',
+                'Keepalive gap retransmit suppressed by pending data',
+                now=now,
+                extra_fields={
+                    'reason': 'pending_data',
+                    'seq': seq,
+                },
+            )
             return False
         if not self._can_send_retransmit(now=now):
+            log_skip('retransmit_blocked')
             return False
         sent = self._send_retransmit(
             seq,
@@ -776,6 +947,18 @@ class AliceTunnel(BaseTunnel):
                 'limit': limit,
             },
         )
+        self._log_reliability_state(
+            logging.DEBUG,
+            'tunnel.reliability_state',
+            'Reliability state after transport headroom block',
+            now=time_provider.now(),
+            extra_fields={
+                'context': 'send_blocked',
+                'reason': 'transport_headroom',
+                'pending': pending,
+                'max_in_flight': max_in_flight,
+            },
+        )
         return True
 
     def _log_transport_blocked(self):
@@ -795,6 +978,16 @@ class AliceTunnel(BaseTunnel):
             'tunnel.send_blocked',
             'Transport cannot send',
             build_fields,
+        )
+        self._log_reliability_state(
+            logging.DEBUG,
+            'tunnel.reliability_state',
+            'Reliability state after transport blocked',
+            now=time_provider.now(),
+            extra_fields={
+                'context': 'send_blocked',
+                'reason': 'transport',
+            },
         )
 
     def _pacer_cap(self):
@@ -896,6 +1089,16 @@ class AliceTunnel(BaseTunnel):
                     'burst': self._config.tunnel_send_burst,
                 },
             )
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.reliability_state',
+                'Reliability state after send blocked',
+                now=now,
+                extra_fields={
+                    'context': 'send_blocked',
+                    'reason': 'rate_limit',
+                },
+            )
             if permit is not None:
                 self._transport.release_send(permit)
             return
@@ -936,7 +1139,16 @@ class AliceTunnel(BaseTunnel):
                 'flags': packet.flags,
                 'seg_count': len(packet.segments),
                 'bytes': len(packet_data),
+                'context': 'new',
+                'send_mtu': self._send_mtu,
+                'recv_mtu': self._recv_mtu,
+                'negotiated_window': self._negotiated_window,
+                'unacked': self._send_window.unacked_count,
+                'max_in_flight': self._send_window._max_in_flight,
+                'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
+                'has_data': bool(packet.segments),
                 'side': 'alice',
+                'state': self._state,
             },
         )
 
@@ -965,13 +1177,44 @@ class AliceTunnel(BaseTunnel):
                     'burst': self._config.tunnel_send_burst,
                 },
             )
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.reliability_state',
+                'Reliability state after retransmit blocked',
+                now=now,
+                extra_fields={
+                    'context': 'retransmit_blocked',
+                    'reason': 'rate_limit',
+                },
+            )
             return False
 
         permit = self._reserve_transport_permit(now)
         if permit is None:
             self._reliability_stats.on_retransmit_skip_transport()
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.reliability_state',
+                'Reliability state after retransmit blocked',
+                now=now,
+                extra_fields={
+                    'context': 'retransmit_blocked',
+                    'reason': 'transport',
+                },
+            )
             return False
 
+        prev_info = self._send_window.get_unacked_info(seq)
+        prev_retransmit_count = None
+        prev_age = None
+        if prev_info is not None:
+            prev_retransmit_count = prev_info[5]
+            prev_send_time = prev_info[4]
+            if prev_send_time is not None:
+                prev_age = now - prev_send_time
+                if prev_age < 0:
+                    prev_age = 0.0
+                prev_age = round(prev_age, 6)
         try:
             self._send_window.mark_retransmit(seq, now=now)
         except Exception:
@@ -987,9 +1230,24 @@ class AliceTunnel(BaseTunnel):
         self._bytes_sent += len(packet_data)
         self._packets_since_response += 1
         def build_fields():
-            fields = {'seq': seq, 'seg_count': len(segments), 'side': 'alice'}
+            fields = {
+                'seq': seq,
+                'ack': packet.ack,
+                'sack': packet.sack,
+                'flags': packet.flags,
+                'seg_count': len(segments),
+                'bytes': len(packet_data),
+                'side': 'alice',
+                'send_mtu': self._send_mtu,
+                'recv_mtu': self._recv_mtu,
+            }
             if reason is not None:
                 fields['reason'] = reason
+            if prev_retransmit_count is not None:
+                fields['retransmit_count'] = prev_retransmit_count + 1
+                fields['prev_retransmit_count'] = prev_retransmit_count
+            if prev_age is not None:
+                fields['prev_send_age'] = prev_age
             return fields
         log_event(
             self._logger,
@@ -1010,7 +1268,27 @@ class AliceTunnel(BaseTunnel):
                 'flags': packet.flags,
                 'seg_count': len(packet.segments),
                 'bytes': len(packet_data),
+                'context': 'retransmit',
+                'send_mtu': self._send_mtu,
+                'recv_mtu': self._recv_mtu,
+                'negotiated_window': self._negotiated_window,
+                'unacked': self._send_window.unacked_count,
+                'max_in_flight': self._send_window._max_in_flight,
+                'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
+                'has_data': bool(packet.segments),
                 'side': 'alice',
+                'state': self._state,
+            },
+        )
+        self._log_reliability_state(
+            logging.DEBUG,
+            'tunnel.reliability_state',
+            'Reliability state after retransmit',
+            now=now,
+            extra_fields={
+                'context': 'retransmit_sent',
+                'seq': seq,
+                'reason': reason,
             },
         )
         return True
@@ -1077,6 +1355,17 @@ class AliceTunnel(BaseTunnel):
             if now - self._last_window_request_time >= self._window_growth_interval:
                 self.control.send_message(tun_window(self._proposed_max_in_flight))
                 self._last_window_request_time = now
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'tunnel.window_propose',
+                    'Window request retry',
+                    lambda: {
+                        'size': self._proposed_max_in_flight,
+                        'reason': 'retry',
+                        'side': 'alice',
+                    },
+                )
             return
 
         if not self._ack_progressed:
@@ -1099,6 +1388,18 @@ class AliceTunnel(BaseTunnel):
         self.control.send_message(tun_window(requested))
         self._last_window_request_time = now
         self._ack_progressed = False
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.window_propose',
+            'Window growth request',
+            lambda: {
+                'size': requested,
+                'current': current,
+                'mode': self._window_growth_mode,
+                'side': 'alice',
+            },
+        )
 
     def run(self, duration=None):
         """

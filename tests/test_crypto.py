@@ -33,6 +33,10 @@ class CryptoTests(unittest.TestCase):
         text = _text_value('hi')
         self.assertRaises(TypeError, Plain().encrypt, text)
 
+    def test_plain_rejects_non_bytes_like_encrypt(self):
+        self.assertRaises(TypeError, Plain().encrypt, 1)
+        self.assertRaises(TypeError, Plain().encrypt, object())
+
     def test_plain_accepts_seq_direction(self):
         data = b'hi'
         cipher = Plain()
@@ -135,6 +139,14 @@ class CryptoTests(unittest.TestCase):
         self.assertRaises(ValueError, cipher.encrypt, data, seq=1)
         self.assertRaises(ValueError, cipher.encrypt, data, direction=0)
 
+    def test_rc4_decrypt_requires_seq_direction(self):
+        key = b'secret'
+        data = b'hello'
+        cipher = RC4(key)
+        self.assertRaises(ValueError, cipher.decrypt, data)
+        self.assertRaises(ValueError, cipher.decrypt, data, seq=1)
+        self.assertRaises(ValueError, cipher.decrypt, data, direction=0)
+
     def test_rc4_rejects_invalid_seq_direction(self):
         cipher = RC4(b'k')
         data = b'hi'
@@ -202,6 +214,12 @@ class CryptoTests(unittest.TestCase):
 
     def test_rc4_rejects_empty_key(self):
         self.assertRaises(ValueError, _rc4_crypt, bytearray(), b'hi')
+
+    def test_rc4_crypt_rejects_non_bytes_like_data(self):
+        key = bytearray(b'k')
+        text = _text_value('data')
+        self.assertRaises(TypeError, _rc4_crypt, key, text)
+        self.assertRaises(TypeError, _rc4_crypt, key, 1)
 
     def test_rc4_seq_boundaries(self):
         base_key = _require_key(b'k')

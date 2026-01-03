@@ -102,8 +102,8 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   and reduce out-of-window drops that trigger retransmits/stalls.
 
 ## Latest findings (2026-01-03, default logs snapshot)
-- Sources: `logs/client_log.db` (Alice) had 107486 rows; `logs/server_log.db`
-  had only 3 rows (no tunnel events captured).
+- Sources: `logs/client_log.db` (Alice) had 107486 rows (~09:23:45-09:24:21 UTC);
+  `logs/server_log.db` (Bob) had 273722 rows (~09:23:33-09:25:07 UTC).
 - Transport: ICMP (`icmp.send`/`icmp.recv` present).
 - Alice `tunnel.send_window_distance`: 5515; `tunnel.send_blocked`: 11680
   (5515 `window_distance`, 6094 `transport_headroom`); `tunnel.retransmit`: 25.
@@ -114,6 +114,13 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - `last_cum_ack` stalls in 25 runs at ~0.58-0.61s each (~380-410 events/run);
   max repeated ACK run in `tunnel.packet_recv` was 128 packets.
 - SACK non-zero in 6157/12910 packet receives (~47.7%), highest offset 127.
+- Bob `tunnel.send_window_distance`: 37; `tunnel.send_blocked`: 37 (all
+  `window_distance`); `tunnel.retransmit`: 1965 and `tunnel.retransmit_skip`:
+  32294 (ack_progress 31684, cooldown 610).
+- Bob `distance` and `distance_limit` pinned at 128; `unacked` median 108
+  (max 116) while `buffered` median 20 (max 127).
+- Bob `tunnel.recv_window` ready=0 in 12832/34273 (37.4%).
+- Bob `tunnel.packet_recv` SACK non-zero in 385/34273 (~1.1%), highest offset 127.
 
 ## Next steps from the latest logs
 - Re-run with the same profile to confirm retransmit rate drops with the

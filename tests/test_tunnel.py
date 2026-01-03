@@ -383,6 +383,195 @@ class BaseTunnelTests(unittest.TestCase):
         self.assertEqual(encrypted, data)
 
 
+class BaseTunnelGapTests(unittest.TestCase):
+    def test_requires_config_instance(self):
+        with self.assertRaises(TypeError):
+            BaseTunnel(object())
+
+    def test_reliability_stats_toggle(self):
+        tunnel = BaseTunnel(make_test_config(tunnel_stats_enabled=True))
+        self.assertIsNotNone(tunnel.reliability_stats)
+        tunnel = BaseTunnel(make_test_config())
+        self.assertIsNone(tunnel.reliability_stats)
+
+    def test_init_transport_limits_enforces_min_payload(self):
+        from sfb.protocol import PACKET_HEADER_SIZE
+
+        class DummyTransport(object):
+            send_mtu = PACKET_HEADER_SIZE - 10
+            recv_mtu = PACKET_HEADER_SIZE + 5
+            payload_cap = 123
+
+        tunnel = BaseTunnel(make_test_config())
+        send_payload, recv_payload = tunnel._init_transport_limits(DummyTransport())
+        self.assertEqual(send_payload, 1)
+        self.assertEqual(recv_payload, 5)
+        self.assertEqual(tunnel._payload_cap, 123)
+        self.assertEqual(tunnel._send_mtu, 1)
+        self.assertEqual(tunnel._recv_mtu, 5)
+        self.assertEqual(
+            tunnel._max_packet_size,
+            recv_payload + PACKET_HEADER_SIZE
+        )
+
+    def test_collect_segments_payload_cap_limits_data(self):
+        from sfb.protocol import PACKET_HEADER_SIZE, SEGMENT_HEADER_SIZE
+        from sfb.tunnel.tunnel_control_messages import tun_mtu
+
+        tunnel = BaseTunnel(make_test_config())
+        tunnel._payload_cap = PACKET_HEADER_SIZE + 12
+        tunnel.control.send_message(tun_mtu(500, 300))
+
+        segments = tunnel._collect_segments(128)
+        self.assertEqual(len(segments), 1)
+        self.assertEqual(segments[0].channel, 0)
+        self.assertLessEqual(len(segments[0].data), 12 - SEGMENT_HEADER_SIZE)
+        self.assertTrue(tunnel.control.send_buf_size > 0)
+
+    def test_collect_segments_return_pending_flags_pending(self):
+        from sfb.tunnel.tunnel_control_messages import tun_window
+
+        tunnel = BaseTunnel(make_test_config())
+        tunnel.control.send_message(tun_window(8))
+        segments, pending = tunnel._collect_segments(
+            0,
+            return_pending=True,
+        )
+        self.assertEqual(segments, [])
+        self.assertTrue(pending)
+
+    def test_collect_segments_control_only_skips_data_channels(self):
+        from sfb.channel.channel import STATE_OPEN
+        from sfb.tunnel.tunnel_control_messages import tun_window
+
+        tunnel = BaseTunnel(make_test_config())
+        channel = tunnel.channel_manager.open_channel()
+        channel._set_state(STATE_OPEN)
+        channel.write(b'hello')
+        tunnel.control.send_message(tun_window(8))
+
+        segments = tunnel._collect_segments(512, control_only=True)
+        self.assertTrue(segments)
+        for seg in segments:
+            self.assertEqual(seg.channel, 0)
+        self.assertTrue(channel.send_buf_size > 0)
+
+    def test_collect_segments_keepalive_only_when_idle(self):
+        tunnel = BaseTunnel(make_test_config())
+        segments = tunnel._collect_segments(64, keepalive_data=b'ka')
+        self.assertEqual(len(segments), 1)
+        self.assertEqual(segments[0].channel, 0)
+        self.assertEqual(segments[0].data, b'ka')
+
+    def test_decode_packet_rejects_oversize_and_bad_header(self):
+        from sfb.protocol import Packet, FLAG_KEEPALIVE
+
+        tunnel = BaseTunnel(make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._recv_window.set_initial_seq(1)
+        packet = Packet(seq=1, ack=0, sack=0, flags=FLAG_KEEPALIVE)
+        data = tunnel._encode_packet(packet)
+
+        decoded, size = tunnel._decode_packet(
+            data,
+            max_size=len(data) - 1,
+            return_size=True,
+        )
+        self.assertIsNone(decoded)
+        self.assertIsNone(size)
+
+        decoded, size = tunnel._decode_packet(b'bad', return_size=True)
+        self.assertIsNone(decoded)
+        self.assertIsNone(size)
+
+    def test_encode_packet_with_encrypted_body(self):
+        from sfb.protocol import Packet, PACKET_HEADER_SIZE
+
+        class FailingCrypto(object):
+            def encrypt(self, data, seq=None, direction=None):
+                raise RuntimeError('encrypt called')
+
+            def decrypt(self, data, seq=None, direction=None):
+                return data
+
+        tunnel = BaseTunnel(make_test_config(), crypto=FailingCrypto())
+        packet = Packet(seq=1, ack=0, sack=0, flags=0)
+        body = b'abc'
+        encoded = tunnel._encode_packet(packet, encrypted_body=body)
+        self.assertEqual(encoded[:PACKET_HEADER_SIZE], packet.header.encode())
+        self.assertEqual(encoded[PACKET_HEADER_SIZE:], body)
+
+    def test_send_window_distance_exceeded_reports_fields(self):
+        from sfb.protocol import seq_diff
+
+        tunnel = BaseTunnel(make_test_config())
+        exceeded, fields = tunnel._send_window_distance_exceeded()
+        self.assertFalse(exceeded)
+        self.assertIsNone(fields)
+
+        tunnel._last_cum_ack = 10
+        tunnel._send_window._max_in_flight = 2
+        tunnel._send_window.send([], now=time_provider.now())
+        tunnel._send_window._next_seq = 13
+
+        exceeded, fields = tunnel._send_window_distance_exceeded()
+        self.assertTrue(exceeded)
+        self.assertEqual(fields[0], seq_diff(13, 10))
+        self.assertEqual(fields[1], 2)
+        self.assertEqual(fields[2], 1)
+        self.assertEqual(fields[3], 3)
+        self.assertEqual(fields[4], 10)
+        self.assertEqual(fields[5], 13)
+
+    def test_process_control_messages_handles_invalid_json(self):
+        tunnel = BaseTunnel(make_test_config())
+        tunnel.control._deliver(b'notjson\n')
+        tunnel._process_control_messages()
+        self.assertEqual(tunnel.control.recv_buf_size, 0)
+        self.assertEqual(len(tunnel.control._line_buf), 0)
+
+    def test_half_close_on_control_channel_closes(self):
+        tunnel = BaseTunnel(make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._dispatch_control_message({'t': 'ch', 'c': 'half_close', 'ch': 0})
+        self.assertEqual(tunnel.state, TunnelState.CLOSED)
+
+    def test_background_thread_starts_and_stops(self):
+        class TestTunnel(BaseTunnel):
+            def __init__(self, config, event):
+                BaseTunnel.__init__(self, config)
+                self._event = event
+
+            def _run_loop(self):
+                self._event.set()
+                while not self._bg_stop:
+                    time_provider.sleep(0.01)
+
+        event = threading.Event()
+        tunnel = TestTunnel(make_test_config(), event)
+        tunnel.start_background()
+        self.assertTrue(event.wait(1.0))
+        tunnel.stop_background(timeout=1.0)
+        self.assertIsNone(tunnel._bg_thread)
+
+    def test_background_thread_exception_does_not_raise(self):
+        class FailingTunnel(BaseTunnel):
+            def __init__(self, config, event):
+                BaseTunnel.__init__(self, config)
+                self._event = event
+
+            def _run_loop(self):
+                self._event.set()
+                raise RuntimeError('boom')
+
+        event = threading.Event()
+        tunnel = FailingTunnel(make_test_config(), event)
+        tunnel.start_background()
+        self.assertTrue(event.wait(1.0))
+        tunnel.stop_background(timeout=1.0)
+        self.assertIsNone(tunnel._bg_thread)
+
+
 class AliceTunnelTests(unittest.TestCase):
     def test_requires_connected_for_tick(self):
         transport = MockTransport()

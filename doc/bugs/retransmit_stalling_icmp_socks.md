@@ -288,3 +288,20 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   stalled `last_cum_ack` if the missing packet age exceeds the silence
   threshold, even if `unacked` is above the previous threshold. Pre-cap
   behavior remains unchanged.
+
+## Latest findings (2026-01-03, post cap-gate change)
+- Sources: `logs/client_log.db` (Alice) had 22474 rows (~11:41:35-11:41:49 UTC).
+- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+  "./logs/client_log.db".
+- Alice `tunnel.send_window_distance`: 3282; `tunnel.send_blocked`: 3883;
+  `tunnel.retransmit`: 9; `tunnel.packet_recv`: 2127.
+- Latest distance event still pinned at 256 (`buffered` 231, `unacked` 25) with
+  `missing_in_unacked` False and `missing_age` null. The missing seq does not
+  match the newest keepalive drop (`keepalive_drop_seq` 1939 vs `missing_seq`
+  1904), so the gap is not a dropped keepalive.
+- Keepalive drops are occurring (`keepalive_drop_count` 6, reason
+  `rto_keepalive`), and the oldest unacked packet is later than the missing
+  seq (`oldest_unacked_seq` 1980), consistent with a hole in the unacked map.
+- Bob logs show no `tunnel.send_window_distance` entries in this snapshot;
+  retransmits remain low (`tunnel.retransmit`: 21, `tunnel.retransmit_skip`:
+  2114).

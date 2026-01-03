@@ -96,6 +96,11 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Bob `tunnel.retransmit`: 271; `tunnel.retransmit_skip`: 1847
   (ack_progress 1611, cooldown 236).
 
+## Change applied (2026-01-03)
+- Expand recv window buffer to the full SACK width (256 packets).
+- Goal: prevent out-of-order drops when cumulative ACK stalls and SACK
+  advances, reducing retransmits and `tunnel.send_window_distance` stalls.
+
 ## Next steps from the latest logs
 - Re-run with the same profile to confirm retransmit rate drops with the
   response-silence gate and to quantify any remaining stalls.

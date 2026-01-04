@@ -250,3 +250,13 @@ LOG_PROFILES['socks_throughput_debug'] = {
   - `tunnel.send_window_distance` repeats with `distance=5`, `distance_limit=1`, `effective_cap=1`, `unacked=1`, `buffered=4`, so Alice is hard-stalled by the cap.
 - Takeaways:
   - Feedback-driven pacing is active but collapses the effective cap to 1 due to low ack-rate feedback plus window-distance block penalties, explaining the 10% throughput.
+
+## Log Review: Feedback-Driven Pacing (Jan 4, 2026, 04:52 run)
+- Logs: `logs/client_log.db`, `logs/server_log.db`.
+- Pacer feedback target:
+  - `tunnel.pacer_target` shows `ack_rate_ewma` ~159-209 pps and `srtt_ms` ~110, so feedback target ~17-23.
+  - `block_penalty` is 26 on `window_distance`, but `block_target` equals `feedback_target` (target inflight 17-23), so the cap is not collapsing to 1.
+- Distance guard:
+  - `tunnel.send_window_distance` repeats with `distance` 19-21 and `effective_cap` 17-21; `unacked` tracks near the cap with `buffered` 0-1.
+- Takeaways:
+  - Latest run no longer shows the effective cap pinned at 1; window-distance stalls still happen, but at mid-teen caps instead of single digits.

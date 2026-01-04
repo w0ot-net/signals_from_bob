@@ -102,6 +102,12 @@ class Config:
     tunnel_timeout_packets: int = 257
     # Alice: max retransmits per tick (RTO only)
     tunnel_retransmit_cap: int = 2
+    # Alice: enable fast retransmit for SACK holes
+    tunnel_fast_retransmit_enabled: bool = True
+    # Alice: minimum age ratio of RTO before fast retransmit
+    tunnel_fast_retransmit_min_age_ratio: float = 0.5
+    # Alice: max fast retransmits per sequence number
+    tunnel_fast_retransmit_max_per_seq: int = 1
     # Enable reliability stats tracking
     tunnel_stats_enabled: bool = False
     # Enable dynamic window growth on Alice
@@ -339,6 +345,10 @@ class Config:
             raise ValueError("tunnel_initial_window must be 1-256")
         if self.tunnel_retransmit_cap < 1:
             raise ValueError("tunnel_retransmit_cap must be >= 1")
+        if self.tunnel_fast_retransmit_min_age_ratio <= 0:
+            raise ValueError("tunnel_fast_retransmit_min_age_ratio must be > 0")
+        if self.tunnel_fast_retransmit_max_per_seq < 1:
+            raise ValueError("tunnel_fast_retransmit_max_per_seq must be >= 1")
         if self.tunnel_window_growth_mode not in ("linear", "doubling"):
             raise ValueError("tunnel_window_growth_mode must be 'linear' or 'doubling'")
         if self.tunnel_window_growth_step < 1:

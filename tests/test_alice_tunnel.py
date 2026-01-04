@@ -358,6 +358,87 @@ class RetransmitTests(unittest.TestCase):
         self.assertEqual(after_rto, before_rto * 2)
 
 
+class FastRetransmitTests(unittest.TestCase):
+    def _prime_fast_retransmit(self, alice, now, age):
+        send_time = now - age
+        alice._send_window.send([Segment(1, b'a')], now=send_time)
+        alice._send_window.send([Segment(1, b'b')], now=send_time)
+        alice._send_window.send([Segment(1, b'c')], now=send_time)
+        packet1 = Packet(seq=0, ack=0, sack=1, flags=0)
+        packet2 = Packet(seq=1, ack=0, sack=3, flags=0)
+        alice._process_incoming_packet(packet1, now=now - 0.2)
+        alice._process_incoming_packet(packet2, now=now - 0.1)
+
+    def test_fast_retransmit_fires_for_sack_hole(self):
+        transport = _DummyTransport()
+        config = make_test_config(
+            tunnel_initial_window=3,
+            tunnel_fast_retransmit_enabled=True,
+            tunnel_fast_retransmit_min_age_ratio=0.5,
+            tunnel_fast_retransmit_max_per_seq=1,
+        )
+        alice = AliceTunnel(transport, config, crypto=Plain())
+        alice._set_state(TunnelState.CONNECTED)
+        alice._recv_window.set_initial_seq(0)
+
+        now = 10.0
+        self._prime_fast_retransmit(alice, now, age=1.0)
+        ack_silence = now - alice._last_cum_ack_time
+
+        sent = alice._maybe_fast_retransmit(now, ack_silence)
+
+        self.assertTrue(sent)
+        self.assertEqual(len(transport._pending), 1)
+        self.assertEqual(alice._fast_retransmit_counts.get(0), 1)
+
+    def test_fast_retransmit_respects_min_age(self):
+        transport = _DummyTransport()
+        config = make_test_config(
+            tunnel_initial_window=3,
+            tunnel_fast_retransmit_enabled=True,
+            tunnel_fast_retransmit_min_age_ratio=0.9,
+        )
+        alice = AliceTunnel(transport, config, crypto=Plain())
+        alice._set_state(TunnelState.CONNECTED)
+        alice._recv_window.set_initial_seq(0)
+
+        now = 10.0
+        self._prime_fast_retransmit(alice, now, age=0.2)
+        ack_silence = now - alice._last_cum_ack_time
+
+        sent = alice._maybe_fast_retransmit(now, ack_silence)
+
+        self.assertFalse(sent)
+        self.assertEqual(len(transport._pending), 0)
+
+    def test_fast_retransmit_respects_per_seq_cap(self):
+        transport = _DummyTransport()
+        config = make_test_config(
+            tunnel_initial_window=3,
+            tunnel_fast_retransmit_enabled=True,
+            tunnel_fast_retransmit_min_age_ratio=0.5,
+            tunnel_fast_retransmit_max_per_seq=1,
+        )
+        alice = AliceTunnel(transport, config, crypto=Plain())
+        alice._set_state(TunnelState.CONNECTED)
+        alice._recv_window.set_initial_seq(0)
+
+        now = 10.0
+        self._prime_fast_retransmit(alice, now, age=1.0)
+        ack_silence = now - alice._last_cum_ack_time
+
+        sent = alice._maybe_fast_retransmit(now, ack_silence)
+
+        self.assertTrue(sent)
+
+        later = now + 0.6
+        ack_silence = later - alice._last_cum_ack_time
+        sent_again = alice._maybe_fast_retransmit(later, ack_silence)
+
+        self.assertFalse(sent_again)
+        self.assertEqual(len(transport._pending), 1)
+
+
 class SendPacketTests(unittest.TestCase):
     def test_send_new_packet_rate_limit_releases_permit(self):
         transport = _DummyTransport(max_in_flight=16)

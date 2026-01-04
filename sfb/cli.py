@@ -235,6 +235,28 @@ def add_client_pacing_args(parser, config):
               'same as send_rate')
     )
     parser.add_argument(
+        '--fast-retransmit', dest='fast_retransmit', action='store_true',
+        default=config.tunnel_fast_retransmit_enabled,
+        help='Enable fast retransmit (default: %s)' %
+             config.tunnel_fast_retransmit_enabled
+    )
+    parser.add_argument(
+        '--no-fast-retransmit', dest='fast_retransmit', action='store_false',
+        help='Disable fast retransmit'
+    )
+    parser.add_argument(
+        '--fast-retransmit-min-age-ratio', type=float,
+        default=config.tunnel_fast_retransmit_min_age_ratio,
+        help='Fast retransmit min age ratio of RTO (default: %s)' %
+             config.tunnel_fast_retransmit_min_age_ratio
+    )
+    parser.add_argument(
+        '--fast-retransmit-max-per-seq', type=int,
+        default=config.tunnel_fast_retransmit_max_per_seq,
+        help='Fast retransmit max per seq (default: %s)' %
+             config.tunnel_fast_retransmit_max_per_seq
+    )
+    parser.add_argument(
         '--adaptive-pacing', dest='adaptive_pacing', action='store_true',
         default=config.tunnel_adaptive_pacing_enabled,
         help='Enable adaptive pacing (default: %s)' %
@@ -439,6 +461,12 @@ def create_config(args):
     if args.role == 'client':
         config_kwargs['tunnel_send_rate'] = getattr(args, 'send_rate', None)
         config_kwargs['tunnel_send_burst'] = getattr(args, 'send_burst', None)
+        config_kwargs['tunnel_fast_retransmit_enabled'] = getattr(
+            args, 'fast_retransmit', None)
+        config_kwargs['tunnel_fast_retransmit_min_age_ratio'] = getattr(
+            args, 'fast_retransmit_min_age_ratio', None)
+        config_kwargs['tunnel_fast_retransmit_max_per_seq'] = getattr(
+            args, 'fast_retransmit_max_per_seq', None)
         config_kwargs['tunnel_adaptive_pacing_enabled'] = getattr(
             args, 'adaptive_pacing', None)
         config_kwargs['tunnel_pace_target_inflight_ratio'] = getattr(

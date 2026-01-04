@@ -152,7 +152,7 @@ Current structured events (non-exhaustive):
 - `tunnel.serve_error`
 - `tunnel.packet_send`
 - `tunnel.packet_recv`
-- `tunnel.retransmit`
+- `tunnel.retransmit` (reason: `rto`, `fast_retransmit`, `window_full`, `window_distance`)
 - `tunnel.retransmit_skip`
 - `tunnel.ack`
 - `tunnel.mtu_propose`

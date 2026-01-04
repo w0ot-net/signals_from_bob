@@ -42,6 +42,12 @@ for name in ('WSAEWOULDBLOCK', 'WSAEINTR'):
     if value is not None:
         _TEMP_ERRORS.add(value)
 
+_RESET_ERRORS = set([errno.ECONNRESET])
+for name in ('WSAECONNRESET',):
+    value = getattr(errno, name, None)
+    if value is not None:
+        _RESET_ERRORS.add(value)
+
 
 class _PendingConn(object):
     __slots__ = (
@@ -323,7 +329,11 @@ class TlsClient(Transport):
         try:
             data = state.sock.recv(bufsize)
         except socket.error as e:
-            if _get_errno(e) in _TEMP_ERRORS:
+            err = _get_errno(e)
+            if err in _TEMP_ERRORS:
+                return None
+            if err in _RESET_ERRORS:
+                self._close_pending(corr_id, state)
                 return None
             self._close_pending(corr_id, state)
             raise TransportError('Receive failed: %s' % e)

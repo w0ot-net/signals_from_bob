@@ -46,6 +46,13 @@ class SendWindowTests(unittest.TestCase):
         self.assertEqual(data_acked, 2)
         self.assertEqual(win.unacked_count, 1)
 
+    def test_sack_progress_ready_on_ack_advance(self):
+        win = SendWindow(max_in_flight=4)
+        win.update_sack_progress(ack=1, sack=1, ack_advanced=True)
+        self.assertTrue(win.sack_progress_ready(1))
+        win.update_sack_progress(ack=2, sack=0, ack_advanced=True)
+        self.assertFalse(win.sack_progress_ready(2))
+
     def test_sack_only_progress_removes_acked(self):
         win = SendWindow(max_in_flight=4)
         win.send([b'a'], now=1.0)  # seq 0

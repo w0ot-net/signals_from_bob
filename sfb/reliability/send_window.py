@@ -140,7 +140,10 @@ class SendWindow(object):
         self._last_sack = sack
         self._last_sack_ack = ack
         if ack_advanced:
-            self._last_sack_progress_ack = None
+            if sack != 0:
+                self._last_sack_progress_ack = ack
+            else:
+                self._last_sack_progress_ack = None
             return
         if sack != 0:
             if prev_sack_ack != ack or prev_sack != sack:

@@ -112,40 +112,35 @@ def add_common_args(parser, config, require_domain=True):
         nargs='?',
         const=_DB_LOG_DEFAULT,
         default=config.db_log_path,
-        help='Enable SQLite logging to PATH'
+        help=argparse.SUPPRESS
     )
     parser.add_argument(
         '--db-log-flush', type=float, default=config.db_log_flush,
-        help='SQLite log flush interval in seconds (default: %s)' %
-             config.db_log_flush
+        help=argparse.SUPPRESS
     )
     parser.add_argument(
         '--db-log-queue', type=int, default=config.db_log_queue,
-        help='SQLite log queue max size (default: 0=unbounded)'
+        help=argparse.SUPPRESS
     )
     parser.add_argument(
         '--socks-relay-buffer-size', type=int,
         default=config.socks_relay_buffer_size,
-        help='SOCKS relay buffer size in bytes (default: %s)' %
-             config.socks_relay_buffer_size
+        help=argparse.SUPPRESS
     )
     parser.add_argument(
         '--channel-max-send-buf', type=int,
         default=config.channel_max_send_buf,
-        help='Channel max send buffer in bytes (default: %s)' %
-             config.channel_max_send_buf
+        help=argparse.SUPPRESS
     )
     parser.add_argument(
         '--socks-pump-backoff-max', type=float,
         default=config.socks_pump_backoff_max,
-        help='SOCKS pump max poll backoff in seconds (default: %s)' %
-             config.socks_pump_backoff_max
+        help=argparse.SUPPRESS
     )
     parser.add_argument(
         '--non-blocking-poll-timeout', type=float,
         default=config.non_blocking_poll_timeout,
-        help='Non-blocking poll timeout in seconds (default: %s)' %
-             config.non_blocking_poll_timeout
+        help=argparse.SUPPRESS
     )
     parser.add_argument(
         '--log-profile',
@@ -358,11 +353,11 @@ def add_server_args(parser, config):
     """Add server-specific arguments."""
     parser.add_argument(
         '--root', default=config.file_transfer_root,
-        help='Root directory for file transfers (default: %s)' % config.file_transfer_root
+        help=argparse.SUPPRESS
     )
     parser.add_argument(
         '--max-size', type=int, default=config.file_transfer_max_size,
-        help='Max file size in bytes (default: %s)' % config.file_transfer_max_size
+        help=argparse.SUPPRESS
     )
 
 

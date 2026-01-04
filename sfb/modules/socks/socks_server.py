@@ -272,9 +272,9 @@ class SocksServerModule(BaseModule):
         """Accept incoming connections."""
         backoff = self._config.non_blocking_poll_timeout
         max_backoff = max(self._config.socks_accept_timeout, backoff)
+        self._server_socket.settimeout(self._config.socks_accept_timeout)
         while self._running:
             try:
-                self._server_socket.settimeout(self._config.socks_accept_timeout)
                 try:
                     client_sock, addr = self._server_socket.accept()
                 except socket.timeout:
@@ -425,18 +425,6 @@ class SocksServerModule(BaseModule):
                 ), {'pending': pending_count}),
             )
 
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.connect',
-                'SOCKS connect requested',
-                lambda: add_fields(sock_fields(
-                    rid=rid,
-                    ch=channel.id,
-                    side='bob',
-                    peer='client',
-                ), {'host': host, 'port': port}),
-            )
             log_event(
                 self._logger,
                 logging.INFO,
@@ -614,13 +602,13 @@ class SocksServerModule(BaseModule):
 
     def _recv_exact(self, sock, size):
         """Receive exactly size bytes from socket."""
-        data = b''
+        data = bytearray()
         while len(data) < size:
             chunk = sock.recv(size - len(data))
             if not chunk:
                 raise Socks5Error('closed', 'connection closed')
-            data += chunk
-        return data
+            data.extend(chunk)
+        return bytes(data)
 
     def _socks5_negotiate_method(self, sock):
         """
@@ -738,21 +726,6 @@ class SocksServerModule(BaseModule):
                     'bport': msg.get('bport'),
                 }),
             )
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.connect_ok',
-                'SOCKS connect ok',
-                lambda: add_fields(sock_fields(
-                    rid=rid,
-                    ch=msg.get('ch'),
-                    side='bob',
-                    peer='client',
-                ), {
-                    'bhost': msg.get('bhost'),
-                    'bport': msg.get('bport'),
-                }),
-            )
 
     def handle_err(self, msg):
         """Handle error from Alice."""
@@ -771,21 +744,6 @@ class SocksServerModule(BaseModule):
                 logging.INFO,
                 'sock.connect_err_recv',
                 'SOCKS connect err recv',
-                lambda: add_fields(sock_fields(
-                    rid=rid,
-                    ch=msg.get('ch'),
-                    side='bob',
-                    peer='client',
-                ), {
-                    'code': msg.get('code'),
-                    'reason': msg.get('reason'),
-                }),
-            )
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.connect_err',
-                'SOCKS connect error',
                 lambda: add_fields(sock_fields(
                     rid=rid,
                     ch=msg.get('ch'),

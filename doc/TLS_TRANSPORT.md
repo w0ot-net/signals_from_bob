@@ -316,7 +316,7 @@ Defaults:
 - `tls_max_clienthello_bytes`: `1400`
 - `tls_max_serverhello_bytes`: `1400`
 - `tls_sni`: `example.com`
-- `tls_alpn`: `None`
+- `tls_alpn`: `h2,http/1.1`
 
 Validation:
 - Timeouts MUST be positive.

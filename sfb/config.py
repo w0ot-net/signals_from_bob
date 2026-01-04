@@ -79,7 +79,7 @@ class Config:
     # Optional SNI cover name
     tls_sni: Optional[str] = "example.com"
     # Optional comma-separated ALPN list
-    tls_alpn: Optional[str] = None
+    tls_alpn: Optional[str] = "h2,http/1.1"
 
     # --- Crypto ---
     # Encryption mode: 'none', 'xor', 'rc4'

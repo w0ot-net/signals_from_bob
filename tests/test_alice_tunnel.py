@@ -288,7 +288,7 @@ class SendGateTests(unittest.TestCase):
     def test_send_window_distance_blocks_new_send(self):
         transport = _DummyTransport()
         alice = AliceTunnel(transport, make_test_config(), crypto=Plain())
-        alice._last_cum_ack = 0
+        alice._send_window.process_ack_with_progress(ack=0, sack=0, now=0.0)
         alice._send_window._next_seq = alice.MAX_WINDOW + 1
 
         allowed = alice._can_send_new(now=0.0)
@@ -303,7 +303,7 @@ class SendGateTests(unittest.TestCase):
             tunnel_pace_target_inflight_ratio=0.25,
         )
         alice = AliceTunnel(transport, config, crypto=Plain())
-        alice._last_cum_ack = 0
+        alice._send_window.process_ack_with_progress(ack=0, sack=0, now=0.0)
         alice._send_window._next_seq = 3
 
         allowed = alice._can_send_new(now=0.0)
@@ -383,7 +383,7 @@ class FastRetransmitTests(unittest.TestCase):
 
         now = 10.0
         self._prime_fast_retransmit(alice, now, age=1.0)
-        ack_silence = now - alice._last_cum_ack_time
+        ack_silence = alice._send_window.ack_silence(now=now)
 
         sent = alice._maybe_fast_retransmit(now, ack_silence)
 
@@ -404,7 +404,7 @@ class FastRetransmitTests(unittest.TestCase):
 
         now = 10.0
         self._prime_fast_retransmit(alice, now, age=0.2)
-        ack_silence = now - alice._last_cum_ack_time
+        ack_silence = alice._send_window.ack_silence(now=now)
 
         sent = alice._maybe_fast_retransmit(now, ack_silence)
 
@@ -425,14 +425,14 @@ class FastRetransmitTests(unittest.TestCase):
 
         now = 10.0
         self._prime_fast_retransmit(alice, now, age=1.0)
-        ack_silence = now - alice._last_cum_ack_time
+        ack_silence = alice._send_window.ack_silence(now=now)
 
         sent = alice._maybe_fast_retransmit(now, ack_silence)
 
         self.assertTrue(sent)
 
         later = now + 0.6
-        ack_silence = later - alice._last_cum_ack_time
+        ack_silence = alice._send_window.ack_silence(now=later)
         sent_again = alice._maybe_fast_retransmit(later, ack_silence)
 
         self.assertFalse(sent_again)

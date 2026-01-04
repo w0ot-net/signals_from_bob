@@ -1,6 +1,6 @@
 # Reliability Refactor Plan: Send-Window Distance and Pacer
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -75,3 +75,14 @@ Status: draft
 
 - Run the existing unit tests that cover reliability and tunnel behavior.
 - Do not run `tests/e2e/`.
+
+## Execution Notes
+
+- Implemented SendWindow ACK tracking, silence helpers, and distance helpers;
+  BaseTunnel/Alice/Bob now consume SendWindow state.
+- Moved AdaptivePacer to `sfb/reliability/pacing.py` and updated imports/tests.
+- Updated docs: `doc/RELIABILITY.md`, `doc/TUNNEL.md`, `doc/ARCHITECTURE.md`,
+  `doc/ALICE_RETRANSMIT_LOGIC.md`, `doc/BOB_RETRANSMIT_LOGIC.md`.
+- Tests: `python3 -m unittest tests.test_send_window tests.test_reliability
+  tests.test_pacing tests.test_alice_tunnel tests.test_bob_tunnel
+  tests.test_tunnel`.

@@ -10,6 +10,7 @@ from collections import OrderedDict, deque
 from .. import time_provider
 from ..protocol import (
     seq_lt,
+    seq_gt,
     seq_diff,
     SEQ_MAX,
     SACK_BITS,
@@ -40,6 +41,9 @@ class SendWindow(object):
         self._unacked = OrderedDict()  # seq -> _UnackedPacket
         self._retransmit_count = 0  # Total retransmits
         self._stats = stats or NoopReliabilityStats()
+        self._last_cum_ack = None
+        self._last_cum_ack_time = None
+        self._last_ack_progress_time = None
         self._ack_history = deque(maxlen=16)
         self._ack_miss_count = 0
         self._ack_miss_last_seq = None
@@ -71,6 +75,43 @@ class SendWindow(object):
     def unacked_count(self):
         """Number of unacked packets."""
         return len(self._unacked)
+
+    @property
+    def last_cum_ack(self):
+        """Last cumulative ACK observed from peer, or None."""
+        return self._last_cum_ack
+
+    @property
+    def last_cum_ack_time(self):
+        """Time of last cumulative ACK advance, or None."""
+        return self._last_cum_ack_time
+
+    @property
+    def last_ack_progress_time(self):
+        """Time when unacked count last decreased, or None."""
+        return self._last_ack_progress_time
+
+    def ack_silence(self, now=None):
+        """Seconds since last cumulative ACK advance, or None."""
+        if self._last_cum_ack_time is None:
+            return None
+        if now is None:
+            now = time_provider.now()
+        silence = now - self._last_cum_ack_time
+        if silence < 0:
+            silence = 0.0
+        return silence
+
+    def ack_progress_silence(self, now=None):
+        """Seconds since last ACK progress (unacked decreased), or None."""
+        if self._last_ack_progress_time is None:
+            return None
+        if now is None:
+            now = time_provider.now()
+        silence = now - self._last_ack_progress_time
+        if silence < 0:
+            silence = 0.0
+        return silence
 
     def send(self, segments, flags=0, encrypted_body=None, now=None):
         """
@@ -104,6 +145,48 @@ class SendWindow(object):
         self._stats.on_send()
 
         return seq
+
+    def process_ack_with_progress(self, ack, sack, now=None):
+        """
+        Update ACK tracking, SACK progress, and process ACK/SACK.
+
+        Returns:
+            tuple: (rtt_samples, acked_count, data_acked_count, unacked_before,
+                unacked_after, prev_cum_ack, prev_cum_ack_time, ack_advanced,
+                ack_progressed)
+        """
+        if now is None:
+            now = time_provider.now()
+
+        prev_cum_ack = self._last_cum_ack
+        prev_cum_ack_time = self._last_cum_ack_time
+        ack_advanced = False
+        if self._last_cum_ack is None or seq_gt(ack, self._last_cum_ack):
+            self._last_cum_ack = ack
+            self._last_cum_ack_time = now
+            ack_advanced = True
+        self.update_sack_progress(ack, sack, ack_advanced)
+
+        unacked_before = len(self._unacked)
+        rtt_samples, acked_count, data_acked_count = self.process_ack(
+            ack, sack, now=now
+        )
+        unacked_after = len(self._unacked)
+        ack_progressed = acked_count > 0
+        if ack_progressed:
+            self._last_ack_progress_time = now
+
+        return (
+            rtt_samples,
+            acked_count,
+            data_acked_count,
+            unacked_before,
+            unacked_after,
+            prev_cum_ack,
+            prev_cum_ack_time,
+            ack_advanced,
+            ack_progressed,
+        )
 
     def process_ack(self, ack, sack, now=None):
         """
@@ -149,7 +232,8 @@ class SendWindow(object):
             if prev_sack_ack != ack or prev_sack != sack:
                 self._last_sack_progress_ack = ack
 
-    def sack_progress_ready(self, cum_ack):
+    def sack_progress_ready(self):
+        cum_ack = self._last_cum_ack
         if cum_ack is None:
             return False
         if self._last_sack is None or self._last_sack == 0:
@@ -331,6 +415,125 @@ class SendWindow(object):
             'keepalive_drop_unacked_after': self._last_keepalive_drop_unacked_after,
             'keepalive_drop_count': self._keepalive_drop_count,
         }
+
+    def distance_info(self, cap_override=None, max_window=None):
+        """
+        Return distance info for send-window checks.
+
+        Returns:
+            tuple: (distance, max_in_flight, effective_cap, unacked,
+            distance_limit, last_cum_ack, next_seq) or None.
+        """
+        if self._last_cum_ack is None:
+            return None
+        max_in_flight = self._max_in_flight
+        effective_cap = max_in_flight
+        if cap_override is not None and cap_override < effective_cap:
+            effective_cap = cap_override
+        if effective_cap < 1:
+            effective_cap = 1
+        next_seq = self._next_seq
+        diff = seq_diff(next_seq, self._last_cum_ack)
+        if diff < 0:
+            return None
+        distance = diff
+        unacked = len(self._unacked)
+        distance_limit = effective_cap
+        if max_window is None:
+            max_window = MAX_IN_FLIGHT
+        if distance_limit > max_window:
+            distance_limit = max_window
+        return (
+            distance,
+            max_in_flight,
+            effective_cap,
+            unacked,
+            distance_limit,
+            self._last_cum_ack,
+            next_seq,
+        )
+
+    def distance_exceeded(self, cap_override=None, max_window=None):
+        """
+        Check if next_seq is too far ahead of peer's cumulative ACK.
+
+        Returns:
+            tuple: (exceeded, fields) where fields is a tuple or None.
+        """
+        info = self.distance_info(
+            cap_override=cap_override,
+            max_window=max_window,
+        )
+        if info is None:
+            return (False, None)
+        distance = info[0]
+        distance_limit = info[4]
+        if distance < distance_limit:
+            return (False, None)
+        return (True, info)
+
+    def distance_details(self, now=None):
+        """
+        Build debug fields to explain send-window distance stalls.
+        """
+        if now is None:
+            now = time_provider.now()
+        last_cum_ack = self._last_cum_ack
+        details = {
+            'missing_seq': last_cum_ack,
+            'missing_in_unacked': False,
+            'missing_age': None,
+            'missing_retransmit_count': None,
+            'missing_flags': None,
+            'missing_seg_count': None,
+            'oldest_unacked_seq': None,
+            'oldest_unacked_age': None,
+            'oldest_unacked_retransmit_count': None,
+            'oldest_unacked_flags': None,
+            'oldest_unacked_seg_count': None,
+        }
+        missing_info = self.get_unacked_info(last_cum_ack)
+        if missing_info is not None:
+            (_, segments, flags, _,
+             send_time, retransmit_count) = missing_info
+            details['missing_in_unacked'] = True
+            details['missing_retransmit_count'] = retransmit_count
+            details['missing_flags'] = flags
+            details['missing_seg_count'] = (
+                len(segments) if segments is not None else 0
+            )
+            if send_time is not None:
+                age = now - send_time
+                if age < 0:
+                    age = 0.0
+                details['missing_age'] = round(age, 6)
+        oldest_info = self.get_oldest_unacked_info()
+        if oldest_info is not None:
+            (seq, segments, flags, _,
+             send_time, retransmit_count) = oldest_info
+            details['oldest_unacked_seq'] = seq
+            details['oldest_unacked_retransmit_count'] = retransmit_count
+            details['oldest_unacked_flags'] = flags
+            details['oldest_unacked_seg_count'] = (
+                len(segments) if segments is not None else 0
+            )
+            if send_time is not None:
+                age = now - send_time
+                if age < 0:
+                    age = 0.0
+                details['oldest_unacked_age'] = round(age, 6)
+        ack_info = self.get_ack_debug_info(
+            seq=last_cum_ack, now=now
+        )
+        if ack_info is not None:
+            details.update(ack_info)
+        drop_info = self.get_keepalive_drop_info(now=now)
+        if drop_info is not None:
+            details.update(drop_info)
+            details['missing_matches_keepalive_drop'] = (
+                drop_info['keepalive_drop_seq'] == last_cum_ack
+            )
+        return details
 
     def debug_state(self, now=None):
         """

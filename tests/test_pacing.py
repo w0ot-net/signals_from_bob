@@ -5,7 +5,7 @@ from __future__ import absolute_import
 
 import unittest
 
-from sfb.tunnel.pacing import AdaptivePacer
+from sfb.reliability import AdaptivePacer
 
 
 def make_pacer(**kwargs):

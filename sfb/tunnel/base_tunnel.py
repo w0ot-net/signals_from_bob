@@ -34,8 +34,6 @@ from ..protocol import (
     FLAG_ACK,
     FLAG_KEEPALIVE,
     PACKET_HEADER_SIZE,
-    seq_diff,
-    seq_gt,
     log_control_segments,
 )
 from ..reliability import SendWindow, RecvWindow, ReliabilityStats, NoopReliabilityStats
@@ -137,9 +135,6 @@ class BaseTunnel(object):
         self._packets_received = 0
         self._bytes_sent = 0
         self._bytes_received = 0
-        self._last_ack_progress_time = None
-        self._last_cum_ack = None
-        self._last_cum_ack_time = None
 
         # Transport MTU for receive (payload + header)
         self._max_packet_size = self._default_mtu + PACKET_HEADER_SIZE
@@ -277,119 +272,6 @@ class BaseTunnel(object):
 
         return packet, seq
 
-    def _send_window_distance_info(self, cap_override=None):
-        """
-        Return distance info for send-window checks.
-
-        Returns:
-            tuple: (distance, max_in_flight, effective_cap, unacked,
-            distance_limit, last_cum_ack, next_seq) or None.
-        """
-        if self._last_cum_ack is None:
-            return None
-        max_in_flight = self._send_window._max_in_flight
-        effective_cap = max_in_flight
-        if cap_override is not None and cap_override < effective_cap:
-            effective_cap = cap_override
-        if effective_cap < 1:
-            effective_cap = 1
-        next_seq = self._send_window.next_seq
-        diff = seq_diff(next_seq, self._last_cum_ack)
-        if diff < 0:
-            return None
-        distance = diff
-        unacked = self._send_window.unacked_count
-        distance_limit = effective_cap
-        if distance_limit > self.MAX_WINDOW:
-            distance_limit = self.MAX_WINDOW
-        return (
-            distance,
-            max_in_flight,
-            effective_cap,
-            unacked,
-            distance_limit,
-            self._last_cum_ack,
-            next_seq,
-        )
-
-    def _send_window_distance_exceeded(self, cap_override=None):
-        """
-        Check if next_seq is too far ahead of peer's cumulative ACK.
-
-        Returns:
-            tuple: (exceeded, fields) where fields is a tuple or None.
-        """
-        info = self._send_window_distance_info(cap_override=cap_override)
-        if info is None:
-            return (False, None)
-        distance = info[0]
-        distance_limit = info[4]
-        if distance < distance_limit:
-            return (False, None)
-        return (True, info)
-
-    def _send_window_distance_details(self, now, last_cum_ack):
-        """
-        Build debug fields to explain send-window distance stalls.
-        """
-        if now is None:
-            now = time_provider.now()
-        details = {
-            'missing_seq': last_cum_ack,
-            'missing_in_unacked': False,
-            'missing_age': None,
-            'missing_retransmit_count': None,
-            'missing_flags': None,
-            'missing_seg_count': None,
-            'oldest_unacked_seq': None,
-            'oldest_unacked_age': None,
-            'oldest_unacked_retransmit_count': None,
-            'oldest_unacked_flags': None,
-            'oldest_unacked_seg_count': None,
-        }
-        missing_info = self._send_window.get_unacked_info(last_cum_ack)
-        if missing_info is not None:
-            (_, segments, flags, _,
-             send_time, retransmit_count) = missing_info
-            details['missing_in_unacked'] = True
-            details['missing_retransmit_count'] = retransmit_count
-            details['missing_flags'] = flags
-            details['missing_seg_count'] = (
-                len(segments) if segments is not None else 0
-            )
-            if send_time is not None:
-                age = now - send_time
-                if age < 0:
-                    age = 0.0
-                details['missing_age'] = round(age, 6)
-        oldest_info = self._send_window.get_oldest_unacked_info()
-        if oldest_info is not None:
-            (seq, segments, flags, _,
-             send_time, retransmit_count) = oldest_info
-            details['oldest_unacked_seq'] = seq
-            details['oldest_unacked_retransmit_count'] = retransmit_count
-            details['oldest_unacked_flags'] = flags
-            details['oldest_unacked_seg_count'] = (
-                len(segments) if segments is not None else 0
-            )
-            if send_time is not None:
-                age = now - send_time
-                if age < 0:
-                    age = 0.0
-                details['oldest_unacked_age'] = round(age, 6)
-        ack_info = self._send_window.get_ack_debug_info(
-            seq=last_cum_ack, now=now
-        )
-        if ack_info is not None:
-            details.update(ack_info)
-        drop_info = self._send_window.get_keepalive_drop_info(now=now)
-        if drop_info is not None:
-            details.update(drop_info)
-            details['missing_matches_keepalive_drop'] = (
-                drop_info['keepalive_drop_seq'] == last_cum_ack
-            )
-        return details
-
     @staticmethod
     def _prefix_fields(prefix, fields):
         if not fields:
@@ -433,18 +315,14 @@ class BaseTunnel(object):
                 rtt_state = None
             if rtt_state:
                 fields.update(self._prefix_fields('rtt_', rtt_state))
-        if self._last_cum_ack_time is not None:
-            silence = now - self._last_cum_ack_time
-            if silence < 0:
-                silence = 0.0
-            fields['ack_silence'] = round(silence, 6)
-        if self._last_ack_progress_time is not None:
-            silence = now - self._last_ack_progress_time
-            if silence < 0:
-                silence = 0.0
-            fields['ack_progress_silence'] = round(silence, 6)
-        if self._last_cum_ack is not None:
-            fields['last_cum_ack'] = self._last_cum_ack
+        ack_silence = self._send_window.ack_silence(now=now)
+        if ack_silence is not None:
+            fields['ack_silence'] = round(ack_silence, 6)
+        ack_progress_silence = self._send_window.ack_progress_silence(now=now)
+        if ack_progress_silence is not None:
+            fields['ack_progress_silence'] = round(ack_progress_silence, 6)
+        if self._send_window.last_cum_ack is not None:
+            fields['last_cum_ack'] = self._send_window.last_cum_ack
         return fields
 
     def _log_reliability_state(self, level, event, message, now=None,
@@ -686,24 +564,11 @@ class BaseTunnel(object):
                 'state': self._state,
             },
         )
-        prev_cum_ack = self._last_cum_ack
-        prev_cum_ack_time = self._last_cum_ack_time
-        ack_advanced = False
-        if self._last_cum_ack is None or seq_gt(packet.ack, self._last_cum_ack):
-            self._last_cum_ack = packet.ack
-            self._last_cum_ack_time = now
-            ack_advanced = True
-        self._send_window.update_sack_progress(
-            packet.ack,
-            packet.sack,
-            ack_advanced,
-        )
-
-        unacked_before = self._send_window.unacked_count
-        rtt_samples, acked_count, data_acked_count = self._send_window.process_ack(
-            packet.ack, packet.sack, now=now
-        )
-        unacked_after = self._send_window.unacked_count
+        (rtt_samples, acked_count, data_acked_count, unacked_before,
+         unacked_after, prev_cum_ack, prev_cum_ack_time, _ack_advanced,
+         _ack_progressed) = self._send_window.process_ack_with_progress(
+             packet.ack, packet.sack, now=now
+         )
         def build_ack_fields():
             fields = {
                 'ack': packet.ack,
@@ -736,8 +601,6 @@ class BaseTunnel(object):
             'ACK processed detail',
             build_ack_fields,
         )
-        if unacked_after < unacked_before:
-            self._last_ack_progress_time = now
         if unacked_before != unacked_after or unacked_after > 0:
             log_event(
                 self._logger,

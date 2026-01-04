@@ -14,7 +14,7 @@ Primary implementation locations:
 - `sfb/reliability/rtt.py`: RTO estimator and exponential backoff.
 - `sfb/tunnel/base_tunnel.py`: packet rebuild with fresh ACK/SACK,
   ACK/SACK processing, recv window.
-- `sfb/tunnel/pacing.py`: pacing feedback and probe reset on retransmit.
+- `sfb/reliability/pacing.py`: pacing feedback and probe reset on retransmit.
 - `sfb/transport/transport_base.py`: send permits and rate limiter.
 - `sfb/config.py` and `sfb/protocol/constants.py`: default values and limits.
 
@@ -165,8 +165,9 @@ Send behavior:
 ## ACK/SACK Processing And RTT Samples
 
 `BaseTunnel._process_incoming_packet()`:
-- Updates `_last_cum_ack` when `packet.ack` changes.
-- Calls `SendWindow.process_ack(ack, sack, now)`:
+- Calls `SendWindow.process_ack_with_progress(ack, sack, now)` to update
+  cumulative ACK tracking, SACK progress, and ACK/SACK cleanup in one step.
+- ACK/SACK cleanup matches `SendWindow.process_ack(ack, sack, now)`:
   - Cumulative ACKs remove all `seq < ack` in send order.
   - SACK ACKs remove `ack + offset` for each set bit (offset 1..256).
 
@@ -178,7 +179,8 @@ RTT sampling (`SendWindow._ack_seq`):
 
 Effects on retransmit logic:
 - RTT samples feed `RttEstimator.add_sample()` and reset backoff.
-- ACK progress sets `_ack_progressed` and `_last_ack_progress_time`.
+- ACK progress updates `SendWindow.last_ack_progress_time` and sets
+  `_ack_progressed` for window-growth gating.
 - `data_acked_count` (only packets with segments) drives pacing feedback.
 - Keepalive packets (no segments) can update RTT but do not drive pacing.
 

@@ -173,6 +173,7 @@ sfb/
 │   └── segment.py             # Segment structure
 ├── reliability/
 │   ├── __init__.py
+│   ├── pacing.py              # Adaptive pacing (Alice)
 │   ├── rtt.py                 # RTT estimation (Alice)
 │   ├── send_window.py         # Send window management
 │   └── recv_window.py         # Receive window, SACK

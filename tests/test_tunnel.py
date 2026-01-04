@@ -504,16 +504,21 @@ class BaseTunnelGapTests(unittest.TestCase):
         from sfb.protocol import seq_diff
 
         tunnel = BaseTunnel(make_test_config())
-        exceeded, fields = tunnel._send_window_distance_exceeded()
+        exceeded, fields = tunnel._send_window.distance_exceeded(
+            max_window=tunnel.MAX_WINDOW
+        )
         self.assertFalse(exceeded)
         self.assertIsNone(fields)
 
-        tunnel._last_cum_ack = 10
+        tunnel._send_window._last_cum_ack = 10
+        tunnel._send_window._last_cum_ack_time = time_provider.now()
         tunnel._send_window._max_in_flight = 2
         tunnel._send_window.send([], now=time_provider.now())
         tunnel._send_window._next_seq = 13
 
-        exceeded, fields = tunnel._send_window_distance_exceeded()
+        exceeded, fields = tunnel._send_window.distance_exceeded(
+            max_window=tunnel.MAX_WINDOW
+        )
         self.assertTrue(exceeded)
         self.assertEqual(fields[0], seq_diff(13, 10))
         self.assertEqual(fields[1], 2)
@@ -529,14 +534,14 @@ class BaseTunnelGapTests(unittest.TestCase):
         tunnel = BaseTunnel(make_test_config())
         tunnel._recv_window.set_initial_seq(0)
         last_time = 123.0
-        tunnel._last_cum_ack = 10
-        tunnel._last_cum_ack_time = last_time
+        tunnel._send_window._last_cum_ack = 10
+        tunnel._send_window._last_cum_ack_time = last_time
 
         packet = Packet(seq=0, ack=9, sack=0, flags=0)
         tunnel._process_incoming_packet(packet, now=124.0)
 
-        self.assertEqual(tunnel._last_cum_ack, 10)
-        self.assertEqual(tunnel._last_cum_ack_time, last_time)
+        self.assertEqual(tunnel._send_window.last_cum_ack, 10)
+        self.assertEqual(tunnel._send_window.last_cum_ack_time, last_time)
 
     def test_process_control_messages_handles_invalid_json(self):
         tunnel = BaseTunnel(make_test_config())
@@ -1146,8 +1151,8 @@ class AliceRetransmitTimingTests(unittest.TestCase):
                 now=time_state['now'],
                 permit=permit,
             )
-            alice._last_cum_ack = 0
-            alice._last_cum_ack_time = 0.0
+            alice._send_window._last_cum_ack = 0
+            alice._send_window._last_cum_ack_time = 0.0
 
             time_state['now'] = alice._rtt.rto_sec + 1.0
             response = Packet(seq=0, ack=0, sack=0, flags=0)

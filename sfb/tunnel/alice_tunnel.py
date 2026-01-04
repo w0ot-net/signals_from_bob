@@ -16,7 +16,7 @@ from .tunnel_control_messages import (
     tun_mtu,
     tun_window,
 )
-from .pacing import AdaptivePacer
+from ..reliability import AdaptivePacer
 from ..protocol import (
     Packet,
     FLAG_SYN,
@@ -451,11 +451,7 @@ class AliceTunnel(BaseTunnel):
 
         # 2. Check for retransmits
         # Avoid RTO retransmits while ACKs are still advancing.
-        ack_silence = None
-        if self._last_cum_ack_time is not None:
-            ack_silence = now - self._last_cum_ack_time
-            if ack_silence < 0:
-                ack_silence = 0.0
+        ack_silence = self._send_window.ack_silence(now=now)
         if ack_silence is None or ack_silence >= self._rtt.rto_sec:
             retransmits = self._send_window.get_retransmits(
                 self._rtt.rto_sec, now=now
@@ -672,13 +668,9 @@ class AliceTunnel(BaseTunnel):
                 self._send_window._max_in_flight,
                 self._pacer.target_inflight(cap, srtt_ms=self._rtt.srtt_ms),
             )
-        distance_info = self._send_window_distance_info()
-        exceeded = False
-        if distance_info is not None:
-            distance = distance_info[0]
-            distance_limit = distance_info[4]
-            if distance >= distance_limit:
-                exceeded = True
+        exceeded, distance_info = self._send_window.distance_exceeded(
+            max_window=self.MAX_WINDOW
+        )
         if exceeded:
             (distance, max_in_flight, effective_cap, unacked,
              distance_limit, last_cum_ack, next_seq) = distance_info
@@ -697,9 +689,7 @@ class AliceTunnel(BaseTunnel):
                 }
                 if pacer_cap is not None:
                     fields['pacer_cap'] = pacer_cap
-                fields.update(
-                    self._send_window_distance_details(now, last_cum_ack)
-                )
+                fields.update(self._send_window.distance_details(now=now))
                 return fields
             log_event(
                 self._logger,
@@ -861,7 +851,7 @@ class AliceTunnel(BaseTunnel):
         return True
 
     def _fast_retransmit_sack_ready(self):
-        return self._send_window.sack_progress_ready(self._last_cum_ack)
+        return self._send_window.sack_progress_ready()
 
     def _prune_fast_retransmit_counts(self):
         if not self._fast_retransmit_counts:
@@ -887,7 +877,9 @@ class AliceTunnel(BaseTunnel):
             return False
         if not self._fast_retransmit_sack_ready():
             return False
-        exceeded, distance_info = self._send_window_distance_exceeded()
+        exceeded, distance_info = self._send_window.distance_exceeded(
+            max_window=self.MAX_WINDOW
+        )
         if not exceeded:
             return False
         last_cum_ack = distance_info[5]
@@ -1279,17 +1271,17 @@ class AliceTunnel(BaseTunnel):
             fields['pending'] = pending
         if max_in_flight is not None:
             fields['transport_max_in_flight'] = max_in_flight
-        if self._last_cum_ack_time is not None:
-            ack_silence = now - self._last_cum_ack_time
-            if ack_silence < 0:
-                ack_silence = 0.0
+        ack_silence = self._send_window.ack_silence(now=now)
+        if ack_silence is not None:
             fields['ack_silence'] = round(ack_silence, 6)
-        if self._last_ack_progress_time is not None:
-            silence = now - self._last_ack_progress_time
-            if silence < 0:
-                silence = 0.0
-            fields['ack_progress_silence'] = round(silence, 6)
-        exceeded, distance_info = self._send_window_distance_exceeded()
+        ack_progress_silence = self._send_window.ack_progress_silence(now=now)
+        if ack_progress_silence is not None:
+            fields['ack_progress_silence'] = round(
+                ack_progress_silence, 6
+            )
+        exceeded, distance_info = self._send_window.distance_exceeded(
+            max_window=self.MAX_WINDOW
+        )
         if exceeded:
             (distance, max_in_flight, effective_cap, unacked,
              distance_limit, last_cum_ack, next_seq) = distance_info
@@ -1602,7 +1594,6 @@ class AliceTunnel(BaseTunnel):
         )
         new_unacked = self._send_window.unacked_count
         if rtt_samples or acked_count > 0:
-            self._last_ack_progress_time = now
             self._ack_progressed = True
         for sample in rtt_samples:
             self._rtt.add_sample(sample)

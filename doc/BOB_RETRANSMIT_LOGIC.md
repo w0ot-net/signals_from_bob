@@ -100,7 +100,8 @@ Cooldown is computed in `_retransmit_cooldown()`:
 
 Given the oldest unacked packet:
 - `age = now - send_time` (if `send_time` is set).
-- `since_cum_ack = now - _last_cum_ack_time` (if any ACK value change was seen).
+- `since_cum_ack = send_window.ack_silence(now)` (if any cumulative ACK advance
+  was seen).
 
 The retransmit is skipped (and only logged) if either:
 - `age` is set and `age < cooldown` (reason `cooldown`), or
@@ -211,21 +212,21 @@ Key structured events emitted during opportunistic retransmits:
 ## ACK/SACK Effects On Retransmit Eligibility
 
 Bob processes ACK/SACK on every valid request:
-- `send_window.process_ack(ack, sack)` removes acked packets from the unacked
-  set (cumulative ACK and SACK).
+- `send_window.process_ack_with_progress(ack, sack)` removes acked packets from
+  the unacked set (cumulative ACK and SACK) while updating ACK tracking.
 - Once removed, a packet is no longer eligible for retransmit.
-- ACK changes update `_last_cum_ack_time`, which feeds the ACK-progress gate.
+- ACK advances update `send_window.last_cum_ack_time`, which feeds the
+  ACK-progress gate.
 
 RTT samples are computed for first-transmission packets in `send_window`, but
 Bob does not use them for retransmit decisions.
 
 ## Potential Enhancements
 
-- Guard against ACK regression from out-of-order polls: update
-  `_last_cum_ack` and `_last_cum_ack_time` only when ACK advances in sequence
-  space (or when unset). This prevents stale polls from resetting the
-  ACK-progress cooldown and from skewing the window-distance check. This
-  matters with pipelined polls.
+- ACK regression guard is implemented in `SendWindow`: cumulative ACK tracking
+  only updates when ACK advances in sequence space (or when unset). This
+  prevents stale polls from resetting the ACK-progress cooldown and from
+  skewing the window-distance check, which matters with pipelined polls.
 
 ## Sequence Number And Window Semantics
 

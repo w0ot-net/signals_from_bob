@@ -62,6 +62,8 @@ packets are skipped during retransmit scans.
 - The sender may have up to `max_in_flight` unacked packets outstanding (see
   Window Negotiation in PROTOCOL.md). Maximum value is 256.
 - On ACK or SACK, remove acknowledged packets from the queue.
+- Send window tracking records cumulative ACK progress (value/time and last
+  progress time) for retransmit gating and diagnostics.
 - If a packet remains unacked past the retransmission timeout (RTO),
   retransmit it. Alice may also fast retransmit earlier when SACK progress
   indicates a missing cumulative ACK hole. Retransmits reuse an existing

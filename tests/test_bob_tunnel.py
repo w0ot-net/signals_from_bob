@@ -455,6 +455,7 @@ class BobTimingTests(unittest.TestCase):
         server = MockServer()
         tunnel = BobTunnel(server, config)
 
+        tunnel._send_window._max_in_flight = config.max_in_flight
         tunnel._poll_interval_ewma = 0.2
         cooldown = tunnel._retransmit_cooldown()
         self.assertAlmostEqual(cooldown, 3.2)
@@ -693,7 +694,8 @@ class BobResponseTests(unittest.TestCase):
             now=now,
         )
         tunnel._send_window._next_seq = 5
-        tunnel._last_cum_ack = 0
+        tunnel._send_window._last_cum_ack = 0
+        tunnel._send_window._last_cum_ack_time = now
 
         responses = []
 
@@ -715,12 +717,14 @@ class BobResponseTests(unittest.TestCase):
         tunnel._set_state(TunnelState.CONNECTED)
         tunnel._recv_window.set_initial_seq(1)
         tunnel._poll_interval_ewma = 1.0
+        tunnel._send_window._max_in_flight = 2
 
         segment = Segment(channel=0, data=b'x')
+        now = 10.0
         seq = tunnel._send_window.send(
             [segment],
             flags=0,
-            now=time_provider.now(),
+            now=now,
         )
         next_seq = tunnel._send_window.next_seq
 
@@ -729,7 +733,7 @@ class BobResponseTests(unittest.TestCase):
         def responder(data):
             responses.append(data)
 
-        tunnel._send_response(responder, time_provider.now())
+        tunnel._send_response(responder, now)
 
         self.assertEqual(len(responses), 1)
         header = PacketHeader.decode(responses[0])
@@ -752,8 +756,8 @@ class BobResponseTests(unittest.TestCase):
             flags=0,
             now=now - 1.0,
         )
-        tunnel._last_cum_ack = 0
-        tunnel._last_cum_ack_time = now - 0.01
+        tunnel._send_window._last_cum_ack = 0
+        tunnel._send_window._last_cum_ack_time = now - 0.01
 
         responses = []
 

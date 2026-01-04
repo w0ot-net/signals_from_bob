@@ -82,7 +82,8 @@ and sends new packets using `send()`/`recv()`:
 ```
 1. Drain available responses
    ├─▶ corr_id, data = transport.recv(timeout=0)
-   └─▶ Decrypt, decode, update send_window, deliver segments
+   └─▶ Decrypt, decode, update send_window (ACK/SACK + cumulative ACK tracking),
+       deliver segments
 
 2. Check retransmit timers
    ├─▶ If RTO expired for any unacked packet, retransmit (rebuild with fresh ack/sack)

@@ -420,9 +420,7 @@ class BobTunnel(BaseTunnel):
             age = None
             if send_time is not None:
                 age = now - send_time
-            since_cum_ack = None
-            if self._last_cum_ack_time is not None:
-                since_cum_ack = now - self._last_cum_ack_time
+            since_cum_ack = self._send_window.ack_silence(now=now)
             skip_reason = None
             if age is not None and age < cooldown:
                 skip_reason = 'cooldown'
@@ -441,7 +439,7 @@ class BobTunnel(BaseTunnel):
                         'cooldown': cooldown,
                         'since_cum_ack': round(since_cum_ack, 6)
                         if since_cum_ack is not None else None,
-                        'last_cum_ack': self._last_cum_ack,
+                        'last_cum_ack': self._send_window.last_cum_ack,
                         'retransmit_count': retransmit_count,
                         'poll_ewma': self._poll_interval_ewma,
                         'unacked': self._send_window.unacked_count,
@@ -525,7 +523,9 @@ class BobTunnel(BaseTunnel):
                     reason='window_full',
                 )
             return
-        exceeded, distance_info = self._send_window_distance_exceeded()
+        exceeded, distance_info = self._send_window.distance_exceeded(
+            max_window=self.MAX_WINDOW
+        )
         if exceeded:
             (distance, max_in_flight, effective_cap, unacked,
              distance_limit, last_cum_ack, next_seq) = distance_info
@@ -542,9 +542,7 @@ class BobTunnel(BaseTunnel):
                     'next_seq': next_seq,
                     'side': 'bob',
                 }
-                fields.update(
-                    self._send_window_distance_details(now, last_cum_ack)
-                )
+                fields.update(self._send_window.distance_details(now=now))
                 return fields
             log_event(
                 self._logger,

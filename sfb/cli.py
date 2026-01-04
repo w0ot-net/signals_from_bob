@@ -286,6 +286,34 @@ def add_client_pacing_args(parser, config):
         help='Adaptive pacing ACK idle reset sec (default: %s)' %
              config.tunnel_pace_ack_idle_reset_sec
     )
+    parser.add_argument(
+        '--poll-pacing', dest='poll_pacing', action='store_true',
+        default=config.tunnel_poll_pacing_enabled,
+        help='Enable poll pacing (default: %s)' %
+             config.tunnel_poll_pacing_enabled
+    )
+    parser.add_argument(
+        '--no-poll-pacing', dest='poll_pacing', action='store_false',
+        help='Disable poll pacing'
+    )
+    parser.add_argument(
+        '--poll-min-interval', type=float,
+        default=config.tunnel_poll_min_interval,
+        help='Poll pacing minimum interval in seconds (default: %s)' %
+             config.tunnel_poll_min_interval
+    )
+    parser.add_argument(
+        '--poll-max-interval', type=float,
+        default=config.tunnel_poll_max_interval,
+        help='Poll pacing maximum interval in seconds (default: %s)' %
+             config.tunnel_poll_max_interval
+    )
+    parser.add_argument(
+        '--poll-rtt-ratio', type=float,
+        default=config.tunnel_poll_rtt_ratio,
+        help='Poll pacing RTT ratio (default: %s)' %
+             config.tunnel_poll_rtt_ratio
+    )
 
 
 def add_module_args(parser):
@@ -427,6 +455,14 @@ def create_config(args):
             args, 'pace_rtt_floor_ms', None)
         config_kwargs['tunnel_pace_ack_idle_reset_sec'] = getattr(
             args, 'pace_ack_idle_reset_sec', None)
+        config_kwargs['tunnel_poll_pacing_enabled'] = getattr(
+            args, 'poll_pacing', None)
+        config_kwargs['tunnel_poll_min_interval'] = getattr(
+            args, 'poll_min_interval', None)
+        config_kwargs['tunnel_poll_max_interval'] = getattr(
+            args, 'poll_max_interval', None)
+        config_kwargs['tunnel_poll_rtt_ratio'] = getattr(
+            args, 'poll_rtt_ratio', None)
 
     # Server-specific
     if args.role == 'server':

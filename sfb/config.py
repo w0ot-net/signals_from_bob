@@ -150,6 +150,14 @@ class Config:
     tunnel_pace_ack_idle_reset_sec: float = 2.0
     # Alice: pacing summary log interval (seconds, 0 = disabled)
     tunnel_pacer_summary_interval: float = 0.0
+    # Alice: poll pacing enabled
+    tunnel_poll_pacing_enabled: bool = True
+    # Alice: minimum seconds between polls
+    tunnel_poll_min_interval: float = 0.001
+    # Alice: maximum seconds between polls
+    tunnel_poll_max_interval: float = 1.0
+    # Alice: fraction of RTT to distribute target inflight
+    tunnel_poll_rtt_ratio: float = 1.0
     # Bob: poll interval while waiting for connection (seconds)
     tunnel_connect_poll_interval: float = 0.1
     # Small timeout for "non-blocking" polls to prevent busy loops (seconds)
@@ -280,6 +288,10 @@ class Config:
 
     def __post_init__(self):
         """Validate configuration values."""
+        self.validate()
+
+    def validate(self):
+        """Validate configuration values."""
         # DNS validation
         if self.dns_pending_timeout < 1.0:
             raise ValueError("dns_pending_timeout must be >= 1.0")
@@ -366,6 +378,16 @@ class Config:
             raise ValueError("tunnel_pace_ack_idle_reset_sec must be > 0")
         if self.tunnel_pacer_summary_interval < 0:
             raise ValueError("tunnel_pacer_summary_interval must be >= 0")
+        if self.tunnel_poll_min_interval <= 0:
+            raise ValueError("tunnel_poll_min_interval must be > 0")
+        if self.tunnel_poll_max_interval <= 0:
+            raise ValueError("tunnel_poll_max_interval must be > 0")
+        if self.tunnel_poll_min_interval > self.tunnel_poll_max_interval:
+            raise ValueError(
+                "tunnel_poll_min_interval must be <= tunnel_poll_max_interval"
+            )
+        if self.tunnel_poll_rtt_ratio <= 0:
+            raise ValueError("tunnel_poll_rtt_ratio must be > 0")
         if self.tunnel_connect_poll_interval <= 0:
             raise ValueError("tunnel_connect_poll_interval must be > 0")
 

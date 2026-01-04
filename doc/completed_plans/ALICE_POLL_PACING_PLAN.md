@@ -70,3 +70,10 @@ extra latency when Bob has data.
 - `tunnel.pacer_summary` shows steadier send/recv rates (fewer large swings).
 - Pending count stays closer to target inflight with less sawtooth behavior.
 - Real sessions show improved throughput with less choppy delivery.
+
+## Execution Notes
+- Added poll pacing config/CLI controls and validation.
+- Implemented poll pacing scheduling, base inflight target helper, and
+  `tunnel.poll_pace` logging in Alice.
+- Updated tunnel, asymmetry, and logging docs plus the tunnel pacing log profile.
+- No tests run (per instructions; e2e tests deferred to user).

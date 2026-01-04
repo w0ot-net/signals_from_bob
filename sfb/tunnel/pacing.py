@@ -215,6 +215,10 @@ class AdaptivePacer(object):
         target = int(cap * self._target_ratio)
         return self._clamp_target(target, cap)
 
+    def base_target_inflight(self, cap):
+        cap = self._normalize_cap(cap)
+        return self._base_target(cap)
+
     def _feedback_target(self, cap, srtt_ms):
         if self._ack_rate_ewma is None or srtt_ms is None:
             return None

@@ -207,6 +207,7 @@ Current structured events (non-exhaustive):
 - `dns.prune_stale`
 - `tunnel.send_blocked`
 - `tunnel.send_window_distance`
+- `tunnel.poll_pace` (fields: `interval`, `target_inflight`, `pending`, `srtt_ms`)
 
 ## SOCKS Events
 

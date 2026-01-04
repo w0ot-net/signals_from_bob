@@ -422,6 +422,7 @@ LOG_PROFILES = {
             'tunnel.timeout_*',
             'tunnel.connected',
             'tunnel.closed',
+            'tunnel.poll_pace',
             'tunnel.pacer_adjust',
             'tunnel.pacer_state',
             'tunnel.pacer_summary',

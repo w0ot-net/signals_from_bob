@@ -5,6 +5,7 @@ TLS ClientHello transport for Alice.
 
 from __future__ import absolute_import
 
+import base64
 import errno
 import logging
 import select
@@ -54,6 +55,8 @@ for name in ('WSAECONNRESET',):
     if value is not None:
         _RESET_ERRORS.add(value)
 
+_PROXY_HEADER_LIMIT = 8192
+
 
 class _PendingConn(object):
     __slots__ = (
@@ -66,9 +69,14 @@ class _PendingConn(object):
         'handshake_deadline',
         'send_complete',
         'connecting',
+        'proxy_send_buf',
+        'proxy_send_off',
+        'proxy_recv_buf',
+        'proxy_deadline',
+        'proxy_complete',
     )
 
-    def __init__(self, sock, send_buf, connect_deadline):
+    def __init__(self, sock, send_buf, connect_deadline, proxy_send_buf=None):
         self.sock = sock
         self.send_buf = send_buf
         self.send_off = 0
@@ -78,6 +86,11 @@ class _PendingConn(object):
         self.handshake_deadline = None
         self.send_complete = False
         self.connecting = True
+        self.proxy_send_buf = proxy_send_buf
+        self.proxy_send_off = 0
+        self.proxy_recv_buf = bytearray()
+        self.proxy_deadline = None
+        self.proxy_complete = proxy_send_buf is None
 
 
 class TlsClient(Transport):
@@ -101,18 +114,45 @@ class TlsClient(Transport):
         self._recv_mtu = validated['server_payload_cap']
         self._sni = validated['sni']
         self._alpn_list = validated['alpn_list']
+        self._proxy_timeout = validated['proxy_timeout']
 
         self._max_in_flight = config.max_in_flight
         target_host, target_port = parse_host_port(config.tls_target)
-        self._target_addr = self._resolve_target(target_host, target_port)
+        self._target_host = target_host
+        self._target_port = target_port
+        self._target_addr = None
+        self._proxy_addr = None
+        self._proxy_label = None
+        self._proxy_auth = None
+        self._proxy_request = None
+        if config.tls_http_proxy is not None:
+            proxy_host, proxy_port = parse_host_port(config.tls_http_proxy)
+            self._proxy_addr = self._resolve_target(
+                proxy_host, proxy_port, 'tls_http_proxy'
+            )
+            self._proxy_label = '%s:%d' % (proxy_host, proxy_port)
+            self._proxy_auth = config.tls_http_proxy_auth
+            self._proxy_request = self._build_proxy_request()
+            self._connect_addr = self._proxy_addr
+        else:
+            self._target_addr = self._resolve_target(
+                target_host, target_port, 'tls_target'
+            )
+            self._connect_addr = self._target_addr
 
+        if self._target_addr is not None:
+            target_desc = '%s:%d' % (self._target_addr[0], self._target_addr[1])
+        else:
+            target_desc = '%s:%d' % (self._target_host, self._target_port)
         log_event(
             _LOG,
             logging.INFO,
             'tls.client_config',
             'TLS client config',
             lambda: {
-                'target': '%s:%d' % (self._target_addr[0], self._target_addr[1]),
+                'target': target_desc,
+                'proxy': self._proxy_label,
+                'proxy_timeout': self._proxy_timeout,
                 'max_in_flight': self._max_in_flight,
                 'pending_timeout': self._pending_timeout,
                 'connect_timeout': self._connect_timeout,
@@ -206,18 +246,25 @@ class TlsClient(Transport):
             sock=sock,
             send_buf=record,
             connect_deadline=now + self._connect_timeout,
+            proxy_send_buf=self._proxy_request,
         )
         self._pending_state[corr_id] = state
         self._pending.add(corr_id, True, now=now)
         self._sock_to_corr[sock] = corr_id
 
-        err = sock.connect_ex(self._target_addr)
+        err = sock.connect_ex(self._connect_addr)
         if err == 0:
             state.connecting = False
-            if self._flush_send(corr_id, state, now):
-                state.send_complete = True
+            if state.proxy_complete:
+                if self._flush_send(corr_id, state, now):
+                    state.send_complete = True
+                    state.connect_deadline = None
+                    state.handshake_deadline = now + self._handshake_timeout
+            else:
                 state.connect_deadline = None
-                state.handshake_deadline = now + self._handshake_timeout
+                if self._proxy_timeout is not None:
+                    state.proxy_deadline = now + self._proxy_timeout
+                self._flush_proxy_send(corr_id, state)
         elif err in _IN_PROGRESS:
             state.connecting = True
         else:
@@ -311,8 +358,17 @@ class TlsClient(Transport):
                     return
                 raise TransportError('TLS connect failed: %s' % err)
             state.connecting = False
+            if not state.proxy_complete:
+                state.connect_deadline = None
+                if self._proxy_timeout is not None:
+                    state.proxy_deadline = now + self._proxy_timeout
+        if not state.proxy_complete:
+            self._flush_proxy_send(corr_id, state)
+            return
         if state.send_complete:
             return
+        if state.connect_deadline is None:
+            state.connect_deadline = now + self._connect_timeout
         if self._flush_send(corr_id, state, now):
             state.send_complete = True
             state.connect_deadline = None
@@ -323,10 +379,72 @@ class TlsClient(Transport):
         if corr_id is None:
             return None
         state = self._pending_state.get(corr_id)
-        if state is None or not state.send_complete:
+        if state is None:
+            return None
+        if state.connecting:
+            return None
+        if not state.proxy_complete:
+            self._recv_proxy_response(corr_id, state)
+            return None
+        if not state.send_complete:
             return None
         result = self._recv_record(corr_id, state)
         return result
+
+    def _recv_proxy_response(self, corr_id, state):
+        try:
+            data = state.sock.recv(4096)
+        except socket.error as e:
+            err = _get_errno(e)
+            if err in _TEMP_ERRORS:
+                return None
+            self._log_proxy_error('recv_error', corr_id, error=err)
+            self._close_pending(corr_id, state)
+            raise TransportError('Proxy receive failed: %s' % e)
+        if not data:
+            self._log_proxy_error('eof', corr_id)
+            self._close_pending(corr_id, state)
+            return None
+        state.proxy_recv_buf.extend(data)
+        if len(state.proxy_recv_buf) > _PROXY_HEADER_LIMIT:
+            self._log_proxy_error(
+                'response_too_large',
+                corr_id,
+                bytes=len(state.proxy_recv_buf),
+            )
+            self._close_pending(corr_id, state)
+            return None
+        header_end = state.proxy_recv_buf.find(b'\r\n\r\n')
+        if header_end < 0:
+            return None
+        status_line = state.proxy_recv_buf[:header_end].split(b'\r\n', 1)[0]
+        status = self._parse_proxy_status(status_line)
+        if status != 200:
+            if status is None:
+                self._log_proxy_error('invalid_status', corr_id)
+            else:
+                self._log_proxy_error('bad_status', corr_id, status=status)
+            self._close_pending(corr_id, state)
+            return None
+        extra = state.proxy_recv_buf[header_end + 4:]
+        if extra and any(byte not in (13, 10) for byte in bytearray(extra)):
+            self._log_proxy_error('extra_bytes', corr_id, bytes=len(extra))
+            self._close_pending(corr_id, state)
+            return None
+        state.proxy_complete = True
+        state.proxy_deadline = None
+        state.proxy_send_buf = None
+        state.proxy_recv_buf = bytearray()
+        return None
+
+    def _parse_proxy_status(self, status_line):
+        parts = status_line.split(None, 2)
+        if len(parts) < 2:
+            return None
+        try:
+            return int(parts[1], 10)
+        except (TypeError, ValueError):
+            return None
 
     def _recv_record(self, corr_id, state):
         bufsize = 4096
@@ -403,11 +521,17 @@ class TlsClient(Transport):
         stale = []
         for corr_id, state in list(self._pending_state.items()):
             deadline = None
-            if not state.send_complete:
+            if state.connecting:
+                deadline = state.connect_deadline
+            elif not state.proxy_complete:
+                deadline = state.proxy_deadline
+            elif not state.send_complete:
                 deadline = state.connect_deadline
             else:
                 deadline = state.handshake_deadline
             if deadline is not None and now > deadline:
+                if not state.proxy_complete and not state.connecting:
+                    self._log_proxy_error('timeout', corr_id)
                 stale.append((corr_id, state))
         for corr_id, state in stale:
             self._close_pending(corr_id, state)
@@ -426,6 +550,28 @@ class TlsClient(Transport):
             state = self._pending_state.get(corr_id)
             if state is not None:
                 self._close_pending(corr_id, state)
+
+    def _flush_proxy_send(self, corr_id, state):
+        if state.proxy_send_buf is None:
+            return True
+        if state.proxy_send_off >= len(state.proxy_send_buf):
+            return True
+        view = buffer_view(state.proxy_send_buf)
+        try:
+            sent = state.sock.send(view[state.proxy_send_off:])
+        except socket.error as e:
+            err = _get_errno(e)
+            if err in _TEMP_ERRORS:
+                return False
+            self._log_proxy_error('send_error', corr_id, error=err)
+            self._close_pending(corr_id, state)
+            raise TransportError('Proxy send failed: %s' % e)
+        if sent <= 0:
+            self._log_proxy_error('send_error', corr_id, error='closed')
+            self._close_pending(corr_id, state)
+            raise TransportError('Proxy send failed: connection closed')
+        state.proxy_send_off += sent
+        return state.proxy_send_off >= len(state.proxy_send_buf)
 
     def _flush_send(self, corr_id, state, now):
         if state.send_off >= len(state.send_buf):
@@ -458,7 +604,15 @@ class TlsClient(Transport):
     def _select_timeout(self, now, deadline, timeout):
         earliest = None
         for state in self._pending_state.values():
-            if not state.send_complete:
+            if state.connecting:
+                if state.connect_deadline is not None:
+                    if earliest is None or state.connect_deadline < earliest:
+                        earliest = state.connect_deadline
+            elif not state.proxy_complete:
+                if state.proxy_deadline is not None:
+                    if earliest is None or state.proxy_deadline < earliest:
+                        earliest = state.proxy_deadline
+            elif not state.send_complete:
                 if state.connect_deadline is not None:
                     if earliest is None or state.connect_deadline < earliest:
                         earliest = state.connect_deadline
@@ -483,26 +637,68 @@ class TlsClient(Transport):
         read_list = []
         write_list = []
         for state in self._pending_state.values():
-            if state.send_complete:
+            if state.connecting:
+                write_list.append(state.sock)
+            elif not state.proxy_complete:
+                if (state.proxy_send_buf is not None and
+                        state.proxy_send_off < len(state.proxy_send_buf)):
+                    write_list.append(state.sock)
+                else:
+                    read_list.append(state.sock)
+            elif state.send_complete:
                 read_list.append(state.sock)
             else:
                 write_list.append(state.sock)
         return read_list, write_list
 
-    def _resolve_target(self, host, port):
+    def _build_proxy_request(self):
+        target = '%s:%d' % (self._target_host, self._target_port)
+        try:
+            target_bytes = target.encode('ascii')
+        except UnicodeError:
+            raise TransportError('tls_target must be ASCII when using tls_http_proxy')
+        lines = [
+            b'CONNECT ' + target_bytes + b' HTTP/1.1',
+            b'Host: ' + target_bytes,
+        ]
+        if self._proxy_auth is not None:
+            try:
+                auth_bytes = self._proxy_auth.encode('ascii')
+            except UnicodeError:
+                raise TransportError('tls_http_proxy_auth must be ASCII')
+            token = base64.b64encode(auth_bytes)
+            lines.append(b'Proxy-Authorization: Basic ' + token)
+        lines.append(b'')
+        lines.append(b'')
+        return b'\r\n'.join(lines)
+
+    def _resolve_target(self, host, port, label):
         try:
             infos = socket.getaddrinfo(host, port, socket.AF_INET,
                                        socket.SOCK_STREAM)
         except socket.gaierror:
-            raise TransportError('Failed to resolve tls_target: %s' % host)
+            raise TransportError('Failed to resolve %s: %s' % (label, host))
         if not infos:
-            raise TransportError('No IPv4 address for tls_target: %s' % host)
+            raise TransportError('No IPv4 address for %s: %s' % (label, host))
         return infos[0][4]
 
     def _create_socket(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setblocking(False)
         return sock
+
+    def _log_proxy_error(self, reason, corr_id, **extra):
+        def _fields():
+            data = {'reason': reason, 'corr_id': corr_id}
+            data.update(extra)
+            return data
+        log_event(
+            _LOG,
+            logging.WARNING,
+            'tls.proxy_error',
+            'TLS proxy error',
+            _fields,
+        )
 
     def _log_parse_error(self, reason, corr_id):
         log_event(

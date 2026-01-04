@@ -203,6 +203,16 @@ def add_tls_client_args(parser, config):
         help='TLS target host:port for client'
     )
     parser.add_argument(
+        '--tls-http-proxy',
+        default=config.tls_http_proxy,
+        help='HTTP CONNECT proxy host:port for TLS client'
+    )
+    parser.add_argument(
+        '--tls-http-proxy-auth',
+        default=config.tls_http_proxy_auth,
+        help='HTTP proxy Basic auth user:pass for TLS client (optional)'
+    )
+    parser.add_argument(
         '--tls-sni',
         default=config.tls_sni,
         help='TLS SNI host name (optional cover)'
@@ -472,6 +482,8 @@ def create_config(args):
     elif args.transport == 'tls_handshake':
         if args.role == 'client':
             config_kwargs['tls_target'] = getattr(args, 'target', None)
+            config_kwargs['tls_http_proxy'] = getattr(args, 'tls_http_proxy', None)
+            config_kwargs['tls_http_proxy_auth'] = getattr(args, 'tls_http_proxy_auth', None)
             config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
             config_kwargs['tls_alpn'] = getattr(args, 'tls_alpn', None)
             config_kwargs['tls_max_clienthello_bytes'] = getattr(args, 'tls_mtu', None)

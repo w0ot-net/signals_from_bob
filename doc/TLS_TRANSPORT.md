@@ -40,6 +40,42 @@ Example: with a 16k ephemeral range and 60s TIME_WAIT, budget ~266 connects/sec.
 
 ---
 
+## HTTP CONNECT Proxy (Client)
+
+Alice can optionally reach Bob through an explicit HTTP proxy by issuing an
+HTTP CONNECT before sending the single ClientHello record.
+
+Flow:
+
+```
+Alice                     Proxy                       Bob
+  | TCP connect (proxy)     |                          |
+  | CONNECT host:port       |                          |
+  |------------------------>|                          |
+  | 200 Connection established                         |
+  |<------------------------|                          |
+  | ClientHello (SFB data)  |                          |
+  |------------------------>|------------------------> |
+  | ServerHello (SFB data)  |                          |
+  |<------------------------|<------------------------ |
+  | close                   |                          |
+```
+
+Configuration:
+- Config: `tls_http_proxy="proxy_host:port"` (optional)
+- Config: `tls_http_proxy_auth="user:pass"` (optional Basic auth)
+- Config: `tls_proxy_timeout` (seconds, default = `tls_connect_timeout`)
+- CLI: `--tls-http-proxy proxy_host:port`
+- CLI: `--tls-http-proxy-auth user:pass`
+
+Limitations:
+- TLS-intercepting proxies that validate full handshakes will reject this
+  transport because it only exchanges a ClientHello and ServerHello record.
+- Proxies that emit additional TLS records or bytes will be rejected by the
+  strict single-record parser.
+
+---
+
 ## Wire Format
 
 ### TLS Record

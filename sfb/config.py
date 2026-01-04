@@ -64,12 +64,18 @@ class Config:
     # --- TLS ClientHello Transport ---
     # Alice target host:port
     tls_target: str = "127.0.0.1:443"
+    # Optional HTTP CONNECT proxy host:port for Alice
+    tls_http_proxy: Optional[str] = None
+    # Optional HTTP proxy Basic auth (user:pass) for Alice
+    tls_http_proxy_auth: Optional[str] = None
     # Bob listen host:port
     tls_listen_addr: str = "0.0.0.0:443"
     # Timeout before considering a TLS request stale (seconds)
     tls_pending_timeout: float = 5.0
     # TLS connect timeout (seconds)
     tls_connect_timeout: float = 3.0
+    # TLS HTTP proxy handshake timeout (seconds, None = connect timeout)
+    tls_proxy_timeout: Optional[float] = None
     # TLS handshake timeout (seconds)
     tls_handshake_timeout: float = 5.0
     # Max on-wire ClientHello record size (bytes, includes 5-byte header)

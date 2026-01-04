@@ -71,3 +71,9 @@ the established tunnel.
 ## Validation
 - Run TLS client/server unit tests with python3.
 - Do not run tests/e2e (user-run only).
+
+## Execution Notes
+- Added TLS HTTP proxy config/CLI fields with ASCII validation and proxy timeout handling.
+- Implemented HTTP CONNECT handshake state machine with proxy logging and deadlines.
+- Updated TLS transport documentation and TLS client/server proxy tests.
+- Tests: `python3 -m unittest tests.test_tls_client_server`

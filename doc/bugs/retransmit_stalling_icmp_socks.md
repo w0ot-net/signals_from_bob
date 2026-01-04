@@ -417,3 +417,14 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Sources: `logs/server_log.db` (Bob) had 92636 rows (~22:38:58-22:39:32 UTC).
 - Bob `tunnel.retransmit_skip` is dominated by `cooldown` with EWMA-derived
   cooldown ~1.51s; `tunnel.retransmit` count is low (3).
+
+## Latest findings (2026-01-04, ack silence vs oldest age)
+- Sources: `logs/client_log.db` (Alice), all_events profile.
+- No `tunnel.send_window_distance` events in this run; distance guard did not fire.
+- `tunnel.retransmit_skip` is frequent with `ack_silence` near 0.0 and `unacked`
+  ~80-90, so RTO retransmits are consistently deferred while ACKs advance.
+- `tunnel.ack_detail` shows `send_oldest_age` max ~0.189s with `ack_silence`
+  ~0.024s in the last 200 ACK samples; both are below the 0.5s RTO.
+- Takeaway: ack-silence gating is active but in this slice the oldest unacked
+  packets do not age past RTO, so the deferral is expected; no evidence here of
+  stale unacked packets blocked past RTO.

@@ -224,6 +224,21 @@ class AdaptivePacerTests(unittest.TestCase):
         self.assertEqual(pacer._probe_extra, 0)
         self.assertEqual(pacer._last_probe_time, 2.0)
 
+    def test_window_distance_block_floor_respects_feedback_target(self):
+        pacer = make_pacer(target_inflight_ratio=1.0, ack_ewma_alpha=1.0)
+        cap = 10
+        pacer._ack_rate_ewma = 30.0
+        pacer._ack_samples = pacer._feedback_min_samples
+        self.assertEqual(pacer.target_inflight(cap, srtt_ms=100.0), 3)
+        pacer.on_blocked(
+            'window_distance',
+            now=2.0,
+            cap=cap,
+            srtt_ms=100.0,
+            unacked_count=1,
+        )
+        self.assertEqual(pacer.target_inflight(cap, srtt_ms=100.0), 3)
+
     def test_on_ack_non_positive_dt_ignored(self):
         pacer = make_pacer(ack_ewma_alpha=1.0)
         pacer.on_ack(1, now=1.0)

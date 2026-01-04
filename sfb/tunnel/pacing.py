@@ -227,10 +227,22 @@ class AdaptivePacer(object):
                 target_mode = 'feedback'
         return base_target, feedback_target, baseline_target, target_mode
 
+    def _apply_block_floor(self, blocked_target, feedback_target):
+        if self._block_reason != 'window_distance':
+            return blocked_target
+        if feedback_target is None:
+            return blocked_target
+        if blocked_target < feedback_target:
+            return feedback_target
+        return blocked_target
+
     def target_inflight(self, cap, srtt_ms=None):
         cap = self._normalize_cap(cap)
-        _, _, baseline_target, _ = self._baseline_target(cap, srtt_ms)
+        _, feedback_target, baseline_target, _ = self._baseline_target(
+            cap, srtt_ms
+        )
         blocked_target = baseline_target - self._block_penalty
+        blocked_target = self._apply_block_floor(blocked_target, feedback_target)
         target = blocked_target + self._probe_extra
         return self._clamp_target(target, cap)
 
@@ -246,6 +258,7 @@ class AdaptivePacer(object):
             self._baseline_target(cap, srtt_ms)
         )
         blocked_target = baseline_target - self._block_penalty
+        blocked_target = self._apply_block_floor(blocked_target, feedback_target)
         probe_target = blocked_target + self._probe_extra
         target = self._clamp_target(probe_target, cap)
         if target > blocked_target:

@@ -183,7 +183,7 @@ class Config:
     # Control channel read chunk size (bytes)
     channel_control_read_chunk: int = 4096
     # Cooldown before reusing a closed channel ID (seconds, 0 = disabled)
-    channel_id_reuse_cooldown: float = 1.0
+    channel_id_reuse_cooldown: float = 10.0
 
     # --- File Transfer ---
     # Maximum file size to transfer (bytes), None = unlimited

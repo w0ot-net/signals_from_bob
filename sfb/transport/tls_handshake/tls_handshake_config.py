@@ -64,7 +64,7 @@ def validate_tls_config(config, role):
             max_clienthello_bytes, sni=sni, alpn_list=alpn_list
         )
         server_payload_cap = codec.calc_serverhello_payload_cap(
-            max_serverhello_bytes
+            max_serverhello_bytes, alpn_list=alpn_list
         )
     except ValueError as exc:
         raise TransportError('TLS handshake overhead invalid: %s' % exc)

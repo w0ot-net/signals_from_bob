@@ -75,3 +75,12 @@ ClientHello/ServerHello exchange.
 ## Validation
 - Run the existing TLS codec and client/server unit tests with python3.
 - Do not run tests/e2e (user-run only).
+
+## Execution Notes
+- Updated TLS handshake codec to use session_ticket payloads, added standard
+  extensions, and enabled non-zero session_id handling.
+- Added ALPN selection in ServerHello when configured and recalculated MTU
+  overhead sizing with the new extension set.
+- Updated TLS transport documentation and unit tests.
+- Ran `python3 -m unittest tests.test_tls_codec tests.test_tls_client_server`
+  (2 tests skipped).

@@ -7,7 +7,7 @@ import struct
 import unittest
 
 from sfb.transport.tls_handshake import tls_handshake_codec as codec
-from sfb.compat import to_bytes
+from sfb.compat import byte_at, to_bytes
 
 
 def _build_clienthello_with_extensions(extensions):
@@ -35,6 +35,28 @@ def _build_serverhello_with_extensions(extensions, cipher_suite):
         extensions,
     ])
     return codec._build_record(codec.TLS_HANDSHAKE_SERVER_HELLO, body)
+
+
+def _clienthello_session_id_len_offset():
+    body_start = codec.TLS_RECORD_HEADER_LEN + codec.TLS_HANDSHAKE_HEADER_LEN
+    return body_start + 2 + 32
+
+
+def _clienthello_cipher_suites_len_offset(record):
+    offset = _clienthello_session_id_len_offset()
+    session_id_len = byte_at(record, offset)
+    return offset + 1 + session_id_len
+
+
+def _clienthello_compression_methods_len_offset(record):
+    offset = _clienthello_cipher_suites_len_offset(record)
+    cipher_suites_len = struct.unpack('!H', record[offset:offset + 2])[0]
+    return offset + 2 + cipher_suites_len
+
+
+def _serverhello_session_id_len_offset():
+    body_start = codec.TLS_RECORD_HEADER_LEN + codec.TLS_HANDSHAKE_HEADER_LEN
+    return body_start + 2 + 32
 
 
 class TlsCodecTests(unittest.TestCase):
@@ -77,55 +99,86 @@ class TlsCodecTests(unittest.TestCase):
             codec.parse_client_hello_record(to_bytes(bad))
 
     def test_session_id_len_rejected(self):
-        record = codec.build_client_hello_record(b'a', random_bytes=b'\x00' * 32)
+        record = codec.build_client_hello_record(
+            b'a',
+            random_bytes=b'\x00' * 32,
+            session_id_bytes=b'\x00' * 32,
+        )
         bad = bytearray(record)
-        bad[43] = 1
+        bad[_clienthello_session_id_len_offset()] = 33
         with self.assertRaises(ValueError):
             codec.parse_client_hello_record(to_bytes(bad))
 
     def test_cipher_suites_len_rejected(self):
         record = codec.build_client_hello_record(b'a', random_bytes=b'\x00' * 32)
         bad = bytearray(record)
-        bad[44:46] = struct.pack('!H', 3)
+        offset = _clienthello_cipher_suites_len_offset(record)
+        bad[offset:offset + 2] = struct.pack('!H', 3)
         with self.assertRaises(ValueError):
             codec.parse_client_hello_record(to_bytes(bad))
 
     def test_compression_methods_rejected(self):
         record = codec.build_client_hello_record(b'a', random_bytes=b'\x00' * 32)
         bad = bytearray(record)
-        bad[52] = 2
+        offset = _clienthello_compression_methods_len_offset(record)
+        bad[offset] = 2
         with self.assertRaises(ValueError):
             codec.parse_client_hello_record(to_bytes(bad))
         bad = bytearray(record)
-        bad[53] = 1
+        offset = _clienthello_compression_methods_len_offset(record)
+        bad[offset + 1] = 1
         with self.assertRaises(ValueError):
             codec.parse_client_hello_record(to_bytes(bad))
 
-    def test_missing_sfb_extension(self):
-        record = codec.build_client_hello_record(b'a', random_bytes=b'\x00' * 32)
-        bad = bytearray(record)
-        bad[56:58] = struct.pack('!H', 0xFF01)
+    def test_missing_payload_extension(self):
+        ext = codec._build_supported_groups_extension()
+        record = _build_clienthello_with_extensions(ext)
         with self.assertRaises(ValueError):
-            codec.parse_client_hello_record(to_bytes(bad))
+            codec.parse_client_hello_record(record)
 
-    def test_duplicate_sfb_extension(self):
-        ext = codec._build_sfb_extension(b'abc')
+    def test_duplicate_payload_extension(self):
+        ext = codec._build_payload_extension(b'abc')
         record = _build_clienthello_with_extensions(ext + ext)
         with self.assertRaises(ValueError):
             codec.parse_client_hello_record(record)
 
     def test_unknown_extension_ignored(self):
         unknown = struct.pack('!HH', 0x1234, 1) + b'x'
-        ext = codec._build_sfb_extension(b'abc')
+        ext = codec._build_payload_extension(b'abc')
         record = _build_clienthello_with_extensions(unknown + ext)
         payload, _ = codec.parse_client_hello_record(record)
         self.assertEqual(payload, b'abc')
 
     def test_serverhello_cipher_suite_mismatch(self):
-        ext = codec._build_sfb_extension(b'abc')
+        ext = codec._build_payload_extension(b'abc')
         record = _build_serverhello_with_extensions(ext, 0xFFFF)
         with self.assertRaises(ValueError):
             codec.parse_server_hello_record(record)
+
+    def test_standard_extensions_ignored(self):
+        extensions = b''.join([
+            codec._build_supported_groups_extension(),
+            codec._build_ec_point_formats_extension(),
+            codec._build_signature_algorithms_extension(),
+            codec._build_extended_master_secret_extension(),
+            codec._build_renegotiation_info_extension(),
+            codec._build_payload_extension(b'abc'),
+        ])
+        record = _build_clienthello_with_extensions(extensions)
+        payload, _ = codec.parse_client_hello_record(record)
+        self.assertEqual(payload, b'abc')
+
+    def test_server_session_id_len_rejected(self):
+        record = codec.build_server_hello_record(
+            b'a',
+            codec.DEFAULT_CIPHER_SUITES[0],
+            random_bytes=b'\x00' * 32,
+            session_id_bytes=b'\x00' * 32,
+        )
+        bad = bytearray(record)
+        bad[_serverhello_session_id_len_offset()] = 33
+        with self.assertRaises(ValueError):
+            codec.parse_server_hello_record(to_bytes(bad))
 
     def test_record_length_bounds(self):
         header = struct.pack('!BHH', codec.TLS_CONTENT_TYPE_HANDSHAKE,

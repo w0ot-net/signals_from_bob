@@ -79,6 +79,7 @@ class TlsServer(Server):
         self._recv_mtu = validated['client_payload_cap']
         self._send_mtu = validated['server_payload_cap']
         self._max_in_flight = config.max_in_flight
+        self._alpn_list = validated['alpn_list']
 
         listen_host, listen_port = parse_host_port(config.tls_listen_addr)
         self._listen_addr = (listen_host, listen_port)
@@ -108,6 +109,7 @@ class TlsServer(Server):
                 'max_serverhello_bytes': self._max_record_send,
                 'recv_mtu': self._recv_mtu,
                 'send_mtu': self._send_mtu,
+                'alpn': self._alpn_list,
             },
         )
 
@@ -265,7 +267,8 @@ class TlsServer(Server):
             record = codec.build_server_hello_record(
                 data,
                 state.cipher_suite,
-                include_sfb=True,
+                include_payload=True,
+                alpn_list=self._alpn_list,
             )
         except ValueError as exc:
             raise TransportError('TLS encode failed: %s' % exc)

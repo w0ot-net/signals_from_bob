@@ -24,6 +24,10 @@ This preserves the transport asymmetry:
 - Alice initiates all connections and polls for data.
 - Bob only responds to incoming polls.
 
+Compatibility note:
+- The payload is now carried in the standard session_ticket extension.
+  Peers using the old private extension are incompatible.
+
 Connection churn can hit TIME_WAIT and ephemeral port limits at high rates.
 Use `max_in_flight` and `tunnel_send_rate` to cap new connections. A rough
 upper bound is:
@@ -91,10 +95,13 @@ struct {
 ```
 
 Constraints:
-- `session_id_len` MUST be 0 in phase 1.
+- `session_id_len` MUST be between 0 and 32 bytes.
 - `cipher_suites_len` MUST be even and >= 2.
 - `compression_methods_len` MUST be 1 and value MUST be 0x00.
 - Extensions are encoded as standard TLS 1.2 extensions (see below).
+
+Implementations send a random 32-byte session_id by default to mimic common
+client behavior.
 
 ### Cipher Suites
 
@@ -119,7 +126,7 @@ TLS 1.2 ServerHello body:
 struct {
     uint16 legacy_version = 0x0303;
     opaque random[32];
-    uint8  session_id_len = 0;
+    uint8  session_id_len;
     uint16 cipher_suite;              // chosen from ClientHello list
     uint8  compression_method = 0x00;
     uint16 extensions_len;
@@ -128,9 +135,11 @@ struct {
 ```
 
 Constraints:
-- `session_id_len` MUST be 0 (no resumption).
+- `session_id_len` MUST be between 0 and 32 bytes.
 - `cipher_suite` MUST be one offered by the ClientHello.
-- Only EXT_SFB_DATA is used in the response (if offered by the client).
+- Extensions use standard TLS 1.2 encoding (see below).
+
+Implementations send a random 32-byte session_id by default.
 
 ---
 
@@ -148,10 +157,10 @@ struct {
 
 Unknown extension types are ignored after length validation.
 
-### EXT_SFB_DATA (Private Use)
+### Payload Extension (session_ticket)
 
-- Type: 0xFF00 (private-use range)
-- Included in ClientHello and optionally in ServerHello.
+- Type: 0x0023 (session_ticket)
+- Included in ClientHello and ServerHello.
 
 Extension data format:
 
@@ -166,9 +175,24 @@ struct {
 ```
 
 Rules:
-- The payload is carried only in EXT_SFB_DATA for phase 1.
-- If EXT_SFB_DATA is absent, treat as unsupported and drop.
-- ServerHello includes EXT_SFB_DATA only if ClientHello offered it.
+- The payload is carried only in the session_ticket extension data.
+- If the payload extension is absent or duplicated, treat as unsupported and drop.
+
+### Standard Extensions (Cover)
+
+The ClientHello includes the following standard TLS 1.2 extensions in a fixed
+order, after optional SNI/ALPN and before the payload extension:
+
+- supported_groups: secp256r1, secp384r1
+- ec_point_formats: uncompressed
+- signature_algorithms: RSA/ECDSA with SHA256/SHA384
+- extended_master_secret
+- renegotiation_info
+
+The ServerHello includes:
+- extended_master_secret
+- renegotiation_info
+- ALPN selection when configured
 
 ### SNI (Optional Cover)
 
@@ -234,10 +258,11 @@ Derived transport MTUs:
 - `recv_mtu`: max SFB payload bytes Alice can receive.
 
 MTU calculation:
-- Build a minimal ClientHello/ServerHello with configured SNI/ALPN and
-  EXT_SFB_DATA header, then subtract overhead from the max on-wire size.
-- EXT_SFB_DATA overhead is 10 bytes (extension header + SFB header) before
-  payload bytes.
+- Build a ClientHello/ServerHello with standard extensions, a random
+  session_id, and configured SNI/ALPN, then subtract overhead from the max
+  on-wire size.
+- Payload extension overhead is 10 bytes (extension header + SFB header)
+  before payload bytes.
 - Clamp on-wire limits to 16389 bytes max.
 - Reject configs where `send_mtu < PACKET_HEADER_SIZE + 1`.
 

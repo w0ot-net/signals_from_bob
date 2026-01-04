@@ -3,7 +3,7 @@
 TLS ClientHello transport codec.
 
 Encodes and decodes minimal TLS 1.2 ClientHello/ServerHello records that
-carry SFB packet bytes in a private-use extension.
+carry SFB packet bytes in the session_ticket extension.
 """
 
 from __future__ import absolute_import
@@ -25,13 +25,29 @@ TLS_MAX_RECORD_PAYLOAD = 16384
 TLS_MAX_RECORD_SIZE = TLS_RECORD_HEADER_LEN + TLS_MAX_RECORD_PAYLOAD
 
 EXT_SERVER_NAME = 0x0000
+EXT_SUPPORTED_GROUPS = 0x000A
+EXT_EC_POINT_FORMATS = 0x000B
+EXT_SIGNATURE_ALGORITHMS = 0x000D
 EXT_ALPN = 0x0010
-EXT_SFB_DATA = 0xFF00
+EXT_EXTENDED_MASTER_SECRET = 0x0017
+EXT_SESSION_TICKET = 0x0023
+EXT_RENEGOTIATION_INFO = 0xFF01
 
 SFB_MAGIC = b'SF'
 SFB_VERSION = 0x01
 SFB_FLAGS = 0x00
 
+DEFAULT_SESSION_ID_LEN = 32
+DEFAULT_SUPPORTED_GROUPS = (
+    0x0017,  # secp256r1
+    0x0018,  # secp384r1
+)
+DEFAULT_SIGNATURE_ALGORITHMS = (
+    0x0401,  # rsa_pkcs1_sha256
+    0x0501,  # rsa_pkcs1_sha384
+    0x0403,  # ecdsa_secp256r1_sha256
+    0x0503,  # ecdsa_secp384r1_sha384
+)
 DEFAULT_CIPHER_SUITES = (
     0xC02F,  # TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
     0xC02B,  # TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
@@ -109,8 +125,8 @@ def parse_client_hello_body(body):
         raise ValueError('ClientHello random truncated')
     offset += 32
     session_id_len, offset = _read_u8(body, offset)
-    if session_id_len != 0:
-        raise ValueError('ClientHello session id not supported')
+    if session_id_len > 32:
+        raise ValueError('ClientHello session id too long')
     if offset + session_id_len > len(body):
         raise ValueError('ClientHello session id truncated')
     offset += session_id_len
@@ -155,8 +171,8 @@ def parse_server_hello_body(body):
         raise ValueError('ServerHello random truncated')
     offset += 32
     session_id_len, offset = _read_u8(body, offset)
-    if session_id_len != 0:
-        raise ValueError('ServerHello session id not supported')
+    if session_id_len > 32:
+        raise ValueError('ServerHello session id too long')
     if offset + session_id_len > len(body):
         raise ValueError('ServerHello session id truncated')
     offset += session_id_len
@@ -176,30 +192,34 @@ def parse_server_hello_body(body):
 
 
 def build_client_hello_record(payload, sni=None, alpn_list=None,
-                              random_bytes=None,
+                              random_bytes=None, session_id_bytes=None,
                               cipher_suites=DEFAULT_CIPHER_SUITES):
     """
-    Build a TLS ClientHello record with payload in EXT_SFB_DATA.
+    Build a TLS ClientHello record with payload in EXT_SESSION_TICKET.
     """
     body = build_client_hello_body(payload, sni=sni, alpn_list=alpn_list,
                                    random_bytes=random_bytes,
+                                   session_id_bytes=session_id_bytes,
                                    cipher_suites=cipher_suites)
     return _build_record(TLS_HANDSHAKE_CLIENT_HELLO, body)
 
 
-def build_server_hello_record(payload, cipher_suite, include_sfb=True,
-                              random_bytes=None):
+def build_server_hello_record(payload, cipher_suite, include_payload=True,
+                              random_bytes=None, session_id_bytes=None,
+                              alpn_list=None):
     """
-    Build a TLS ServerHello record with payload in EXT_SFB_DATA.
+    Build a TLS ServerHello record with payload in EXT_SESSION_TICKET.
     """
     body = build_server_hello_body(payload, cipher_suite,
-                                   include_sfb=include_sfb,
-                                   random_bytes=random_bytes)
+                                   include_payload=include_payload,
+                                   random_bytes=random_bytes,
+                                   session_id_bytes=session_id_bytes,
+                                   alpn_list=alpn_list)
     return _build_record(TLS_HANDSHAKE_SERVER_HELLO, body)
 
 
 def build_client_hello_body(payload, sni=None, alpn_list=None,
-                            random_bytes=None,
+                            random_bytes=None, session_id_bytes=None,
                             cipher_suites=DEFAULT_CIPHER_SUITES):
     payload = to_bytes(payload)
     if random_bytes is None:
@@ -207,12 +227,15 @@ def build_client_hello_body(payload, sni=None, alpn_list=None,
     random_bytes = to_bytes(random_bytes)
     if len(random_bytes) != 32:
         raise ValueError('ClientHello random must be 32 bytes')
+    session_id_bytes = _coerce_session_id(session_id_bytes, 'ClientHello')
     cipher_bytes = _encode_cipher_suites(cipher_suites)
-    extensions = _build_extensions(payload, sni=sni, alpn_list=alpn_list)
+    extensions = _build_client_extensions(payload, sni=sni,
+                                          alpn_list=alpn_list)
     body = [
         struct.pack('!H', TLS_VERSION_1_2),
         random_bytes,
-        b'\x00',  # session_id_len
+        struct.pack('!B', len(session_id_bytes)),
+        session_id_bytes,
         cipher_bytes,
         b'\x01\x00',  # compression_methods_len=1, method=0x00
         struct.pack('!H', len(extensions)),
@@ -221,25 +244,27 @@ def build_client_hello_body(payload, sni=None, alpn_list=None,
     return b''.join(body)
 
 
-def build_server_hello_body(payload, cipher_suite, include_sfb=True,
-                            random_bytes=None):
+def build_server_hello_body(payload, cipher_suite, include_payload=True,
+                            random_bytes=None, session_id_bytes=None,
+                            alpn_list=None):
     payload = to_bytes(payload)
     if cipher_suite not in DEFAULT_CIPHER_SUITES:
         raise ValueError('Unsupported cipher suite')
-    if not include_sfb and payload:
-        raise ValueError('Payload requires EXT_SFB_DATA')
+    if not include_payload and payload:
+        raise ValueError('Payload requires session ticket extension')
     if random_bytes is None:
         random_bytes = os.urandom(32)
     random_bytes = to_bytes(random_bytes)
     if len(random_bytes) != 32:
         raise ValueError('ServerHello random must be 32 bytes')
-    extensions = b''
-    if include_sfb:
-        extensions = _build_extensions(payload)
+    session_id_bytes = _coerce_session_id(session_id_bytes, 'ServerHello')
+    extensions = _build_server_extensions(payload, alpn_list=alpn_list,
+                                          include_payload=include_payload)
     body = [
         struct.pack('!H', TLS_VERSION_1_2),
         random_bytes,
-        b'\x00',  # session_id_len
+        struct.pack('!B', len(session_id_bytes)),
+        session_id_bytes,
         struct.pack('!H', cipher_suite),
         b'\x00',  # compression_method
         struct.pack('!H', len(extensions)),
@@ -259,6 +284,7 @@ def calc_clienthello_payload_cap(max_record_bytes, sni=None, alpn_list=None):
         sni=sni,
         alpn_list=alpn_list,
         random_bytes=b'\x00' * 32,
+        session_id_bytes=b'\x00' * DEFAULT_SESSION_ID_LEN,
     )
     overhead = len(empty_record)
     if max_record_bytes < overhead:
@@ -266,7 +292,7 @@ def calc_clienthello_payload_cap(max_record_bytes, sni=None, alpn_list=None):
     return max_record_bytes - overhead
 
 
-def calc_serverhello_payload_cap(max_record_bytes):
+def calc_serverhello_payload_cap(max_record_bytes, alpn_list=None):
     """
     Calculate max payload bytes for a ServerHello record size cap.
     """
@@ -275,8 +301,10 @@ def calc_serverhello_payload_cap(max_record_bytes):
     empty_record = build_server_hello_record(
         b'',
         DEFAULT_CIPHER_SUITES[0],
-        include_sfb=True,
+        include_payload=True,
         random_bytes=b'\x00' * 32,
+        session_id_bytes=b'\x00' * DEFAULT_SESSION_ID_LEN,
+        alpn_list=alpn_list,
     )
     overhead = len(empty_record)
     if max_record_bytes < overhead:
@@ -312,6 +340,63 @@ def build_alpn_extension(alpn_list):
         total += 1 + len(proto_bytes)
     data = struct.pack('!H', total) + b''.join(parts)
     return struct.pack('!HH', EXT_ALPN, len(data)) + data
+
+
+def _build_supported_groups_extension():
+    parts = []
+    for group in DEFAULT_SUPPORTED_GROUPS:
+        parts.append(struct.pack('!H', group))
+    data = struct.pack('!H', len(parts) * 2) + b''.join(parts)
+    return struct.pack('!HH', EXT_SUPPORTED_GROUPS, len(data)) + data
+
+
+def _build_ec_point_formats_extension():
+    data = b'\x01\x00'
+    return struct.pack('!HH', EXT_EC_POINT_FORMATS, len(data)) + data
+
+
+def _build_signature_algorithms_extension():
+    parts = []
+    for alg in DEFAULT_SIGNATURE_ALGORITHMS:
+        parts.append(struct.pack('!H', alg))
+    data = struct.pack('!H', len(parts) * 2) + b''.join(parts)
+    return struct.pack('!HH', EXT_SIGNATURE_ALGORITHMS, len(data)) + data
+
+
+def _build_extended_master_secret_extension():
+    return struct.pack('!HH', EXT_EXTENDED_MASTER_SECRET, 0)
+
+
+def _build_renegotiation_info_extension():
+    data = b'\x00'
+    return struct.pack('!HH', EXT_RENEGOTIATION_INFO, len(data)) + data
+
+
+def _build_client_extensions(payload, sni=None, alpn_list=None):
+    extensions = []
+    if sni is not None:
+        extensions.append(build_sni_extension(sni))
+    extensions.append(_build_supported_groups_extension())
+    extensions.append(_build_ec_point_formats_extension())
+    extensions.append(_build_signature_algorithms_extension())
+    if alpn_list:
+        extensions.append(build_alpn_extension(alpn_list))
+    extensions.append(_build_extended_master_secret_extension())
+    extensions.append(_build_renegotiation_info_extension())
+    extensions.append(_build_payload_extension(payload))
+    return b''.join(extensions)
+
+
+def _build_server_extensions(payload, alpn_list=None, include_payload=True):
+    extensions = [
+        _build_extended_master_secret_extension(),
+        _build_renegotiation_info_extension(),
+    ]
+    if alpn_list:
+        extensions.append(build_alpn_extension([alpn_list[0]]))
+    if include_payload:
+        extensions.append(_build_payload_extension(payload))
+    return b''.join(extensions)
 
 
 def _parse_record(record, expected_handshake_type, max_record_bytes=None):
@@ -357,20 +442,8 @@ def _build_record(handshake_type, body):
     return record
 
 
-def _build_extensions(payload, sni=None, alpn_list=None):
-    extensions = []
-    if sni is not None:
-        extensions.append(build_sni_extension(sni))
-    if alpn_list:
-        extensions.append(build_alpn_extension(alpn_list))
-    extensions.append(_build_sfb_extension(payload))
-    return b''.join(extensions)
-
-
-def _build_sfb_extension(payload):
+def _build_payload_extension(payload):
     payload = to_bytes(payload)
-    if len(payload) > 0xFFFF:
-        raise ValueError('Payload too large for EXT_SFB_DATA')
     data = (
         SFB_MAGIC +
         struct.pack('!B', SFB_VERSION) +
@@ -378,12 +451,23 @@ def _build_sfb_extension(payload):
         struct.pack('!H', len(payload)) +
         payload
     )
-    return struct.pack('!HH', EXT_SFB_DATA, len(data)) + data
+    if len(data) > 0xFFFF:
+        raise ValueError('Payload too large for session ticket extension')
+    return struct.pack('!HH', EXT_SESSION_TICKET, len(data)) + data
+
+
+def _coerce_session_id(session_id_bytes, label):
+    if session_id_bytes is None:
+        session_id_bytes = os.urandom(DEFAULT_SESSION_ID_LEN)
+    session_id_bytes = to_bytes(session_id_bytes)
+    if len(session_id_bytes) > 32:
+        raise ValueError('%s session id too long' % label)
+    return session_id_bytes
 
 
 def _parse_extensions(data, offset, end):
     payload = None
-    sfb_seen = False
+    payload_seen = False
     while offset < end:
         if offset + 4 > end:
             raise ValueError('Extension header truncated')
@@ -393,32 +477,32 @@ def _parse_extensions(data, offset, end):
         if offset + ext_len > end:
             raise ValueError('Extension data truncated')
         ext_data = data[offset:offset + ext_len]
-        if ext_type == EXT_SFB_DATA:
-            if sfb_seen:
-                raise ValueError('Duplicate EXT_SFB_DATA')
-            payload = _parse_sfb_extension(ext_data)
-            sfb_seen = True
+        if ext_type == EXT_SESSION_TICKET:
+            if payload_seen:
+                raise ValueError('Duplicate payload extension')
+            payload = _parse_payload_extension(ext_data)
+            payload_seen = True
         offset += ext_len
-    if not sfb_seen:
-        raise ValueError('Missing EXT_SFB_DATA')
+    if not payload_seen:
+        raise ValueError('Missing payload extension')
     return payload
 
 
-def _parse_sfb_extension(data):
+def _parse_payload_extension(data):
     data = to_bytes(data)
     if len(data) < 6:
-        raise ValueError('EXT_SFB_DATA truncated')
+        raise ValueError('Payload extension truncated')
     if data[:2] != SFB_MAGIC:
-        raise ValueError('EXT_SFB_DATA magic invalid')
+        raise ValueError('Payload extension magic invalid')
     version = byte_at(data, 2)
     if version != SFB_VERSION:
-        raise ValueError('EXT_SFB_DATA version invalid')
+        raise ValueError('Payload extension version invalid')
     flags = byte_at(data, 3)
     if flags != SFB_FLAGS:
-        raise ValueError('EXT_SFB_DATA flags invalid')
+        raise ValueError('Payload extension flags invalid')
     payload_len = struct.unpack('!H', data[4:6])[0]
     if payload_len != len(data) - 6:
-        raise ValueError('EXT_SFB_DATA length mismatch')
+        raise ValueError('Payload extension length mismatch')
     return data[6:]
 
 

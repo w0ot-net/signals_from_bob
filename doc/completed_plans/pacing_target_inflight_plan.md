@@ -69,3 +69,11 @@ feedback indicates a smaller pipe.
 - `sfb/tunnel/alice_tunnel.py`
 - `sfb/log_profiles.py`
 - `tests/test_pacing.py`
+
+## Execution Notes
+- Implemented feedback-driven target selection for increases and reductions with
+  a sample-count stability gate.
+- Added stall-driven reductions with probe resets and summary counters for
+  window distance, transport headroom, and window full blocks.
+- Added `tunnel.pacer_adjust` logging and updated pacing-focused profiles.
+- Tests: `python3 -m unittest tests.test_pacing`

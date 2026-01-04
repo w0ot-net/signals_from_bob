@@ -110,7 +110,7 @@ class AdaptivePacerTests(unittest.TestCase):
         pacer = make_pacer(ack_idle_reset_sec=100.0, ack_ewma_alpha=1.0)
         pacer.on_ack(1, now=1.0)
         pacer.on_ack(1, now=2.0, srtt_ms=1000.0)
-        pacer.on_ack(1, now=5.0, srtt_ms=1000.0)
+        pacer.on_ack(3, now=5.0, srtt_ms=1000.0)
         self.assertGreater(pacer._probe_extra, 0)
         self.assertIsNotNone(pacer._last_probe_time)
         pacer.on_ack(1, now=250.0)
@@ -204,6 +204,26 @@ class AdaptivePacerTests(unittest.TestCase):
         self.assertEqual(pacer._last_probe_time, 2.5)
         self.assertEqual(pacer._probe_extra, 0)
 
+    def test_on_blocked_reduces_target_and_resets_probe(self):
+        pacer = make_pacer(target_inflight_ratio=1.0)
+        cap = 10
+        pacer._probe_extra = 2
+        pacer._last_probe_time = 1.0
+        before = pacer.target_inflight(cap, srtt_ms=1000.0)
+        changed = pacer.on_blocked(
+            'window_distance',
+            now=2.0,
+            cap=cap,
+            srtt_ms=1000.0,
+            unacked_count=1,
+        )
+        self.assertTrue(changed)
+        after = pacer.target_inflight(cap, srtt_ms=1000.0)
+        self.assertLess(after, before)
+        self.assertGreater(pacer._block_penalty, 0)
+        self.assertEqual(pacer._probe_extra, 0)
+        self.assertEqual(pacer._last_probe_time, 2.0)
+
     def test_on_ack_non_positive_dt_ignored(self):
         pacer = make_pacer(ack_ewma_alpha=1.0)
         pacer.on_ack(1, now=1.0)
@@ -289,11 +309,30 @@ class AdaptivePacerTests(unittest.TestCase):
         self.assertEqual(fields['feedback_target'], 1)
         self.assertEqual(fields['target_mode'], 'base')
 
-    def test_feedback_lower_than_base_uses_base(self):
-        pacer = make_pacer(target_inflight_ratio=0.9, ack_ewma_alpha=1.0)
+    def test_feedback_lower_than_base_uses_feedback(self):
+        pacer = make_pacer(
+            target_inflight_ratio=0.9,
+            ack_ewma_alpha=1.0,
+            ack_idle_reset_sec=100.0,
+        )
+        pacer._feedback_min_samples = 1
         pacer.on_ack(1, now=1.0)
         pacer.on_ack(1, now=3.0)
+        self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 1)
+
+    def test_feedback_lower_than_base_waits_for_min_samples(self):
+        pacer = make_pacer(
+            target_inflight_ratio=0.9,
+            ack_ewma_alpha=1.0,
+            ack_idle_reset_sec=100.0,
+        )
+        pacer._feedback_min_samples = 3
+        pacer.on_ack(1, now=1.0)
+        pacer.on_ack(1, now=3.0)
+        pacer.on_ack(1, now=5.0)
         self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 9)
+        pacer.on_ack(1, now=7.0)
+        self.assertEqual(pacer.target_inflight(10, srtt_ms=1000.0), 1)
 
     def test_feedback_target_equal_base_keeps_base_mode(self):
         pacer = make_pacer(
@@ -533,18 +572,19 @@ class AdaptivePacerTests(unittest.TestCase):
         self.assertEqual(fields['target_inflight'], 4)
         self.assertEqual(fields['target_mode'], 'probe')
 
-    def test_state_fields_feedback_below_base_uses_base(self):
+    def test_state_fields_feedback_below_base_uses_feedback(self):
         pacer = make_pacer(
             target_inflight_ratio=0.9,
             ack_ewma_alpha=1.0,
             ack_idle_reset_sec=100.0,
         )
+        pacer._feedback_min_samples = 1
         pacer.on_ack(1, now=1.0)
         pacer.on_ack(1, now=3.0)
         fields = pacer.state_fields(unacked_count=1, cap=10, srtt_ms=1000.0)
         self.assertEqual(fields['base_target'], 9)
         self.assertEqual(fields['feedback_target'], 1)
-        self.assertEqual(fields['target_mode'], 'base')
+        self.assertEqual(fields['target_mode'], 'feedback')
 
 
 if __name__ == '__main__':

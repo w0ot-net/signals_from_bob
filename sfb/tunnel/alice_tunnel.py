@@ -116,6 +116,12 @@ class AliceTunnel(BaseTunnel):
         self._pacer_summary_last_sent = 0
         self._pacer_summary_last_recv = 0
         self._pacer_summary_last_stats = None
+        self._pacer_blocked_counts = {
+            'window_distance': 0,
+            'transport_headroom': 0,
+            'window_full': 0,
+        }
+        self._pacer_summary_last_blocked = None
 
         # Enable module loader for handling Bob's module requests.
         self.enable_module_loader()
@@ -615,6 +621,11 @@ class AliceTunnel(BaseTunnel):
                     'keepalive_only': keepalive_only,
                 },
             )
+            self._note_pacer_blocked(
+                'window_full',
+                now,
+                unacked=self._send_window.unacked_count,
+            )
             return False
         effective_cap = None
         if self._pacer.enabled:
@@ -689,6 +700,11 @@ class AliceTunnel(BaseTunnel):
                     'distance': distance,
                     'distance_limit': distance_limit,
                 },
+            )
+            self._note_pacer_blocked(
+                'window_distance',
+                now,
+                unacked=unacked,
             )
             return False
         if self._send_limiter is not None and not self._send_limiter.can_send(now=now):
@@ -881,6 +897,11 @@ class AliceTunnel(BaseTunnel):
                 'max_in_flight': max_in_flight,
             },
         )
+        self._note_pacer_blocked(
+            'transport_headroom',
+            time_provider.now(),
+            unacked=self._send_window.unacked_count,
+        )
         return True
 
     def _log_transport_blocked(self):
@@ -934,6 +955,7 @@ class AliceTunnel(BaseTunnel):
             return
         prev_target = self._pacer_last_target
         self._pacer_last_target = target
+        self._maybe_log_pacer_adjust(prev_target, fields)
         def build_fields():
             event_fields = dict(fields)
             event_fields['previous_target_inflight'] = prev_target
@@ -948,6 +970,73 @@ class AliceTunnel(BaseTunnel):
             'Pacer target adjusted to %s' % target,
             build_fields,
         )
+
+    def _log_pacer_adjust(self, prev_target, reason, block_reason=None):
+        if prev_target is None:
+            return
+        fields = self._pacer.state_fields(
+            self._send_window.unacked_count,
+            self._pacer_cap(),
+            rate_limit=self._config.tunnel_send_rate,
+            srtt_ms=self._rtt.srtt_ms,
+        )
+        def build_fields():
+            event_fields = dict(fields)
+            event_fields['previous_target_inflight'] = prev_target
+            event_fields['side'] = 'alice'
+            event_fields['reason'] = reason
+            if block_reason is not None:
+                event_fields['block_reason'] = block_reason
+            return event_fields
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.pacer_adjust',
+            'Pacer target decreased',
+            build_fields,
+        )
+
+    def _maybe_log_pacer_adjust(self, prev_target, fields):
+        if prev_target is None:
+            return
+        target = fields.get('target_inflight')
+        if target is None or target >= prev_target:
+            return
+        if fields.get('block_penalty'):
+            return
+        feedback_target = fields.get('feedback_target')
+        base_target = fields.get('base_target')
+        baseline_target = fields.get('baseline_target')
+        if (feedback_target is None or base_target is None or
+                baseline_target is None):
+            return
+        if feedback_target >= base_target:
+            return
+        if baseline_target != feedback_target:
+            return
+        self._log_pacer_adjust(prev_target, 'feedback')
+
+    def _note_pacer_blocked(self, reason, now, unacked=None):
+        if reason in self._pacer_blocked_counts:
+            self._pacer_blocked_counts[reason] += 1
+        if not self._pacer.enabled:
+            return
+        cap = self._pacer_cap()
+        srtt_ms = self._rtt.srtt_ms
+        prev_target = self._pacer.target_inflight(cap, srtt_ms=srtt_ms)
+        adjusted = self._pacer.on_blocked(
+            reason,
+            now,
+            cap,
+            srtt_ms=srtt_ms,
+            unacked_count=unacked,
+        )
+        if not adjusted:
+            return
+        target = self._pacer.target_inflight(cap, srtt_ms=srtt_ms)
+        if target >= prev_target:
+            return
+        self._log_pacer_adjust(prev_target, 'blocked', block_reason=reason)
 
     def _log_pacer_state(self, cap, unacked_count, action=None):
         if not self._pacer.enabled:
@@ -979,6 +1068,9 @@ class AliceTunnel(BaseTunnel):
             self._pacer_summary_last_time = now
             self._pacer_summary_last_sent = self._packets_sent
             self._pacer_summary_last_recv = self._packets_received
+            self._pacer_summary_last_blocked = dict(
+                self._pacer_blocked_counts
+            )
             if self._stats_enabled:
                 try:
                     self._pacer_summary_last_stats = (
@@ -1072,6 +1164,15 @@ class AliceTunnel(BaseTunnel):
                         if delta:
                             fields['stat_delta_' + key] = delta
                 self._pacer_summary_last_stats = stats_snapshot
+        if self._pacer_summary_last_blocked is not None:
+            for key, value in self._pacer_blocked_counts.items():
+                prev = self._pacer_summary_last_blocked.get(key, 0)
+                delta = value - prev
+                if delta:
+                    fields['blocked_' + key] = delta
+            self._pacer_summary_last_blocked = dict(
+                self._pacer_blocked_counts
+            )
         def build_fields():
             return fields
         log_event(

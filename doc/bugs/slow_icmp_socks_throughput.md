@@ -264,6 +264,14 @@ LOG_PROFILES['socks_throughput_debug'] = {
   - Bob `tunnel.retransmit_skip`: 4,981 events, mostly `reason=cooldown`; cooldown p50 ~0.485s, p90 ~1.28s, max 3.0s.
 - Takeaways:
   - Latest run no longer shows the effective cap pinned at 1; window-distance stalls still happen, but at mid-teen caps instead of single digits.
+
+## Log Review: Pacer Oscillation Check (Jan 4, 2026, latest)
+- Logs: `logs/client_log.db` (recent `tunnel.pacer_target` / `tunnel.pacer_state`).
+- Pacer target samples:
+  - `tunnel.pacer_state` shows `target_mode=probe` with `probe_extra` ~66-67 and `feedback_target` ~17-26, yielding `target_inflight` ~83-92; `block_penalty` stays 0.
+  - `tunnel.pacer_target` adjustments are typically 1-3 packets as `feedback_target` shifts; no 50% drops in the latest sample window.
+- Takeaways:
+  - The latest logs look like steady probe-mode pacing rather than aggressive halving; if you are seeing a half-cut, it may be a probe reset when ack rate drops (look for `probe_extra` dropping to 0).
   - The mid-teen `effective_cap` matches the observed ~1/8 throughput vs `max_in_flight=128`.
 
 ## Log Review: Feedback-Driven Pacing (Jan 3, 2026, 23:52 run)

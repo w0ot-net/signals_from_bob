@@ -11,6 +11,8 @@ from __future__ import absolute_import
 import base64
 import struct
 
+from ..base32 import base32_decode as shared_base32_decode
+from ..base32 import base32_encode as shared_base32_encode
 from ...compat import byte_at, require_bytes_like, text_type, to_bytes
 
 # DNS constants
@@ -55,17 +57,12 @@ RECORD_TYPES = {
 
 def base32_encode(data):
     """Encode bytes to base32 without padding, uppercase."""
-    data = require_bytes_like(data)
-    return base64.b32encode(data).rstrip(b'=').decode('ascii')
+    return shared_base32_encode(data, lowercase=False)
 
 
 def base32_decode(s):
     """Decode base32 string to bytes (handles missing padding)."""
-    if not isinstance(s, text_type):
-        raise TypeError('Expected text for base32 decode')
-    pad = (8 - len(s) % 8) % 8
-    s = s.upper() + '=' * pad
-    return base64.b32decode(s.encode('ascii'))
+    return shared_base32_decode(s)
 
 
 def base64_encode(data):

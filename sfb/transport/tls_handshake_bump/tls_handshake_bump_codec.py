@@ -9,13 +9,15 @@ certificate delivery.
 
 from __future__ import absolute_import
 
-import base64
 import os
 import re
 import struct
 import zlib
 
-from ...compat import PY2, byte_at, require_bytes_like, text_type, to_bytes
+from ..base32 import base32_decode as shared_base32_decode
+from ..base32 import base32_decode_bytes as shared_base32_decode_bytes
+from ..base32 import base32_encode as shared_base32_encode
+from ...compat import PY2, byte_at, text_type, to_bytes
 
 
 TLS_CONTENT_TYPE_HANDSHAKE = 0x16
@@ -54,37 +56,16 @@ _RESPONSE_TOKEN_RE = re.compile(
 
 def base32_encode(data):
     """Encode bytes to base32 without padding, lowercase."""
-    data = require_bytes_like(data)
-    encoded = base64.b32encode(to_bytes(data)).rstrip(b'=')
-    return encoded.lower().decode('ascii')
+    return shared_base32_encode(data, lowercase=True)
 
 
 def base32_decode(value):
     """Decode base32 string to bytes (handles missing padding)."""
-    if not isinstance(value, text_type):
-        raise TypeError('Expected text for base32 decode')
-    try:
-        value.encode('ascii')
-    except UnicodeError:
-        raise
-    pad = (8 - len(value) % 8) % 8
-    padded = value.upper() + ('=' * pad)
-    return base64.b32decode(padded.encode('ascii'))
+    return shared_base32_decode(value)
 
 
 def _base32_decode_bytes(value):
-    if isinstance(value, text_type):
-        raise TypeError('Expected bytes for base32 decode')
-    if isinstance(value, bytes):
-        raw = value
-    elif isinstance(value, bytearray):
-        raw = bytes(value) if PY2 else value
-    else:
-        raw = to_bytes(value)
-    pad = (8 - len(raw) % 8) % 8
-    if pad:
-        raw = raw + (b'=' * pad)
-    return base64.b32decode(raw.upper())
+    return shared_base32_decode_bytes(value)
 
 
 def encode_sni_name(payload, base_domain):

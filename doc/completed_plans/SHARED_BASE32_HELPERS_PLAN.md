@@ -61,3 +61,9 @@ logic. Consolidating improves consistency and reduces drift.
 ## Success Criteria
 - No functional regressions in DNS or TLS base32 encoding/decoding.
 - Single shared implementation with consistent padding/validation.
+
+## Execution Notes
+- Added shared base32 helpers in `sfb/transport/base32.py` with lowercase default.
+- Wired DNS codec to shared helpers while preserving uppercase output.
+- Wired TLS handshake bump codec to shared helpers, including byte-token decode.
+- Tests not run (not requested).

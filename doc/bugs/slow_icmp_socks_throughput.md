@@ -198,6 +198,21 @@ LOG_PROFILES['socks_throughput_debug'] = {
   - `sock.pump_stats` (channel_to_target) shows `channel_timeouts` ~20 per interval with `wait_time` ~1.0s and no bytes, indicating idle return path during the run.
 - Tunnel saturation on Alice:
   - `tunnel.pacer_state` target inflight stays at 128; `unacked_count` clusters at 116-120, indicating the in-flight cap is regularly hit.
+
+## Experiment Log: Adaptive Pacing Baseline (Jan 4, 2026)
+- Logs: `logs/client_log.db`, `logs/server_log.db`.
+- Pacer behavior (Alice):
+  - `tunnel.pacer_summary` shows send_rate ~419 pps and recv_rate ~420 pps with srtt ~115-125 ms and ack_rate_ewma ~260-300 pps.
+  - `pacer_target_inflight` ramps from ~90 to ~158 in probe mode while `pacer_unacked_count` stays near ~50.
+  - `tunnel.send_blocked` is only `reason: pacer`, clustered early when target_inflight ~40-50; no blocking once probe target exceeds ~120.
+- Packet sizing:
+  - `tunnel.packet_send` reports `send_mtu` 1312 bytes and `bytes` 1350 per packet.
+  - At ~419 pps this is ~0.55 MB/s payload, matching `sock.pump_stats` per-interval bytes.
+- Pump backpressure:
+  - `sock.pump_stats` (target_to_channel) shows `buffer_full` ~2300 per interval with `send_buf_size` 1048576 and `sleep_time` ~0.95s.
+- Takeaways:
+  - Adaptive pacer is not the steady-state limiter; it allows inflight well above current unacked.
+  - Throughput is governed by packet size times ~420 pps and channel backpressure; raise MTU or increase packet rate to improve.
   - `tunnel.packet_send` shows has-data bursts (300-580 packets/sec) but only across ~8 seconds of the last 60s window; the rest of the window is mostly idle/keepalive.
 - Bob side shows asymmetric traffic:
   - `tunnel.packet_send` has-data = 6 of 10,411 packets; `channel.pack` totals 960 bytes over the last 10 minutes.

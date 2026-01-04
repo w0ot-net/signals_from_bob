@@ -53,7 +53,7 @@ class SocksRelayModule(BaseModule):
         )
         try:
             # Wait for tunnel to close
-            while tunnel.is_connected:
+            while tunnel.connected:
                 time_provider.sleep(tunnel._config.tunnel_connect_poll_interval)
             return 0
         finally:

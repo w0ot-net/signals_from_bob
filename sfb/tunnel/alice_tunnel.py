@@ -81,7 +81,7 @@ class AliceTunnel(BaseTunnel):
         # Track keepalive-only responses (legacy "pong" terminology)
         self._last_was_pong_only = False
         self._pong_grace_polls = config.tunnel_pong_grace_polls
-        min_grace = self._proposed_max_in_flight * 2
+        min_grace = self._proposed_window * 2
         if self._pong_grace_polls < min_grace:
             self._pong_grace_polls = min_grace
         self._pong_grace_remaining = self._pong_grace_polls
@@ -340,14 +340,14 @@ class AliceTunnel(BaseTunnel):
         )
 
         # Queue window request
-        self.control.send_message(tun_window(self._proposed_max_in_flight))
+        self.control.send_message(tun_window(self._proposed_window))
         log_event(
             self._logger,
             logging.INFO,
             'tunnel.window_propose',
             'Window request',
             lambda: {
-                'size': self._proposed_max_in_flight,
+                'size': self._proposed_window,
                 'side': 'alice',
             },
         )
@@ -1458,7 +1458,7 @@ class AliceTunnel(BaseTunnel):
         # Retry initial negotiation even without ACK progress.
         if not self._window_negotiated:
             if now - self._last_window_request_time >= self._window_growth_interval:
-                self.control.send_message(tun_window(self._proposed_max_in_flight))
+                self.control.send_message(tun_window(self._proposed_window))
                 self._last_window_request_time = now
                 log_event(
                     self._logger,
@@ -1466,7 +1466,7 @@ class AliceTunnel(BaseTunnel):
                     'tunnel.window_propose',
                     'Window request retry',
                     lambda: {
-                        'size': self._proposed_max_in_flight,
+                        'size': self._proposed_window,
                         'reason': 'retry',
                         'side': 'alice',
                     },
@@ -1477,16 +1477,16 @@ class AliceTunnel(BaseTunnel):
             return
         if now - self._last_window_request_time < self._window_growth_interval:
             return
-        if self._negotiated_window >= self._proposed_max_in_flight:
+        if self.negotiated_window >= self._proposed_window:
             return
 
-        current = self._negotiated_window
+        current = self.negotiated_window
         if self._window_growth_mode == 'doubling':
             requested = current * 2
         else:
             requested = current + self._window_growth_step
 
-        requested = min(requested, self._proposed_max_in_flight, self.MAX_WINDOW)
+        requested = min(requested, self._proposed_window, self.MAX_WINDOW)
         if requested <= current:
             return
 

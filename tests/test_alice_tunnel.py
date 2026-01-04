@@ -717,5 +717,5 @@ class ProcessIncomingTests(unittest.TestCase):
         alice._process_incoming_packet(packet, now=0.0)
 
         self.assertTrue(alice._window_negotiated)
-        self.assertEqual(alice._negotiated_window, 4)
+        self.assertEqual(alice.negotiated_window, 4)
         self.assertEqual(alice._send_window._max_in_flight, 4)

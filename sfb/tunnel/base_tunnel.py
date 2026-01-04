@@ -98,7 +98,7 @@ class BaseTunnel(object):
         self._default_window = config.tunnel_initial_window
 
         # Reliability - start with initial window until negotiated
-        self._proposed_max_in_flight = min(config.max_in_flight, self.MAX_WINDOW)
+        self._proposed_window = min(config.max_in_flight, self.MAX_WINDOW)
         if config.tunnel_stats_enabled:
             self._reliability_stats = ReliabilityStats()
             self._stats_enabled = True
@@ -110,7 +110,7 @@ class BaseTunnel(object):
             stats=self._reliability_stats,
         )
         self._recv_window = RecvWindow(
-            max_buffer=self._proposed_max_in_flight,
+            max_buffer=self._proposed_window,
             stats=self._reliability_stats,
         )
 
@@ -121,12 +121,9 @@ class BaseTunnel(object):
         # MTU/Window negotiation state (asymmetric)
         self._proposed_send_mtu = None  # Set by subclass from transport
         self._proposed_recv_mtu = None  # Set by subclass from transport
-        self._negotiated_send_mtu = self._default_mtu
-        self._negotiated_recv_mtu = self._default_mtu
-        self._send_mtu = self._default_mtu  # Sender payload MTU
-        self._recv_mtu = self._default_mtu  # Receiver payload MTU
-        self._pending_send_mtu = None
-        self._negotiated_window = self._default_window
+        self._send_mtu = self._default_mtu  # Active sender payload MTU
+        self._recv_mtu = self._default_mtu  # Active receiver payload MTU
+        self._pending_send_mtu = None  # Pending send MTU increase awaiting ack
         self._mtu_negotiated = False
         self._window_negotiated = False
 
@@ -176,11 +173,6 @@ class BaseTunnel(object):
         return self._state == TunnelState.CONNECTED
 
     @property
-    def is_connected(self):
-        """True if tunnel is connected (alias for connected)."""
-        return self._state == TunnelState.CONNECTED
-
-    @property
     def channel_manager(self):
         """Channel manager for this tunnel."""
         return self._channel_manager
@@ -198,22 +190,22 @@ class BaseTunnel(object):
     @property
     def negotiated_mtu(self):
         """Current effective MTUs as (send_mtu, recv_mtu)."""
-        return (self._negotiated_send_mtu, self._negotiated_recv_mtu)
+        return (self._send_mtu, self._recv_mtu)
 
     @property
     def negotiated_send_mtu(self):
-        """Current negotiated send MTU (payload bytes)."""
-        return self._negotiated_send_mtu
+        """Current effective send MTU (payload bytes)."""
+        return self._send_mtu
 
     @property
     def negotiated_recv_mtu(self):
-        """Current negotiated receive MTU (payload bytes)."""
-        return self._negotiated_recv_mtu
+        """Current effective receive MTU (payload bytes)."""
+        return self._recv_mtu
 
     @property
     def negotiated_window(self):
-        """Current effective window size (1 until negotiated)."""
-        return self._negotiated_window
+        """Current effective window size."""
+        return self._send_window._max_in_flight
 
     @property
     def reliability_stats(self):
@@ -415,9 +407,7 @@ class BaseTunnel(object):
             'state': self._state,
             'send_mtu': self._send_mtu,
             'recv_mtu': self._recv_mtu,
-            'negotiated_send_mtu': self._negotiated_send_mtu,
-            'negotiated_recv_mtu': self._negotiated_recv_mtu,
-            'negotiated_window': self._negotiated_window,
+            'negotiated_window': self.negotiated_window,
             'packets_sent': self._packets_sent,
             'packets_received': self._packets_received,
             'bytes_sent': self._bytes_sent,
@@ -540,7 +530,7 @@ class BaseTunnel(object):
             'context': context,
             'send_mtu': self._send_mtu,
             'recv_mtu': self._recv_mtu,
-            'negotiated_window': self._negotiated_window,
+            'negotiated_window': self.negotiated_window,
             'unacked': self._send_window.unacked_count,
             'max_in_flight': self._send_window._max_in_flight,
             'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
@@ -690,7 +680,7 @@ class BaseTunnel(object):
                 if packet_size is not None else packet.encoded_size(),
                 'send_mtu': self._send_mtu,
                 'recv_mtu': self._recv_mtu,
-                'negotiated_window': self._negotiated_window,
+                'negotiated_window': self.negotiated_window,
                 'unacked': self._send_window.unacked_count,
                 'side': 'alice' if self._is_initiator else 'bob',
                 'state': self._state,
@@ -1021,10 +1011,10 @@ class BaseTunnel(object):
         Responds with mtu_ok containing per-direction MTUs.
         Applies downsizes immediately; increases wait for mtu_ack from Alice.
         """
-        requested_tx = msg.get('tx', self._default_mtu)
-        requested_rx = msg.get('rx', self._default_mtu)
-        if (not isinstance(requested_tx, integer_types) or requested_tx < 1 or
-                not isinstance(requested_rx, integer_types) or requested_rx < 1):
+        peer_send_mtu = msg.get('tx', self._default_mtu)
+        peer_recv_mtu = msg.get('rx', self._default_mtu)
+        if (not isinstance(peer_send_mtu, integer_types) or peer_send_mtu < 1 or
+                not isinstance(peer_recv_mtu, integer_types) or peer_recv_mtu < 1):
             log_event(
                 self._logger,
                 logging.WARNING,
@@ -1042,8 +1032,8 @@ class BaseTunnel(object):
             'tunnel.mtu_propose',
             'MTU request received',
             lambda: {
-                'tx': requested_tx,
-                'rx': requested_rx,
+                'tx': peer_send_mtu,
+                'rx': peer_recv_mtu,
                 'side': 'alice' if self._is_initiator else 'bob',
                 'send_mtu': self._send_mtu,
                 'recv_mtu': self._recv_mtu,
@@ -1051,17 +1041,15 @@ class BaseTunnel(object):
         )
 
         # Negotiate each direction independently.
-        agreed_recv = min(requested_tx, self._proposed_recv_mtu or self._default_mtu)
-        agreed_send = min(requested_rx, self._proposed_send_mtu or self._default_mtu)
+        agreed_recv = min(peer_send_mtu, self._proposed_recv_mtu or self._default_mtu)
+        agreed_send = min(peer_recv_mtu, self._proposed_send_mtu or self._default_mtu)
 
-        self._negotiated_recv_mtu = agreed_recv
         self._recv_mtu = agreed_recv
         self._max_packet_size = agreed_recv + PACKET_HEADER_SIZE
 
         # Downsize immediately; only defer increases until mtu_ack arrives.
         if agreed_send <= self._send_mtu:
             self._send_mtu = agreed_send
-            self._negotiated_send_mtu = agreed_send
             self._pending_send_mtu = None
         else:
             self._pending_send_mtu = agreed_send
@@ -1087,10 +1075,10 @@ class BaseTunnel(object):
 
         Updates negotiated send/recv MTU, then sends mtu_ack.
         """
-        agreed_tx = msg.get('tx', self._default_mtu)
-        agreed_rx = msg.get('rx', self._default_mtu)
-        if (not isinstance(agreed_tx, integer_types) or agreed_tx < 1 or
-                not isinstance(agreed_rx, integer_types) or agreed_rx < 1):
+        peer_send_mtu = msg.get('tx', self._default_mtu)
+        peer_recv_mtu = msg.get('rx', self._default_mtu)
+        if (not isinstance(peer_send_mtu, integer_types) or peer_send_mtu < 1 or
+                not isinstance(peer_recv_mtu, integer_types) or peer_recv_mtu < 1):
             log_event(
                 self._logger,
                 logging.WARNING,
@@ -1104,13 +1092,12 @@ class BaseTunnel(object):
             return
 
         # Clamp to our transport limits.
-        agreed_send = min(agreed_rx, self._proposed_send_mtu or self._default_mtu)
-        agreed_recv = min(agreed_tx, self._proposed_recv_mtu or self._default_mtu)
+        agreed_send = min(peer_recv_mtu, self._proposed_send_mtu or self._default_mtu)
+        agreed_recv = min(peer_send_mtu, self._proposed_recv_mtu or self._default_mtu)
 
-        self._negotiated_send_mtu = agreed_send
-        self._negotiated_recv_mtu = agreed_recv
         self._send_mtu = agreed_send
         self._recv_mtu = agreed_recv
+        self._pending_send_mtu = None
         self._max_packet_size = agreed_recv + PACKET_HEADER_SIZE
         self._mtu_negotiated = True
 
@@ -1136,7 +1123,6 @@ class BaseTunnel(object):
         """
         if self._pending_send_mtu is not None:
             self._send_mtu = self._pending_send_mtu
-            self._negotiated_send_mtu = self._pending_send_mtu
             self._pending_send_mtu = None
         self._mtu_negotiated = True
         log_event(
@@ -1178,13 +1164,12 @@ class BaseTunnel(object):
             lambda: {
                 'size': requested,
                 'side': 'alice' if self._is_initiator else 'bob',
-                'max_in_flight': self._proposed_max_in_flight,
+                'max_in_flight': self._proposed_window,
             },
         )
 
         # Negotiate: use minimum of requested, our proposed, and max (64)
-        agreed = min(requested, self._proposed_max_in_flight, self.MAX_WINDOW)
-        self._negotiated_window = agreed
+        agreed = min(requested, self._proposed_window, self.MAX_WINDOW)
         self._window_negotiated = True
 
         # Update send window limit
@@ -1219,7 +1204,7 @@ class BaseTunnel(object):
             lambda: {
                 'size': agreed,
                 'msg': msg,
-                'negotiated_window': self._negotiated_window,
+                'negotiated_window': self.negotiated_window,
                 'window_negotiated': self._window_negotiated,
                 'send_window_max': self._send_window._max_in_flight,
                 'side': 'alice' if self._is_initiator else 'bob',
@@ -1238,11 +1223,10 @@ class BaseTunnel(object):
             )
             return
 
-        prev_negotiated = self._negotiated_window
+        prev_negotiated = self.negotiated_window
         prev_window_negotiated = self._window_negotiated
         prev_send_window = self._send_window._max_in_flight
 
-        self._negotiated_window = agreed
         self._window_negotiated = True
 
         # Update send window limit

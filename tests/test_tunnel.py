@@ -196,9 +196,8 @@ class WindowGrowthTest(unittest.TestCase):
         transport = MockTransport()
         alice = AliceTunnel(transport, config, crypto=Plain())
         alice._window_negotiated = True
-        alice._negotiated_window = 1
         alice._send_window._max_in_flight = 1
-        alice._proposed_max_in_flight = 4
+        alice._proposed_window = 4
         alice._ack_progressed = True
 
         alice._maybe_request_window(time_provider.now())
@@ -609,17 +608,17 @@ class MtuNegotiationTests(unittest.TestCase):
         self.assertEqual(len(mtu_ok), 1)
         mtu_ok = mtu_ok[0]
 
-        self.assertEqual(bob._negotiated_recv_mtu, 120)
+        self.assertEqual(bob.negotiated_recv_mtu, 120)
         self.assertEqual(bob._recv_mtu, 120)
-        self.assertEqual(bob._negotiated_send_mtu, 60)
+        self.assertEqual(bob.negotiated_send_mtu, 60)
         self.assertEqual(bob._send_mtu, 60)
         self.assertEqual(mtu_ok.get('tx'), 60)
         self.assertEqual(mtu_ok.get('rx'), 120)
 
         alice._handle_mtu_ok(mtu_ok)
-        self.assertEqual(alice._negotiated_send_mtu, 120)
+        self.assertEqual(alice.negotiated_send_mtu, 120)
         self.assertEqual(alice._send_mtu, 120)
-        self.assertEqual(alice._negotiated_recv_mtu, 60)
+        self.assertEqual(alice.negotiated_recv_mtu, 60)
         self.assertEqual(alice._recv_mtu, 60)
 
         msgs = _control_messages(alice.control)
@@ -642,7 +641,7 @@ class MtuNegotiationTests(unittest.TestCase):
 
         bob._handle_mtu_ack({'t': 'tun', 'c': 'mtu_ack'})
         self.assertEqual(bob._send_mtu, 120)
-        self.assertEqual(bob._negotiated_send_mtu, 120)
+        self.assertEqual(bob.negotiated_send_mtu, 120)
         self.assertIsNone(bob._pending_send_mtu)
         self.assertTrue(bob._mtu_negotiated)
 
@@ -650,12 +649,12 @@ class MtuNegotiationTests(unittest.TestCase):
 class WindowNegotiationTests(unittest.TestCase):
     def test_handle_window_updates_send_window(self):
         tunnel = BaseTunnel(make_test_config())
-        tunnel._proposed_max_in_flight = 8
+        tunnel._proposed_window = 8
         tunnel._send_window._max_in_flight = 1
 
         tunnel._handle_window({'t': 'tun', 'c': 'window', 'size': 6})
         self.assertTrue(tunnel._window_negotiated)
-        self.assertEqual(tunnel._negotiated_window, 6)
+        self.assertEqual(tunnel.negotiated_window, 6)
         self.assertEqual(tunnel._send_window._max_in_flight, 6)
 
         msgs = _control_messages(tunnel.control)
@@ -669,7 +668,7 @@ class WindowNegotiationTests(unittest.TestCase):
 
         tunnel._handle_window_ok({'t': 'tun', 'c': 'window_ok', 'size': 5})
         self.assertTrue(tunnel._window_negotiated)
-        self.assertEqual(tunnel._negotiated_window, 5)
+        self.assertEqual(tunnel.negotiated_window, 5)
         self.assertEqual(tunnel._send_window._max_in_flight, 5)
 
 
@@ -1045,7 +1044,6 @@ class WindowEnforcementTests(unittest.TestCase):
 
         # Simulate post-negotiation state (window starts at 1 until negotiated)
         alice._send_window._max_in_flight = 2
-        alice._negotiated_window = 2
 
         # Fill the window manually with segment lists
         alice._send_window.send([Segment(0, b'pkt1')])
@@ -1061,7 +1059,6 @@ class WindowEnforcementTests(unittest.TestCase):
 
         # Simulate post-negotiation state (window starts at 1 until negotiated)
         bob._send_window._max_in_flight = 2
-        bob._negotiated_window = 2
 
         # Simulate connected state
         bob._set_state(TunnelState.CONNECTED)
@@ -1417,7 +1414,7 @@ class NegotiationTests(unittest.TestCase):
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu', 'tx': 500, 'rx': 150})
 
         # Bob should agree to rx=min(500, 200) = 200 for receiving
-        self.assertEqual(tunnel._negotiated_recv_mtu, 200)
+        self.assertEqual(tunnel.negotiated_recv_mtu, 200)
         # But _mtu_negotiated is False until Bob receives mtu_ack
         self.assertFalse(tunnel._mtu_negotiated)
         # And _send_mtu stays at default until ack
@@ -1444,8 +1441,8 @@ class NegotiationTests(unittest.TestCase):
 
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu', 'tx': 0, 'rx': -1})
 
-        self.assertEqual(tunnel._negotiated_recv_mtu, tunnel._default_mtu)
-        self.assertEqual(tunnel._negotiated_send_mtu, tunnel._default_mtu)
+        self.assertEqual(tunnel.negotiated_recv_mtu, tunnel._default_mtu)
+        self.assertEqual(tunnel.negotiated_send_mtu, tunnel._default_mtu)
         self.assertEqual(tunnel._send_mtu, tunnel._default_mtu)
         self.assertIsNone(tunnel._pending_send_mtu)
         self.assertEqual(tunnel.control.send_buf_size, 0)
@@ -1462,9 +1459,9 @@ class NegotiationTests(unittest.TestCase):
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu', 'tx': 150, 'rx': 80})
 
         # Bob should clamp send path immediately
-        self.assertEqual(tunnel._negotiated_recv_mtu, 150)
+        self.assertEqual(tunnel.negotiated_recv_mtu, 150)
         self.assertEqual(tunnel._send_mtu, 80)
-        self.assertEqual(tunnel._negotiated_send_mtu, 80)
+        self.assertEqual(tunnel.negotiated_send_mtu, 80)
         self.assertIsNone(tunnel._pending_send_mtu)
         self.assertFalse(tunnel._mtu_negotiated)
 
@@ -1482,16 +1479,16 @@ class NegotiationTests(unittest.TestCase):
         tunnel._proposed_recv_mtu = 160  # Alice recv max
 
         # Default is 100
-        self.assertEqual(tunnel._negotiated_recv_mtu, 100)
-        self.assertEqual(tunnel._negotiated_send_mtu, 100)
+        self.assertEqual(tunnel.negotiated_recv_mtu, 100)
+        self.assertEqual(tunnel.negotiated_send_mtu, 100)
         self.assertEqual(tunnel._send_mtu, 100)
 
         # Bob sends mtu_ok
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu_ok', 'tx': 150, 'rx': 140})
 
         # Alice updates both receive and send MTU immediately
-        self.assertEqual(tunnel._negotiated_recv_mtu, 150)
-        self.assertEqual(tunnel._negotiated_send_mtu, 140)
+        self.assertEqual(tunnel.negotiated_recv_mtu, 150)
+        self.assertEqual(tunnel.negotiated_send_mtu, 140)
         self.assertEqual(tunnel._send_mtu, 140)
         self.assertTrue(tunnel._mtu_negotiated)
 
@@ -1509,7 +1506,7 @@ class NegotiationTests(unittest.TestCase):
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'window', 'size': 16})
 
         # Bob should agree to min(16, 8, 16) = 8
-        self.assertEqual(tunnel._negotiated_window, 8)
+        self.assertEqual(tunnel.negotiated_window, 8)
         self.assertTrue(tunnel._window_negotiated)
         self.assertEqual(tunnel._send_window._max_in_flight, 8)
 
@@ -1526,7 +1523,7 @@ class NegotiationTests(unittest.TestCase):
 
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'window', 'size': 0})
 
-        self.assertEqual(tunnel._negotiated_window, tunnel._default_window)
+        self.assertEqual(tunnel.negotiated_window, tunnel._default_window)
         self.assertEqual(tunnel._send_window._max_in_flight, tunnel._default_window)
         self.assertEqual(tunnel.control.send_buf_size, 0)
 
@@ -1537,13 +1534,13 @@ class NegotiationTests(unittest.TestCase):
         tunnel = BaseTunnel(make_test_config(), is_initiator=True)
 
         # Default is 1
-        self.assertEqual(tunnel._negotiated_window, 1)
+        self.assertEqual(tunnel.negotiated_window, 1)
         self.assertEqual(tunnel._send_window._max_in_flight, 1)
 
         # Bob sends window_ok
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'window_ok', 'size': 12})
 
-        self.assertEqual(tunnel._negotiated_window, 12)
+        self.assertEqual(tunnel.negotiated_window, 12)
         self.assertTrue(tunnel._window_negotiated)
         self.assertEqual(tunnel._send_window._max_in_flight, 12)
 
@@ -1554,9 +1551,9 @@ class NegotiationTests(unittest.TestCase):
         tunnel = BaseTunnel(make_test_config())
 
         # Pre-negotiation defaults
-        self.assertEqual(tunnel._negotiated_send_mtu, 100)
-        self.assertEqual(tunnel._negotiated_recv_mtu, 100)
-        self.assertEqual(tunnel._negotiated_window, 1)
+        self.assertEqual(tunnel.negotiated_send_mtu, 100)
+        self.assertEqual(tunnel.negotiated_recv_mtu, 100)
+        self.assertEqual(tunnel.negotiated_window, 1)
         self.assertEqual(tunnel._send_window._max_in_flight, 1)
         self.assertFalse(tunnel._mtu_negotiated)
         self.assertFalse(tunnel._window_negotiated)

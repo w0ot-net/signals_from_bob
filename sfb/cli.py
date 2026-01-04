@@ -275,12 +275,12 @@ def add_tls_bump_client_args(parser, config):
         help='Base domain for TLS bump SNI encoding (required)'
     )
     parser.add_argument(
-        '--tls-bump-http-proxy', '--tls-http-proxy',
+        '--tls-http-proxy',
         default=config.tls_bump_http_proxy,
         help='HTTP CONNECT proxy host:port for TLS bump client'
     )
     parser.add_argument(
-        '--tls-bump-http-proxy-auth', '--tls-http-proxy-auth',
+        '--tls-http-proxy-auth',
         default=config.tls_bump_http_proxy_auth,
         help='HTTP proxy Basic auth user:pass for TLS bump client (optional)'
     )
@@ -578,9 +578,9 @@ def create_config(args):
         config_kwargs['tls_bump_base_domain'] = getattr(args, 'tls_bump_base_domain', None)
         if args.role == 'client':
             config_kwargs['tls_bump_target'] = getattr(args, 'target', None)
-            config_kwargs['tls_bump_http_proxy'] = getattr(args, 'tls_bump_http_proxy', None)
+            config_kwargs['tls_bump_http_proxy'] = getattr(args, 'tls_http_proxy', None)
             config_kwargs['tls_bump_http_proxy_auth'] = getattr(
-                args, 'tls_bump_http_proxy_auth', None)
+                args, 'tls_http_proxy_auth', None)
             config_kwargs['tls_bump_request_path'] = getattr(
                 args, 'tls_bump_request_path', None)
             config_kwargs['tls_bump_response_mode'] = getattr(

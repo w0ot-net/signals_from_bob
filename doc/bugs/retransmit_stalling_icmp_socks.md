@@ -211,6 +211,19 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   13.6% of Bob events (46/339), indicating the cumulative-ACK blocker is often
   not the oldest-by-send-time packet, especially on Bob.
 
+## Latest findings (2026-01-04, default logs snapshot)
+- Sources: `logs/client_log.db` (Alice) and `logs/server_log.db` (Bob).
+- Alice `tunnel.send_blocked`: 13785 (all `reason=pacer`) and
+  `tunnel.send_window_distance`: 3142 in the latest window.
+- Alice distance metrics remain pinned at 128 with low `unacked` (4-5) and high
+  `buffered` (123-124). `missing_seq` equals `last_cum_ack` with
+  `missing_age` ~0.05-0.07s and `missing_retransmit_count` 1 in recent samples.
+- Bob shows bursts of `tunnel.deliver_segments` (200-315 events/sec) with
+  sequential `seq` values; `tunnel.packet_recv` counts per second track the
+  same cadence, indicating delivery in bursts rather than a steady stream.
+- No `recv_overflow` or `sock.relay_error` events in the latest logs; Bob's
+  SOCKS relay stops cleanly (`stop_event`) after ~15.8 MB transferred.
+
 ## Next steps from the latest logs
 - If console output still shows `tunnel.send_window_distance` spam, capture DB
   logs with a profile that includes it on both sides; the latest Alice DB had

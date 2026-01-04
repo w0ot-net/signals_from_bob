@@ -242,7 +242,13 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         start = time_provider.now()
                         try:
                             ready = channel.wait_send_space(timeout=backoff)
-                        except ChannelError:
+                        except ChannelError as exc:
+                            if exc.code in ('not_open', 'closed', 'send_closed'):
+                                exit_reason = 'channel_closed'
+                            else:
+                                exit_reason = 'channel_wait_error'
+                                exit_error = exc
+                                fatal_error = True
                             break
                         wait_time += time_provider.now() - start
                         if not ready:
@@ -279,7 +285,13 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 start = time_provider.now()
                 try:
                     ready = channel.wait_send_space(timeout=backoff)
-                except ChannelError:
+                except ChannelError as exc:
+                    if exc.code in ('not_open', 'closed', 'send_closed'):
+                        exit_reason = 'channel_closed'
+                    else:
+                        exit_reason = 'channel_wait_error'
+                        exit_error = exc
+                        fatal_error = True
                     break
                 wait_time += time_provider.now() - start
                 if not ready:
@@ -642,13 +654,15 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     if sent:
                         bytes_sent += sent
                         total_bytes_sent += sent
+                        outbound_size -= sent
+                        if outbound_size < 0:
+                            outbound_size = 0
                         last_send = time_provider.now()
                         progress = True
                         if sent < len(chunk) - outbound_offset:
                             outbound_offset += sent
                         else:
                             outbound.popleft()
-                            outbound_size -= len(chunk)
                             outbound_offset = 0
                             if outbound_size == 0:
                                 last_send = None

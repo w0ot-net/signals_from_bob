@@ -140,9 +140,6 @@ class BaseTunnel(object):
         self._last_ack_progress_time = None
         self._last_cum_ack = None
         self._last_cum_ack_time = None
-        self._last_sack = None
-        self._last_sack_ack = None
-        self._last_sack_progress_ack = None
 
         # Transport MTU for receive (payload + header)
         self._max_packet_size = self._default_mtu + PACKET_HEADER_SIZE
@@ -691,20 +688,16 @@ class BaseTunnel(object):
         )
         prev_cum_ack = self._last_cum_ack
         prev_cum_ack_time = self._last_cum_ack_time
-        prev_sack = self._last_sack
-        prev_sack_ack = self._last_sack_ack
         ack_advanced = False
         if self._last_cum_ack is None or seq_gt(packet.ack, self._last_cum_ack):
             self._last_cum_ack = packet.ack
             self._last_cum_ack_time = now
             ack_advanced = True
-        self._last_sack = packet.sack
-        self._last_sack_ack = packet.ack
-        if ack_advanced:
-            self._last_sack_progress_ack = None
-        elif packet.sack != 0:
-            if prev_sack_ack != packet.ack or prev_sack != packet.sack:
-                self._last_sack_progress_ack = packet.ack
+        self._send_window.update_sack_progress(
+            packet.ack,
+            packet.sack,
+            ack_advanced,
+        )
 
         unacked_before = self._send_window.unacked_count
         rtt_samples, acked_count, data_acked_count = self._send_window.process_ack(

@@ -47,6 +47,9 @@ class SendWindow(object):
         self._ack_miss_last_time = None
         self._ack_miss_last_ack = None
         self._ack_miss_last_sack = None
+        self._last_sack = None
+        self._last_sack_ack = None
+        self._last_sack_progress_ack = None
         self._last_keepalive_drop_seq = None
         self._last_keepalive_drop_time = None
         self._last_keepalive_drop_reason = None
@@ -130,6 +133,27 @@ class SendWindow(object):
         data_acked_count += data_acked_delta
 
         return (rtt_samples, acked_count, data_acked_count)
+
+    def update_sack_progress(self, ack, sack, ack_advanced):
+        prev_sack = self._last_sack
+        prev_sack_ack = self._last_sack_ack
+        self._last_sack = sack
+        self._last_sack_ack = ack
+        if ack_advanced:
+            self._last_sack_progress_ack = None
+            return
+        if sack != 0:
+            if prev_sack_ack != ack or prev_sack != sack:
+                self._last_sack_progress_ack = ack
+
+    def sack_progress_ready(self, cum_ack):
+        if cum_ack is None:
+            return False
+        if self._last_sack is None or self._last_sack == 0:
+            return False
+        if self._last_sack_progress_ack is None:
+            return False
+        return self._last_sack_progress_ack == cum_ack
 
     def get_retransmits(self, rto_sec, now=None, max_count=None):
         """

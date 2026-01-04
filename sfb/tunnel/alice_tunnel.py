@@ -859,13 +859,7 @@ class AliceTunnel(BaseTunnel):
         return True
 
     def _fast_retransmit_sack_ready(self):
-        if self._last_cum_ack is None:
-            return False
-        if self._last_sack is None or self._last_sack == 0:
-            return False
-        if self._last_sack_progress_ack is None:
-            return False
-        return self._last_sack_progress_ack == self._last_cum_ack
+        return self._send_window.sack_progress_ready(self._last_cum_ack)
 
     def _prune_fast_retransmit_counts(self):
         if not self._fast_retransmit_counts:

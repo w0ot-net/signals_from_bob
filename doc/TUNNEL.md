@@ -85,7 +85,8 @@ and sends new packets using `send()`/`recv()`:
    └─▶ Decrypt, decode, update send_window, deliver segments
 
 2. Check retransmit timers
-   └─▶ If RTO expired for any unacked packet, retransmit (rebuild with fresh ack/sack)
+   ├─▶ If RTO expired for any unacked packet, retransmit (rebuild with fresh ack/sack)
+   └─▶ If SACK progress shows a missing cumulative ACK hole, fast retransmit it
 
 3. Send new packets (while capacity remains)
    ├─▶ Collect outgoing segments
@@ -153,6 +154,8 @@ RTO  = 2 * SRTT                         (clamped to [MIN_RTO, MAX_RTO])
 Alice checks `send_window.get_retransmits(rto)` each poll cycle and resends
 any packets whose time since last send exceeds RTO. Retransmits reuse the
 original sequence number and are rebuilt with current ack/sack.
+If SACK progress is observed while the cumulative ACK is stalled, Alice can
+fast retransmit the missing sequence before the RTO expires.
 
 Retransmits are gated on cumulative ACK silence (time since ACK advanced),
 not on response silence. Responses without ACK progress do not defer RTO

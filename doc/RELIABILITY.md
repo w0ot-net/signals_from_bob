@@ -50,8 +50,9 @@ not occur under normal operation.
 If a packet arrives that would exceed the buffer (e.g., due to implementation
 mismatch or misbehaving peer), drop the incoming packet silently. Do not drop
 buffered packets, as this would create unrecoverable gaps. The sender will
-retransmit dropped packets once they reach the RTO, and SACK ensures already
-acked packets are skipped during retransmit scans.
+retransmit dropped packets once they reach the RTO (Alice may also fast
+retransmit earlier when SACK indicates a hole), and SACK ensures already acked
+packets are skipped during retransmit scans.
 
 ---
 
@@ -62,8 +63,9 @@ acked packets are skipped during retransmit scans.
   Window Negotiation in PROTOCOL.md). Maximum value is 256.
 - On ACK or SACK, remove acknowledged packets from the queue.
 - If a packet remains unacked past the retransmission timeout (RTO),
-  retransmit it. Retransmits reuse an existing sequence number and do not
-  create new outstanding slots.
+  retransmit it. Alice may also fast retransmit earlier when SACK progress
+  indicates a missing cumulative ACK hole. Retransmits reuse an existing
+  sequence number and do not create new outstanding slots.
 
 ---
 

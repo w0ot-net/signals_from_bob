@@ -19,7 +19,8 @@ Primary implementation locations:
 - `sfb/config.py` and `sfb/protocol/constants.py`: default values and limits.
 
 Context: per `doc/ASYMMETRY.md`, Alice is timer-driven and initiates transport
-polls; Bob only responds to polls. Alice retransmits based on timers and RTT.
+polls; Bob only responds to polls. Alice retransmits based on timers, RTT,
+and SACK-driven fast retransmit for missing ACK holes.
 
 ## Time Source And Units
 
@@ -68,9 +69,10 @@ Each `tick()` in `AliceTunnel` executes in this order:
 2. If no responses and transport pending is high, wait up to 50ms for a response.
 3. Reset packet-count timeout if any valid response was decoded.
 4. Check packet-count timeout (disconnect if exceeded).
-5. Scan RTO retransmits and send them if no recent responses arrived within
-   the current RTO window.
-6. Send new packets or keepalive polls if allowed.
+5. Scan RTO retransmits and send them if the cumulative ACK has not advanced
+   within the current RTO window.
+6. Attempt fast retransmit for a SACK hole if the window distance is exceeded.
+7. Send new packets or keepalive polls if allowed.
 
 Retransmit scanning happens before new sends, so expired packets get priority.
 Tick cadence is controlled by `tunnel_tick_sleep` (in `run()` and the
@@ -90,7 +92,7 @@ whose `now - send_time >= rto_sec`. Details:
 - Does not mutate send_time; only `mark_retransmit()` updates send_time.
 - Includes keepalive-only packets and control-only packets (no segment filter).
 - Retransmit scanning is skipped if responses arrived within the current RTO
-  window (`now - last_recv_time < rto_sec`).
+  window (`ack_silence < rto_sec` based on the last cumulative ACK time).
 
 ### Sending
 
@@ -112,6 +114,7 @@ For each candidate:
   - Increments `_packets_sent`, `_bytes_sent`, and `_packets_since_response`.
   - Logs `tunnel.retransmit` and `tunnel.packet_send`.
   - The `tunnel.retransmit` reason is `rto` for timer-driven retransmits.
+    Fast retransmit uses reason `fast_retransmit`.
 
 If the rate limiter denies `consume()` or no send permit is available, the
 retransmit is skipped (no backoff, no send_time update).
@@ -122,6 +125,26 @@ next keepalive poll uses a fresh sequence number.
 
 Retransmits reuse an existing sequence number and do not consume a new window
 slot. Retransmissions are allowed even when the send window is full.
+
+## Fast Retransmit (SACK Hole)
+
+Fast retransmit is a targeted resend of the missing cumulative ACK hole when
+SACK progress is observed and the window distance is stalled. It runs after
+the RTO scan in each tick.
+
+Trigger conditions:
+- `ack_silence < rto_sec` (cumulative ACK recently advanced).
+- SACK progress observed while the cumulative ACK is unchanged.
+- Send window distance exceeded; the missing sequence is `last_cum_ack`.
+- Missing seq is still unacked and its age exceeds
+  `rto_sec * tunnel_fast_retransmit_min_age_ratio`.
+- Per-seq fast retransmit count is below `tunnel_fast_retransmit_max_per_seq`.
+
+Send behavior:
+- Uses `_send_retransmit(..., reason='fast_retransmit')`.
+- Respects retransmit budget and rate limiter.
+- Fast retransmit counts are pruned when a seq leaves the unacked set.
+- Keepalive holes may be fast retransmitted; only RTO drops keepalive candidates.
 
 ## RTT And RTO Estimation (Alice Only)
 
@@ -190,7 +213,7 @@ Key structured events emitted during retransmit/ACK handling:
 - `tunnel.retransmit_scan`: RTO scan summary (candidate count, RTO, ACK silence).
 - `tunnel.retransmit_skip`: includes reasons like `ack_silence`.
 - `tunnel.retransmit`: retransmit send details (seq, flags, ack/sack, bytes,
-  reason, previous send age/count).
+  reason, previous send age/count). Reasons include `rto` and `fast_retransmit`.
 - `tunnel.keepalive_drop`: keepalive drops (`window_full`, `rto_keepalive`).
 - `tunnel.ack_detail`: ACK processing detail (acked counts, RTT samples, send
   and recv window snapshots).
@@ -258,12 +281,17 @@ Retransmit-related settings in `Config`:
 - `protocol_max_rto_ms` (default 10000)
 - `tunnel_timeout_packets` (default 257)
 - `tunnel_retransmit_cap` (default 2)
+- `tunnel_fast_retransmit_enabled` (default True)
+- `tunnel_fast_retransmit_min_age_ratio` (default 0.25)
+- `tunnel_fast_retransmit_max_per_seq` (default 2)
 - `tunnel_keepalive_interval` (default 1.0)
 - `tunnel_pong_grace_polls` (default 5, Alice floors to 2 * max_in_flight)
 - `tunnel_send_rate` (default 0.0, unlimited)
 - `tunnel_send_burst` (default None, equals rate)
 - `tunnel_adaptive_pacing_enabled` (default True)
 - `tunnel_pace_rtt_floor_ms` (default 5.0)
+- `tunnel_poll_min_interval` (default 0.0005)
+- `tunnel_poll_rtt_ratio` (default 0.75)
 - `non_blocking_poll_timeout` (default 0.0001)
 - `tunnel_initial_window` (default 1)
 - `max_in_flight` (default 128)
@@ -283,4 +311,5 @@ Protocol limits:
   updates send_time and retransmit_count.
 - RTO backoff is global; repeated retransmits without new RTT samples can
   push the RTO to the max clamp.
-- Alice retransmits only on RTO; there is no fast retransmit or fast recovery.
+- Alice can fast retransmit a single missing sequence when SACK progress is
+  observed; there is no fast recovery.

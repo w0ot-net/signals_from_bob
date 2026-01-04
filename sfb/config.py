@@ -105,9 +105,9 @@ class Config:
     # Alice: enable fast retransmit for SACK holes
     tunnel_fast_retransmit_enabled: bool = True
     # Alice: minimum age ratio of RTO before fast retransmit
-    tunnel_fast_retransmit_min_age_ratio: float = 0.5
+    tunnel_fast_retransmit_min_age_ratio: float = 0.25
     # Alice: max fast retransmits per sequence number
-    tunnel_fast_retransmit_max_per_seq: int = 1
+    tunnel_fast_retransmit_max_per_seq: int = 2
     # Enable reliability stats tracking
     tunnel_stats_enabled: bool = False
     # Enable dynamic window growth on Alice
@@ -125,11 +125,11 @@ class Config:
     # Bob: poll timeout for background loop (seconds)
     tunnel_bob_poll_interval_bg: float = 0.1
     # Bob: min seconds between retransmits of the oldest unacked packet
-    tunnel_bob_retransmit_min_interval: float = 0.05
+    tunnel_bob_retransmit_min_interval: float = 0.02
     # Bob: max seconds between retransmits of the oldest unacked packet
     tunnel_bob_retransmit_max_interval: float = 3.0
     # Bob: multiplier for poll EWMA to derive retransmit cooldown
-    tunnel_bob_retransmit_poll_factor: float = 4.0
+    tunnel_bob_retransmit_poll_factor: float = 2.0
     # Bob: EWMA alpha for poll interval smoothing (0-1)
     tunnel_bob_poll_ewma_alpha: float = 0.2
     # Alice: sleep between ticks when running (seconds)
@@ -159,11 +159,11 @@ class Config:
     # Alice: poll pacing enabled
     tunnel_poll_pacing_enabled: bool = True
     # Alice: minimum seconds between polls
-    tunnel_poll_min_interval: float = 0.001
+    tunnel_poll_min_interval: float = 0.0005
     # Alice: maximum seconds between polls
     tunnel_poll_max_interval: float = 1.0
     # Alice: fraction of RTT to distribute target inflight
-    tunnel_poll_rtt_ratio: float = 1.0
+    tunnel_poll_rtt_ratio: float = 0.75
     # Bob: poll interval while waiting for connection (seconds)
     tunnel_connect_poll_interval: float = 0.1
     # Small timeout for "non-blocking" polls to prevent busy loops (seconds)

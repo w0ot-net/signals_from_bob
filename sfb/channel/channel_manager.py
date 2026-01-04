@@ -131,6 +131,28 @@ class ChannelManager(object):
             total += channel.send_buf_size
         return total
 
+    def update_channel_buffer_limits(self, max_send_buf=None, max_recv_buf=None):
+        """
+        Increase channel buffer limits for all channels and future opens.
+
+        Args:
+            max_send_buf: new max send buffer size (bytes)
+            max_recv_buf: new max receive buffer size (bytes)
+        """
+        if max_send_buf is None and max_recv_buf is None:
+            return
+        if max_send_buf is not None and max_send_buf > self._config.channel_max_send_buf:
+            self._config.channel_max_send_buf = max_send_buf
+        if max_recv_buf is not None and max_recv_buf > self._config.channel_max_recv_buf:
+            self._config.channel_max_recv_buf = max_recv_buf
+        with self._lock:
+            channels = list(self._channels.values())
+        for channel in channels:
+            if max_send_buf is not None:
+                channel.set_max_send_buf(max_send_buf)
+            if max_recv_buf is not None:
+                channel.set_max_recv_buf(max_recv_buf)
+
     def _register_channel(self, channel):
         with self._lock:
             self._register_channel_locked(channel)

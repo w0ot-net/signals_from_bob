@@ -874,6 +874,56 @@ class BaseTunnel(object):
         """Legacy ping/pong handler (ignored)."""
         return
 
+    def _maybe_resize_channel_buffers(self, reason):
+        if not self._window_negotiated:
+            return
+        window = self.negotiated_window
+        if not isinstance(window, integer_types) or window < 1:
+            return
+        send_mtu = self._send_mtu
+        recv_mtu = self._recv_mtu
+        if (not isinstance(send_mtu, integer_types) or send_mtu < 1 or
+                not isinstance(recv_mtu, integer_types) or recv_mtu < 1):
+            return
+
+        scale = 4
+        min_buf = 1024
+        desired_send = send_mtu * window * scale
+        desired_recv = recv_mtu * window * scale
+        if desired_send < min_buf:
+            desired_send = min_buf
+        if desired_recv < min_buf:
+            desired_recv = min_buf
+
+        prev_send = self._config.channel_max_send_buf
+        prev_recv = self._config.channel_max_recv_buf
+        new_send = max(prev_send, desired_send)
+        new_recv = max(prev_recv, desired_recv)
+        if new_send == prev_send and new_recv == prev_recv:
+            return
+
+        self._channel_manager.update_channel_buffer_limits(
+            max_send_buf=new_send,
+            max_recv_buf=new_recv,
+        )
+        log_event(
+            self._logger,
+            logging.INFO,
+            'channel.buffer_resize',
+            'Channel buffers resized',
+            lambda: {
+                'reason': reason,
+                'send_mtu': send_mtu,
+                'recv_mtu': recv_mtu,
+                'max_in_flight': window,
+                'prev_send_buf': prev_send,
+                'prev_recv_buf': prev_recv,
+                'new_send_buf': new_send,
+                'new_recv_buf': new_recv,
+                'side': 'alice' if self._is_initiator else 'bob',
+            },
+        )
+
     def _handle_mtu(self, msg):
         """
         Handle MTU negotiation request (Bob receives from Alice).
@@ -938,6 +988,7 @@ class BaseTunnel(object):
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
+        self._maybe_resize_channel_buffers('mtu')
 
     def _handle_mtu_ok(self, msg):
         """
@@ -984,6 +1035,7 @@ class BaseTunnel(object):
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
+        self._maybe_resize_channel_buffers('mtu_ok')
 
     def _handle_mtu_ack(self, msg):
         """
@@ -1006,6 +1058,7 @@ class BaseTunnel(object):
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
+        self._maybe_resize_channel_buffers('mtu_ack')
 
     def _handle_window(self, msg):
         """
@@ -1058,6 +1111,7 @@ class BaseTunnel(object):
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
+        self._maybe_resize_channel_buffers('window')
 
     def _handle_window_ok(self, msg):
         """
@@ -1124,6 +1178,7 @@ class BaseTunnel(object):
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
+        self._maybe_resize_channel_buffers('window_ok')
 
     def _collect_segments(self, max_payload, keepalive_data=None,
                           return_pending=False, control_only=False):

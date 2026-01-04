@@ -166,6 +166,50 @@ class Channel(object):
         """Error code if channel closed with error."""
         return self._error_code
 
+    def set_max_send_buf(self, size):
+        """
+        Increase the send buffer limit.
+
+        Args:
+            size: new max send buffer size (bytes)
+
+        Returns:
+            bool: True if updated, False otherwise
+        """
+        if size is None:
+            return False
+        with self._lock:
+            if self._max_send_buf is None:
+                return False
+            if size <= self._max_send_buf:
+                return False
+            self._max_send_buf = size
+            if self._send_buf_size < size:
+                self._send_space_event.set()
+            else:
+                self._send_space_event.clear()
+        return True
+
+    def set_max_recv_buf(self, size):
+        """
+        Increase the receive buffer limit.
+
+        Args:
+            size: new max receive buffer size (bytes)
+
+        Returns:
+            bool: True if updated, False otherwise
+        """
+        if size is None:
+            return False
+        with self._lock:
+            if self._max_recv_buf is None:
+                return False
+            if size <= self._max_recv_buf:
+                return False
+            self._max_recv_buf = size
+        return True
+
     def write(self, data):
         """
         Queue data for sending over the tunnel.

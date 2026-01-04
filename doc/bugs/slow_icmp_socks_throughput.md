@@ -238,3 +238,15 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Takeaways:
   - Feedback-driven pacing reduced inflight to low teens during heavy window-distance stalls.
   - To quantify the 10% throughput dip, enable `tunnel_pacer_summary_interval=1.0` and compare send_rate deltas alongside blocked counters.
+
+## Log Review: Feedback-Driven Pacing (Jan 4, 2026, latest)
+- Logs: `logs/client_log.db`, `logs/server_log.db`.
+- Pacer feedback target:
+  - `tunnel.pacer_target` shows `target_mode=feedback` with `ack_rate_ewma` ~10-75 pps and `srtt_ms` ~95-105, so feedback pipe ~1-7 packets (gain 1.0).
+  - Example: `ack_rate_ewma=75.17`, `srtt_ms=102.8` -> `feedback_target=7`.
+- Block penalty collapse:
+  - `tunnel.pacer_adjust` shows `block_penalty` rising to 6 on `window_distance`, reducing `target_inflight` from 7 to 1 (`block_target=1`).
+- Distance guard:
+  - `tunnel.send_window_distance` repeats with `distance=5`, `distance_limit=1`, `effective_cap=1`, `unacked=1`, `buffered=4`, so Alice is hard-stalled by the cap.
+- Takeaways:
+  - Feedback-driven pacing is active but collapses the effective cap to 1 due to low ack-rate feedback plus window-distance block penalties, explaining the 10% throughput.

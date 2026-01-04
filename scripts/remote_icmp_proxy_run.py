@@ -459,8 +459,8 @@ def parse_args():
         help='Remote SSH user (default: root)'
     )
     parser.add_argument(
-        '--remote-host', default='149.28.195.216',
-        help='Remote SSH host (default: 149.28.195.216)'
+        '--remote-host', required=True,
+        help='Remote SSH host (required)'
     )
     parser.add_argument(
         '--remote-root', default='/root/signals_from_bob',

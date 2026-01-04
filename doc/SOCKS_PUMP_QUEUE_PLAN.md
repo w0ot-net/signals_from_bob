@@ -34,6 +34,11 @@ backpressure.
    - `get()` blocks while empty; returns (data, closed) or raises on closed.
    - `close()` wakes all waiters; used to signal EOF and shutdown.
    - Track current queue size for stats.
+   - Add chunk coalescing on enqueue: if the last chunk + new data stays under
+     a `coalesce_max` threshold (likely `socks_relay_buffer_size`), append to
+     reduce per-item overhead.
+   - Add a `max_items` cap (e.g., 2x `max_bytes / socks_relay_buffer_size`) to
+     avoid unbounded chunk counts when upstream sends many tiny fragments.
 2. Rework `pump_channel_to_socket` into a coordinator:
    - Start a reader thread that blocks on `channel.read(read_size, timeout=None)`.
    - On data, `put()` into the queue (blocks when full).

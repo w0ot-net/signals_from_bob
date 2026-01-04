@@ -383,8 +383,13 @@ def _decode_response_payload(text, max_payload_len=None):
     payload_len = struct.unpack('!H', decoded[1:3])[0]
     checksum = struct.unpack('!H', decoded[3:5])[0]
     payload = decoded[SFB_BUMP_RESPONSE_HEADER_LEN:]
-    if payload_len != len(payload):
+    if payload_len > len(payload):
         raise ValueError('Response length mismatch')
+    if payload_len < len(payload):
+        extra = payload[payload_len:]
+        if extra.rstrip(b'\x00'):
+            raise ValueError('Response padding mismatch')
+        payload = payload[:payload_len]
     if max_payload_len is not None and payload_len > max_payload_len:
         raise ValueError('Response payload too large')
     if checksum != _response_checksum(payload):

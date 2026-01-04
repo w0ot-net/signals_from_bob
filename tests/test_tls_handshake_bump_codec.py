@@ -7,6 +7,9 @@ import struct
 import unittest
 
 from sfb.transport.tls_handshake_bump import tls_handshake_bump_codec as codec
+from sfb.transport.tls_handshake_bump import (
+    tls_handshake_bump_cert_template as cert_template,
+)
 
 
 def _pack_u24(value):
@@ -68,11 +71,23 @@ class TlsHandshakeBumpCodecTests(unittest.TestCase):
         decoded = codec.decode_cn_value(cn)
         self.assertEqual(decoded, payload)
 
+    def test_cn_padded_roundtrip(self):
+        payload = b'pong'
+        cn = codec.encode_cn_value(payload, max_len=cert_template.CN_LEN)
+        padded = cn + ('a' * (cert_template.CN_LEN - len(cn)))
+        decoded = codec.decode_cn_value(padded)
+        self.assertEqual(decoded, payload)
+
     def test_scan_response_payload(self):
         payload = b'pingpong'
-        cn = codec.encode_cn_value(payload, max_len=128)
-        buffer_bytes = b'xx' + cn.encode('ascii') + b'yy'
-        decoded = codec.scan_response_payload(buffer_bytes, max_payload_len=64)
+        cn = codec.encode_cn_value(payload, max_len=cert_template.CN_LEN)
+        padded = cn + ('a' * (cert_template.CN_LEN - len(cn)))
+        buffer_bytes = b'xx' + padded.encode('ascii') + b'yy'
+        decoded = codec.scan_response_payload(
+            buffer_bytes,
+            max_payload_len=64,
+            max_token_len=cert_template.CN_LEN,
+        )
         self.assertEqual(decoded, payload)
 
     def test_response_checksum_reject(self):

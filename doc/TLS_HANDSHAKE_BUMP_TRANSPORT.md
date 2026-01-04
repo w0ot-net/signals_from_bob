@@ -50,7 +50,8 @@ Example:
 ### CN (Bob -> Alice)
 
 - Payload uses the response frame (length + checksum), then base32-encoded.
-- The CN length cap is configured by `tls_bump_max_cn_len`.
+- The CN token is padded with base32 "a" to a fixed length defined by the
+  in-memory certificate template; the decoder tolerates trailing zero bytes.
 
 ## MTU and Asymmetry
 
@@ -90,20 +91,12 @@ the certificate so the proxy can read CN and fail validation.
 
 ## Certificates
 
-Bob expects certificates in `tls_bump_cert_dir` with filenames keyed by CN:
-
-- `<cn>.der` (preferred, raw DER bytes)
-- `<cn>.pem` (base64 PEM, converted to DER at load time)
-
-If `tls_bump_cert_helper` is set, the server will invoke it when a cert is
-missing:
-
-```
-<helper_path> <cn> <out_der_path>
-```
-
-An example helper is provided in `scripts/tls_bump_cert_helper.py`
-(requires `openssl` in PATH).
+Bob builds a DER certificate in memory from a fixed template that contains a
+CN placeholder. The server pads the encoded CN to the template length and
+patches the placeholder before sending the handshake record. No certificate
+directory or helper is used at runtime. The template CN length is 96 to keep
+response MTU above the packet header size while staying within common proxy
+page limits.
 
 ## Configuration Summary
 
@@ -114,13 +107,10 @@ Client:
 - `tls_bump_request_path` (default `/`)
 - `tls_bump_response_mode` (`scan` or `regex`, default `scan` if no regex)
 - `tls_bump_response_regex` (capture group for base32 token, optional)
-- `tls_bump_max_cn_len` (CN length cap)
 
 Server:
 - `tls_bump_listen_addr`
 - `tls_bump_base_domain` (default `example.com`, must match client)
-- `tls_bump_cert_dir` (required)
-- `tls_bump_cert_helper` (optional)
 - `tls_bump_max_clienthello_bytes` (record size cap)
 
 ## Limitations

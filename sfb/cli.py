@@ -300,11 +300,6 @@ def add_tls_bump_client_args(parser, config):
         default=config.tls_bump_response_regex,
         help='Regex with capture group for base32 response token (optional)'
     )
-    parser.add_argument(
-        '--tls-bump-max-cn-len', type=int,
-        default=config.tls_bump_max_cn_len,
-        help='Max CN base32 length (default: %s)' % config.tls_bump_max_cn_len
-    )
 
 
 def add_tls_bump_server_args(parser, config):
@@ -318,21 +313,6 @@ def add_tls_bump_server_args(parser, config):
         '--tls-bump-base-domain',
         default=config.tls_bump_base_domain,
         help='Base domain for TLS bump SNI encoding (required)'
-    )
-    parser.add_argument(
-        '--tls-bump-cert-dir',
-        default=config.tls_bump_cert_dir,
-        help='Directory with CN-keyed certs (DER or PEM)'
-    )
-    parser.add_argument(
-        '--tls-bump-cert-helper',
-        default=config.tls_bump_cert_helper,
-        help='Optional helper to generate certs'
-    )
-    parser.add_argument(
-        '--tls-bump-max-cn-len', type=int,
-        default=config.tls_bump_max_cn_len,
-        help='Max CN base32 length (default: %s)' % config.tls_bump_max_cn_len
     )
     parser.add_argument(
         '--tls-bump-max-clienthello-bytes', type=int,
@@ -596,7 +576,6 @@ def create_config(args):
             config_kwargs['tls_max_serverhello_bytes'] = getattr(args, 'tls_mtu', None)
     elif args.transport == 'tls_handshake_bump':
         config_kwargs['tls_bump_base_domain'] = getattr(args, 'tls_bump_base_domain', None)
-        config_kwargs['tls_bump_max_cn_len'] = getattr(args, 'tls_bump_max_cn_len', None)
         if args.role == 'client':
             config_kwargs['tls_bump_target'] = getattr(args, 'target', None)
             config_kwargs['tls_bump_http_proxy'] = getattr(args, 'tls_bump_http_proxy', None)
@@ -611,9 +590,6 @@ def create_config(args):
         else:
             config_kwargs['tls_bump_listen_addr'] = getattr(
                 args, 'tls_bump_listen_addr', None)
-            config_kwargs['tls_bump_cert_dir'] = getattr(args, 'tls_bump_cert_dir', None)
-            config_kwargs['tls_bump_cert_helper'] = getattr(
-                args, 'tls_bump_cert_helper', None)
             config_kwargs['tls_bump_max_clienthello_bytes'] = getattr(
                 args, 'tls_bump_max_clienthello_bytes', None)
 

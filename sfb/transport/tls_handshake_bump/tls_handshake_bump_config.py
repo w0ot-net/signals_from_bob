@@ -10,6 +10,7 @@ import re
 from ...compat import text_type
 from ...protocol.constants import PACKET_HEADER_SIZE
 from ..transport_base import TransportError
+from . import tls_handshake_bump_cert_template as cert_template
 from . import tls_handshake_bump_codec as codec
 
 
@@ -43,9 +44,7 @@ def validate_tls_bump_config(config, role):
         raise TransportError('tls_bump_pending_timeout must be >= connect/handshake')
 
     base_domain = _validate_base_domain(config.tls_bump_base_domain)
-    cn_max_len = _require_positive_int(
-        config.tls_bump_max_cn_len, 'tls_bump_max_cn_len'
-    )
+    cn_max_len = cert_template.CN_LEN
 
     sni_payload_cap = codec.calc_sni_payload_cap(base_domain)
     cn_payload_cap = codec.calc_cn_payload_cap(cn_max_len)
@@ -87,8 +86,6 @@ def validate_tls_bump_config(config, role):
             response_regex = _compile_response_regex(response_regex_text)
     else:
         _require_host_port(config.tls_bump_listen_addr, 'tls_bump_listen_addr')
-        if not config.tls_bump_cert_dir:
-            raise TransportError('tls_bump_cert_dir required for server')
 
     return {
         'pending_timeout': pending_timeout,

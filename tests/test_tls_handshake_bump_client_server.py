@@ -7,6 +7,9 @@ import unittest
 
 from sfb.config import Config
 from sfb.transport.tls_handshake_bump import tls_handshake_bump_codec as codec
+from sfb.transport.tls_handshake_bump import (
+    tls_handshake_bump_cert_template as cert_template,
+)
 from sfb.transport.tls_handshake_bump.tls_handshake_bump_client import (
     TlsHandshakeBumpClient,
 )
@@ -54,7 +57,8 @@ class TlsHandshakeBumpClientServerTests(unittest.TestCase):
         )
         client = TlsHandshakeBumpClient(client_cfg)
         payload = b'ping'
-        cn_value = codec.encode_cn_value(payload, max_len=client_cfg.tls_bump_max_cn_len)
+        cn_value = codec.encode_cn_value(payload, max_len=cert_template.CN_LEN)
+        cn_value = cn_value + ('a' * (cert_template.CN_LEN - len(cn_value)))
         body = (
             b'<html><body>Self-signed SSL Certificate: /CN=' +
             cn_value.encode('ascii') +

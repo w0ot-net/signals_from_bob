@@ -76,3 +76,11 @@ defined in `TLS_HANDSHAKE_BUMP_AUTODETECT_PLAN.md`.
 - Run `python3 -m unittest tests.test_tls_handshake_bump_codec`
 - Run `python3 -m unittest tests.test_tls_handshake_bump_client_server`
 - Do not run tests/e2e (user-run only).
+
+## Execution Notes
+- Added an in-memory DER template with CN_LEN=96 (keeps response MTU above the
+  packet header size) and patched both subject and issuer CN offsets.
+- Removed `tls_bump_cert_dir`, `tls_bump_cert_helper`, and `tls_bump_max_cn_len`
+  from config and CLI; CN length now derives from the template.
+- Updated the response decoder to accept trailing zero padding and refreshed
+  docs/tests for the fixed-length CN behavior.

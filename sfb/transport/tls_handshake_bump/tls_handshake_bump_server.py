@@ -5,15 +5,13 @@ TLS handshake bump server transport for Bob.
 
 from __future__ import absolute_import
 
-import base64
 import errno
 import logging
-import os
 import select
 import socket
-import subprocess
 
 from ..transport_base import Server, TransportError, raise_bind_error
+from . import tls_handshake_bump_cert_template as cert_template
 from . import tls_handshake_bump_codec as codec
 from .tls_handshake_bump_config import validate_tls_bump_config, parse_host_port
 from ...compat import require_bytes_like, to_bytes
@@ -28,9 +26,6 @@ for name in ('WSAEWOULDBLOCK', 'WSAEINTR'):
     value = getattr(errno, name, None)
     if value is not None:
         _TEMP_ERRORS.add(value)
-
-_PEM_HEADER = b'-----BEGIN CERTIFICATE-----'
-_PEM_FOOTER = b'-----END CERTIFICATE-----'
 
 
 class _ConnState(object):
@@ -63,34 +58,6 @@ class _ResponseSender(object):
 
     def __call__(self, data):
         self._server._enqueue_response(self._state, data)
-
-
-class _CertProvider(object):
-    def __init__(self, cert_dir, helper_path=None):
-        self._cert_dir = cert_dir
-        self._helper_path = helper_path
-        self._cache = {}
-
-    def get_cert_der(self, cn_value):
-        if cn_value in self._cache:
-            return self._cache[cn_value]
-        if not cn_value:
-            raise TransportError('CN value required for certificate lookup')
-        cert_path = os.path.join(self._cert_dir, cn_value + '.der')
-        pem_path = os.path.join(self._cert_dir, cn_value + '.pem')
-        if os.path.isfile(cert_path):
-            cert_der = _read_file(cert_path)
-        elif os.path.isfile(pem_path):
-            cert_der = _load_pem(pem_path)
-        elif self._helper_path:
-            _run_helper(self._helper_path, cn_value, cert_path)
-            if not os.path.isfile(cert_path):
-                raise TransportError('Helper did not create cert for CN %s' % cn_value)
-            cert_der = _read_file(cert_path)
-        else:
-            raise TransportError('Certificate not found for CN %s' % cn_value)
-        self._cache[cn_value] = cert_der
-        return cert_der
 
 
 class TlsHandshakeBumpServer(Server):
@@ -127,11 +94,6 @@ class TlsHandshakeBumpServer(Server):
             self._sock = None
             raise_bind_error(exc, self._listen_addr, 'TLS bump')
 
-        self._cert_provider = _CertProvider(
-            config.tls_bump_cert_dir,
-            helper_path=config.tls_bump_cert_helper,
-        )
-
         log_event(
             _LOG,
             logging.INFO,
@@ -147,8 +109,6 @@ class TlsHandshakeBumpServer(Server):
                 'max_in_flight': self._max_in_flight,
                 'base_domain': self._base_domain,
                 'cn_max_len': self._cn_max_len,
-                'cert_dir': config.tls_bump_cert_dir,
-                'cert_helper': config.tls_bump_cert_helper,
             },
         )
 
@@ -304,7 +264,10 @@ class TlsHandshakeBumpServer(Server):
             cn_value = codec.encode_cn_value(data, max_len=self._cn_max_len)
         except ValueError as exc:
             raise TransportError('CN encode failed: %s' % exc)
-        cert_der = self._cert_provider.get_cert_der(cn_value)
+        try:
+            cert_der = cert_template.build_cert_der(cn_value)
+        except ValueError as exc:
+            raise TransportError('TLS bump cert build failed: %s' % exc)
         try:
             record = codec.build_server_handshake_record(cert_der)
         except ValueError as exc:
@@ -417,32 +380,6 @@ class TlsHandshakeBumpServer(Server):
             except Exception:
                 pass
             self._sock = None
-
-
-def _read_file(path):
-    with open(path, 'rb') as handle:
-        return handle.read()
-
-
-def _load_pem(path):
-    data = _read_file(path)
-    start = data.find(_PEM_HEADER)
-    end = data.find(_PEM_FOOTER)
-    if start < 0 or end < 0:
-        raise TransportError('PEM certificate missing header/footer: %s' % path)
-    b64 = data[start + len(_PEM_HEADER):end]
-    b64 = b''.join(b64.split())
-    try:
-        return base64.b64decode(b64)
-    except (TypeError, ValueError):
-        raise TransportError('PEM certificate invalid base64: %s' % path)
-
-
-def _run_helper(helper_path, cn_value, cert_path):
-    try:
-        subprocess.check_call([helper_path, cn_value, cert_path])
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise TransportError('Certificate helper failed: %s' % exc)
 
 
 def _get_errno(exc):

@@ -114,14 +114,8 @@ class Config:
     tls_bump_response_mode: Optional[str] = None
     # Optional regex with capture group for base32 response token
     tls_bump_response_regex: Optional[str] = None
-    # Max CN length (base32 chars) for response MTU
-    tls_bump_max_cn_len: int = 96
     # Max ClientHello record size (bytes, includes 5-byte header)
     tls_bump_max_clienthello_bytes: int = 4096
-    # Certificate directory for Bob (DER or PEM, filenames keyed by CN)
-    tls_bump_cert_dir: Optional[str] = None
-    # Optional helper path to generate certs
-    tls_bump_cert_helper: Optional[str] = None
 
     # --- Crypto ---
     # Encryption mode: 'none', 'xor', 'rc4'

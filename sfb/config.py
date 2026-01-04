@@ -100,7 +100,7 @@ class Config:
     tunnel_connect_timeout: float = 10.0
     # Alice: packets sent without response before giving up
     tunnel_timeout_packets: int = 257
-    # Alice: max retransmits per tick (RTO + fast gap)
+    # Alice: max retransmits per tick (RTO only)
     tunnel_retransmit_cap: int = 2
     # Enable reliability stats tracking
     tunnel_stats_enabled: bool = False

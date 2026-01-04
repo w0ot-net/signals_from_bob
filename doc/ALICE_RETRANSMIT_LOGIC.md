@@ -188,13 +188,10 @@ Keepalive specifics:
 
 Key structured events emitted during retransmit/ACK handling:
 - `tunnel.retransmit_scan`: RTO scan summary (candidate count, RTO, ACK silence).
-- `tunnel.retransmit_skip`: includes reasons like `ack_silence`, `rate_limit`,
-  `transport`, and gap-retransmit gating.
+- `tunnel.retransmit_skip`: includes reasons like `ack_silence`.
 - `tunnel.retransmit`: retransmit send details (seq, flags, ack/sack, bytes,
   reason, previous send age/count).
 - `tunnel.keepalive_drop`: keepalive drops (`window_full`, `rto_keepalive`).
-- `tunnel.keepalive_suppressed`: keepalive retransmit suppression when pending
-  data exists.
 - `tunnel.ack_detail`: ACK processing detail (acked counts, RTT samples, send
   and recv window snapshots).
 - `tunnel.reliability_state`: structured snapshot of send/recv window, RTT,

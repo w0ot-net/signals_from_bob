@@ -67,7 +67,6 @@ class AliceTunnel(BaseTunnel):
         self._retransmit_budget = self._retransmit_cap
         self._tick_epoch = 0
         self._backoff_epoch = None
-        self._gap_retransmit_ack = None
 
         # Timing
         self._last_send_time = 0
@@ -627,13 +626,6 @@ class AliceTunnel(BaseTunnel):
         distance_info = self._send_window_distance_info(
             cap_override=effective_cap
         )
-        if distance_info is not None:
-            self._maybe_send_gap_retransmit(
-                now,
-                distance_info,
-                keepalive_only=keepalive_only,
-                pre_cap=True,
-            )
         exceeded = False
         if distance_info is not None:
             distance = distance_info[0]
@@ -697,12 +689,6 @@ class AliceTunnel(BaseTunnel):
                     'distance': distance,
                     'distance_limit': distance_limit,
                 },
-            )
-            self._maybe_send_gap_retransmit(
-                now,
-                distance_info,
-                keepalive_only=keepalive_only,
-                pre_cap=False,
             )
             return False
         if self._send_limiter is not None and not self._send_limiter.can_send(now=now):
@@ -825,105 +811,6 @@ class AliceTunnel(BaseTunnel):
             return
         if self._retransmit_budget > 0:
             self._retransmit_budget -= 1
-
-    def _maybe_send_gap_retransmit(self, now, distance_info, keepalive_only=False,
-                                   pre_cap=False):
-        if distance_info is None:
-            return False
-        def log_skip(reason, extra_fields=None):
-            if pre_cap:
-                return
-            fields = {
-                'reason': reason,
-                'side': 'alice',
-                'pre_cap': pre_cap,
-            }
-            if extra_fields:
-                fields.update(extra_fields)
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.retransmit_skip',
-                'Gap retransmit skipped',
-                lambda: fields,
-            )
-        if self._last_cum_ack_time is None:
-            log_skip('no_ack_time')
-            return False
-        ack_silence = now - self._last_cum_ack_time
-        min_silence = self._rtt.rto_sec * 0.25
-        if min_silence < 0.05:
-            min_silence = 0.05
-        if ack_silence < min_silence:
-            log_skip('ack_silence', {
-                'ack_silence': round(ack_silence, 6),
-                'min_silence': round(min_silence, 6),
-            })
-            return False
-        (distance, max_in_flight, effective_cap, unacked,
-         distance_limit, last_cum_ack, next_seq) = distance_info
-        if distance_limit < 1:
-            log_skip('distance_limit', {'distance_limit': distance_limit})
-            return False
-        buffered = distance - unacked
-        if pre_cap:
-            pre_cap_slack = max(4, distance_limit // 8)
-            if distance < distance_limit - pre_cap_slack:
-                return False
-        if last_cum_ack == self._gap_retransmit_ack:
-            log_skip('dup_ack', {'last_cum_ack': last_cum_ack})
-            return False
-        info = self._send_window.get_unacked_info(last_cum_ack)
-        if info is None:
-            log_skip('missing_unacked', {'last_cum_ack': last_cum_ack})
-            return False
-        seq, segments, flags, encrypted_body, send_time, retransmit_count = info
-        missing_age = None
-        if send_time is not None:
-            missing_age = now - send_time
-            if missing_age < 0:
-                missing_age = 0.0
-        allow_on_distance = False
-        if distance >= distance_limit and missing_age is not None:
-            if missing_age >= min_silence:
-                allow_on_distance = True
-        if not allow_on_distance:
-            buffered_min = max(4, (distance_limit * 3) // 4)
-            unacked_max = max(4, distance_limit // 4)
-            if buffered < buffered_min or unacked > unacked_max:
-                log_skip('buffer_gate', {
-                    'buffered': buffered,
-                    'buffered_min': buffered_min,
-                    'unacked': unacked,
-                    'unacked_max': unacked_max,
-                })
-                return False
-        if flags & FLAG_KEEPALIVE and self._channel_manager.has_pending_data():
-            self._log_reliability_state(
-                logging.DEBUG,
-                'tunnel.keepalive_suppressed',
-                'Keepalive gap retransmit suppressed by pending data',
-                now=now,
-                extra_fields={
-                    'reason': 'pending_data',
-                    'seq': seq,
-                },
-            )
-            return False
-        if not self._can_send_retransmit(now=now):
-            log_skip('retransmit_blocked')
-            return False
-        sent = self._send_retransmit(
-            seq,
-            segments,
-            flags,
-            encrypted_body,
-            now,
-            reason='gap',
-        )
-        if sent:
-            self._gap_retransmit_ack = last_cum_ack
-        return sent
 
     def _backoff_rto_once(self):
         if self._backoff_epoch == self._tick_epoch:

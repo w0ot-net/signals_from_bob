@@ -270,7 +270,7 @@ class Config:
     # SOCKS relay buffer size (bytes)
     socks_relay_buffer_size: int = 2048
     # Maximum poll backoff for SOCKS pump select/wait loops (seconds)
-    socks_pump_backoff_max: float = 0.05
+    socks_pump_backoff_max: float = 0.005
     # SOCKS thread join timeout (seconds)
     socks_thread_join_timeout: float = 2.0
 

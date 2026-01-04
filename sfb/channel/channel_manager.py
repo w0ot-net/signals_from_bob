@@ -46,6 +46,8 @@ from .. import time_provider
 
 logger = get_logger(__name__)
 
+_UNKNOWN_CHANNEL_NOTIFY_INTERVAL = 1.0
+
 
 class ChannelManager(object):
     """
@@ -71,6 +73,7 @@ class ChannelManager(object):
         self._lock = threading.Lock()
         self._active_channels = collections.OrderedDict()
         self._send_state_seq = {}
+        self._unknown_channel_last = {}
 
         # Channel ID allocation
         # Alice uses odd IDs (1, 3, 5...), Bob uses even (2, 4, 6...)
@@ -135,6 +138,7 @@ class ChannelManager(object):
         channel._half_close_callback = self._on_channel_half_close
         channel._set_send_state_callback(self._on_channel_send_state)
         self._channels[channel.id] = channel
+        self._unknown_channel_last.pop(channel.id, None)
         if channel.id == CHANNEL_CONTROL:
             return
         has_data, seq = channel._get_send_state()
@@ -292,16 +296,7 @@ class ChannelManager(object):
             channel = self._channels.get(channel_id)
 
         if channel is None:
-            log_event(
-                logger,
-                logging.WARNING,
-                'channel.unknown_segment',
-                'Segment for unknown channel',
-                lambda: {
-                    'ch': channel_id,
-                    'side': 'alice' if self._is_alice else 'bob',
-                },
-            )
+            self._handle_unknown_segment(channel_id)
             return
 
         try:
@@ -322,6 +317,45 @@ class ChannelManager(object):
                         'side': 'alice' if self._is_alice else 'bob',
                     },
                 )
+
+    def _handle_unknown_segment(self, channel_id):
+        now = time_provider.now()
+        notify = False
+        with self._lock:
+            last = self._unknown_channel_last.get(channel_id)
+            if last is None or (now - last) >= _UNKNOWN_CHANNEL_NOTIFY_INTERVAL:
+                self._unknown_channel_last[channel_id] = now
+                notify = True
+        if notify:
+            log_event(
+                logger,
+                logging.WARNING,
+                'channel.unknown_segment',
+                'Segment for unknown channel',
+                lambda: {
+                    'ch': channel_id,
+                    'side': 'alice' if self._is_alice else 'bob',
+                },
+            )
+        if notify and channel_id != CHANNEL_CONTROL:
+            try:
+                self._control.send_message(
+                    ch_close_err(channel_id, 'unknown_channel', 'Unknown channel')
+                )
+            except ChannelError:
+                return
+            log_event(
+                logger,
+                logging.DEBUG,
+                'channel.close_err_out',
+                'Channel close error requested',
+                lambda: {
+                    'ch': channel_id,
+                    'code': 'unknown_channel',
+                    'reason': 'Unknown channel',
+                    'side': 'alice' if self._is_alice else 'bob',
+                },
+            )
 
     def handle_control_message(self, msg):
         """

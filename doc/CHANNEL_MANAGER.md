@@ -81,7 +81,8 @@ Channel 0 handling is special in segment packing:
 
 Incoming segments are routed by channel ID:
 - If the channel exists, the data is delivered to it.
-- Unknown channel IDs are ignored.
+- Unknown channel IDs are dropped and trigger a `close_err` back to the peer,
+  rate-limited per channel ID.
 - If delivery would exceed a channel's receive buffer, the channel is aborted
   with `close_err`.
 

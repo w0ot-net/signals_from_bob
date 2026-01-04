@@ -520,7 +520,7 @@ def parse_args():
         help='Remote python binary (default: --python-bin)'
     )
     parser.add_argument(
-        '--icmp-target', default=None,
+        '--target', default=None,
         help='ICMP target for Alice (default: remote host)'
     )
     parser.add_argument(
@@ -580,12 +580,12 @@ def build_scp_remote_command(args):
 
 
 def build_alice_local_command(args):
-    target = args.icmp_target or args.remote_host
+    target = args.target or args.remote_host
     cmd = [
         args.python_bin, '-m', 'sfb.cli',
         '--role', 'alice',
         '--transport', 'icmp',
-        '--icmp-target', target,
+        '--target', target,
         '--log-profile', args.log_profile,
         '--db-log', args.local_db_log,
         '--max-in-flight', str(args.max_in_flight),

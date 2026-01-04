@@ -270,8 +270,8 @@ MTU calculation:
 ## Configuration
 
 Required fields:
-- `tls_target`: Alice target host:port (default port 8443).
-- `tls_listen_addr`: Bob listen host:port (default 0.0.0.0:8443).
+- `tls_target`: Alice target host:port (default port 443).
+- `tls_listen_addr`: Bob listen host:port (default 0.0.0.0:443).
 - `tls_pending_timeout`: pending request timeout (seconds).
 - `tls_connect_timeout`: connect deadline (seconds).
 - `tls_handshake_timeout`: handshake deadline (seconds).
@@ -281,8 +281,8 @@ Required fields:
 - `tls_alpn`: optional cover protocol list (comma-separated).
 
 Defaults:
-- `tls_target`: `127.0.0.1:8443`
-- `tls_listen_addr`: `0.0.0.0:8443`
+- `tls_target`: `127.0.0.1:443`
+- `tls_listen_addr`: `0.0.0.0:443`
 - `tls_pending_timeout`: `5.0`
 - `tls_connect_timeout`: `3.0`
 - `tls_handshake_timeout`: `5.0`

@@ -154,7 +154,7 @@ Proposed config fields (final names TBD):
 
 CLI:
 - `--transport icmp`
-- Alice: `--icmp-target <host>`
+- Alice: `--target <host>`
 - Alice pacing (all transports): `--send-rate`, `--send-burst`,
   `--pace-target-inflight-ratio`, `--pace-min-inflight`,
   `--pace-max-inflight`, `--pace-feedback-gain`,

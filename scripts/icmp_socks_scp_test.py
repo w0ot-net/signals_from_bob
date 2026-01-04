@@ -134,7 +134,7 @@ def parse_args():
         help='SOCKS server port (default: %d)' % DEFAULT_SOCKS_PORT
     )
     parser.add_argument(
-        '--icmp-target', default='127.0.0.1',
+        '--target', default='127.0.0.1',
         help='ICMP target for Alice to reach Bob (default: 127.0.0.1)'
     )
     parser.add_argument(
@@ -366,14 +366,14 @@ def start_bob(socks_host, socks_port, icmp_mtu=None, max_in_flight=None,
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 
 
-def start_alice(icmp_target, icmp_mtu=None, max_in_flight=None,
+def start_alice(target, icmp_mtu=None, max_in_flight=None,
                 send_rate=None, send_burst=None, log_profile=None,
                 verbose=False, db_log_flush=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'alice',
         '--transport', 'icmp',
-        '--icmp-target', icmp_target,
+        '--target', target,
     ]
     if verbose:
         cmd.append('-v')
@@ -503,7 +503,7 @@ def main():
             db_log_flush=args.db_log_flush,
         )
         alice = start_alice(
-            args.icmp_target,
+            args.target,
             icmp_mtu=args.icmp_mtu,
             max_in_flight=args.max_in_flight,
             send_rate=args.send_rate,

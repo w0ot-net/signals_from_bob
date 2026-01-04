@@ -61,9 +61,9 @@ class Config:
 
     # --- TLS ClientHello Transport ---
     # Alice target host:port
-    tls_target: str = "127.0.0.1:8443"
+    tls_target: str = "127.0.0.1:443"
     # Bob listen host:port
-    tls_listen_addr: str = "0.0.0.0:8443"
+    tls_listen_addr: str = "0.0.0.0:443"
     # Timeout before considering a TLS request stale (seconds)
     tls_pending_timeout: float = 5.0
     # TLS connect timeout (seconds)

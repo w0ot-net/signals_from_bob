@@ -343,7 +343,7 @@ def main():
         'python3', '-m', 'cProfile', '-o', profile_path,
         os.path.join(ROOT_DIR, 'scripts', 'icmp_socks_diag.py'),
         '--clients', '2',
-        '--icmp-target', '127.0.0.1',
+        '--target', '127.0.0.1',
         '--profile-sfb-dir', RESULTS_DIR,
     ]
     sys.stdout.write('Writing profile to: %s\n' % profile_path)

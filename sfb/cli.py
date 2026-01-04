@@ -168,9 +168,9 @@ def add_dns_server_args(parser, config):
 def add_dns_client_args(parser, config):
     """Add DNS client-specific arguments."""
     parser.add_argument(
-        '--resolver',
+        '--target',
         default=config.dns_resolver,
-        help='DNS resolver as host:port (default: auto-detect system resolver)'
+        help='DNS resolver host:port (direct mode). Omit for system resolver (authoritative mode)'
     )
 
 
@@ -186,7 +186,7 @@ def add_icmp_common_args(parser, config):
 def add_icmp_client_args(parser, config, require_target=True):
     """Add ICMP client-specific arguments."""
     parser.add_argument(
-        '--icmp-target',
+        '--target',
         default=config.icmp_target,
         required=require_target,
         help='ICMP target host or IP for client'
@@ -196,7 +196,7 @@ def add_icmp_client_args(parser, config, require_target=True):
 def add_tls_client_args(parser, config):
     """Add TLS client-specific arguments."""
     parser.add_argument(
-        '--tls-target',
+        '--target',
         default=config.tls_target,
         help='TLS target host:port for client'
     )
@@ -445,14 +445,14 @@ def create_config(args):
             config_kwargs['dns_listen_addr'] = '%s:%d' % (host, port)
             config_kwargs['tunnel_idle_timeout'] = float(args.idle_timeout)
         else:
-            config_kwargs['dns_resolver'] = getattr(args, 'resolver', None)
+            config_kwargs['dns_resolver'] = getattr(args, 'target', None)
     elif args.transport == 'icmp':
         config_kwargs['icmp_payload_mtu'] = getattr(args, 'icmp_mtu', None)
         if args.role == 'client':
-            config_kwargs['icmp_target'] = getattr(args, 'icmp_target', None)
+            config_kwargs['icmp_target'] = getattr(args, 'target', None)
     elif args.transport == 'tls_handshake':
         if args.role == 'client':
-            config_kwargs['tls_target'] = getattr(args, 'tls_target', None)
+            config_kwargs['tls_target'] = getattr(args, 'target', None)
             config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
             config_kwargs['tls_alpn'] = getattr(args, 'tls_alpn', None)
         else:
@@ -799,7 +799,7 @@ def run_client(args, config, crypto, logger):
     try:
         # Connect
         if args.transport == 'dns':
-            resolver_desc = getattr(args, 'resolver', None) or 'system resolver'
+            resolver_desc = getattr(args, 'target', None) or 'system resolver'
             log_event(
                 logger,
                 logging.INFO,
@@ -808,7 +808,7 @@ def run_client(args, config, crypto, logger):
                 lambda: {'transport': 'dns', 'domain': args.domain, 'resolver': resolver_desc},
             )
         elif args.transport == 'icmp':
-            target = getattr(args, 'icmp_target', None)
+            target = getattr(args, 'target', None)
             log_event(
                 logger,
                 logging.INFO,

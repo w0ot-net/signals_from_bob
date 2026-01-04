@@ -283,8 +283,8 @@ calculation for common OS defaults.
 ## Configuration and CLI
 
 Proposed config fields:
-- `tls_target` (Alice host:port, default 127.0.0.1:8443)
-- `tls_listen_addr` (Bob listen host:port, default 0.0.0.0:8443)
+- `tls_target` (Alice host:port, default 127.0.0.1:443)
+- `tls_listen_addr` (Bob listen host:port, default 0.0.0.0:443)
 - `tls_pending_timeout` (seconds, default 5.0)
 - `tls_connect_timeout` (seconds, default 3.0)
 - `tls_handshake_timeout` (seconds, default 5.0)
@@ -310,7 +310,7 @@ Proposed config fields:
 
 CLI:
 - `--transport tls_handshake`
-- Alice: `--tls-target`, `--tls-sni`, `--tls-alpn`
+- Alice: `--target`, `--tls-sni`, `--tls-alpn`
 - Bob: `--tls-listen-addr`
 - `--domain` is unused for TLS and should be optional.
 

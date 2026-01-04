@@ -76,7 +76,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 ## Experiment Log: Higher MTU + Larger Buffers (Dec 31, 2025)
 - Command:
   ```
-  python3 scripts/icmp_socks_diag.py --clients 1 --icmp-target 127.0.0.1 --timeout 120 \
+  python3 scripts/icmp_socks_diag.py --clients 1 --target 127.0.0.1 --timeout 120 \
     --log-profile socks_throughput_debug --verbose-cli \
     --socks-relay-buffer-size 8192 --channel-max-send-buf 65536 \
     --icmp-mtu 1400 --send-rate 0
@@ -101,7 +101,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 ## Experiment Log: Smaller Backoff + Larger Buffers (Dec 31, 2025)
 - Command:
   ```
-  python3 scripts/icmp_socks_diag.py --clients 1 --icmp-target 127.0.0.1 \
+  python3 scripts/icmp_socks_diag.py --clients 1 --target 127.0.0.1 \
     --icmp-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug --verbose-cli \
     --socks-relay-buffer-size 32768 --channel-max-send-buf 262144 \
     --socks-pump-backoff-max 0.002 --non-blocking-poll-timeout 0.00002
@@ -121,7 +121,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 ## Experiment Log: Near-Zero Backoff/Poll (Dec 31, 2025)
 - Command:
   ```
-  python3 scripts/icmp_socks_diag.py --clients 1 --icmp-target 127.0.0.1 \
+  python3 scripts/icmp_socks_diag.py --clients 1 --target 127.0.0.1 \
     --icmp-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug --verbose-cli \
     --socks-relay-buffer-size 32768 --channel-max-send-buf 262144 \
     --socks-pump-backoff-max 0.0001 --non-blocking-poll-timeout 0
@@ -141,7 +141,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 ## Experiment Log: Multiple Clients (4x) with Near-Zero Backoff (Jan 1, 2026)
 - Command:
   ```
-  python3 scripts/icmp_socks_diag.py --clients 4 --icmp-target 127.0.0.1 \
+  python3 scripts/icmp_socks_diag.py --clients 4 --target 127.0.0.1 \
     --icmp-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug \
     --socks-relay-buffer-size 32768 --channel-max-send-buf 262144 \
     --socks-pump-backoff-max 0.0001 --non-blocking-poll-timeout 0
@@ -159,7 +159,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 ## Experiment Log: Multiple Clients (8x) with Near-Zero Backoff (Jan 1, 2026)
 - Command:
   ```
-  python3 scripts/icmp_socks_diag.py --clients 8 --icmp-target 127.0.0.1 \
+  python3 scripts/icmp_socks_diag.py --clients 8 --target 127.0.0.1 \
     --icmp-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug \
     --socks-relay-buffer-size 32768 --channel-max-send-buf 262144 \
     --socks-pump-backoff-max 0.0001 --non-blocking-poll-timeout 0

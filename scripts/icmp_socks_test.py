@@ -146,7 +146,7 @@ def parse_args():
         help='Number of concurrent SOCKS clients (default: 1)'
     )
     parser.add_argument(
-        '--icmp-target', default='127.0.0.1',
+        '--target', default='127.0.0.1',
         help='ICMP target for Alice to reach Bob (default: 127.0.0.1)'
     )
     parser.add_argument(
@@ -237,12 +237,12 @@ def start_bob(socks_port):
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 
 
-def start_alice(icmp_target):
+def start_alice(target):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'alice',
         '--transport', 'icmp',
-        '--icmp-target', icmp_target,
+        '--target', target,
         '--db-log', CLIENT_DB_LOG,
         '--log-profile', 'scp_stalled_icmp_socks',
     ]
@@ -605,7 +605,7 @@ def main():
         http_server, _ = start_http_server(http_root, args.http_port)
 
         bob = start_bob(args.socks_port)
-        alice = start_alice(args.icmp_target)
+        alice = start_alice(args.target)
         bob.start()
         time_provider.sleep(0.2)
         alice.start()

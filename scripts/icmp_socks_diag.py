@@ -146,7 +146,7 @@ def parse_args():
         help='Number of concurrent SOCKS clients (default: 1)'
     )
     parser.add_argument(
-        '--icmp-target', default='127.0.0.1',
+        '--target', default='127.0.0.1',
         help='ICMP target for Alice to reach Bob (default: 127.0.0.1)'
     )
     parser.add_argument(
@@ -335,7 +335,7 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 
 
-def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
+def start_alice(target, icmp_mtu=None, send_rate=None, send_burst=None,
                 log_profile=None, verbose=False, socks_relay_buffer_size=None,
                 channel_max_send_buf=None, socks_pump_backoff_max=None,
                 non_blocking_poll_timeout=None, db_log_path=CLIENT_DB_LOG,
@@ -348,7 +348,7 @@ def start_alice(icmp_target, icmp_mtu=None, send_rate=None, send_burst=None,
     ]
     if verbose:
         cmd.append('-v')
-    cmd.extend(['--icmp-target', icmp_target])
+    cmd.extend(['--target', target])
     if db_log_path:
         cmd.extend(['--db-log', db_log_path])
     cmd.extend(['--log-profile', log_profile or 'scp_stalled_icmp_socks'])
@@ -892,7 +892,7 @@ def main():
             profile_dir=profile_dir,
         )
         alice = start_alice(
-            args.icmp_target,
+            args.target,
             icmp_mtu=args.icmp_mtu,
             send_rate=args.send_rate,
             send_burst=args.send_burst,

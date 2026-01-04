@@ -147,7 +147,7 @@ class Config:
     # Alice: adaptive pacing maximum inflight target (None = cap)
     tunnel_pace_max_inflight: Optional[int] = None
     # Alice: adaptive pacing feedback gain
-    tunnel_pace_feedback_gain: float = 1.0
+    tunnel_pace_feedback_gain: float = 1.25
     # Alice: adaptive pacing ACK rate EWMA alpha
     tunnel_pace_ack_ewma_alpha: float = 0.2
     # Alice: adaptive pacing RTT floor in milliseconds

@@ -52,6 +52,17 @@ Example SSH outcomes:
   tunnel stays up but interactive SSH sessions become unresponsive and the
   target closes them.
 
+## Latest findings (2026-01-04)
+- Sources: `logs/server_log.db` (Bob) and `logs/client_log.db` (Alice).
+- Bob: two new SOCKS connections (`127.0.0.1:22` and `104.21.91.184:443`) both
+  exit within ~0.56-0.60s. `sock.relay_stop` shows `pump_reasons` of
+  `client_to_channel=socket_eof` and `channel_to_client=remote_half_close`.
+  Bytes are tiny (41 and 429), so the client closed almost immediately.
+- No `channel.close_err_in`, `channel.abort`, or `sock.relay_error` events on Bob.
+- Alice logs stop earlier (~17:20:56) and do not cover the failing sessions
+  (~17:23:30), so the tunnel-side reason for the half-close is missing from
+  `logs/client_log.db` in this run.
+
 ## What we've tried
 - Added SOCKS pump instrumentation (`sock.pump_start`, `sock.pump_stop`,
   `sock.pump_stats`) in `sfb/modules/socks/data_pump.py`.

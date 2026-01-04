@@ -258,5 +258,10 @@ LOG_PROFILES['socks_throughput_debug'] = {
   - `block_penalty` is 26 on `window_distance`, but `block_target` equals `feedback_target` (target inflight 17-23), so the cap is not collapsing to 1.
 - Distance guard:
   - `tunnel.send_window_distance` repeats with `distance` 19-21 and `effective_cap` 17-21; `unacked` tracks near the cap with `buffered` 0-1.
+- Stall counts:
+  - Alice `tunnel.send_blocked`: 5,876 events, all `reason=window_distance` (no `pacer`/`rate_limit` blocks).
+  - Alice `tunnel.retransmit_skip`: 5,875 events, all `reason=ack_silence`; `ack_silence` p50 ~0.012s, p90 ~0.049s (rto 0.5s).
+  - Bob `tunnel.retransmit_skip`: 4,981 events, mostly `reason=cooldown`; cooldown p50 ~0.485s, p90 ~1.28s, max 3.0s.
 - Takeaways:
   - Latest run no longer shows the effective cap pinned at 1; window-distance stalls still happen, but at mid-teen caps instead of single digits.
+  - The mid-teen `effective_cap` matches the observed ~1/8 throughput vs `max_in_flight=128`.

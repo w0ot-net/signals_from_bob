@@ -309,7 +309,7 @@ Proposed config fields:
   usage is validated consistently.
 
 CLI:
-- `--transport tls`
+- `--transport tls_handshake`
 - Alice: `--tls-target`, `--tls-sni`, `--tls-alpn`
 - Bob: `--tls-listen-addr`
 - `--domain` is unused for TLS and should be optional.

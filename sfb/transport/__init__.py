@@ -72,7 +72,7 @@ TRANSPORTS = {
         'client': IcmpClient,
         'server': IcmpServer,
     },
-    'tls': {
+    'tls_handshake': {
         'client': TlsClient,
         'server': TlsServer,
     },

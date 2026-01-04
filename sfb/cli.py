@@ -403,7 +403,7 @@ def parse_args(args=None):
         add_icmp_common_args(parser, config_defaults)
         if role == 'client':
             add_icmp_client_args(parser, config_defaults, require_target=True)
-    elif transport == 'tls':
+    elif transport == 'tls_handshake':
         if role == 'server':
             add_tls_server_args(parser, config_defaults)
         else:
@@ -450,7 +450,7 @@ def create_config(args):
         config_kwargs['icmp_payload_mtu'] = getattr(args, 'icmp_mtu', None)
         if args.role == 'client':
             config_kwargs['icmp_target'] = getattr(args, 'icmp_target', None)
-    elif args.transport == 'tls':
+    elif args.transport == 'tls_handshake':
         if args.role == 'client':
             config_kwargs['tls_target'] = getattr(args, 'tls_target', None)
             config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)

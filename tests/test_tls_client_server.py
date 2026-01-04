@@ -41,12 +41,12 @@ class TlsClientServerTests(unittest.TestCase):
     def test_round_trip(self):
         port = _get_ephemeral_port()
         server_cfg = Config(
-            transport='tls',
+            transport='tls_handshake',
             tls_listen_addr='127.0.0.1:%d' % port,
         )
         server = TlsServer(server_cfg)
         client_cfg = Config(
-            transport='tls',
+            transport='tls_handshake',
             tls_target='127.0.0.1:%d' % port,
         )
         client = TlsClient(client_cfg)
@@ -76,10 +76,10 @@ class TlsClientServerTests(unittest.TestCase):
 
     def test_pending_limit(self):
         port = _get_ephemeral_port()
-        server = TlsServer(Config(transport='tls',
+        server = TlsServer(Config(transport='tls_handshake',
                                   tls_listen_addr='127.0.0.1:%d' % port,
                                   max_in_flight=1))
-        client = TlsClient(Config(transport='tls',
+        client = TlsClient(Config(transport='tls_handshake',
                                   tls_target='127.0.0.1:%d' % port,
                                   max_in_flight=1))
         try:
@@ -107,7 +107,7 @@ class TlsClientServerTests(unittest.TestCase):
 
     def test_invalid_timeouts(self):
         cfg = Config(
-            transport='tls',
+            transport='tls_handshake',
             tls_pending_timeout=1.0,
             tls_connect_timeout=2.0,
             tls_handshake_timeout=2.0,
@@ -117,13 +117,13 @@ class TlsClientServerTests(unittest.TestCase):
 
     def test_invalid_sni_alpn(self):
         cfg = Config(
-            transport='tls',
+            transport='tls_handshake',
             tls_sni='bad..name',
         )
         with self.assertRaises(TransportError):
             validate_tls_config(cfg, 'client')
         cfg = Config(
-            transport='tls',
+            transport='tls_handshake',
             tls_alpn='h2,,http/1.1',
         )
         with self.assertRaises(TransportError):

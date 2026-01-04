@@ -1,5 +1,5 @@
 # signals_from_bob
-multi network tunnel tool, supporting tcp, udp, icmp, dns, tls-handshake
+multi network tunnel tool, supporting tcp, udp, icmp, dns, tls_handshake
 
 ## Compatibility
 This project must remain compatible with Python 2.7 and Python 3.

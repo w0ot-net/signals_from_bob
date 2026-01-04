@@ -75,7 +75,7 @@ class Config:
     # Max on-wire ServerHello record size (bytes, includes 5-byte header)
     tls_max_serverhello_bytes: int = 1400
     # Optional SNI cover name
-    tls_sni: Optional[str] = None
+    tls_sni: Optional[str] = "example.com"
     # Optional comma-separated ALPN list
     tls_alpn: Optional[str] = None
 

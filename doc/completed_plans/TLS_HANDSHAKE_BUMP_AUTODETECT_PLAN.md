@@ -61,3 +61,10 @@ via a sentinel-based token scan.
 - Run `python3 -m unittest tests.test_tls_handshake_bump_codec`
 - Run `python3 -m unittest tests.test_tls_handshake_bump_client_server`
 - Do not run tests/e2e (user-run only).
+
+## Execution Notes
+- Implemented response mode/regex config, checksum-framed response tokens, and
+  scan-based extraction with validation.
+- Updated TLS bump docs and unit tests for regex and scan modes.
+- Ran `python3 -m unittest tests.test_tls_handshake_bump_codec`.
+- Ran `python3 -m unittest tests.test_tls_handshake_bump_client_server`.

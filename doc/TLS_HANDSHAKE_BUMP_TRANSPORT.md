@@ -17,13 +17,23 @@ small and fragile by design.
 
 ## Encoding
 
-All payloads use the same format before base32 encoding:
+Request and response tokens are base32 (RFC 4648), lowercase, with padding
+stripped. The request and response frames differ.
+
+### Request frame (SNI)
 
 ```
 version (1 byte) | payload_len (2 bytes, big-endian) | payload
 ```
 
-The encoded string is base32 (RFC 4648), lowercase, with padding stripped.
+### Response frame (CN)
+
+```
+version (1 byte) | payload_len (2 bytes, big-endian) |
+checksum (2 bytes, CRC32 truncated) | payload
+```
+
+The checksum is computed over the payload bytes.
 
 ### SNI (Alice -> Bob)
 
@@ -39,7 +49,7 @@ Example:
 
 ### CN (Bob -> Alice)
 
-- Payload is base32-encoded into a single CN string.
+- Payload uses the response frame (length + checksum), then base32-encoded.
 - The CN length cap is configured by `tls_bump_max_cn_len`.
 
 ## MTU and Asymmetry
@@ -58,10 +68,13 @@ MTU negotiation.
 2. Optional HTTP CONNECT proxy is supported (`tls_bump_http_proxy`).
 3. Start TLS with SNI set to the encoded request subdomain.
 4. Send a minimal HTTPS request (`GET <path>`) to trigger an error page.
-5. Extract CN from the error page via `tls_bump_cn_regex`.
-6. Decode CN to response bytes.
+5. Extract the response token via scan or regex.
+6. Decode the response token to bytes.
 
 TLS certificate verification is disabled for the proxy connection.
+
+Scan mode searches for base32 tokens and validates the response frame; regex
+mode uses `tls_bump_response_regex` to capture the token.
 
 ## Server Flow (Bob)
 
@@ -99,7 +112,8 @@ Client:
 - `tls_bump_base_domain` (default `example.com`)
 - `tls_bump_http_proxy` / `tls_bump_http_proxy_auth` (optional)
 - `tls_bump_request_path` (default `/`)
-- `tls_bump_cn_regex` (capture group required)
+- `tls_bump_response_mode` (`scan` or `regex`, default `scan` if no regex)
+- `tls_bump_response_regex` (capture group for base32 token, optional)
 - `tls_bump_max_cn_len` (CN length cap)
 
 Server:

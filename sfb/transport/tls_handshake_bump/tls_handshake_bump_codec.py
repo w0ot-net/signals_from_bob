@@ -13,6 +13,7 @@ import base64
 import os
 import re
 import struct
+import zlib
 
 from ...compat import byte_at, require_bytes_like, text_type, to_bytes
 
@@ -41,8 +42,14 @@ MAX_NAME_LEN = 253
 
 SFB_BUMP_VERSION = 0x01
 SFB_BUMP_HEADER_LEN = 3
+SFB_BUMP_RESPONSE_VERSION = 0x01
+SFB_BUMP_RESPONSE_HEADER_LEN = 5
+SFB_BUMP_RESPONSE_TOKEN_MIN_LEN = (SFB_BUMP_RESPONSE_HEADER_LEN * 8 + 4) // 5
 
 _DOMAIN_ALLOWED = re.compile(r'^[A-Za-z0-9.-]+$')
+_RESPONSE_TOKEN_RE = re.compile(
+    b'[A-Za-z2-7]{%d,}' % SFB_BUMP_RESPONSE_TOKEN_MIN_LEN
+)
 
 
 def base32_encode(data):
@@ -109,10 +116,10 @@ def decode_sni_name(name, base_domain):
 
 def encode_cn_value(payload, max_len=None):
     """
-    Encode payload into a base32 CN string.
+    Encode payload into a base32 CN string with checksum framing.
     """
     payload = to_bytes(payload)
-    encoded = _encode_payload(payload)
+    encoded = _encode_response_payload(payload)
     if max_len is not None and len(encoded) > max_len:
         raise ValueError('CN exceeds max length')
     return encoded
@@ -120,11 +127,43 @@ def encode_cn_value(payload, max_len=None):
 
 def decode_cn_value(value):
     """
-    Decode payload from a base32 CN string.
+    Decode payload from a base32 CN string with checksum framing.
     """
     if not isinstance(value, text_type):
         raise TypeError('CN must be text')
-    return _decode_payload(value)
+    return _decode_response_payload(value)
+
+
+def scan_response_payload(data, max_payload_len=None, max_token_len=None):
+    """
+    Scan bytes for a valid response token and return payload bytes.
+    """
+    data = to_bytes(data)
+    min_len = SFB_BUMP_RESPONSE_TOKEN_MIN_LEN
+    for match in _RESPONSE_TOKEN_RE.finditer(data):
+        token_bytes = match.group(0)
+        token_len = len(token_bytes)
+        if max_token_len is None or token_len <= max_token_len:
+            payload = _try_decode_response_token(
+                token_bytes,
+                max_payload_len=max_payload_len,
+            )
+            if payload is not None:
+                return payload
+        if max_token_len is not None and token_len > max_token_len:
+            token_len = max_token_len
+        if token_len < min_len:
+            continue
+        for start in range(0, len(token_bytes) - min_len + 1):
+            window_max = min(token_len, len(token_bytes) - start)
+            for length in range(window_max, min_len - 1, -1):
+                payload = _try_decode_response_token(
+                    token_bytes[start:start + length],
+                    max_payload_len=max_payload_len,
+                )
+                if payload is not None:
+                    return payload
+    return None
 
 
 def calc_sni_payload_cap(base_domain, label_max_len=MAX_LABEL_LEN,
@@ -173,14 +212,14 @@ def calc_cn_payload_cap(cn_max_len):
     if cn_max_len <= 0:
         return 0
     max_bytes = (cn_max_len * 5) // 8
-    if max_bytes <= SFB_BUMP_HEADER_LEN:
+    if max_bytes <= SFB_BUMP_RESPONSE_HEADER_LEN:
         return 0
     low = 0
-    high = max_bytes - SFB_BUMP_HEADER_LEN
+    high = max_bytes - SFB_BUMP_RESPONSE_HEADER_LEN
     best = 0
     while low <= high:
         mid = (low + high) // 2
-        encoded_len = _base32_len(mid + SFB_BUMP_HEADER_LEN)
+        encoded_len = _base32_len(mid + SFB_BUMP_RESPONSE_HEADER_LEN)
         if encoded_len <= cn_max_len:
             best = mid
             low = mid + 1
@@ -319,6 +358,55 @@ def _decode_payload(text):
     if payload_len != len(decoded) - SFB_BUMP_HEADER_LEN:
         raise ValueError('Payload length mismatch')
     return decoded[SFB_BUMP_HEADER_LEN:]
+
+
+def _encode_response_payload(payload):
+    if len(payload) > 0xFFFF:
+        raise ValueError('Payload too large')
+    checksum = _response_checksum(payload)
+    data = (
+        struct.pack('!B', SFB_BUMP_RESPONSE_VERSION) +
+        struct.pack('!H', len(payload)) +
+        struct.pack('!H', checksum) +
+        payload
+    )
+    return base32_encode(data)
+
+
+def _decode_response_payload(text, max_payload_len=None):
+    decoded = base32_decode(text)
+    if len(decoded) < SFB_BUMP_RESPONSE_HEADER_LEN:
+        raise ValueError('Response header truncated')
+    version = byte_at(decoded, 0)
+    if version != SFB_BUMP_RESPONSE_VERSION:
+        raise ValueError('Response version invalid')
+    payload_len = struct.unpack('!H', decoded[1:3])[0]
+    checksum = struct.unpack('!H', decoded[3:5])[0]
+    payload = decoded[SFB_BUMP_RESPONSE_HEADER_LEN:]
+    if payload_len != len(payload):
+        raise ValueError('Response length mismatch')
+    if max_payload_len is not None and payload_len > max_payload_len:
+        raise ValueError('Response payload too large')
+    if checksum != _response_checksum(payload):
+        raise ValueError('Response checksum mismatch')
+    return payload
+
+
+def _try_decode_response_token(token_bytes, max_payload_len=None):
+    try:
+        token_text = token_bytes.decode('ascii')
+    except UnicodeError:
+        return None
+    try:
+        return _decode_response_payload(token_text, max_payload_len=max_payload_len)
+    except Exception:
+        return None
+
+
+def _response_checksum(payload):
+    payload = to_bytes(payload)
+    checksum = zlib.crc32(payload) & 0xFFFFFFFF
+    return checksum & 0xFFFF
 
 
 def _base32_len(byte_len):

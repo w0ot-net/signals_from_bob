@@ -291,9 +291,14 @@ def add_tls_bump_client_args(parser, config):
              config.tls_bump_request_path
     )
     parser.add_argument(
-        '--tls-bump-cn-regex',
-        default=config.tls_bump_cn_regex,
-        help='Regex with capture group to extract CN from error page'
+        '--tls-bump-response-mode',
+        default=config.tls_bump_response_mode,
+        help='TLS bump response extraction mode: scan or regex (default: scan)'
+    )
+    parser.add_argument(
+        '--tls-bump-response-regex',
+        default=config.tls_bump_response_regex,
+        help='Regex with capture group for base32 response token (optional)'
     )
     parser.add_argument(
         '--tls-bump-max-cn-len', type=int,
@@ -599,7 +604,10 @@ def create_config(args):
                 args, 'tls_bump_http_proxy_auth', None)
             config_kwargs['tls_bump_request_path'] = getattr(
                 args, 'tls_bump_request_path', None)
-            config_kwargs['tls_bump_cn_regex'] = getattr(args, 'tls_bump_cn_regex', None)
+            config_kwargs['tls_bump_response_mode'] = getattr(
+                args, 'tls_bump_response_mode', None)
+            config_kwargs['tls_bump_response_regex'] = getattr(
+                args, 'tls_bump_response_regex', None)
         else:
             config_kwargs['tls_bump_listen_addr'] = getattr(
                 args, 'tls_bump_listen_addr', None)

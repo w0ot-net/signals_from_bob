@@ -319,7 +319,8 @@ See `TLS_TRANSPORT.md` for the ClientHello transport and
 ### TLS Handshake Bump
 
 - Encodes Alice->Bob requests in SNI under a base domain
-- Encodes Bob->Alice responses in CN of the upstream certificate
+- Encodes Bob->Alice responses in CN with checksum framing
+- Client extracts the response token via scan or regex
 - Requires a TLS-bumping proxy that exposes CN in error pages
 
 ---

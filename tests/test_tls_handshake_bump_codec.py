@@ -68,6 +68,25 @@ class TlsHandshakeBumpCodecTests(unittest.TestCase):
         decoded = codec.decode_cn_value(cn)
         self.assertEqual(decoded, payload)
 
+    def test_scan_response_payload(self):
+        payload = b'pingpong'
+        cn = codec.encode_cn_value(payload, max_len=128)
+        buffer_bytes = b'xx' + cn.encode('ascii') + b'yy'
+        decoded = codec.scan_response_payload(buffer_bytes, max_payload_len=64)
+        self.assertEqual(decoded, payload)
+
+    def test_response_checksum_reject(self):
+        payload = b'pong'
+        cn = codec.encode_cn_value(payload, max_len=128)
+        if cn[0] != 'a':
+            tampered = 'a' + cn[1:]
+        else:
+            tampered = 'b' + cn[1:]
+        with self.assertRaises(ValueError):
+            codec.decode_cn_value(tampered)
+        scanned = codec.scan_response_payload(tampered.encode('ascii'))
+        self.assertIsNone(scanned)
+
     def test_sni_payload_cap(self):
         base_domain = 'example.com'
         cap = codec.calc_sni_payload_cap(base_domain)

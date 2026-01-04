@@ -124,10 +124,12 @@ class TlsHandshakeBumpClient(Transport):
         self._handshake_timeout = validated['handshake_timeout']
         self._send_mtu = validated['sni_payload_cap']
         self._recv_mtu = validated['cn_payload_cap']
+        self._cn_max_len = validated['cn_max_len']
         self._base_domain = validated['base_domain']
         self._request_path = validated['request_path']
-        self._cn_regex = validated['cn_regex']
-        self._cn_regex_text = validated['cn_regex_text']
+        self._response_mode = validated['response_mode']
+        self._response_regex = validated['response_regex']
+        self._response_regex_text = validated['response_regex_text']
 
         self._max_in_flight = config.max_in_flight
         target_host, target_port = parse_host_port(config.tls_bump_target)
@@ -180,7 +182,8 @@ class TlsHandshakeBumpClient(Transport):
                 'recv_mtu': self._recv_mtu,
                 'base_domain': self._base_domain,
                 'request_path': self._request_path,
-                'cn_regex': self._cn_regex_text,
+                'response_mode': self._response_mode,
+                'response_regex': self._response_regex_text,
             },
         )
 
@@ -605,21 +608,32 @@ class TlsHandshakeBumpClient(Transport):
         return (corr_id, payload)
 
     def _extract_payload(self, buffer_bytes, corr_id):
-        match = self._cn_regex.search(to_bytes(buffer_bytes))
-        if match is None:
-            return None
-        cn_bytes = match.group(1)
-        try:
-            cn_text = _coerce_text(cn_bytes)
-        except UnicodeError:
-            self._log_parse_error('tls_bump.cn_non_ascii', corr_id)
-            return None
-        try:
-            payload = codec.decode_cn_value(cn_text)
-        except Exception:
-            self._log_parse_error('tls_bump.cn_decode', corr_id)
-            return None
-        return payload
+        if self._response_mode == 'regex':
+            match = self._response_regex.search(to_bytes(buffer_bytes))
+            if match is None:
+                return None
+            token_bytes = match.group(1)
+            try:
+                token_text = _coerce_text(token_bytes)
+            except UnicodeError:
+                self._log_parse_error('tls_bump.response_non_ascii', corr_id)
+                return None
+            try:
+                payload = codec.decode_cn_value(token_text)
+            except Exception:
+                self._log_parse_error('tls_bump.response_decode', corr_id)
+                return None
+            return payload
+        if self._response_mode == 'scan':
+            payload = codec.scan_response_payload(
+                buffer_bytes,
+                max_payload_len=self._recv_mtu,
+                max_token_len=self._cn_max_len,
+            )
+            if payload is None:
+                return None
+            return payload
+        raise TransportError('Invalid TLS bump response mode: %s' % self._response_mode)
 
     def _prune_deadlines(self, now=None):
         if now is None:

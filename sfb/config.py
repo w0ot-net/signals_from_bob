@@ -110,8 +110,10 @@ class Config:
     tls_bump_handshake_timeout: float = 5.0
     # HTTPS request path to trigger proxy error page
     tls_bump_request_path: str = "/"
-    # Regex with capture group to extract CN from error page
-    tls_bump_cn_regex: str = "Self-signed SSL Certificate: /CN=([A-Za-z0-9.-]+)"
+    # Response extraction mode: 'scan' or 'regex' (None = auto)
+    tls_bump_response_mode: Optional[str] = None
+    # Optional regex with capture group for base32 response token
+    tls_bump_response_regex: Optional[str] = None
     # Max CN length (base32 chars) for response MTU
     tls_bump_max_cn_len: int = 96
     # Max ClientHello record size (bytes, includes 5-byte header)

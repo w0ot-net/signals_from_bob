@@ -47,6 +47,10 @@ class TlsHandshakeBumpClientServerTests(unittest.TestCase):
             transport='tls_handshake_bump',
             tls_bump_base_domain='example.com',
             tls_bump_target='127.0.0.1:443',
+            tls_bump_response_mode='regex',
+            tls_bump_response_regex=(
+                r'Self-signed SSL Certificate: /CN=([A-Za-z2-7]+)'
+            ),
         )
         client = TlsHandshakeBumpClient(client_cfg)
         payload = b'ping'

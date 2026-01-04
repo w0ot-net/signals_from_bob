@@ -56,3 +56,9 @@ validation into shared helpers so both `tls_handshake` and the future
 - Run `python3 -m unittest tests.test_tls_proxy_helpers`.
 - Run `python3 -m unittest tests.test_tls_client_server`.
 - Do not run tests/e2e (user-run only).
+
+## Execution Notes
+- Implemented shared proxy helpers and updated TLS handshake client/config.
+- Added unit tests for proxy helpers.
+- Ran `python3 -m unittest tests.test_tls_proxy_helpers`.
+- Ran `python3 -m unittest tests.test_tls_client_server` (skipped 5).

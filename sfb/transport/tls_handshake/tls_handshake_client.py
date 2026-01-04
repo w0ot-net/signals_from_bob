@@ -5,7 +5,6 @@ TLS ClientHello transport for Alice.
 
 from __future__ import absolute_import
 
-import base64
 import errno
 import logging
 import select
@@ -16,6 +15,11 @@ from ..transport_base import (
     TransportError,
     PendingTracker,
     prune_and_count,
+)
+from ..proxy_helpers import (
+    build_connect_request,
+    parse_connect_response,
+    PROXY_HEADER_TOO_LARGE,
 )
 from . import tls_handshake_codec as codec
 from .tls_handshake_config import validate_tls_config, parse_host_port
@@ -54,9 +58,6 @@ for name in ('WSAECONNRESET',):
     value = getattr(errno, name, None)
     if value is not None:
         _RESET_ERRORS.add(value)
-
-_PROXY_HEADER_LIMIT = 8192
-
 
 class _PendingConn(object):
     __slots__ = (
@@ -133,7 +134,11 @@ class TlsClient(Transport):
             )
             self._proxy_label = '%s:%d' % (proxy_host, proxy_port)
             self._proxy_auth = config.tls_http_proxy_auth
-            self._proxy_request = self._build_proxy_request()
+            target_hostport = '%s:%d' % (self._target_host, self._target_port)
+            self._proxy_request = build_connect_request(
+                target_hostport,
+                proxy_auth=self._proxy_auth,
+            )
             self._connect_addr = self._proxy_addr
         else:
             self._target_addr = self._resolve_target(
@@ -409,7 +414,8 @@ class TlsClient(Transport):
             self._close_pending(corr_id, state)
             return None
         state.proxy_recv_buf.extend(data)
-        if len(state.proxy_recv_buf) > _PROXY_HEADER_LIMIT:
+        status, header_end = parse_connect_response(state.proxy_recv_buf)
+        if header_end == PROXY_HEADER_TOO_LARGE:
             self._log_proxy_error(
                 'response_too_large',
                 corr_id,
@@ -417,11 +423,8 @@ class TlsClient(Transport):
             )
             self._close_pending(corr_id, state)
             return None
-        header_end = state.proxy_recv_buf.find(b'\r\n\r\n')
-        if header_end < 0:
+        if header_end is None:
             return None
-        status_line = state.proxy_recv_buf[:header_end].split(b'\r\n', 1)[0]
-        status = self._parse_proxy_status(status_line)
         if status != 200:
             if status is None:
                 self._log_proxy_error('invalid_status', corr_id)
@@ -439,15 +442,6 @@ class TlsClient(Transport):
         state.proxy_send_buf = None
         state.proxy_recv_buf = bytearray()
         return None
-
-    def _parse_proxy_status(self, status_line):
-        parts = status_line.split(None, 2)
-        if len(parts) < 2:
-            return None
-        try:
-            return int(parts[1], 10)
-        except (TypeError, ValueError):
-            return None
 
     def _recv_record(self, corr_id, state):
         bufsize = 4096
@@ -653,27 +647,6 @@ class TlsClient(Transport):
             else:
                 write_list.append(state.sock)
         return read_list, write_list
-
-    def _build_proxy_request(self):
-        target = '%s:%d' % (self._target_host, self._target_port)
-        try:
-            target_bytes = target.encode('ascii')
-        except UnicodeError:
-            raise TransportError('tls_target must be ASCII when using tls_http_proxy')
-        lines = [
-            b'CONNECT ' + target_bytes + b' HTTP/1.1',
-            b'Host: ' + target_bytes,
-        ]
-        if self._proxy_auth is not None:
-            try:
-                auth_bytes = self._proxy_auth.encode('ascii')
-            except UnicodeError:
-                raise TransportError('tls_http_proxy_auth must be ASCII')
-            token = base64.b64encode(auth_bytes)
-            lines.append(b'Proxy-Authorization: Basic ' + token)
-        lines.append(b'')
-        lines.append(b'')
-        return b'\r\n'.join(lines)
 
     def _resolve_target(self, host, port, label):
         try:

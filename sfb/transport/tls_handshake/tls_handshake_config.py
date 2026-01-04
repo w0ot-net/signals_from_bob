@@ -10,6 +10,7 @@ import re
 from ...compat import text_type
 from ...protocol.constants import PACKET_HEADER_SIZE
 from ..transport_base import TransportError
+from ..proxy_helpers import validate_proxy_config
 from . import tls_handshake_codec as codec
 
 
@@ -82,23 +83,12 @@ def validate_tls_config(config, role):
 
     if role == 'client':
         _require_host_port(config.tls_target, 'tls_target')
-        if config.tls_http_proxy is not None:
-            _validate_proxy_addr(config.tls_http_proxy)
-            if config.tls_http_proxy_auth is not None:
-                _validate_proxy_auth(config.tls_http_proxy_auth)
-            if config.tls_proxy_timeout is None:
-                proxy_timeout = connect_timeout
-            else:
-                proxy_timeout = _require_positive_float(
-                    config.tls_proxy_timeout, 'tls_proxy_timeout'
-                )
-        else:
-            if config.tls_http_proxy_auth is not None:
-                raise TransportError('tls_http_proxy_auth requires tls_http_proxy')
-            if config.tls_proxy_timeout is not None:
-                proxy_timeout = _require_positive_float(
-                    config.tls_proxy_timeout, 'tls_proxy_timeout'
-                )
+        proxy_timeout = validate_proxy_config(
+            config.tls_http_proxy,
+            config.tls_http_proxy_auth,
+            config.tls_proxy_timeout,
+            connect_timeout,
+        )['proxy_timeout']
     if role == 'server':
         _require_host_port(config.tls_listen_addr, 'tls_listen_addr')
 
@@ -132,33 +122,6 @@ def parse_host_port(addr):
     if port < 1 or port > 65535:
         raise TransportError('Address port out of range')
     return host, port
-
-
-def _require_ascii_text(value, label):
-    if not isinstance(value, text_type):
-        raise TransportError('%s must be text' % label)
-    if not value:
-        raise TransportError('%s must not be empty' % label)
-    try:
-        value.encode('ascii')
-    except UnicodeError:
-        raise TransportError('%s must be ASCII' % label)
-    return value
-
-
-def _validate_proxy_addr(value):
-    value = _require_ascii_text(value, 'tls_http_proxy')
-    if any(ch.isspace() for ch in value):
-        raise TransportError('tls_http_proxy must not contain whitespace')
-    parse_host_port(value)
-    return value
-
-
-def _validate_proxy_auth(value):
-    value = _require_ascii_text(value, 'tls_http_proxy_auth')
-    if ':' not in value:
-        raise TransportError('tls_http_proxy_auth must be user:pass')
-    return value
 
 
 def _require_host_port(addr, label):

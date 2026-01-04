@@ -182,6 +182,8 @@ class Config:
     channel_write_backoff_max: float = 1.0
     # Control channel read chunk size (bytes)
     channel_control_read_chunk: int = 4096
+    # Cooldown before reusing a closed channel ID (seconds, 0 = disabled)
+    channel_id_reuse_cooldown: float = 1.0
 
     # --- File Transfer ---
     # Maximum file size to transfer (bytes), None = unlimited
@@ -414,6 +416,8 @@ class Config:
             raise ValueError("channel_write_backoff_max must be >= channel_write_backoff_initial")
         if self.channel_control_read_chunk < 1:
             raise ValueError("channel_control_read_chunk must be >= 1")
+        if self.channel_id_reuse_cooldown < 0:
+            raise ValueError("channel_id_reuse_cooldown must be >= 0")
 
         # File transfer validation
         if self.file_transfer_chunk_size < 1:

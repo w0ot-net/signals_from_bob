@@ -22,6 +22,7 @@ policy. It reflects the implementation in `sfb/channel/channel_manager.py`.
 - Alice allocates odd IDs: 1, 3, 5, ...
 - Bob allocates even IDs: 2, 4, 6, ...
 - Allocation wraps around and skips IDs still in use.
+- Closed IDs are not reused until `channel_id_reuse_cooldown` seconds elapse.
 - If all IDs are in use, allocation fails with an error.
 
 ---

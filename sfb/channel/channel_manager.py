@@ -74,6 +74,8 @@ class ChannelManager(object):
         self._active_channels = collections.OrderedDict()
         self._send_state_seq = {}
         self._unknown_channel_last = {}
+        self._id_reuse_cooldown = config.channel_id_reuse_cooldown
+        self._id_reuse_until = {}
 
         # Channel ID allocation
         # Alice uses odd IDs (1, 3, 5...), Bob uses even (2, 4, 6...)
@@ -139,6 +141,7 @@ class ChannelManager(object):
         channel._set_send_state_callback(self._on_channel_send_state)
         self._channels[channel.id] = channel
         self._unknown_channel_last.pop(channel.id, None)
+        self._id_reuse_until.pop(channel.id, None)
         if channel.id == CHANNEL_CONTROL:
             return
         has_data, seq = channel._get_send_state()
@@ -152,6 +155,11 @@ class ChannelManager(object):
             return None
         channel._set_send_state_callback(None)
         self._send_state_seq.pop(channel_id, None)
+        self._unknown_channel_last.pop(channel_id, None)
+        if self._id_reuse_cooldown > 0 and self._owns_channel_id(channel_id):
+            self._id_reuse_until[channel_id] = (
+                time_provider.now() + self._id_reuse_cooldown
+            )
         if channel_id in self._active_channels:
             del self._active_channels[channel_id]
         return channel
@@ -562,15 +570,20 @@ class ChannelManager(object):
         # Bob: 2, 4, 6, ..., 254 (127 possible)
         start_id = self._next_channel_id
         channel_id = start_id
+        now = None
+        if self._id_reuse_cooldown > 0:
+            now = time_provider.now()
 
         while True:
             if channel_id not in self._channels:
-                # Found an available ID
-                self._next_channel_id = channel_id + 2
-                # Handle wraparound
-                if self._next_channel_id > 255:
-                    self._next_channel_id = 1 if self._is_alice else 2
-                return channel_id
+                if (self._id_reuse_cooldown <= 0 or
+                        not self._is_in_reuse_cooldown(channel_id, now)):
+                    # Found an available ID
+                    self._next_channel_id = channel_id + 2
+                    # Handle wraparound
+                    if self._next_channel_id > 255:
+                        self._next_channel_id = 1 if self._is_alice else 2
+                    return channel_id
 
             # Try next ID
             channel_id += 2
@@ -580,6 +593,24 @@ class ChannelManager(object):
             # Check if we've wrapped around completely
             if channel_id == start_id:
                 raise ChannelError('no_ids', 'No channel IDs available')
+
+    def _owns_channel_id(self, channel_id):
+        if channel_id == CHANNEL_CONTROL:
+            return False
+        if self._is_alice:
+            return is_alice_channel(channel_id)
+        return is_bob_channel(channel_id)
+
+    def _is_in_reuse_cooldown(self, channel_id, now):
+        if not self._id_reuse_until:
+            return False
+        reuse_until = self._id_reuse_until.get(channel_id)
+        if reuse_until is None:
+            return False
+        if now is None or now >= reuse_until:
+            self._id_reuse_until.pop(channel_id, None)
+            return False
+        return True
 
     def _handle_open(self, msg):
         """Handle OPEN request from peer."""

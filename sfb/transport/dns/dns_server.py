@@ -12,7 +12,7 @@ import select
 import socket
 import struct
 
-from ..transport_base import Server, TransportError
+from ..transport_base import Server, TransportError, raise_bind_error
 from . import codec
 from ...config import Config, DNS_STANDARD_SIZE
 from ...logging_util import get_logger, log_event
@@ -88,10 +88,10 @@ class DnsServer(Server):
         try:
             self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._sock.bind(self._listen_addr)
-        except (socket.error, OSError):
+        except (socket.error, OSError) as exc:
             self._sock.close()
             self._sock = None
-            raise
+            raise_bind_error(exc, self._listen_addr, 'DNS')
 
         # Cache EDNS0 OPT record, recv buffer size, and SOA record.
         if self._edns_size > 512:

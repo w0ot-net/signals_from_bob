@@ -10,7 +10,7 @@ import logging
 import select
 import socket
 
-from ..transport_base import Server, TransportError
+from ..transport_base import Server, TransportError, raise_bind_error
 from . import tls_handshake_codec as codec
 from .tls_handshake_config import validate_tls_config, parse_host_port
 from ...compat import require_bytes_like, to_bytes
@@ -25,18 +25,6 @@ for name in ('WSAEWOULDBLOCK', 'WSAEINTR'):
     value = getattr(errno, name, None)
     if value is not None:
         _TEMP_ERRORS.add(value)
-
-_ADDR_IN_USE_ERRORS = set([errno.EADDRINUSE])
-for name in ('WSAEADDRINUSE',):
-    value = getattr(errno, name, None)
-    if value is not None:
-        _ADDR_IN_USE_ERRORS.add(value)
-
-_PERM_ERRORS = set([errno.EACCES])
-for name in ('WSAEACCES',):
-    value = getattr(errno, name, None)
-    if value is not None:
-        _PERM_ERRORS.add(value)
 
 
 class _ConnState(object):
@@ -104,19 +92,7 @@ class TlsServer(Server):
         except (socket.error, OSError) as exc:
             self._sock.close()
             self._sock = None
-            err = _get_errno(exc)
-            listen_label = '%s:%d' % (self._listen_addr[0], self._listen_addr[1])
-            if err in _ADDR_IN_USE_ERRORS:
-                raise TransportError(
-                    'TLS listen address already in use: %s' % listen_label
-                )
-            if err in _PERM_ERRORS:
-                raise TransportError(
-                    'Permission denied binding TLS listen address: %s' % listen_label
-                )
-            raise TransportError(
-                'Failed to bind TLS listen address %s: %s' % (listen_label, exc)
-            )
+            raise_bind_error(exc, self._listen_addr, 'TLS')
 
         log_event(
             _LOG,

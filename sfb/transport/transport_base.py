@@ -17,6 +17,7 @@ operation, set max_in_flight=1 or call recv() after each send().
 from __future__ import absolute_import
 
 import abc
+import errno
 
 from .. import time_provider
 
@@ -310,6 +311,56 @@ class Server(object):
 class TransportError(Exception):
     """Base exception for transport errors."""
     pass
+
+
+_ADDR_IN_USE_ERRORS = set([errno.EADDRINUSE])
+for name in ('WSAEADDRINUSE',):
+    value = getattr(errno, name, None)
+    if value is not None:
+        _ADDR_IN_USE_ERRORS.add(value)
+
+_PERM_ERRORS = set([errno.EACCES])
+for name in ('WSAEACCES',):
+    value = getattr(errno, name, None)
+    if value is not None:
+        _PERM_ERRORS.add(value)
+
+
+def _get_errno(exc):
+    err = getattr(exc, 'errno', None)
+    if err is None and getattr(exc, 'args', None):
+        if exc.args:
+            try:
+                err = int(exc.args[0])
+            except (TypeError, ValueError):
+                err = None
+    return err
+
+
+def _format_listen_addr(listen_addr):
+    if isinstance(listen_addr, (tuple, list)) and len(listen_addr) == 2:
+        return '%s:%s' % (listen_addr[0], listen_addr[1])
+    return str(listen_addr)
+
+
+def raise_bind_error(exc, listen_addr, transport_label):
+    err = _get_errno(exc)
+    listen_label = _format_listen_addr(listen_addr)
+    if err in _ADDR_IN_USE_ERRORS:
+        raise TransportError(
+            '%s listen address already in use: %s' % (transport_label, listen_label)
+        )
+    if err in _PERM_ERRORS:
+        raise TransportError(
+            'Permission denied binding %s listen address: %s' % (
+                transport_label, listen_label
+            )
+        )
+    raise TransportError(
+        'Failed to bind %s listen address %s: %s' % (
+            transport_label, listen_label, exc
+        )
+    )
 
 
 class TokenBucket(object):

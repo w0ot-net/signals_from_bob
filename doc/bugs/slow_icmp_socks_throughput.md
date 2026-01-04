@@ -308,3 +308,14 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Takeaways:
   - Feedback-driven pacing caps inflight around ~27 packets (far below the 128 window), matching the observed throughput ceiling.
   - Stalls align with window-distance pacing plus occasional multi-second ack silence, not heavy retransmit churn.
+
+## Log Review: Poll Pacing (latest run)
+- Logs: `logs/client_log.db`, `logs/server_log.db`.
+- Poll pacing: `tunnel.poll_pace` interval moved from 1.0s (no SRTT) to 0.001s once SRTT was available; no further interval changes observed.
+- Pacer summary (Alice): send/recv ~380-430 pps with unacked/pending ~43-57; `target_inflight` rose 58->158 in probe mode while `feedback_target` stayed ~31-34 (SRTT ~115-126 ms).
+- SOCKS pump backpressure (Alice target_to_channel): `sock.pump_stats` shows `buffer_full` ~2.1k/interval and `wait_time` ~0.88-0.95s, so the pump waits almost the entire second for channel send space.
+- Retransmits: no `tunnel.retransmit` events; only `tunnel.retransmit_skip` (Alice: `ack_silence`, Bob: `cooldown`), so choppiness is not driven by retransmits.
+- Payload efficiency: `channel.pack` payload_bytes ~1309/1312, so packets are full.
+- Takeaways:
+  - Throughput appears capped by packet rate (pps) plus channel backpressure, not by retransmits.
+  - Next levers to test: higher `max_in_flight`, reduced pump backoff, or tighter poll pacing to smooth stall gaps.

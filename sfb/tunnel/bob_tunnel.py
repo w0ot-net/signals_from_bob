@@ -278,14 +278,10 @@ class BobTunnel(BaseTunnel):
                                   seq, segments, flags, encrypted_body,
                                   context='retransmit', reason=None):
         packet = self._rebuild_packet(seq, segments, flags=flags)
-        if encrypted_body is None:
-            body = self._encode_segments(packet.segments)
-            encrypted_body = self._encrypt(
-                body,
-                seq=seq,
-                direction=self._direction_outbound(),
-            )
-        response_data = self._encode_packet(packet, encrypted_body=encrypted_body)
+        encrypted_body, response_data = self._encode_packet_for_send(
+            packet,
+            encrypted_body=encrypted_body,
+        )
         if (response_payload_cap is not None and
                 len(response_data) > response_payload_cap):
             log_event(
@@ -364,24 +360,11 @@ class BobTunnel(BaseTunnel):
             logging.DEBUG,
             'tunnel.packet_send',
             'Packet sent',
-            lambda: {
-                'seq': packet.seq,
-                'ack': packet.ack,
-                'sack': packet.sack,
-                'flags': packet.flags,
-                'seg_count': len(packet.segments),
-                'bytes': len(response_data),
-                'context': 'retransmit',
-                'send_mtu': self._send_mtu,
-                'recv_mtu': self._recv_mtu,
-                'negotiated_window': self._negotiated_window,
-                'unacked': self._send_window.unacked_count,
-                'max_in_flight': self._send_window._max_in_flight,
-                'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
-                'has_data': bool(packet.segments),
-                'side': 'bob',
-                'state': self._state,
-            },
+            lambda: self._packet_send_fields(
+                packet,
+                len(response_data),
+                'retransmit',
+            ),
         )
         self._log_reliability_state(
             logging.DEBUG,
@@ -398,13 +381,7 @@ class BobTunnel(BaseTunnel):
 
     def _send_ack_only_response(self, responder, now, context):
         packet, _ = self._build_packet(segments=[])
-        body = self._encode_segments(packet.segments)
-        encrypted_body = self._encrypt(
-            body,
-            seq=packet.seq,
-            direction=self._direction_outbound(),
-        )
-        response_data = self._encode_packet(packet, encrypted_body=encrypted_body)
+        encrypted_body, response_data = self._encode_packet_for_send(packet)
         self._send_window.send(
             [],
             flags=packet.flags,
@@ -419,24 +396,11 @@ class BobTunnel(BaseTunnel):
             logging.DEBUG,
             'tunnel.packet_send',
             'Packet sent',
-            lambda: {
-                'seq': packet.seq,
-                'ack': packet.ack,
-                'sack': packet.sack,
-                'flags': packet.flags,
-                'seg_count': len(packet.segments),
-                'bytes': len(response_data),
-                'context': 'ack_only',
-                'send_mtu': self._send_mtu,
-                'recv_mtu': self._recv_mtu,
-                'negotiated_window': self._negotiated_window,
-                'unacked': self._send_window.unacked_count,
-                'max_in_flight': self._send_window._max_in_flight,
-                'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
-                'has_data': bool(packet.segments),
-                'side': 'bob',
-                'state': self._state,
-            },
+            lambda: self._packet_send_fields(
+                packet,
+                len(response_data),
+                'ack_only',
+            ),
         )
 
     def _send_response(self, responder, now):
@@ -667,13 +631,7 @@ class BobTunnel(BaseTunnel):
                 flags=FLAG_KEEPALIVE,
                 segments=[],
             )
-            body = self._encode_segments(packet.segments)
-            encrypted_body = self._encrypt(
-                body,
-                seq=packet.seq,
-                direction=self._direction_outbound(),
-            )
-            response_data = self._encode_packet(packet, encrypted_body=encrypted_body)
+            encrypted_body, response_data = self._encode_packet_for_send(packet)
             self._send_window.send(
                 [],
                 flags=FLAG_KEEPALIVE,
@@ -689,36 +647,17 @@ class BobTunnel(BaseTunnel):
                 logging.DEBUG,
                 'tunnel.packet_send',
                 'Packet sent',
-                lambda: {
-                    'seq': packet.seq,
-                    'ack': packet.ack,
-                    'sack': packet.sack,
-                    'flags': packet.flags,
-                    'seg_count': len(packet.segments),
-                    'bytes': len(response_data),
-                    'context': 'keepalive',
-                    'send_mtu': self._send_mtu,
-                    'recv_mtu': self._recv_mtu,
-                    'negotiated_window': self._negotiated_window,
-                    'unacked': self._send_window.unacked_count,
-                    'max_in_flight': self._send_window._max_in_flight,
-                    'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
-                    'has_data': bool(packet.segments),
-                    'side': 'bob',
-                    'state': self._state,
-                },
+                lambda: self._packet_send_fields(
+                    packet,
+                    len(response_data),
+                    'keepalive',
+                ),
             )
             return
 
         # Build packet
         packet, seq = self._build_packet(segments=segments)
-        body = self._encode_segments(packet.segments)
-        encrypted_body = self._encrypt(
-            body,
-            seq=packet.seq,
-            direction=self._direction_outbound(),
-        )
-        response_data = self._encode_packet(packet, encrypted_body=encrypted_body)
+        encrypted_body, response_data = self._encode_packet_for_send(packet)
 
         # Record send (store segments for retransmit with fresh ack/sack)
         self._send_window.send(
@@ -738,24 +677,11 @@ class BobTunnel(BaseTunnel):
             logging.DEBUG,
             'tunnel.packet_send',
             'Packet sent',
-            lambda: {
-                'seq': packet.seq,
-                'ack': packet.ack,
-                'sack': packet.sack,
-                'flags': packet.flags,
-                'seg_count': len(packet.segments),
-                'bytes': len(response_data),
-                'context': 'segments',
-                'send_mtu': self._send_mtu,
-                'recv_mtu': self._recv_mtu,
-                'negotiated_window': self._negotiated_window,
-                'unacked': self._send_window.unacked_count,
-                'max_in_flight': self._send_window._max_in_flight,
-                'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
-                'has_data': bool(packet.segments),
-                'side': 'bob',
-                'state': self._state,
-            },
+            lambda: self._packet_send_fields(
+                packet,
+                len(response_data),
+                'segments',
+            ),
         )
 
     def _log_response_cap(self, responder, response_data):

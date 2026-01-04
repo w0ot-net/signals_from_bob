@@ -1,6 +1,6 @@
 # Shared Tunnel Helpers Plan
 
-Status: draft.
+Status: completed.
 
 ## Goal
 
@@ -38,3 +38,9 @@ asymmetry.
 ## Testing
 
 - No new tests planned; rely on existing coverage.
+
+## Execution Notes
+
+- Added shared packet encoding and packet_send logging helpers in BaseTunnel.
+- Swapped Alice and Bob send paths to use the shared helpers without changing
+  send timing or window behavior.

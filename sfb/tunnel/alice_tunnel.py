@@ -1105,13 +1105,7 @@ class AliceTunnel(BaseTunnel):
     def _send_new_packet(self, segments, now, flags=0, permit=None):
         """Send a new packet with given segments."""
         packet, seq = self._build_packet(flags=flags, segments=segments)
-        body = self._encode_segments(packet.segments)
-        encrypted_body = self._encrypt(
-            body,
-            seq=packet.seq,
-            direction=self._direction_outbound(),
-        )
-        packet_data = self._encode_packet(packet, encrypted_body=encrypted_body)
+        encrypted_body, packet_data = self._encode_packet_for_send(packet)
 
         if self._send_limiter is not None and not self._send_limiter.consume(now=now):
             log_event(
@@ -1168,37 +1162,20 @@ class AliceTunnel(BaseTunnel):
             logging.DEBUG,
             'tunnel.packet_send',
             'Packet sent',
-            lambda: {
-                'seq': packet.seq,
-                'ack': packet.ack,
-                'sack': packet.sack,
-                'flags': packet.flags,
-                'seg_count': len(packet.segments),
-                'bytes': len(packet_data),
-                'context': 'new',
-                'send_mtu': self._send_mtu,
-                'recv_mtu': self._recv_mtu,
-                'negotiated_window': self._negotiated_window,
-                'unacked': self._send_window.unacked_count,
-                'max_in_flight': self._send_window._max_in_flight,
-                'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
-                'has_data': bool(packet.segments),
-                'side': 'alice',
-                'state': self._state,
-            },
+            lambda: self._packet_send_fields(
+                packet,
+                len(packet_data),
+                'new',
+            ),
         )
 
     def _send_retransmit(self, seq, segments, flags, encrypted_body, now, reason=None):
         """Retransmit a packet."""
         packet = self._rebuild_packet(seq, segments, flags=flags)
-        if encrypted_body is None:
-            body = self._encode_segments(packet.segments)
-            encrypted_body = self._encrypt(
-                body,
-                seq=seq,
-                direction=self._direction_outbound(),
-            )
-        packet_data = self._encode_packet(packet, encrypted_body=encrypted_body)
+        encrypted_body, packet_data = self._encode_packet_for_send(
+            packet,
+            encrypted_body=encrypted_body,
+        )
 
         if self._send_limiter is not None and not self._send_limiter.consume(now=now):
             self._reliability_stats.on_retransmit_skip_rate_limit()
@@ -1297,24 +1274,11 @@ class AliceTunnel(BaseTunnel):
             logging.DEBUG,
             'tunnel.packet_send',
             'Packet sent',
-            lambda: {
-                'seq': packet.seq,
-                'ack': packet.ack,
-                'sack': packet.sack,
-                'flags': packet.flags,
-                'seg_count': len(packet.segments),
-                'bytes': len(packet_data),
-                'context': 'retransmit',
-                'send_mtu': self._send_mtu,
-                'recv_mtu': self._recv_mtu,
-                'negotiated_window': self._negotiated_window,
-                'unacked': self._send_window.unacked_count,
-                'max_in_flight': self._send_window._max_in_flight,
-                'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
-                'has_data': bool(packet.segments),
-                'side': 'alice',
-                'state': self._state,
-            },
+            lambda: self._packet_send_fields(
+                packet,
+                len(packet_data),
+                'retransmit',
+            ),
         )
         self._log_reliability_state(
             logging.DEBUG,

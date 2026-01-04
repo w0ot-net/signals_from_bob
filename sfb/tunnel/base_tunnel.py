@@ -511,6 +511,44 @@ class BaseTunnel(object):
             )
         return header + encrypted_body
 
+    def _encode_packet_for_send(self, packet, encrypted_body=None):
+        """
+        Encode a packet for sending, returning (encrypted_body, packet_data).
+
+        This uses the outbound direction and preserves any provided
+        encrypted_body to avoid re-encrypting retransmits.
+        """
+        if encrypted_body is None:
+            body = self._encode_segments(packet.segments)
+            encrypted_body = self._encrypt(
+                body,
+                seq=packet.seq,
+                direction=self._direction_outbound(),
+            )
+        packet_data = self._encode_packet(packet, encrypted_body=encrypted_body)
+        return encrypted_body, packet_data
+
+    def _packet_send_fields(self, packet, data_len, context):
+        """Build common tunnel.packet_send log fields."""
+        return {
+            'seq': packet.seq,
+            'ack': packet.ack,
+            'sack': packet.sack,
+            'flags': packet.flags,
+            'seg_count': len(packet.segments),
+            'bytes': data_len,
+            'context': context,
+            'send_mtu': self._send_mtu,
+            'recv_mtu': self._recv_mtu,
+            'negotiated_window': self._negotiated_window,
+            'unacked': self._send_window.unacked_count,
+            'max_in_flight': self._send_window._max_in_flight,
+            'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
+            'has_data': bool(packet.segments),
+            'side': 'alice' if self._is_initiator else 'bob',
+            'state': self._state,
+        }
+
     def _close_protocol_violation(self, reason, packet=None):
         def build_fields():
             fields = {

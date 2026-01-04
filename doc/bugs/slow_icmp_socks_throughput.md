@@ -265,3 +265,23 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Takeaways:
   - Latest run no longer shows the effective cap pinned at 1; window-distance stalls still happen, but at mid-teen caps instead of single digits.
   - The mid-teen `effective_cap` matches the observed ~1/8 throughput vs `max_in_flight=128`.
+
+## Log Review: Feedback-Driven Pacing (Jan 3, 2026, 23:52 run)
+- Logs: `logs/client_log.db`, `logs/server_log.db`.
+- Alice pacing:
+  - `tunnel.pacer_target` target_inflight avg ~27 (median 27, max 128) with `ack_rate_ewma` ~240 pps and `srtt_ms` ~114.
+  - `tunnel.pacer_state` block_reason is `window_distance` in 6964/7099 entries, so feedback pacing is dominating the send cap.
+- Alice send blocking:
+  - `tunnel.send_blocked`: 16336 `window_distance` (1 `transport_headroom`, 3 `retransmit_budget`).
+  - `distance_limit` avg ~26.7 (median 27); `unacked` avg ~24; `buffered` avg ~6.3 (max 65).
+- Payload efficiency:
+  - `channel.pack` avg payload ~1308/1312; keepalive count 0.
+- Retransmit gating:
+  - `tunnel.retransmit_skip`: 16537 (all `ack_silence`), with `ack_silence` spikes up to ~2.09s.
+  - `rtt_rto_ms` up to 4000 (backoff count max 3); only 9 retransmits (all `reason=rto`, ages 3.8-4.4s).
+- ACK anomalies and burstiness:
+  - `send_ack_miss_count` median ~3335 (max 4637) despite low median `ack_silence`.
+  - Bob ack progress appears in 5325/18748 `tunnel.ack_detail` rows; when progress occurs, avg `acked_count` ~3.5 (max 66).
+- Takeaways:
+  - Feedback-driven pacing caps inflight around ~27 packets (far below the 128 window), matching the observed throughput ceiling.
+  - Stalls align with window-distance pacing plus occasional multi-second ack silence, not heavy retransmit churn.

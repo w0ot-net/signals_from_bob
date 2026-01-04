@@ -212,6 +212,12 @@ def add_tls_client_args(parser, config):
         default=config.tls_alpn,
         help='TLS ALPN list (comma-separated, optional cover)'
     )
+    parser.add_argument(
+        '--tls-mtu', type=int,
+        default=config.tls_max_clienthello_bytes,
+        help='TLS max record size in bytes (default: %s)' %
+             config.tls_max_clienthello_bytes
+    )
 
 
 def add_tls_server_args(parser, config):
@@ -225,6 +231,12 @@ def add_tls_server_args(parser, config):
         '--tls-sni',
         default=config.tls_sni,
         help='TLS SNI host name (optional cover, must match client)'
+    )
+    parser.add_argument(
+        '--tls-mtu', type=int,
+        default=config.tls_max_clienthello_bytes,
+        help='TLS max record size in bytes (default: %s)' %
+             config.tls_max_clienthello_bytes
     )
 
 
@@ -462,9 +474,13 @@ def create_config(args):
             config_kwargs['tls_target'] = getattr(args, 'target', None)
             config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
             config_kwargs['tls_alpn'] = getattr(args, 'tls_alpn', None)
+            config_kwargs['tls_max_clienthello_bytes'] = getattr(args, 'tls_mtu', None)
+            config_kwargs['tls_max_serverhello_bytes'] = getattr(args, 'tls_mtu', None)
         else:
             config_kwargs['tls_listen_addr'] = getattr(args, 'tls_listen_addr', None)
             config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
+            config_kwargs['tls_max_clienthello_bytes'] = getattr(args, 'tls_mtu', None)
+            config_kwargs['tls_max_serverhello_bytes'] = getattr(args, 'tls_mtu', None)
 
     if args.role == 'client':
         config_kwargs['tunnel_send_rate'] = getattr(args, 'send_rate', None)

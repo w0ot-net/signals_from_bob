@@ -96,7 +96,7 @@ An example helper is provided in `scripts/tls_bump_cert_helper.py`
 
 Client:
 - `tls_bump_target` (host:port, bumping proxy)
-- `tls_bump_base_domain` (required)
+- `tls_bump_base_domain` (default `example.com`)
 - `tls_bump_http_proxy` / `tls_bump_http_proxy_auth` (optional)
 - `tls_bump_request_path` (default `/`)
 - `tls_bump_cn_regex` (capture group required)
@@ -104,7 +104,7 @@ Client:
 
 Server:
 - `tls_bump_listen_addr`
-- `tls_bump_base_domain` (required, must match client)
+- `tls_bump_base_domain` (default `example.com`, must match client)
 - `tls_bump_cert_dir` (required)
 - `tls_bump_cert_helper` (optional)
 - `tls_bump_max_clienthello_bytes` (record size cap)

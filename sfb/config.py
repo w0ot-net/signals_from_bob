@@ -91,7 +91,7 @@ class Config:
 
     # --- TLS Handshake Bump Transport ---
     # Base domain for TLS bump SNI encoding
-    tls_bump_base_domain: str = ""
+    tls_bump_base_domain: str = "example.com"
     # TLS bump proxy host:port for Alice
     tls_bump_target: str = "127.0.0.1:443"
     # Optional HTTP CONNECT proxy host:port for Alice

@@ -190,3 +190,33 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Takeaways:
   - Throughput choppiness aligns with periodic ~1s gaps in poll/response cadence plus a fixed 128 in-flight cap that keeps the send window saturated.
   - Next step: test higher `max_in_flight` (if safe), or smooth the poll cadence to avoid 1s gaps; re-run with the same logging profile to confirm gap reduction.
+
+## Experiment Log: Choppy Throughput (Jan 3, 2026, second run)
+- Logs: `logs/client_log.db`, `logs/server_log.db`.
+- Alice SOCKS relay backpressure:
+  - `sock.pump_stats` (target_to_channel) shows `send_buf_size` hitting 1,048,576 (channel max) with `buffer_full` > 0 and `wait_time` ~0.94-1.17s per interval.
+  - `sock.pump_stats` (channel_to_target) shows `channel_timeouts` ~20 per interval with `wait_time` ~1.0s and no bytes, indicating idle return path during the run.
+- Tunnel saturation on Alice:
+  - `tunnel.pacer_state` target inflight stays at 128; `unacked_count` clusters at 116-120, indicating the in-flight cap is regularly hit.
+  - `tunnel.packet_send` shows has-data bursts (300-580 packets/sec) but only across ~8 seconds of the last 60s window; the rest of the window is mostly idle/keepalive.
+- Bob side shows asymmetric traffic:
+  - `tunnel.packet_send` has-data = 6 of 10,411 packets; `channel.pack` totals 960 bytes over the last 10 minutes.
+  - `tunnel.packet_recv` carries ~12.7 MB, indicating traffic is predominantly Alice->Bob for this run.
+- Takeaways:
+  - The choppiness aligns with Alice-side channel send buffer saturation and the 128 in-flight cap; bursts drain the buffer, then the relay waits for space.
+  - For smoother throughput, the limiting factors remain the in-flight window and poll cadence rather than retransmits.
+
+## Log Review: Pacing vs Polling (Feb 4, 2026)
+- Logs: `logs/client_log.db`, `logs/server_log.db`.
+- Alice pacing vs ack rate:
+  - `tunnel.pacer_state` shows `target_inflight=128` with `target_mode=base` while `feedback_target` hovers around ~33 (ack_rate_ewma ~230 pps, srtt ~147 ms).
+  - `unacked_count` commonly 108-114; pacer is not reducing inflight based on feedback.
+- Alice send gating:
+  - `tunnel.send_blocked` frequently reports `transport_headroom` at `pending=120` of `max_in_flight=128`.
+  - `tunnel.send_window_distance` repeats with `distance=128`, `unacked=1`, `buffered=127`, indicating a single missing seq stalls new sends.
+  - Gap retransmits occur (`reason=gap`), but subsequent sends are still blocked until the missing seq is acked.
+- Bob retransmit cooldown:
+  - `tunnel.retransmit_skip` on Bob uses `poll_ewma~0.0013s` and `window=128`, yielding `cooldown~0.16s` and repeated skips while `unacked` remains 80-90.
+- Takeaways:
+  - Alice is polling very aggressively (sub-2ms EWMA), but inflight is capped by transport headroom and window-distance stalls; the feedback target suggests a lower inflight may reduce gaps.
+  - Bob’s cooldown is driven by Alice’s high poll rate and window size, which can defer opportunistic retransmits during loss.

@@ -124,8 +124,6 @@ then calls `responder(response_data)` to send the reply:
    └─▶ responder(header + encrypt(segments))
 ```
 
-Bob limits each response to at most one non-control segment to avoid
-coalescing; control segments may still be included when present.
 
 ### Correlation IDs
 

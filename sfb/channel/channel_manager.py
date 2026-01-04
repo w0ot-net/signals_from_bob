@@ -351,8 +351,7 @@ class ChannelManager(object):
         # Tunnel messages handled by tunnel
 
     def collect_segments(self, max_payload, keepalive_data=None,
-                         return_pending=False, control_only=False,
-                         max_data_segments=None):
+                         return_pending=False, control_only=False):
         """
         Collect segments from channels for transmission.
 
@@ -368,8 +367,6 @@ class ChannelManager(object):
                            no other data is being sent (legacy)
             return_pending: If True, return (segments, pending_data)
             control_only: If True, only collect control channel segments
-            max_data_segments: Optional limit for non-control segments
-
         Returns:
             list: List of Segment instances if return_pending is False
             tuple: (segments, pending_data) if return_pending is True
@@ -377,11 +374,6 @@ class ChannelManager(object):
         segments = []
         remaining = max_payload
         pending_data = False
-        data_segments_added = 0
-        data_limit = max_data_segments
-        if data_limit is not None and data_limit < 0:
-            data_limit = 0
-
         # Step 1: Channel 0 data first (priority)
         if self._control.send_event.is_set():
             pending_data = True
@@ -423,16 +415,14 @@ class ChannelManager(object):
             if active_channels and remaining > SEGMENT_HEADER_SIZE:
                 primary_id = active_channels[0]
 
-                if data_limit is None or data_segments_added < data_limit:
-                    channel = channel_snapshot.get(primary_id)
-                    if channel is not None:
-                        data = channel._take_send_data(
-                            remaining - SEGMENT_HEADER_SIZE
-                        )
-                        if data:
-                            segments.append(Segment(primary_id, data))
-                            remaining -= SEGMENT_HEADER_SIZE + len(data)
-                            data_segments_added += 1
+                channel = channel_snapshot.get(primary_id)
+                if channel is not None:
+                    data = channel._take_send_data(
+                        remaining - SEGMENT_HEADER_SIZE
+                    )
+                    if data:
+                        segments.append(Segment(primary_id, data))
+                        remaining -= SEGMENT_HEADER_SIZE + len(data)
 
                 # Advance round-robin pointer (move primary to tail)
                 with self._lock:
@@ -446,10 +436,6 @@ class ChannelManager(object):
                     for cid in active_channels[1:]:
                         if remaining <= SEGMENT_HEADER_SIZE:
                             break
-                        if (data_limit is not None and
-                                data_segments_added >= data_limit):
-                            break
-
                         channel = channel_snapshot.get(cid)
                         if channel is None:
                             continue
@@ -460,7 +446,6 @@ class ChannelManager(object):
                         if data:
                             segments.append(Segment(cid, data))
                             remaining -= SEGMENT_HEADER_SIZE + len(data)
-                            data_segments_added += 1
 
         # Step 5: Optional keepalive_data if no other segments were added
         keepalive_sent = False

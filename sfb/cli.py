@@ -275,12 +275,12 @@ def add_tls_bump_client_args(parser, config):
         help='Base domain for TLS bump SNI encoding (required)'
     )
     parser.add_argument(
-        '--tls-bump-http-proxy',
+        '--tls-bump-http-proxy', '--tls-http-proxy',
         default=config.tls_bump_http_proxy,
         help='HTTP CONNECT proxy host:port for TLS bump client'
     )
     parser.add_argument(
-        '--tls-bump-http-proxy-auth',
+        '--tls-bump-http-proxy-auth', '--tls-http-proxy-auth',
         default=config.tls_bump_http_proxy_auth,
         help='HTTP proxy Basic auth user:pass for TLS bump client (optional)'
     )

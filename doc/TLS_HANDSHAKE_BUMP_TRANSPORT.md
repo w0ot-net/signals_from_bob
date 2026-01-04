@@ -94,9 +94,9 @@ the certificate so the proxy can read CN and fail validation.
 Bob builds a DER certificate in memory from a fixed template that contains a
 CN placeholder. The server pads the encoded CN to the template length and
 patches the placeholder before sending the handshake record. No certificate
-directory or helper is used at runtime. The template CN length is 96 to keep
-response MTU above the packet header size while staying within common proxy
-page limits.
+directory or helper is used at runtime. The template CN length is 256 to raise
+the response MTU; larger CNs may be less compatible with some proxy error
+pages.
 
 ## Configuration Summary
 

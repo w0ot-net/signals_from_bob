@@ -18,7 +18,8 @@ import signal
 import sys
 
 from .config import Config
-from .crypto import Plain, XOR
+from .compat import text_type
+from .crypto import Plain, RC4, XOR
 from .logging_util import add_component_filters, add_sqlite_handler, get_logger, log_event
 from .log_profiles import LOG_PROFILES, apply_log_profile
 from .transport import TRANSPORTS, TransportError, get_transport_class
@@ -93,9 +94,14 @@ def add_common_args(parser, config, require_domain=True):
         default=config.dns_base_domain,
         help='Base domain for DNS tunnel (e.g., t.example.com)'
     )
-    parser.add_argument(
-        '--psk',
-        help='Pre-shared key for XOR encryption (omit for no encryption)'
+    crypto_group = parser.add_mutually_exclusive_group()
+    crypto_group.add_argument(
+        '--xor',
+        help='Enable XOR encryption with pre-shared key'
+    )
+    crypto_group.add_argument(
+        '--rc4',
+        help='Enable RC4 encryption with pre-shared key'
     )
     parser.add_argument(
         '-v', '--verbose', action='store_true',
@@ -110,7 +116,8 @@ def add_common_args(parser, config, require_domain=True):
     )
     parser.add_argument(
         '--db-log-flush', type=float, default=config.db_log_flush,
-        help='SQLite log flush interval in seconds (default: 0.5)'
+        help='SQLite log flush interval in seconds (default: %s)' %
+             config.db_log_flush
     )
     parser.add_argument(
         '--db-log-queue', type=int, default=config.db_log_queue,
@@ -510,21 +517,44 @@ def create_config(args):
         args, 'socks_pump_backoff_max', None)
     config_kwargs['non_blocking_poll_timeout'] = getattr(
         args, 'non_blocking_poll_timeout', None)
+    if getattr(args, 'xor', None) is not None:
+        config_kwargs['crypto_mode'] = 'xor'
+        config_kwargs['crypto_psk'] = _normalize_psk(args.xor)
+    elif getattr(args, 'rc4', None) is not None:
+        config_kwargs['crypto_mode'] = 'rc4'
+        config_kwargs['crypto_psk'] = _normalize_psk(args.rc4)
 
     config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
     return Config(**config_kwargs)
 
 
+def _normalize_psk(psk):
+    if psk is None:
+        return None
+    if isinstance(psk, text_type):
+        return psk.encode('utf-8')
+    return psk
+
+
 def create_crypto(args, logger):
     """Create crypto instance from args."""
-    if args.psk:
-        crypto = XOR(args.psk.encode('utf-8'))
+    if args.xor is not None:
+        crypto = XOR(_normalize_psk(args.xor))
         log_event(
             logger,
             logging.INFO,
             'cli.crypto',
             'Encryption enabled',
             lambda: {'mode': 'xor'},
+        )
+    elif args.rc4 is not None:
+        crypto = RC4(_normalize_psk(args.rc4))
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.crypto',
+            'Encryption enabled',
+            lambda: {'mode': 'rc4'},
         )
     else:
         crypto = Plain()

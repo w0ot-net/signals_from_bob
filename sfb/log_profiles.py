@@ -359,6 +359,7 @@ LOG_PROFILES = {
         'log_component_transport_icmp': True,
         'log_component_tunnel': True,
         'log_component_module_socks': True,
+        'tunnel_pacer_summary_interval': 1.0,
         'log_event_whitelist': (
             'sock.pump_stats',
             'sock.pump_*',
@@ -371,6 +372,7 @@ LOG_PROFILES = {
             'icmp.send_blocked',
             'tunnel.window_*',
             'tunnel.send_blocked',
+            'tunnel.pacer_summary',
             'tunnel.packet_*',
         ),
         'log_event_blacklist': (),
@@ -407,6 +409,7 @@ LOG_PROFILES = {
     # Adaptive pacing state tracing (minimal noise).
     'tunnel_pacing': {
         'log_component_tunnel': True,
+        'tunnel_pacer_summary_interval': 1.0,
         'log_event_whitelist': (
             'cli.*',
             'tunnel.state',
@@ -419,6 +422,7 @@ LOG_PROFILES = {
             'tunnel.connected',
             'tunnel.closed',
             'tunnel.pacer_state',
+            'tunnel.pacer_summary',
         ),
         'log_event_blacklist': (),
     },

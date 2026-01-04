@@ -112,6 +112,11 @@ class AliceTunnel(BaseTunnel):
             config.tunnel_pace_ack_idle_reset_sec,
         )
         self._pacer_last_target = None
+        self._pacer_summary_interval = config.tunnel_pacer_summary_interval
+        self._pacer_summary_last_time = None
+        self._pacer_summary_last_sent = 0
+        self._pacer_summary_last_recv = 0
+        self._pacer_summary_last_stats = None
 
         # Enable module loader for handling Bob's module requests.
         self.enable_module_loader()
@@ -570,6 +575,8 @@ class AliceTunnel(BaseTunnel):
         # 4. Opportunistically grow window after ACK progress or retry negotiation
         if self._window_growth_enabled:
             self._maybe_request_window(now)
+
+        self._maybe_log_pacer_summary(time_provider.now())
 
         if (not received_any and self._packets_sent == packets_sent_before and
                 not self._channel_manager.has_pending_data() and
@@ -1076,6 +1083,120 @@ class AliceTunnel(BaseTunnel):
             'Pacer state',
             build_fields,
         )
+
+    def _maybe_log_pacer_summary(self, now):
+        interval = self._pacer_summary_interval
+        if interval <= 0:
+            return
+        if self._pacer_summary_last_time is None:
+            self._pacer_summary_last_time = now
+            self._pacer_summary_last_sent = self._packets_sent
+            self._pacer_summary_last_recv = self._packets_received
+            if self._stats_enabled:
+                try:
+                    self._pacer_summary_last_stats = (
+                        self._reliability_stats.snapshot()
+                    )
+                except Exception:
+                    self._pacer_summary_last_stats = None
+            return
+        elapsed = now - self._pacer_summary_last_time
+        if elapsed < interval:
+            return
+        if elapsed <= 0:
+            self._pacer_summary_last_time = now
+            return
+        sent_delta = self._packets_sent - self._pacer_summary_last_sent
+        recv_delta = self._packets_received - self._pacer_summary_last_recv
+        send_rate = float(sent_delta) / elapsed
+        recv_rate = float(recv_delta) / elapsed
+        pending = None
+        max_in_flight = None
+        if hasattr(self._transport, 'pending_count'):
+            try:
+                pending = self._transport.pending_count()
+            except Exception:
+                pending = None
+        if hasattr(self._transport, 'max_in_flight'):
+            try:
+                max_in_flight = self._transport.max_in_flight
+            except Exception:
+                max_in_flight = None
+
+        pacer_fields = self._pacer.state_fields(
+            self._send_window.unacked_count,
+            self._pacer_cap(),
+            rate_limit=self._config.tunnel_send_rate,
+            srtt_ms=self._rtt.srtt_ms,
+        )
+        fields = {
+            'side': 'alice',
+            'state': self._state,
+            'interval': round(elapsed, 6),
+            'sent_delta': sent_delta,
+            'recv_delta': recv_delta,
+            'send_rate': round(send_rate, 6),
+            'recv_rate': round(recv_rate, 6),
+            'unacked': self._send_window.unacked_count,
+            'send_window_max': self._send_window._max_in_flight,
+            'pacer_enabled': self._pacer.enabled,
+        }
+        if pending is not None:
+            fields['pending'] = pending
+        if max_in_flight is not None:
+            fields['transport_max_in_flight'] = max_in_flight
+        if self._last_cum_ack_time is not None:
+            ack_silence = now - self._last_cum_ack_time
+            if ack_silence < 0:
+                ack_silence = 0.0
+            fields['ack_silence'] = round(ack_silence, 6)
+        if self._last_ack_progress_time is not None:
+            silence = now - self._last_ack_progress_time
+            if silence < 0:
+                silence = 0.0
+            fields['ack_progress_silence'] = round(silence, 6)
+        exceeded, distance_info = self._send_window_distance_exceeded()
+        if exceeded:
+            (distance, max_in_flight, unacked,
+             distance_limit, last_cum_ack, next_seq) = distance_info
+            fields.update({
+                'distance': distance,
+                'distance_limit': distance_limit,
+                'distance_buffered': distance - unacked,
+                'distance_unacked': unacked,
+                'distance_last_cum_ack': last_cum_ack,
+                'distance_next_seq': next_seq,
+            })
+        if pacer_fields:
+            for key, value in pacer_fields.items():
+                fields['pacer_' + key] = value
+        if self._stats_enabled:
+            try:
+                stats_snapshot = self._reliability_stats.snapshot()
+            except Exception:
+                stats_snapshot = None
+            if stats_snapshot:
+                if self._pacer_summary_last_stats:
+                    for key, value in stats_snapshot.items():
+                        prev = self._pacer_summary_last_stats.get(key)
+                        if prev is None:
+                            continue
+                        delta = value - prev
+                        if delta:
+                            fields['stat_delta_' + key] = delta
+                self._pacer_summary_last_stats = stats_snapshot
+        def build_fields():
+            return fields
+        log_event(
+            self._logger,
+            logging.INFO,
+            'tunnel.pacer_summary',
+            'Pacer summary',
+            build_fields,
+        )
+        self._pacer_summary_last_time = now
+        self._pacer_summary_last_sent = self._packets_sent
+        self._pacer_summary_last_recv = self._packets_received
 
     def _poll_decision(self, now):
         if self._last_was_pong_only:

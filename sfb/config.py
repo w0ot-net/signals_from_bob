@@ -148,6 +148,8 @@ class Config:
     tunnel_pace_rtt_floor_ms: float = 5.0
     # Alice: adaptive pacing ACK idle reset seconds
     tunnel_pace_ack_idle_reset_sec: float = 2.0
+    # Alice: pacing summary log interval (seconds, 0 = disabled)
+    tunnel_pacer_summary_interval: float = 0.0
     # Bob: poll interval while waiting for connection (seconds)
     tunnel_connect_poll_interval: float = 0.1
     # Small timeout for "non-blocking" polls to prevent busy loops (seconds)
@@ -362,6 +364,8 @@ class Config:
             raise ValueError("tunnel_pace_rtt_floor_ms must be > 0")
         if self.tunnel_pace_ack_idle_reset_sec <= 0:
             raise ValueError("tunnel_pace_ack_idle_reset_sec must be > 0")
+        if self.tunnel_pacer_summary_interval < 0:
+            raise ValueError("tunnel_pacer_summary_interval must be >= 0")
         if self.tunnel_connect_poll_interval <= 0:
             raise ValueError("tunnel_connect_poll_interval must be > 0")
 

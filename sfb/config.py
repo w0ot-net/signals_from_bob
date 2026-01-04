@@ -71,9 +71,9 @@ class Config:
     # TLS handshake timeout (seconds)
     tls_handshake_timeout: float = 5.0
     # Max on-wire ClientHello record size (bytes, includes 5-byte header)
-    tls_max_clienthello_bytes: int = 10000
+    tls_max_clienthello_bytes: int = 2000
     # Max on-wire ServerHello record size (bytes, includes 5-byte header)
-    tls_max_serverhello_bytes: int = 10000
+    tls_max_serverhello_bytes: int = 2000
     # Optional SNI cover name
     tls_sni: Optional[str] = "example.com"
     # Optional comma-separated ALPN list

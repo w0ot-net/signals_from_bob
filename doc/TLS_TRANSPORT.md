@@ -288,9 +288,9 @@ Defaults:
 - `tls_pending_timeout`: `5.0`
 - `tls_connect_timeout`: `3.0`
 - `tls_handshake_timeout`: `5.0`
-- `tls_max_clienthello_bytes`: `10000`
-- `tls_max_serverhello_bytes`: `10000`
-- `tls_sni`: `None`
+- `tls_max_clienthello_bytes`: `16000`
+- `tls_max_serverhello_bytes`: `16000`
+- `tls_sni`: `example.com`
 - `tls_alpn`: `None`
 
 Validation:

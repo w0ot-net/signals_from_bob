@@ -50,7 +50,8 @@ not occur under normal operation.
 If a packet arrives that would exceed the buffer (e.g., due to implementation
 mismatch or misbehaving peer), drop the incoming packet silently. Do not drop
 buffered packets, as this would create unrecoverable gaps. The sender will
-retransmit dropped packets based on SACK feedback.
+retransmit dropped packets once they reach the RTO, and SACK ensures already
+acked packets are skipped during retransmit scans.
 
 ---
 

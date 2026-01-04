@@ -1139,13 +1139,14 @@ class AliceTunnel(BaseTunnel):
             fields['ack_progress_silence'] = round(silence, 6)
         exceeded, distance_info = self._send_window_distance_exceeded()
         if exceeded:
-            (distance, max_in_flight, unacked,
+            (distance, max_in_flight, effective_cap, unacked,
              distance_limit, last_cum_ack, next_seq) = distance_info
             fields.update({
                 'distance': distance,
                 'distance_limit': distance_limit,
                 'distance_buffered': distance - unacked,
                 'distance_unacked': unacked,
+                'distance_effective_cap': effective_cap,
                 'distance_last_cum_ack': last_cum_ack,
                 'distance_next_seq': next_seq,
             })

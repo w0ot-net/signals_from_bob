@@ -253,6 +253,8 @@ MTU calculation:
   correlation ID and finish the connect/send in `recv()`.
 - `recv()` pumps pending sockets: finish connects, flush pending sends, read
   a full record, decode, then close.
+- Connect errors log `tls.connect_error`; `ECONNREFUSED` closes and continues,
+  other errors raise `TransportError`.
 - Use `PendingTracker` with `tls_pending_timeout`, plus per-connection
   `tls_connect_timeout` and `tls_handshake_timeout` tracked via `time_provider.now()`.
 

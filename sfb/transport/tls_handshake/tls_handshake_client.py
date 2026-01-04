@@ -42,6 +42,12 @@ for name in ('WSAEWOULDBLOCK', 'WSAEINTR'):
     if value is not None:
         _TEMP_ERRORS.add(value)
 
+_SOFT_CONNECT_ERRORS = set([errno.ECONNREFUSED])
+for name in ('WSAECONNREFUSED',):
+    value = getattr(errno, name, None)
+    if value is not None:
+        _SOFT_CONNECT_ERRORS.add(value)
+
 _RESET_ERRORS = set([errno.ECONNRESET])
 for name in ('WSAECONNRESET',):
     value = getattr(errno, name, None)
@@ -223,6 +229,8 @@ class TlsClient(Transport):
                 'TLS connect error',
                 lambda: {'error': err},
             )
+            if err in _SOFT_CONNECT_ERRORS:
+                return corr_id
             raise TransportError('TLS connect failed: %s' % err)
 
         log_event(
@@ -299,6 +307,8 @@ class TlsClient(Transport):
                     'TLS connect error',
                     lambda: {'error': err},
                 )
+                if err in _SOFT_CONNECT_ERRORS:
+                    return
                 raise TransportError('TLS connect failed: %s' % err)
             state.connecting = False
         if state.send_complete:

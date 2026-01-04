@@ -319,3 +319,14 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Takeaways:
   - Throughput appears capped by packet rate (pps) plus channel backpressure, not by retransmits.
   - Next levers to test: higher `max_in_flight`, reduced pump backoff, or tighter poll pacing to smooth stall gaps.
+
+## Log Review: Throughput Oscillation (Jan 4, 2026, latest)
+- Logs: `logs/client_log.db`, `logs/server_log.db`.
+- Alice channel drain: per-1s `bytes_total` climbed from ~170 KB/s to ~527-552 KB/s, then dropped to ~185 KB/s at 07:03:13 (startup low points at 32-109 B/s).
+- Bob channel drain: repeated low intervals (~10-60 KB/s) interleaved with 300-465 KB/s bursts (e.g., 07:03:13 at 10,472 B/s, 07:03:14 at 60,214 B/s, then back to 278-452 KB/s).
+- Alice pump backpressure during valleys: `sock.pump_stats` (target_to_channel) shows `buffer_full` and `sleep_time` ~1.15s with only ~97 KB drained in that second; `channel_to_target` shows ~1s waits with 0 bytes.
+- Bob pump backpressure during valleys: `sock.pump_stats` (client_to_channel) shows `buffer_full` and `sleep_time` ~0.96-1.23s; `channel_to_client` shows ~1s waits with 0-5 KB.
+- Retransmit gating: Alice `tunnel.retransmit_skip` spikes with `ack_silence` ~0.33-0.40s around the 07:03:13 valley; Bob skips due to `cooldown` with poll_ewma ~2-5 ms.
+- Takeaways:
+  - The peaks and valleys line up with 1s-scale pump backoff/idle waits, consistent with channel backpressure rather than loss-driven retransmits.
+  - Poll pacing looks steady in this run (interval ~1.0-1.27 ms), so smoothing likely needs backpressure or pacing adjustments rather than retransmit changes.

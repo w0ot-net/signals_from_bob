@@ -8,6 +8,8 @@ All configurable values in one place with sensible defaults.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
+from .protocol.constants import PACKET_HEADER_SIZE
+
 DNS_STANDARD_SIZE = 512
 
 if TYPE_CHECKING:
@@ -404,6 +406,19 @@ class Config:
             raise ValueError("tunnel_poll_rtt_ratio must be > 0")
         if self.tunnel_connect_poll_interval <= 0:
             raise ValueError("tunnel_connect_poll_interval must be > 0")
+
+        payload_mtu = self.protocol_max_packet_size - PACKET_HEADER_SIZE
+        if payload_mtu < 1:
+            raise ValueError(
+                "protocol_max_packet_size must be > %d" % PACKET_HEADER_SIZE
+            )
+        worst_case_buf = payload_mtu * self.max_in_flight * 4
+        if worst_case_buf < 1024:
+            worst_case_buf = 1024
+        if self.channel_max_send_buf < worst_case_buf:
+            self.channel_max_send_buf = worst_case_buf
+        if self.channel_max_recv_buf < worst_case_buf:
+            self.channel_max_recv_buf = worst_case_buf
 
         # Channel validation
         if self.channel_max_send_buf < 1024:

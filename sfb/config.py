@@ -272,7 +272,7 @@ class Config:
     # SOCKS pump poll timeout (seconds)
     socks_pump_poll_timeout: float = 0.0001
     # Maximum poll backoff for SOCKS pump select/wait loops (seconds)
-    socks_pump_backoff_max: float = 0.005
+    socks_pump_backoff_max: float = 0.001
     # SOCKS thread join timeout (seconds)
     socks_thread_join_timeout: float = 2.0
 

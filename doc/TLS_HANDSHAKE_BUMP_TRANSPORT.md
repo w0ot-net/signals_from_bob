@@ -91,7 +91,12 @@ the certificate so the proxy can read CN and fail validation.
 
 ## Certificates
 
-Bob builds a DER certificate in memory from a fixed template that contains a
+The certificate template lives in a dedicated Python module that only exposes
+the base64-encoded DER bytes (plus any fixed constants like CN length/offsets).
+A generator script owns updates to that file, so other code only imports the
+template bytes and patches the CN placeholder at runtime.
+
+Bob builds a DER certificate in memory from the fixed template that contains a
 CN placeholder. The server pads the encoded CN to the template length and
 patches the placeholder before sending the handshake record. No certificate
 directory or helper is used at runtime. The template CN length is 256 to raise

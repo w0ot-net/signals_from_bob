@@ -146,7 +146,16 @@ The codec defines a fixed, ordered TLS 1.2 cipher suite list. Example list:
 ```
 0xC02F  TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
 0xC02B  TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+0xC030  TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+0xC02C  TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+0xCCA8  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+0xCCA9  TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
 0x009C  TLS_RSA_WITH_AES_128_GCM_SHA256
+0x009D  TLS_RSA_WITH_AES_256_GCM_SHA384
+0xC013  TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
+0xC014  TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
+0x002F  TLS_RSA_WITH_AES_128_CBC_SHA
+0x0035  TLS_RSA_WITH_AES_256_CBC_SHA
 ```
 
 The ClientHello MUST offer this list in order. The ServerHello selects the
@@ -214,21 +223,29 @@ Rules:
 - The payload is carried only in the session_ticket extension data.
 - If the payload extension is absent or duplicated, treat as unsupported and drop.
 
-### Standard Extensions (Cover)
+### ClientHello Extensions
 
-The ClientHello includes the following standard TLS 1.2 extensions in a fixed
-order, after optional SNI/ALPN and before the payload extension:
+The ClientHello includes the following TLS 1.2 extensions in a fixed order:
 
-- supported_groups: secp256r1, secp384r1
-- ec_point_formats: uncompressed
-- signature_algorithms: RSA/ECDSA with SHA256/SHA384
+- server_name (SNI), when configured
 - extended_master_secret
 - renegotiation_info
+- supported_groups: x25519, secp256r1, secp384r1
+- ec_point_formats: uncompressed
+- session_ticket (payload carrier)
+- signature_algorithms: RSA/ECDSA with SHA256/SHA384; RSA-PSS with SHA256/SHA384/SHA512
+- status_request (OCSP)
+- ALPN, when configured
+- signed_certificate_timestamp
+- padding, when enabled
 
 The ServerHello includes:
 - extended_master_secret
 - renegotiation_info
 - ALPN selection when configured
+
+`status_request` uses empty responder and request lists. The
+`signed_certificate_timestamp` extension is zero-length.
 
 ### SNI (Optional Cover)
 
@@ -247,6 +264,15 @@ extension (type 0x0010). Validation rules:
 - Each token length 1-255 bytes.
 - No empty tokens.
 - Total extension length MUST fit within the configured max record size.
+
+### Padding (Optional Cover)
+
+If `tls_clienthello_padding_target` is set (> 0), append a padding extension
+(type 0x0015) to the ClientHello to reach at least the target on-wire record
+size. Padding length is always at least 1 when enabled, and padding bytes are
+all zeroes. Because the extension header is 4 bytes, the final record size can
+exceed the target by up to 4 bytes. The padding extension is never included in
+ServerHello.
 
 ---
 
@@ -295,8 +321,8 @@ Derived transport MTUs:
 
 MTU calculation:
 - Build a ClientHello/ServerHello with standard extensions, a random
-  session_id, and configured SNI/ALPN, then subtract overhead from the max
-  on-wire size.
+  session_id, configured SNI/ALPN, and optional ClientHello padding target,
+  then subtract overhead from the max on-wire size.
 - Payload extension overhead is 10 bytes (extension header + SFB header)
   before payload bytes.
 - Clamp on-wire limits to 16389 bytes max.
@@ -342,6 +368,7 @@ Required fields:
 - `tls_max_serverhello_bytes`: ServerHello on-wire size cap.
 - `tls_sni`: optional cover host name.
 - `tls_alpn`: optional cover protocol list (comma-separated).
+- `tls_clienthello_padding_target`: ClientHello on-wire size target (0 = disabled).
 
 Defaults:
 - `tls_target`: `127.0.0.1:443`
@@ -353,6 +380,7 @@ Defaults:
 - `tls_max_serverhello_bytes`: `1400`
 - `tls_sni`: `example.com`
 - `tls_alpn`: `h2,http/1.1`
+- `tls_clienthello_padding_target`: `0`
 
 Validation:
 - Timeouts MUST be positive.

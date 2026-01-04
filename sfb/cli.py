@@ -223,6 +223,12 @@ def add_tls_client_args(parser, config):
         help='TLS ALPN list (comma-separated, optional cover)'
     )
     parser.add_argument(
+        '--tls-clienthello-padding-target', type=int,
+        default=config.tls_clienthello_padding_target,
+        help='TLS ClientHello padding target record size in bytes (0=disabled, '
+             'default: %s)' % config.tls_clienthello_padding_target
+    )
+    parser.add_argument(
         '--tls-mtu', type=int,
         default=config.tls_max_clienthello_bytes,
         help='TLS max record size in bytes (default: %s)' %
@@ -241,6 +247,12 @@ def add_tls_server_args(parser, config):
         '--tls-sni',
         default=config.tls_sni,
         help='TLS SNI host name (optional cover, must match client)'
+    )
+    parser.add_argument(
+        '--tls-clienthello-padding-target', type=int,
+        default=config.tls_clienthello_padding_target,
+        help='TLS ClientHello padding target record size in bytes (0=disabled, '
+             'default: %s)' % config.tls_clienthello_padding_target
     )
     parser.add_argument(
         '--tls-mtu', type=int,
@@ -486,11 +498,15 @@ def create_config(args):
             config_kwargs['tls_http_proxy_auth'] = getattr(args, 'tls_http_proxy_auth', None)
             config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
             config_kwargs['tls_alpn'] = getattr(args, 'tls_alpn', None)
+            config_kwargs['tls_clienthello_padding_target'] = getattr(
+                args, 'tls_clienthello_padding_target', None)
             config_kwargs['tls_max_clienthello_bytes'] = getattr(args, 'tls_mtu', None)
             config_kwargs['tls_max_serverhello_bytes'] = getattr(args, 'tls_mtu', None)
         else:
             config_kwargs['tls_listen_addr'] = getattr(args, 'tls_listen_addr', None)
             config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
+            config_kwargs['tls_clienthello_padding_target'] = getattr(
+                args, 'tls_clienthello_padding_target', None)
             config_kwargs['tls_max_clienthello_bytes'] = getattr(args, 'tls_mtu', None)
             config_kwargs['tls_max_serverhello_bytes'] = getattr(args, 'tls_mtu', None)
 

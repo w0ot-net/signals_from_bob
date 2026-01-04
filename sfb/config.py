@@ -86,6 +86,8 @@ class Config:
     tls_sni: Optional[str] = "example.com"
     # Optional comma-separated ALPN list
     tls_alpn: Optional[str] = "h2,http/1.1"
+    # Target on-wire ClientHello record size for padding (bytes, 0 = disabled)
+    tls_clienthello_padding_target: int = 0
 
     # --- Crypto ---
     # Encryption mode: 'none', 'xor', 'rc4'

@@ -52,6 +52,10 @@ def validate_tls_config(config, role):
     max_clienthello_bytes = min(max_clienthello_bytes, codec.TLS_MAX_RECORD_SIZE)
     max_serverhello_bytes = min(max_serverhello_bytes, codec.TLS_MAX_RECORD_SIZE)
 
+    clienthello_padding_target = _require_non_negative_int(
+        config.tls_clienthello_padding_target, 'tls_clienthello_padding_target'
+    )
+
     sni = None
     if config.tls_sni is not None:
         sni = _validate_sni(config.tls_sni)
@@ -62,7 +66,8 @@ def validate_tls_config(config, role):
 
     try:
         client_payload_cap = codec.calc_clienthello_payload_cap(
-            max_clienthello_bytes, sni=sni, alpn_list=alpn_list
+            max_clienthello_bytes, sni=sni, alpn_list=alpn_list,
+            padding_target=clienthello_padding_target
         )
         server_payload_cap = codec.calc_serverhello_payload_cap(
             max_serverhello_bytes, alpn_list=alpn_list
@@ -105,6 +110,7 @@ def validate_tls_config(config, role):
         'max_serverhello_bytes': max_serverhello_bytes,
         'sni': sni,
         'alpn_list': alpn_list,
+        'clienthello_padding_target': clienthello_padding_target,
         'client_payload_cap': client_payload_cap,
         'server_payload_cap': server_payload_cap,
         'proxy_timeout': proxy_timeout,
@@ -178,6 +184,16 @@ def _require_positive_int(value, label):
         raise TransportError('%s must be an integer' % label)
     if value <= 0:
         raise TransportError('%s must be > 0' % label)
+    return value
+
+
+def _require_non_negative_int(value, label):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        raise TransportError('%s must be an integer' % label)
+    if value < 0:
+        raise TransportError('%s must be >= 0' % label)
     return value
 
 

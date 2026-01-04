@@ -114,6 +114,7 @@ class TlsClient(Transport):
         self._recv_mtu = validated['server_payload_cap']
         self._sni = validated['sni']
         self._alpn_list = validated['alpn_list']
+        self._clienthello_padding_target = validated['clienthello_padding_target']
         self._proxy_timeout = validated['proxy_timeout']
 
         self._max_in_flight = config.max_in_flight
@@ -163,6 +164,7 @@ class TlsClient(Transport):
                 'recv_mtu': self._recv_mtu,
                 'sni': self._sni,
                 'alpn': self._alpn_list,
+                'clienthello_padding_target': self._clienthello_padding_target,
             },
         )
 
@@ -231,6 +233,7 @@ class TlsClient(Transport):
                 data,
                 sni=self._sni,
                 alpn_list=self._alpn_list,
+                padding_target=self._clienthello_padding_target,
             )
         except ValueError as exc:
             raise TransportError('TLS encode failed: %s' % exc)

@@ -27,8 +27,11 @@ TLS_MAX_RECORD_SIZE = TLS_RECORD_HEADER_LEN + TLS_MAX_RECORD_PAYLOAD
 EXT_SERVER_NAME = 0x0000
 EXT_SUPPORTED_GROUPS = 0x000A
 EXT_EC_POINT_FORMATS = 0x000B
+EXT_STATUS_REQUEST = 0x0005
 EXT_SIGNATURE_ALGORITHMS = 0x000D
 EXT_ALPN = 0x0010
+EXT_SIGNED_CERTIFICATE_TIMESTAMP = 0x0012
+EXT_PADDING = 0x0015
 EXT_EXTENDED_MASTER_SECRET = 0x0017
 EXT_SESSION_TICKET = 0x0023
 EXT_RENEGOTIATION_INFO = 0xFF01
@@ -39,6 +42,7 @@ SFB_FLAGS = 0x00
 
 DEFAULT_SESSION_ID_LEN = 32
 DEFAULT_SUPPORTED_GROUPS = (
+    0x001D,  # x25519
     0x0017,  # secp256r1
     0x0018,  # secp384r1
 )
@@ -47,11 +51,23 @@ DEFAULT_SIGNATURE_ALGORITHMS = (
     0x0501,  # rsa_pkcs1_sha384
     0x0403,  # ecdsa_secp256r1_sha256
     0x0503,  # ecdsa_secp384r1_sha384
+    0x0804,  # rsa_pss_rsae_sha256
+    0x0805,  # rsa_pss_rsae_sha384
+    0x0806,  # rsa_pss_rsae_sha512
 )
 DEFAULT_CIPHER_SUITES = (
     0xC02F,  # TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
     0xC02B,  # TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+    0xC030,  # TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+    0xC02C,  # TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+    0xCCA8,  # TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+    0xCCA9,  # TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
     0x009C,  # TLS_RSA_WITH_AES_128_GCM_SHA256
+    0x009D,  # TLS_RSA_WITH_AES_256_GCM_SHA384
+    0xC013,  # TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
+    0xC014,  # TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
+    0x002F,  # TLS_RSA_WITH_AES_128_CBC_SHA
+    0x0035,  # TLS_RSA_WITH_AES_256_CBC_SHA
 )
 
 
@@ -193,14 +209,16 @@ def parse_server_hello_body(body):
 
 def build_client_hello_record(payload, sni=None, alpn_list=None,
                               random_bytes=None, session_id_bytes=None,
-                              cipher_suites=DEFAULT_CIPHER_SUITES):
+                              cipher_suites=DEFAULT_CIPHER_SUITES,
+                              padding_target=0):
     """
     Build a TLS ClientHello record with payload in EXT_SESSION_TICKET.
     """
     body = build_client_hello_body(payload, sni=sni, alpn_list=alpn_list,
                                    random_bytes=random_bytes,
                                    session_id_bytes=session_id_bytes,
-                                   cipher_suites=cipher_suites)
+                                   cipher_suites=cipher_suites,
+                                   padding_target=padding_target)
     return _build_record(TLS_HANDSHAKE_CLIENT_HELLO, body)
 
 
@@ -220,7 +238,8 @@ def build_server_hello_record(payload, cipher_suite, include_payload=True,
 
 def build_client_hello_body(payload, sni=None, alpn_list=None,
                             random_bytes=None, session_id_bytes=None,
-                            cipher_suites=DEFAULT_CIPHER_SUITES):
+                            cipher_suites=DEFAULT_CIPHER_SUITES,
+                            padding_target=0):
     payload = to_bytes(payload)
     if random_bytes is None:
         random_bytes = os.urandom(32)
@@ -229,19 +248,30 @@ def build_client_hello_body(payload, sni=None, alpn_list=None,
         raise ValueError('ClientHello random must be 32 bytes')
     session_id_bytes = _coerce_session_id(session_id_bytes, 'ClientHello')
     cipher_bytes = _encode_cipher_suites(cipher_suites)
-    extensions = _build_client_extensions(payload, sni=sni,
-                                          alpn_list=alpn_list)
-    body = [
-        struct.pack('!H', TLS_VERSION_1_2),
-        random_bytes,
-        struct.pack('!B', len(session_id_bytes)),
-        session_id_bytes,
-        cipher_bytes,
-        b'\x01\x00',  # compression_methods_len=1, method=0x00
-        struct.pack('!H', len(extensions)),
-        extensions,
-    ]
-    return b''.join(body)
+    base_extensions = _build_client_extensions(payload, sni=sni,
+                                               alpn_list=alpn_list)
+
+    def _build_body(extensions_bytes):
+        parts = [
+            struct.pack('!H', TLS_VERSION_1_2),
+            random_bytes,
+            struct.pack('!B', len(session_id_bytes)),
+            session_id_bytes,
+            cipher_bytes,
+            b'\x01\x00',  # compression_methods_len=1, method=0x00
+            struct.pack('!H', len(extensions_bytes)),
+            extensions_bytes,
+        ]
+        return b''.join(parts)
+
+    body = _build_body(base_extensions)
+    padding_len = _calc_clienthello_padding_len(len(body), padding_target)
+    if padding_len:
+        extensions = _build_client_extensions(payload, sni=sni,
+                                              alpn_list=alpn_list,
+                                              padding_len=padding_len)
+        body = _build_body(extensions)
+    return body
 
 
 def build_server_hello_body(payload, cipher_suite, include_payload=True,
@@ -273,7 +303,8 @@ def build_server_hello_body(payload, cipher_suite, include_payload=True,
     return b''.join(body)
 
 
-def calc_clienthello_payload_cap(max_record_bytes, sni=None, alpn_list=None):
+def calc_clienthello_payload_cap(max_record_bytes, sni=None, alpn_list=None,
+                                 padding_target=0):
     """
     Calculate max payload bytes for a ClientHello record size cap.
     """
@@ -285,6 +316,7 @@ def calc_clienthello_payload_cap(max_record_bytes, sni=None, alpn_list=None):
         alpn_list=alpn_list,
         random_bytes=b'\x00' * 32,
         session_id_bytes=b'\x00' * DEFAULT_SESSION_ID_LEN,
+        padding_target=padding_target,
     )
     overhead = len(empty_record)
     if max_record_bytes < overhead:
@@ -363,6 +395,23 @@ def _build_signature_algorithms_extension():
     return struct.pack('!HH', EXT_SIGNATURE_ALGORITHMS, len(data)) + data
 
 
+def _build_status_request_extension():
+    data = b'\x01\x00\x00\x00\x00'
+    return struct.pack('!HH', EXT_STATUS_REQUEST, len(data)) + data
+
+
+def _build_signed_certificate_timestamp_extension():
+    return struct.pack('!HH', EXT_SIGNED_CERTIFICATE_TIMESTAMP, 0)
+
+
+def _build_padding_extension(padding_len):
+    if padding_len < 1:
+        raise ValueError('Padding length must be >= 1')
+    if padding_len > 0xFFFF:
+        raise ValueError('Padding length too large')
+    return struct.pack('!HH', EXT_PADDING, padding_len) + (b'\x00' * padding_len)
+
+
 def _build_extended_master_secret_extension():
     return struct.pack('!HH', EXT_EXTENDED_MASTER_SECRET, 0)
 
@@ -372,18 +421,22 @@ def _build_renegotiation_info_extension():
     return struct.pack('!HH', EXT_RENEGOTIATION_INFO, len(data)) + data
 
 
-def _build_client_extensions(payload, sni=None, alpn_list=None):
+def _build_client_extensions(payload, sni=None, alpn_list=None, padding_len=0):
     extensions = []
     if sni is not None:
         extensions.append(build_sni_extension(sni))
-    extensions.append(_build_supported_groups_extension())
-    extensions.append(_build_ec_point_formats_extension())
-    extensions.append(_build_signature_algorithms_extension())
-    if alpn_list:
-        extensions.append(build_alpn_extension(alpn_list))
     extensions.append(_build_extended_master_secret_extension())
     extensions.append(_build_renegotiation_info_extension())
+    extensions.append(_build_supported_groups_extension())
+    extensions.append(_build_ec_point_formats_extension())
     extensions.append(_build_payload_extension(payload))
+    extensions.append(_build_signature_algorithms_extension())
+    extensions.append(_build_status_request_extension())
+    if alpn_list:
+        extensions.append(build_alpn_extension(alpn_list))
+    extensions.append(_build_signed_certificate_timestamp_extension())
+    if padding_len:
+        extensions.append(_build_padding_extension(padding_len))
     return b''.join(extensions)
 
 
@@ -397,6 +450,25 @@ def _build_server_extensions(payload, alpn_list=None, include_payload=True):
     if include_payload:
         extensions.append(_build_payload_extension(payload))
     return b''.join(extensions)
+
+
+def _calc_clienthello_padding_len(body_len, padding_target):
+    if padding_target is None:
+        return 0
+    try:
+        padding_target = int(padding_target)
+    except (TypeError, ValueError):
+        raise ValueError('ClientHello padding target invalid')
+    if padding_target <= 0:
+        return 0
+    base_record_len = TLS_RECORD_HEADER_LEN + TLS_HANDSHAKE_HEADER_LEN + body_len
+    if base_record_len >= padding_target:
+        return 0
+    needed = padding_target - base_record_len
+    padding_len = needed - 4
+    if padding_len < 1:
+        padding_len = 1
+    return padding_len
 
 
 def _parse_record(record, expected_handshake_type, max_record_bytes=None):

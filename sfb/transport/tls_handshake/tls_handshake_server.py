@@ -80,6 +80,7 @@ class TlsServer(Server):
         self._send_mtu = validated['server_payload_cap']
         self._max_in_flight = config.max_in_flight
         self._alpn_list = validated['alpn_list']
+        self._clienthello_padding_target = validated['clienthello_padding_target']
 
         listen_host, listen_port = parse_host_port(config.tls_listen_addr)
         self._listen_addr = (listen_host, listen_port)
@@ -110,6 +111,7 @@ class TlsServer(Server):
                 'recv_mtu': self._recv_mtu,
                 'send_mtu': self._send_mtu,
                 'alpn': self._alpn_list,
+                'clienthello_padding_target': self._clienthello_padding_target,
             },
         )
 

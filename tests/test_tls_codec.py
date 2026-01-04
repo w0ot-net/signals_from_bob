@@ -59,6 +59,31 @@ def _serverhello_session_id_len_offset():
     return body_start + 2 + 32
 
 
+def _clienthello_extensions(record):
+    body_start = codec.TLS_RECORD_HEADER_LEN + codec.TLS_HANDSHAKE_HEADER_LEN
+    body = record[body_start:]
+    offset = 0
+    offset += 2 + 32
+    session_id_len = byte_at(body, offset)
+    offset += 1 + session_id_len
+    cipher_suites_len = struct.unpack('!H', body[offset:offset + 2])[0]
+    offset += 2 + cipher_suites_len
+    compression_len = byte_at(body, offset)
+    offset += 1 + compression_len
+    extensions_len = struct.unpack('!H', body[offset:offset + 2])[0]
+    offset += 2
+    end = offset + extensions_len
+    extensions = []
+    while offset < end:
+        ext_type = struct.unpack('!H', body[offset:offset + 2])[0]
+        ext_len = struct.unpack('!H', body[offset + 2:offset + 4])[0]
+        offset += 4
+        ext_data = body[offset:offset + ext_len]
+        extensions.append((ext_type, ext_data))
+        offset += ext_len
+    return extensions
+
+
 class TlsCodecTests(unittest.TestCase):
     def test_clienthello_roundtrip(self):
         payload = b'hello'
@@ -160,6 +185,9 @@ class TlsCodecTests(unittest.TestCase):
             codec._build_supported_groups_extension(),
             codec._build_ec_point_formats_extension(),
             codec._build_signature_algorithms_extension(),
+            codec._build_status_request_extension(),
+            codec._build_signed_certificate_timestamp_extension(),
+            codec._build_padding_extension(1),
             codec._build_extended_master_secret_extension(),
             codec._build_renegotiation_info_extension(),
             codec._build_payload_extension(b'abc'),
@@ -167,6 +195,49 @@ class TlsCodecTests(unittest.TestCase):
         record = _build_clienthello_with_extensions(extensions)
         payload, _ = codec.parse_client_hello_record(record)
         self.assertEqual(payload, b'abc')
+
+    def test_clienthello_extension_order(self):
+        record = codec.build_client_hello_record(
+            b'a',
+            sni='example.com',
+            alpn_list=['h2', 'http/1.1'],
+            random_bytes=b'\x01' * 32,
+            session_id_bytes=b'\x02' * 32,
+        )
+        ext_types = [ext_type for ext_type, _ in _clienthello_extensions(record)]
+        expected = [
+            codec.EXT_SERVER_NAME,
+            codec.EXT_EXTENDED_MASTER_SECRET,
+            codec.EXT_RENEGOTIATION_INFO,
+            codec.EXT_SUPPORTED_GROUPS,
+            codec.EXT_EC_POINT_FORMATS,
+            codec.EXT_SESSION_TICKET,
+            codec.EXT_SIGNATURE_ALGORITHMS,
+            codec.EXT_STATUS_REQUEST,
+            codec.EXT_ALPN,
+            codec.EXT_SIGNED_CERTIFICATE_TIMESTAMP,
+        ]
+        self.assertEqual(ext_types, expected)
+
+    def test_clienthello_padding_extension(self):
+        kwargs = {
+            'sni': 'example.com',
+            'alpn_list': ['h2', 'http/1.1'],
+            'random_bytes': b'\x03' * 32,
+            'session_id_bytes': b'\x04' * 32,
+        }
+        base_record = codec.build_client_hello_record(b'a', **kwargs)
+        padded_record = codec.build_client_hello_record(
+            b'a',
+            padding_target=len(base_record) + 1,
+            **kwargs
+        )
+        extensions = _clienthello_extensions(padded_record)
+        padding_ext = [data for ext_type, data in extensions
+                       if ext_type == codec.EXT_PADDING]
+        self.assertEqual(len(padding_ext), 1)
+        self.assertEqual(padding_ext[0], b'\x00')
+        self.assertEqual(len(padded_record), len(base_record) + 5)
 
     def test_server_session_id_len_rejected(self):
         record = codec.build_server_hello_record(

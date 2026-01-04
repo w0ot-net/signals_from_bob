@@ -75,3 +75,14 @@ payload carrier.
 ## Validation
 - Run `python3 -m unittest tests.test_tls_codec tests.test_tls_client_server`.
 - Do not run tests/e2e (user-run only).
+
+## Execution Notes
+- Expanded cipher suites, groups, signature algorithms, and ClientHello extensions
+  in `sfb/transport/tls_handshake/tls_handshake_codec.py`.
+- Added ClientHello padding target config/CLI handling and updated MTU overhead
+  calculations in `sfb/transport/tls_handshake/tls_handshake_config.py`,
+  `sfb/transport/tls_handshake/tls_handshake_client.py`, `sfb/config.py`,
+  and `sfb/cli.py`.
+- Updated docs and tests for the new extension order, padding behavior, and
+  defaults.
+- Ran `python3 -m unittest tests.test_tls_codec tests.test_tls_client_server`.

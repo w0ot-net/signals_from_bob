@@ -186,6 +186,7 @@ transport uses it internally to match responses:
 | DNS | Maps to DNS query ID (16-bit) |
 | ICMP | Maps to ICMP sequence number |
 | TLS ClientHello | Maps to per-connection correlation ID |
+| TLS Handshake Bump | Maps to per-connection correlation ID |
 | HTTP | Maps to request context |
 | In-memory | Incrementing integer per transport instance |
 | Lossy (wrapper) | Wrapper IDs map to inner corr_id(s) per send |
@@ -302,6 +303,24 @@ transport = DnsTransport(resolver, domain, config=config)
 - Kernel echo replies must be disabled (net.ipv4.icmp_echo_ignore_all=1)
 - Some networks filter ICMP
 - Payload size varies, typically ~1350 bytes safe on 1500 MTU links
+
+---
+
+## TLS Transports
+
+See `TLS_TRANSPORT.md` for the ClientHello transport and
+`TLS_HANDSHAKE_BUMP_TRANSPORT.md` for the TLS bump transport.
+
+### TLS ClientHello
+
+- Encodes packet bytes into TLS ClientHello/ServerHello extensions
+- Direct connection or HTTP CONNECT proxy to Bob
+
+### TLS Handshake Bump
+
+- Encodes Alice->Bob requests in SNI under a base domain
+- Encodes Bob->Alice responses in CN of the upstream certificate
+- Requires a TLS-bumping proxy that exposes CN in error pages
 
 ---
 

@@ -89,6 +89,38 @@ class Config:
     # Target on-wire ClientHello record size for padding (bytes, 0 = disabled)
     tls_clienthello_padding_target: int = 0
 
+    # --- TLS Handshake Bump Transport ---
+    # Base domain for TLS bump SNI encoding
+    tls_bump_base_domain: str = ""
+    # TLS bump proxy host:port for Alice
+    tls_bump_target: str = "127.0.0.1:443"
+    # Optional HTTP CONNECT proxy host:port for Alice
+    tls_bump_http_proxy: Optional[str] = None
+    # Optional HTTP proxy Basic auth (user:pass) for Alice
+    tls_bump_http_proxy_auth: Optional[str] = None
+    # Bob listen host:port
+    tls_bump_listen_addr: str = "0.0.0.0:443"
+    # Timeout before considering a TLS bump request stale (seconds)
+    tls_bump_pending_timeout: float = 5.0
+    # TLS bump connect timeout (seconds)
+    tls_bump_connect_timeout: float = 3.0
+    # TLS bump HTTP proxy handshake timeout (seconds, None = connect timeout)
+    tls_bump_proxy_timeout: Optional[float] = None
+    # TLS bump handshake/response timeout (seconds)
+    tls_bump_handshake_timeout: float = 5.0
+    # HTTPS request path to trigger proxy error page
+    tls_bump_request_path: str = "/"
+    # Regex with capture group to extract CN from error page
+    tls_bump_cn_regex: str = "Self-signed SSL Certificate: /CN=([A-Za-z2-7]+)"
+    # Max CN length (base32 chars) for response MTU
+    tls_bump_max_cn_len: int = 96
+    # Max ClientHello record size (bytes, includes 5-byte header)
+    tls_bump_max_clienthello_bytes: int = 4096
+    # Certificate directory for Bob (DER or PEM, filenames keyed by CN)
+    tls_bump_cert_dir: Optional[str] = None
+    # Optional helper path to generate certs
+    tls_bump_cert_helper: Optional[str] = None
+
     # --- Crypto ---
     # Encryption mode: 'none', 'xor', 'rc4'
     crypto_mode: str = "none"

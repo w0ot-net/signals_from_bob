@@ -37,6 +37,7 @@ from .memory import (
 from .dns import DnsClient, DnsServer
 from .icmp import IcmpClient, IcmpServer
 from .tls_handshake import TlsClient, TlsServer
+from .tls_handshake_bump import TlsHandshakeBumpClient, TlsHandshakeBumpServer
 
 
 def get_transport_class(name, role):
@@ -76,6 +77,10 @@ TRANSPORTS = {
         'client': TlsClient,
         'server': TlsServer,
     },
+    'tls_handshake_bump': {
+        'client': TlsHandshakeBumpClient,
+        'server': TlsHandshakeBumpServer,
+    },
     'memory': {
         'client': InMemoryTransport,
         'server': InMemoryServer,
@@ -104,6 +109,8 @@ __all__ = [
     'IcmpServer',
     'TlsClient',
     'TlsServer',
+    'TlsHandshakeBumpClient',
+    'TlsHandshakeBumpServer',
     'TRANSPORTS',
     'get_transport_class',
 ]

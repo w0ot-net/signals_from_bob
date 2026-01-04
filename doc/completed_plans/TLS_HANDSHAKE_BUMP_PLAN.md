@@ -97,3 +97,10 @@ bandwidth and tuned for intercepting proxies that leak CN details.
 - Run `python3 -m unittest tests.test_tls_handshake_bump_codec`
 - Run `python3 -m unittest tests.test_tls_handshake_bump_client_server`
 - Do not run tests/e2e (user-run only).
+
+## Execution Notes
+- Added TLS handshake bump transport with SNI/CN codec, client/server, and cert helper.
+- Added config/CLI updates plus transport registry and logging integration.
+- Documented the transport and added unit tests for codec/client parsing.
+- Tests: `python3 -m unittest tests.test_tls_handshake_bump_codec`
+- Tests: `python3 -m unittest tests.test_tls_handshake_bump_client_server`

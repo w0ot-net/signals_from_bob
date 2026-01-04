@@ -262,6 +262,81 @@ def add_tls_server_args(parser, config):
     )
 
 
+def add_tls_bump_client_args(parser, config):
+    """Add TLS bump client-specific arguments."""
+    parser.add_argument(
+        '--target',
+        default=config.tls_bump_target,
+        help='TLS bump proxy host:port for client'
+    )
+    parser.add_argument(
+        '--tls-bump-base-domain',
+        default=config.tls_bump_base_domain,
+        help='Base domain for TLS bump SNI encoding (required)'
+    )
+    parser.add_argument(
+        '--tls-bump-http-proxy',
+        default=config.tls_bump_http_proxy,
+        help='HTTP CONNECT proxy host:port for TLS bump client'
+    )
+    parser.add_argument(
+        '--tls-bump-http-proxy-auth',
+        default=config.tls_bump_http_proxy_auth,
+        help='HTTP proxy Basic auth user:pass for TLS bump client (optional)'
+    )
+    parser.add_argument(
+        '--tls-bump-request-path',
+        default=config.tls_bump_request_path,
+        help='HTTPS request path to trigger proxy error page (default: %s)' %
+             config.tls_bump_request_path
+    )
+    parser.add_argument(
+        '--tls-bump-cn-regex',
+        default=config.tls_bump_cn_regex,
+        help='Regex with capture group to extract CN from error page'
+    )
+    parser.add_argument(
+        '--tls-bump-max-cn-len', type=int,
+        default=config.tls_bump_max_cn_len,
+        help='Max CN base32 length (default: %s)' % config.tls_bump_max_cn_len
+    )
+
+
+def add_tls_bump_server_args(parser, config):
+    """Add TLS bump server-specific arguments."""
+    parser.add_argument(
+        '--tls-bump-listen-addr',
+        default=config.tls_bump_listen_addr,
+        help='TLS bump server listen host:port'
+    )
+    parser.add_argument(
+        '--tls-bump-base-domain',
+        default=config.tls_bump_base_domain,
+        help='Base domain for TLS bump SNI encoding (required)'
+    )
+    parser.add_argument(
+        '--tls-bump-cert-dir',
+        default=config.tls_bump_cert_dir,
+        help='Directory with CN-keyed certs (DER or PEM)'
+    )
+    parser.add_argument(
+        '--tls-bump-cert-helper',
+        default=config.tls_bump_cert_helper,
+        help='Optional helper to generate certs'
+    )
+    parser.add_argument(
+        '--tls-bump-max-cn-len', type=int,
+        default=config.tls_bump_max_cn_len,
+        help='Max CN base32 length (default: %s)' % config.tls_bump_max_cn_len
+    )
+    parser.add_argument(
+        '--tls-bump-max-clienthello-bytes', type=int,
+        default=config.tls_bump_max_clienthello_bytes,
+        help='Max TLS ClientHello record size in bytes (default: %s)' %
+             config.tls_bump_max_clienthello_bytes
+    )
+
+
 def add_client_pacing_args(parser, config):
     """Add transport-agnostic client pacing arguments."""
     parser.add_argument(
@@ -449,6 +524,11 @@ def parse_args(args=None):
             add_tls_server_args(parser, config_defaults)
         else:
             add_tls_client_args(parser, config_defaults)
+    elif transport == 'tls_handshake_bump':
+        if role == 'server':
+            add_tls_bump_server_args(parser, config_defaults)
+        else:
+            add_tls_bump_client_args(parser, config_defaults)
     if role == 'client':
         add_client_pacing_args(parser, config_defaults)
 
@@ -509,6 +589,25 @@ def create_config(args):
                 args, 'tls_clienthello_padding_target', None)
             config_kwargs['tls_max_clienthello_bytes'] = getattr(args, 'tls_mtu', None)
             config_kwargs['tls_max_serverhello_bytes'] = getattr(args, 'tls_mtu', None)
+    elif args.transport == 'tls_handshake_bump':
+        config_kwargs['tls_bump_base_domain'] = getattr(args, 'tls_bump_base_domain', None)
+        config_kwargs['tls_bump_max_cn_len'] = getattr(args, 'tls_bump_max_cn_len', None)
+        if args.role == 'client':
+            config_kwargs['tls_bump_target'] = getattr(args, 'target', None)
+            config_kwargs['tls_bump_http_proxy'] = getattr(args, 'tls_bump_http_proxy', None)
+            config_kwargs['tls_bump_http_proxy_auth'] = getattr(
+                args, 'tls_bump_http_proxy_auth', None)
+            config_kwargs['tls_bump_request_path'] = getattr(
+                args, 'tls_bump_request_path', None)
+            config_kwargs['tls_bump_cn_regex'] = getattr(args, 'tls_bump_cn_regex', None)
+        else:
+            config_kwargs['tls_bump_listen_addr'] = getattr(
+                args, 'tls_bump_listen_addr', None)
+            config_kwargs['tls_bump_cert_dir'] = getattr(args, 'tls_bump_cert_dir', None)
+            config_kwargs['tls_bump_cert_helper'] = getattr(
+                args, 'tls_bump_cert_helper', None)
+            config_kwargs['tls_bump_max_clienthello_bytes'] = getattr(
+                args, 'tls_bump_max_clienthello_bytes', None)
 
     if args.role == 'client':
         config_kwargs['tunnel_send_rate'] = getattr(args, 'send_rate', None)

@@ -49,6 +49,28 @@ def _print_error(message):
     sys.stderr.flush()
 
 
+def _handle_tls_bump_generate_cert(parsed):
+    if not getattr(parsed, 'tls_bump_generate_cert', None):
+        return None
+    cn_text, out_path = parsed.tls_bump_generate_cert
+    from .transport.tls_handshake_bump import tls_handshake_bump_cert as bump_cert
+    try:
+        cert_der = bump_cert.build_cert_der(cn_text)
+    except (TypeError, ValueError) as exc:
+        _print_error(str(exc))
+        return 2
+    try:
+        out_dir = os.path.dirname(out_path)
+        if out_dir and not os.path.isdir(out_dir):
+            os.makedirs(out_dir)
+        with open(out_path, 'wb') as handle:
+            handle.write(cert_der)
+    except (IOError, OSError) as exc:
+        _print_error('Failed to write cert: %s' % exc)
+        return 2
+    return 0
+
+
 def _split_host_port(addr, default_port):
     if ':' in addr:
         host, port = addr.rsplit(':', 1)
@@ -71,10 +93,10 @@ def normalize_role(role):
     return ROLE_ALIASES[role]
 
 
-def add_common_args(parser, config, require_domain=True):
+def add_common_args(parser, config, require_domain=True, require_role=True):
     """Add arguments shared by all roles."""
     parser.add_argument(
-        '--role', required=True,
+        '--role', required=require_role,
         help='Role: server (bob) or client (alice)'
     )
     parser.add_argument(
@@ -145,8 +167,14 @@ def add_common_args(parser, config, require_domain=True):
     parser.add_argument(
         '--log-profile',
         default=config.log_profile,
-        choices=sorted(LOG_PROFILES.keys()),
+        metavar='<log_profile>',
         help='Logging profile name (default: %s)' % config.log_profile
+    )
+    parser.add_argument(
+        '--tls-bump-generate-cert',
+        nargs=2,
+        metavar=('<cn>', '<out_der_path>'),
+        help='Generate a TLS bump DER cert from CN text and write to a path'
     )
 
 
@@ -473,6 +501,7 @@ def parse_args(args=None):
     else:
         arg_list = list(args)
     log_profile_explicit = _has_arg_prefix(arg_list, '--log-profile')
+    generate_cert = _has_arg_prefix(arg_list, '--tls-bump-generate-cert')
 
     # First pass: get basic options
     parser = argparse.ArgumentParser(
@@ -480,55 +509,70 @@ def parse_args(args=None):
         add_help=False,  # Add help in second pass
     )
     config_defaults = Config()
-    add_common_args(parser, config_defaults, require_domain=False)
+    add_common_args(
+        parser,
+        config_defaults,
+        require_domain=False,
+        require_role=False,
+    )
     add_module_args(parser)
 
     partial_args, remaining = parser.parse_known_args(arg_list)
-    role = normalize_role(partial_args.role)
+    role = None
+    if partial_args.role is not None:
+        role = normalize_role(partial_args.role)
     transport = partial_args.transport
+    role_for_args = role or 'client'
 
     # Second pass: full parser with role/transport/module-specific args
     parser = argparse.ArgumentParser(
         description='sfb - Signals From Bob tunnel'
     )
-    add_common_args(parser, config_defaults, require_domain=(transport == 'dns'))
+    add_common_args(
+        parser,
+        config_defaults,
+        require_domain=(transport == 'dns' and not generate_cert),
+        require_role=not generate_cert,
+    )
     add_module_args(parser)
 
-    # Transport-specific args
-    if transport == 'dns':
-        if role == 'server':
-            add_dns_server_args(parser, config_defaults)
-        else:
-            add_dns_client_args(parser, config_defaults)
-    elif transport == 'icmp':
-        add_icmp_common_args(parser, config_defaults)
-        if role == 'client':
-            add_icmp_client_args(parser, config_defaults, require_target=True)
-    elif transport == 'tls_handshake':
-        if role == 'server':
-            add_tls_server_args(parser, config_defaults)
-        else:
-            add_tls_client_args(parser, config_defaults)
-    elif transport == 'tls_handshake_bump':
-        if role == 'server':
-            add_tls_bump_server_args(parser, config_defaults)
-        else:
-            add_tls_bump_client_args(parser, config_defaults)
-    if role == 'client':
-        add_client_pacing_args(parser, config_defaults)
+    if not generate_cert:
+        # Transport-specific args
+        if transport == 'dns':
+            if role_for_args == 'server':
+                add_dns_server_args(parser, config_defaults)
+            else:
+                add_dns_client_args(parser, config_defaults)
+        elif transport == 'icmp':
+            add_icmp_common_args(parser, config_defaults)
+            if role_for_args == 'client':
+                add_icmp_client_args(parser, config_defaults, require_target=True)
+        elif transport == 'tls_handshake':
+            if role_for_args == 'server':
+                add_tls_server_args(parser, config_defaults)
+            else:
+                add_tls_client_args(parser, config_defaults)
+        elif transport == 'tls_handshake_bump':
+            if role_for_args == 'server':
+                add_tls_bump_server_args(parser, config_defaults)
+            else:
+                add_tls_bump_client_args(parser, config_defaults)
+        if role_for_args == 'client':
+            add_client_pacing_args(parser, config_defaults)
 
-    # Server-specific args
-    if role == 'server':
-        add_server_args(parser, config_defaults)
+        # Server-specific args
+        if role_for_args == 'server':
+            add_server_args(parser, config_defaults)
 
-    # Module subcommands
-    if partial_args.module:
-        module_cls = AVAILABLE_MODULES[partial_args.module]
-        subparsers = parser.add_subparsers(dest='command', help='Module commands')
-        module_cls.register_commands(subparsers, role, config=config_defaults)
+        # Module subcommands
+        if partial_args.module:
+            module_cls = AVAILABLE_MODULES[partial_args.module]
+            subparsers = parser.add_subparsers(dest='command', help='Module commands')
+            module_cls.register_commands(subparsers, role_for_args, config=config_defaults)
 
     parsed = parser.parse_args(arg_list)
-    parsed.role = normalize_role(parsed.role)  # Normalize in final result
+    if parsed.role is not None:
+        parsed.role = normalize_role(parsed.role)  # Normalize in final result
     parsed.log_profile_explicit = log_profile_explicit
     return parsed
 
@@ -1033,6 +1077,9 @@ def run_client(args, config, crypto, logger):
 def main(args=None):
     """Main entry point."""
     parsed = parse_args(args)
+    cert_result = _handle_tls_bump_generate_cert(parsed)
+    if cert_result is not None:
+        return cert_result
     if parsed.db_log is _DB_LOG_DEFAULT:
         # --db-log passed without a path, use default
         parsed.db_log = './logs/%s_log.db' % parsed.role

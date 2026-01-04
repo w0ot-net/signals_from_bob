@@ -472,31 +472,16 @@ class AliceTunnel(BaseTunnel):
                 },
             )
             for seq, segments, flags, encrypted_body in retransmits:
-                if flags & FLAG_KEEPALIVE:
-                    dropped = self._send_window.drop_keepalive(
-                        seq, reason='rto_keepalive', now=now
-                    )
-                    if dropped:
-                        self._log_reliability_state(
-                            logging.DEBUG,
-                            'tunnel.keepalive_drop',
-                            'Dropped keepalive retransmit',
-                            now=now,
-                            extra_fields={
-                                'seq': seq,
-                                'reason': 'rto_keepalive',
-                            },
-                        )
-                    continue
                 if not self._can_send_retransmit(now=now):
                     break
+                reason = 'rto_keepalive' if flags & FLAG_KEEPALIVE else 'rto'
                 sent = self._send_retransmit(
                     seq,
                     segments,
                     flags,
                     encrypted_body,
                     now,
-                    reason='rto',
+                    reason=reason,
                 )
                 if sent:
                     self._backoff_rto_once()

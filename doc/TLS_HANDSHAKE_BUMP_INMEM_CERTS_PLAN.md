@@ -14,6 +14,8 @@ defined in `TLS_HANDSHAKE_BUMP_AUTODETECT_PLAN.md`.
 - Preserve Alice-initiated polling and Bob response asymmetry.
 - Stay compatible with response extraction modes (regex/scan).
 - Make response decoding tolerant of fixed-length padding.
+- Derive the CN length from the template and maximize it for broad hardware
+  compatibility.
 
 ## Non-Goals
 - Variable-length ASN.1 length patching for CN fields.
@@ -38,6 +40,8 @@ defined in `TLS_HANDSHAKE_BUMP_AUTODETECT_PLAN.md`.
 1) Add a fixed-length in-memory cert template.
    - Add a new module that stores a base64 DER template with a CN placeholder
      of fixed length (CN_LEN), plus the CN byte offset (CN_OFFSET).
+   - Choose CN_LEN as the largest ASCII length that still parses on common
+     TLS stacks and embedded hardware; document the chosen limit.
    - Provide a helper to build cert DER by padding CN text with base32 "a"
      to CN_LEN and splicing into the template.
    - Remove `tls_bump_cert_dir` and `tls_bump_cert_helper` from config/CLI
@@ -56,8 +60,8 @@ defined in `TLS_HANDSHAKE_BUMP_AUTODETECT_PLAN.md`.
    - Ensure both extraction modes (regex/scan) can return the full padded token.
 
 4) MTU and validation updates.
-   - Treat `tls_bump_max_cn_len` as the fixed CN length and ensure it matches
-     the template CN_LEN (or remove the config and derive from template).
+   - Remove `tls_bump_max_cn_len` from config/CLI and derive the CN length
+     directly from the template CN_LEN.
    - Compute the send MTU from the fixed CN length and validate it normally.
    - Preserve asymmetric MTU rules (independent send/recv caps).
 

@@ -124,6 +124,8 @@ class AliceTunnel(BaseTunnel):
         self._pacer_summary_last_sent = 0
         self._pacer_summary_last_recv = 0
         self._pacer_summary_last_stats = None
+        self._pacer_target_sum = 0.0
+        self._pacer_target_count = 0
         self._pacer_blocked_counts = {
             'window_distance': 0,
             'window_full': 0,
@@ -1185,16 +1187,21 @@ class AliceTunnel(BaseTunnel):
     def _log_pacer_state(self, cap, unacked_count, action=None):
         if not self._pacer.enabled:
             return
+        fields = self._pacer.state_fields(
+            unacked_count,
+            cap,
+            rate_limit=self._config.tunnel_send_rate,
+            srtt_ms=self._rtt.srtt_ms,
+        )
+        if self._pacer_summary_interval > 0:
+            target = fields.get('target_inflight')
+            if target is not None:
+                self._pacer_target_sum += target
+                self._pacer_target_count += 1
+        fields['side'] = 'alice'
+        if action is not None:
+            fields['action'] = action
         def build_fields():
-            fields = self._pacer.state_fields(
-                unacked_count,
-                cap,
-                rate_limit=self._config.tunnel_send_rate,
-                srtt_ms=self._rtt.srtt_ms,
-            )
-            fields['side'] = 'alice'
-            if action is not None:
-                fields['action'] = action
             return fields
         log_event(
             self._logger,
@@ -1212,6 +1219,8 @@ class AliceTunnel(BaseTunnel):
             self._pacer_summary_last_time = now
             self._pacer_summary_last_sent = self._packets_sent
             self._pacer_summary_last_recv = self._packets_received
+            self._pacer_target_sum = 0.0
+            self._pacer_target_count = 0
             self._pacer_summary_last_blocked = dict(
                 self._pacer_blocked_counts
             )
@@ -1228,6 +1237,8 @@ class AliceTunnel(BaseTunnel):
             return
         if elapsed <= 0:
             self._pacer_summary_last_time = now
+            self._pacer_target_sum = 0.0
+            self._pacer_target_count = 0
             return
         sent_delta = self._packets_sent - self._pacer_summary_last_sent
         recv_delta = self._packets_received - self._pacer_summary_last_recv
@@ -1294,6 +1305,11 @@ class AliceTunnel(BaseTunnel):
         if pacer_fields:
             for key, value in pacer_fields.items():
                 fields['pacer_' + key] = value
+        if self._pacer_target_count > 0:
+            avg_target = (
+                self._pacer_target_sum / float(self._pacer_target_count)
+            )
+            fields['pacer_target_inflight_avg'] = round(avg_target, 6)
         if self._stats_enabled:
             try:
                 stats_snapshot = self._reliability_stats.snapshot()
@@ -1330,6 +1346,8 @@ class AliceTunnel(BaseTunnel):
         self._pacer_summary_last_time = now
         self._pacer_summary_last_sent = self._packets_sent
         self._pacer_summary_last_recv = self._packets_received
+        self._pacer_target_sum = 0.0
+        self._pacer_target_count = 0
 
     def _poll_decision(self, now):
         if self._last_was_pong_only:

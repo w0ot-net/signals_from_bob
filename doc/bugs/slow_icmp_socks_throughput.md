@@ -220,3 +220,21 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Takeaways:
   - Alice is polling very aggressively (sub-2ms EWMA), but inflight is capped by transport headroom and window-distance stalls; the feedback target suggests a lower inflight may reduce gaps.
   - Bob’s cooldown is driven by Alice’s high poll rate and window size, which can defer opportunistic retransmits during loss.
+
+## Log Review: Feedback-Driven Pacing (Jan 3, 2026, post-change)
+- Logs: `logs/client_log.db`, `logs/server_log.db`.
+- Throughput (Alice `sock.pump_stats`, target_to_channel):
+  - ~3.42 MB over ~46.16s, ~74 KB/s (~0.074 MB/s).
+- Pacer adjustments (Alice):
+  - `tunnel.pacer_adjust`: 140 total; 139 `window_distance`, 1 `transport_headroom`.
+  - `tunnel.pacer_target` target_inflight min/avg/max: 1 / ~16.0 / 128.
+  - `tunnel.pacer_target` mode: feedback 852, probe 46, base 18.
+  - `feedback_target` avg ~31 vs `base_target` avg ~128 (feedback/base ~0.24).
+- Window-distance stalls (Alice):
+  - `tunnel.send_blocked`: 28,712 `window_distance` events.
+  - `tunnel.send_window_distance` unacked most common: 1 (16,821), 2 (3,058), 4 (1,613).
+- Logging gap:
+  - No `tunnel.pacer_summary` events; summary interval or profile likely disabled.
+- Takeaways:
+  - Feedback-driven pacing reduced inflight to low teens during heavy window-distance stalls.
+  - To quantify the 10% throughput dip, enable `tunnel_pacer_summary_interval=1.0` and compare send_rate deltas alongside blocked counters.

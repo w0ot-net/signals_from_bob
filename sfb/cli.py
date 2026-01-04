@@ -221,6 +221,11 @@ def add_tls_server_args(parser, config):
         default=config.tls_listen_addr,
         help='TLS server listen host:port'
     )
+    parser.add_argument(
+        '--tls-sni',
+        default=config.tls_sni,
+        help='TLS SNI host name (optional cover, must match client)'
+    )
 
 
 def add_client_pacing_args(parser, config):
@@ -459,6 +464,7 @@ def create_config(args):
             config_kwargs['tls_alpn'] = getattr(args, 'tls_alpn', None)
         else:
             config_kwargs['tls_listen_addr'] = getattr(args, 'tls_listen_addr', None)
+            config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
 
     if args.role == 'client':
         config_kwargs['tunnel_send_rate'] = getattr(args, 'send_rate', None)

@@ -28,8 +28,8 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 ## Latest findings (2026-01-03, icmp_retransmit_debug)
 - Logs captured with `icmp_retransmit_debug` on both sides.
 - Timeline windows: Bob ~50.2s, Alice ~15.5s (client log ended earlier).
-- Alice `tunnel.packet_send`: 8844; `tunnel.retransmit`: 2787 (~31.5%),
-  all `reason=fast_gap`; 2327 unique seqs, max 29 repeats on one seq.
+- Alice `tunnel.packet_send`: 8844; `tunnel.retransmit`: 2787 (~31.5%);
+  2327 unique seqs, max 29 repeats on one seq.
 - Alice `tunnel.send_blocked`: 3576 total; 3515 `transport_headroom`
   at `pending=120` (max_in_flight=128, headroom=8).
 - Alice `icmp.send`: 87.5% of sends at `pending>=110`; 40.6% at `pending=120`.
@@ -43,8 +43,8 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 
 ## Latest findings (2026-01-03, icmp_retransmit_debug run 2)
 - Timeline windows: Bob ~32.9s, Alice ~11.5s (client log ended earlier).
-- Alice `tunnel.packet_send`: 5879; `tunnel.retransmit`: 1804 (~30.7%),
-  all `reason=fast_gap`; retransmits are data packets (`seg_count` 1/2).
+- Alice `tunnel.packet_send`: 5879; `tunnel.retransmit`: 1804 (~30.7%);
+  retransmits are data packets (`seg_count` 1/2).
 - Alice `tunnel.send_blocked`: 2323 total; 2266 `transport_headroom`
   at `pending=120` (max_in_flight=128, headroom=8).
 - Alice `tunnel.packet_recv`: 5761 total; 2111 with non-zero SACK (~36.7%).
@@ -56,10 +56,10 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - No `icmp.prune_stale` or `tunnel.packet_decode_failed` events observed.
 
 ## Change applied (2026-01-03)
-- Removed Alice fast retransmit and fast recovery (no `fast_gap` retransmits).
+- Removed Alice non-RTO retransmit path and fast recovery.
 - Expectation: retransmits should be RTO-only; compare rates after re-run.
 
-## Latest findings (2026-01-03, post fast-retransmit removal)
+## Latest findings (2026-01-03, post non-RTO retransmit removal)
 - Timeline windows: Bob ~28.4s, Alice ~23.6s.
 - Alice `tunnel.packet_send`: 2091; `tunnel.retransmit`: 169 (~8.1%),
   all `reason=rto`.
@@ -72,7 +72,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   offsets include 137/153, and max repeated ACK run was 239 packets.
 - Bob retransmits: 271/2139 (~12.7%) with 1847 skips.
 
-## Additional findings (2026-01-03, post fast-retransmit removal)
+## Additional findings (2026-01-03, post non-RTO retransmit removal)
 - 160/169 Alice retransmits occurred within 0.5s of the most recent response
   (most within ~50ms), indicating RTO firing while responses were active.
 - Largest response gap on Alice was ~4.0s; during that window, only 2 packets
@@ -169,17 +169,17 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - When Alice hits the distance cap with low `unacked` and high `buffered`,
   she now retransmits the packet at `last_cum_ack` once per ACK stall if
   ACK silence exceeds 0.25 * RTO (min 50ms).
-- Goal: recover the missing gap earlier than the full RTO and reduce
+- Goal: recover the missing seq earlier than the full RTO and reduce
   prolonged distance-cap stalls.
 
-## Latest findings (2026-01-03, post gap retransmit)
+## Latest findings (2026-01-03, post targeted retransmit)
 - Sources: `logs/client_log.db` (Alice) had 94600 rows (~10:31:49-10:32:18 UTC).
 -  `logs/server_log.db` (Bob) had 232506 rows (~10:31:44-10:32:58 UTC).
 - Alice `tunnel.send_window_distance`: 6407; `tunnel.send_blocked`: 11135
   (`window_distance` 6407, `transport_headroom` 4670).
 - Alice distance metrics pinned at 128 with low `unacked` (median 5, p90 12)
   and high `buffered` (median 123, p90 126).
-- Alice `tunnel.retransmit`: 44, all `reason=gap` (new gap retransmits firing).
+- Alice `tunnel.retransmit`: 44 (new stall-triggered retransmits firing).
 - `tunnel.send_window_distance` stalls split into 50 runs; longest runs are
   ~0.24-0.26s with ~156-177 events (shorter than the pre-change ~0.59s runs).
 - Bob `tunnel.send_window_distance`: 336; `tunnel.send_blocked`: 336
@@ -192,9 +192,10 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   ~0.28s (105-118 events).
 
 ## Change applied (2026-01-03)
-- Alice now attempts a gap retransmit before the distance cap when the window
-  is within ~12.5% of the limit, `buffered` is high, and `unacked` is low.
-- Goal: clear gaps before the hard distance block to keep throughput smoother.
+- Alice now attempts a targeted retransmit before the distance cap when the
+  window is within ~12.5% of the limit, `buffered` is high, and `unacked` is low.
+- Goal: clear missing seqs before the hard distance block to keep throughput
+  smoother.
 
 ## Latest findings (2026-01-03, instrumented send-window distance fields)
 - Sources: `logs/client_log.db` (Alice) had 117000 rows (~10:40:18 UTC);
@@ -307,9 +308,9 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   2004. Keepalive-drop fields were not present in these events.
 - Alice `tunnel.packet_recv` shows a very large SACK bitmap while `ack` stays
   pinned, consistent with Bob holding most of the 256-window beyond the
-  missing seq. The gap-retransmit gate does not trigger here because
+  missing seq. The targeted retransmit gate does not trigger here because
   `unacked` (79) exceeds the current threshold (distance_limit / 4 = 64),
-  so the missing packet waits for RTO instead of an early gap retransmit.
+  so the missing packet waits for RTO instead of an early retransmit.
 - Alice `tunnel.send_blocked` reasons: `window_distance` 833,
   `transport_headroom` 499, `retransmit_budget` 2.
 - Sources: `logs/server_log.db` (Bob) had 16579 rows (~11:32:46-11:33:03 UTC).
@@ -322,8 +323,8 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   `missing_retransmit_count` 4. Keepalive-drop fields were not present.
 
 ## Change applied (2026-01-03)
-- When Alice hits the distance cap, she now allows a gap retransmit once per
-  stalled `last_cum_ack` if the missing packet age exceeds the silence
+- When Alice hits the distance cap, she now allows a targeted retransmit once
+  per stalled `last_cum_ack` if the missing packet age exceeds the silence
   threshold, even if `unacked` is above the previous threshold. Pre-cap
   behavior remains unchanged.
 
@@ -364,8 +365,8 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - `ack_miss_count` is very high (64744) with the latest miss referencing a SACK
   seq (2367) not present in unacked, indicating frequent SACK bits for already
   acked/removed packets.
-- Latest Alice retransmit event is `reason=gap` for seq 2110 (earlier gap), not
-  the current missing seq 2112.
+- Latest Alice retransmit event is for seq 2110 (earlier missing seq), not the
+  current missing seq 2112.
 
 ## Latest findings (2026-01-03, window negotiated to 1)
 - Sources: `logs/client_log.db` (Alice) had 7781 rows (~12:24:30-12:24:47 UTC).
@@ -408,9 +409,8 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Alice `tunnel.send_window_distance`: 625; `tunnel.send_blocked`: 1968
   (`transport_headroom` 1343, `window_distance` 625).
 - Latest distance event shows `distance` 128 with `buffered` 127 and `unacked` 1;
-  missing age ~0.10s with a gap retransmit already sent
-  (`missing_retransmit_count` 1), indicating frequent cap stalls even with
-  quick gap recovery.
+  missing age ~0.10s with a retransmit already sent (`missing_retransmit_count`
+  1), indicating frequent cap stalls even with quick recovery.
 - Alice `tunnel.retransmit_skip` count is high (2842) with `ack_silence`
   gating; latest skip shows `unacked` 105 and `ack_silence` 0, suggesting
   retransmits are being deferred while ACKs are still moving.

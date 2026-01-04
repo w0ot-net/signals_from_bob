@@ -16,8 +16,8 @@ asymmetry constraints (Alice polls, Bob only responds).
 
 From the current behavior in `doc/ALICE_RETRANSMIT_LOGIC.md`:
 
-- RTO backoff is applied on every retransmit, including fast-gap retransmits,
-  and can occur multiple times per tick.
+- RTO backoff is applied on every retransmit and can occur multiple times per
+  tick.
 - Retransmit selection happens once per tick using a single RTO snapshot, which
   can produce a burst of retransmits followed by an overly large RTO.
 - Keepalive-only packets can produce RTT samples and trigger backoff, which can
@@ -31,12 +31,11 @@ From the current behavior in `doc/ALICE_RETRANSMIT_LOGIC.md`:
 
 Change:
 - Apply `RttEstimator.backoff()` only for RTO-driven retransmits.
-- Skip backoff for `fast_gap` retransmits.
 - Guard backoff so it happens at most once per tick (or once per tick per
   tunnel) even if multiple packets are retransmitted.
 
 Why:
-- Fast retransmit is a corrective action based on SACK gaps, not a timeout.
+- Backoff should reflect actual timeouts, not early retries.
 - Multiple backoffs in a single tick can multiply the RTO too aggressively.
 
 Notes:
@@ -88,22 +87,7 @@ Why:
 Notes:
 - This is internal behavior only; it does not alter wire format.
 
-### 5) Expand Fast Retransmit For SACK Gaps
-
-Change:
-- When SACK shows multiple gaps, retransmit the lowest missing sequence and
-  optionally one additional missing sequence per tick (bounded by the same
-  retransmit cap as RTO retransmits).
-
-Why:
-- SACK provides direct evidence of which packets are missing; relying only on
-  the cumulative ACK gap can delay recovery when multiple losses occur.
-
-Notes:
-- Guard against repeated retransmits of the same missing seq until either ACK
-  advances or a timeout occurs.
-
-### 6) Add Explicit Metrics For Skipped Retransmits
+### 5) Add Explicit Metrics For Skipped Retransmits
 
 Change:
 - Track counters for "retransmit skipped due to rate limiter" and "skipped due
@@ -161,8 +145,8 @@ Notes:
 ## Execution Notes
 
 - Implemented per-tick retransmit budget and single backoff per tick for RTO
-  retransmits; fast-gap retransmits no longer apply backoff.
+  retransmits.
 - Dropped keepalive-only RTO candidates, excluded keepalive RTT sampling, and
   reset the RTT estimator after handshake completion.
-- Expanded fast retransmit to cover multiple SACK gaps, added retransmit skip
-  metrics, and updated unit tests plus retransmit logic docs.
+- Added retransmit skip metrics, and updated unit tests plus retransmit logic
+  docs.

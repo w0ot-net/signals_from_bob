@@ -214,7 +214,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Alice send gating:
   - `tunnel.send_blocked` frequently reports `transport_headroom` at `pending=120` of `max_in_flight=128`.
   - `tunnel.send_window_distance` repeats with `distance=128`, `unacked=1`, `buffered=127`, indicating a single missing seq stalls new sends.
-  - Gap retransmits occur (`reason=gap`), but subsequent sends are still blocked until the missing seq is acked.
+  - Retransmits occur, but subsequent sends are still blocked until the missing seq is acked.
 - Bob retransmit cooldown:
   - `tunnel.retransmit_skip` on Bob uses `poll_ewma~0.0013s` and `window=128`, yielding `cooldown~0.16s` and repeated skips while `unacked` remains 80-90.
 - Takeaways:

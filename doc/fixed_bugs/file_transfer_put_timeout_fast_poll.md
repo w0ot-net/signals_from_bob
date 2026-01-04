@@ -78,21 +78,20 @@ transport details for ICMP/DNS.
 - Alice log shows sustained `icmp.send_blocked`/`tunnel.send_blocked` with
   `pending=128` (transport max_in_flight), indicating the ICMP pending queue is
   saturated. This causes bursts then stalls while waiting for replies.
-- Fast-gap retransmits are firing (e.g. `tunnel.retransmit` with
-  `reason=fast_gap`) when SACK indicates a hole, but the overall cadence is
-  still gated by the pending cap.
+- Retransmits are firing (see `tunnel.retransmit`) when SACK indicates a hole,
+  but the overall cadence is still gated by the pending cap.
 - Bob log shows `channel.send_buf_full` continuously and one segment per poll;
   he is responding, but throughput remains bounded by Alice's poll capacity.
 - In the latest 5s window on Alice, there were 1482
-  `icmp.send_blocked`/`tunnel.send_blocked` events and 379 fast-gap
-  retransmits, reinforcing that transport pending saturation is the primary
-  limiter rather than packet loss.
+  `icmp.send_blocked`/`tunnel.send_blocked` events and 379 retransmits,
+  reinforcing that transport pending saturation is the primary limiter rather
+  than packet loss.
 - After headroom gating, the latest 5s window on Alice shows 0
   `icmp.send_blocked` events and only 5 `tunnel.send_blocked` entries with
   `reason=transport_headroom` (pending=120, headroom=8). The remaining
   `tunnel.send_blocked` entries in that window are `Send window full` with
   `max_in_flight=1` immediately before the `tunnel.window_ok` update to 128.
-- Fast-gap retransmits still appear (50 in the latest 5s window) with no
+- Retransmits still appear (50 in the latest 5s window) with no
   `icmp.prune_stale`, so remaining chop is likely driven by SACK gaps or
   out-of-order responses rather than pending saturation.
 - Latest run shows `file.upload` logged on Bob but no `file.upload_complete`,

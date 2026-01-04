@@ -4,19 +4,22 @@
 Remove all runtime certificate file I/O from the TLS handshake bump transport by
 using a single in-memory DER cert template with a fixed-length CN placeholder.
 Each response patches the CN bytes and pads with base32 "a" characters so
-arbitrary payload lengths (up to the fixed capacity) decode correctly.
+arbitrary payload lengths (up to the fixed capacity) decode correctly. This
+remains compatible with the response extraction modes and sentinel framing
+defined in `TLS_HANDSHAKE_BUMP_AUTODETECT_PLAN.md`.
 
 ## Goals
 - Eliminate disk activity for bump certificates (no cert dir, no helper).
 - Keep Python 2.7/3 compatibility and standard library only.
 - Preserve Alice-initiated polling and Bob response asymmetry.
-- Keep the CN extraction flow (regex) unchanged for proxies.
+- Stay compatible with response extraction modes (regex/scan).
 - Make response decoding tolerant of fixed-length padding.
 
 ## Non-Goals
 - Variable-length ASN.1 length patching for CN fields.
 - Symbol-stream response encoding or multi-response reassembly.
 - Persisting any certificate state across runs.
+- Changing the response extraction semantics defined by autodetect.
 
 ## Affected Components
 - `sfb/transport/tls_handshake_bump/tls_handshake_bump_cert_template.py` (new)
@@ -42,22 +45,26 @@ arbitrary payload lengths (up to the fixed capacity) decode correctly.
 
 2) Update server response generation.
    - Replace the disk-backed cert provider with the template helper.
-   - Keep `encode_cn_value` for payload encoding, then pad to CN_LEN and patch.
+   - Use the response token encoder from the autodetect plan (header + payload,
+     base32 without padding), then pad to CN_LEN and patch.
    - Continue building the TLS record from the patched DER.
 
 3) Relax CN decode to allow fixed-length padding.
-   - Add a CN decode helper that accepts trailing zero bytes after the
-     payload length header and payload.
+   - Add a response token decode helper that accepts trailing zero bytes after
+     the header/payload and then validates the sentinel header/checksum.
    - Use this padded decode for CN responses only; keep SNI decode strict.
+   - Ensure both extraction modes (regex/scan) can return the full padded token.
 
 4) MTU and validation updates.
    - Treat `tls_bump_max_cn_len` as the fixed CN length and ensure it matches
-     the template CN_LEN.
+     the template CN_LEN (or remove the config and derive from template).
    - Compute the send MTU from the fixed CN length and validate it normally.
+   - Preserve asymmetric MTU rules (independent send/recv caps).
 
 5) Docs and tests.
-   - Document the fixed-length CN template and padding behavior in
-     `doc/TLS_HANDSHAKE_BUMP_TRANSPORT.md` and `doc/TRANSPORTS.md`.
+   - Document the fixed-length CN template, padding behavior, and compatibility
+     with response extraction modes in `doc/TLS_HANDSHAKE_BUMP_TRANSPORT.md`
+     and `doc/TRANSPORTS.md`.
    - Update tests to cover padded decode, fixed length enforcement, and
      template patching.
 

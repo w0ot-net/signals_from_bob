@@ -36,7 +36,7 @@ bandwidth and tuned for intercepting proxies that leak CN details.
 - `sfb/config.py` (new config fields)
 - `sfb/cli.py` (new CLI args)
 - `doc/TRANSPORTS.md`
-- `doc/TLS_HANDSHAKE_BUMP_TRANSPORT.md` (new spec doc)
+- `doc/completed_plans/TLS_HANDSHAKE_BUMP_TRANSPORT.md` (new spec doc)
 - `tests/test_tls_handshake_bump_codec.py`
 - `tests/test_tls_handshake_bump_client_server.py`
 - `scripts/` (optional helper for cert generation; stdlib + openssl subprocess)

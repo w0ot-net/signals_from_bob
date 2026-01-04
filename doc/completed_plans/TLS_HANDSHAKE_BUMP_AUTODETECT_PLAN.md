@@ -25,7 +25,7 @@ via a sentinel-based token scan.
 - `sfb/transport/tls_handshake_bump/tls_handshake_bump_config.py`
 - `sfb/config.py`
 - `sfb/cli.py`
-- `doc/TLS_HANDSHAKE_BUMP_TRANSPORT.md`
+- `doc/completed_plans/TLS_HANDSHAKE_BUMP_TRANSPORT.md`
 - `doc/TRANSPORTS.md`
 - `tests/test_tls_handshake_bump_codec.py`
 - `tests/test_tls_handshake_bump_client_server.py`
@@ -53,7 +53,7 @@ via a sentinel-based token scan.
 
 4) Documentation and tests.
    - Document the new modes, config fields, and sentinel framing in
-     `doc/TLS_HANDSHAKE_BUMP_TRANSPORT.md`.
+     `doc/completed_plans/TLS_HANDSHAKE_BUMP_TRANSPORT.md`.
    - Add unit tests for token scan decoding, checksum rejection, and regex
      extraction with a captured error page snippet.
 

@@ -11,7 +11,7 @@ import select
 import socket
 
 from ..transport_base import Server, TransportError, raise_bind_error
-from . import tls_handshake_bump_cert_template as cert_template
+from . import tls_handshake_bump_cert as bump_cert
 from . import tls_handshake_bump_codec as codec
 from .tls_handshake_bump_config import validate_tls_bump_config, parse_host_port
 from ...compat import require_bytes_like, to_bytes
@@ -265,7 +265,7 @@ class TlsHandshakeBumpServer(Server):
         except ValueError as exc:
             raise TransportError('CN encode failed: %s' % exc)
         try:
-            cert_der = cert_template.build_cert_der(cn_value)
+            cert_der = bump_cert.build_cert_der(cn_value)
         except ValueError as exc:
             raise TransportError('TLS bump cert build failed: %s' % exc)
         try:

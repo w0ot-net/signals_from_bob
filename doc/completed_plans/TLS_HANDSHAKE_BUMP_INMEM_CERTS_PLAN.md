@@ -31,7 +31,7 @@ defined in `TLS_HANDSHAKE_BUMP_AUTODETECT_PLAN.md`.
 - `sfb/transport/tls_handshake_bump/tls_handshake_bump_config.py`
 - `sfb/config.py`
 - `sfb/cli.py`
-- `doc/TLS_HANDSHAKE_BUMP_TRANSPORT.md`
+- `doc/completed_plans/TLS_HANDSHAKE_BUMP_TRANSPORT.md`
 - `doc/TRANSPORTS.md`
 - `tests/test_tls_handshake_bump_codec.py`
 - `tests/test_tls_handshake_bump_client_server.py`
@@ -67,7 +67,7 @@ defined in `TLS_HANDSHAKE_BUMP_AUTODETECT_PLAN.md`.
 
 5) Docs and tests.
    - Document the fixed-length CN template, padding behavior, and compatibility
-     with response extraction modes in `doc/TLS_HANDSHAKE_BUMP_TRANSPORT.md`
+     with response extraction modes in `doc/completed_plans/TLS_HANDSHAKE_BUMP_TRANSPORT.md`
      and `doc/TRANSPORTS.md`.
    - Update tests to cover padded decode, fixed length enforcement, and
      template patching.

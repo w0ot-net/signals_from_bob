@@ -24,7 +24,7 @@ logic. Consolidating improves consistency and reduces drift.
 - `tests/test_dns_codec.py` (update expected casing if needed)
 - `tests/test_tls_handshake_bump_codec.py` (update expected casing if needed)
 - `doc/DNS_TRANSPORT.md` (note default casing if referenced)
-- `doc/TLS_HANDSHAKE_BUMP_TRANSPORT.md` (note default casing if referenced)
+- `doc/completed_plans/TLS_HANDSHAKE_BUMP_TRANSPORT.md` (note default casing if referenced)
 
 ## Proposed Changes
 1. Add `sfb/transport/base32.py`:

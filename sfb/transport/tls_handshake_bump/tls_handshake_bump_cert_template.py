@@ -1,20 +1,18 @@
 # -*- coding: ascii -*-
 """
-TLS handshake bump in-memory certificate template.
+TLS handshake bump certificate template data.
+
+This module is data-only so a generator script can update it without touching
+runtime logic.
 """
 
 from __future__ import absolute_import
-
-import base64
-
-from ...compat import PY2, text_type
-
 
 # 256 chars raises the response payload MTU while keeping the template static.
 CN_LEN = 256
 CN_OFFSETS = (71, 380)
 
-_CERT_TEMPLATE_DER_B64 = (
+CERT_TEMPLATE_DER_B64 = (
     b'MIIFBzCCA++gAwIBAgIUOWH8Ju2RPDYUpw+pJ9lrbkqR94YwDQYJKoZIhvcNAQELBQAwggERMYIB'
     b'DTCCAQkGA1UEAwyCAQBhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFh'
     b'YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFh'
@@ -39,30 +37,3 @@ _CERT_TEMPLATE_DER_B64 = (
     b'QYUBYKSpAVB+FkkTRNzGF3g6SJTAVB1g8UIVyD/XHESdxluWgLe4lOaa/bw0eXyola96Mdp2ArPz'
     b'ErHzVg7bfszr+O1eqg5FDAMJUtwP62F0vGH0FXjNpKJiVVRriA=='
 )
-_CERT_TEMPLATE_DER = base64.b64decode(_CERT_TEMPLATE_DER_B64)
-
-_PLACEHOLDER = b'a' * CN_LEN
-for _offset in CN_OFFSETS:
-    if _CERT_TEMPLATE_DER[_offset:_offset + CN_LEN] != _PLACEHOLDER:
-        raise ValueError('TLS bump cert template CN placeholder mismatch')
-
-
-def build_cert_der(cn_text):
-    if not isinstance(cn_text, text_type):
-        raise TypeError('CN must be text')
-    try:
-        cn_text.encode('ascii')
-    except UnicodeError:
-        raise ValueError('CN must be ASCII')
-    if not cn_text:
-        raise ValueError('CN must not be empty')
-    if len(cn_text) > CN_LEN:
-        raise ValueError('CN exceeds template length')
-    padded = cn_text + ('a' * (CN_LEN - len(cn_text)))
-    cn_bytes = padded.encode('ascii')
-    template = bytearray(_CERT_TEMPLATE_DER)
-    for offset in CN_OFFSETS:
-        template[offset:offset + CN_LEN] = cn_bytes
-    if PY2:
-        return template.tostring()
-    return bytes(template)

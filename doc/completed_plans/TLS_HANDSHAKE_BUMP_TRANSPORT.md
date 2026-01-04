@@ -124,3 +124,11 @@ Server:
 - Requires a TLS-bumping proxy that exposes CN details in error pages.
 - No robustness if the proxy does not leak CN.
 - Not a full TLS implementation; it is a covert channel.
+
+## Execution Notes
+
+- Transport implementation already existed; aligned cert handling with the
+  data-only template module requirement.
+- Added a dedicated certificate builder module that decodes the base64
+  template and patches CN bytes at runtime.
+- Updated the server path and cert template tests to use the new builder.

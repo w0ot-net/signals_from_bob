@@ -309,7 +309,7 @@ transport = DnsTransport(resolver, domain, config=config)
 ## TLS Transports
 
 See `TLS_TRANSPORT.md` for the ClientHello transport and
-`TLS_HANDSHAKE_BUMP_TRANSPORT.md` for the TLS bump transport.
+`doc/completed_plans/TLS_HANDSHAKE_BUMP_TRANSPORT.md` for the TLS bump transport.
 
 ### TLS ClientHello
 

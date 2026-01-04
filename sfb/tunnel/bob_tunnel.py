@@ -608,6 +608,7 @@ class BobTunnel(BaseTunnel):
         segments, pending_data = self._collect_segments(
             max_payload,
             return_pending=True,
+            max_data_segments=1,
         )
 
         if not segments:

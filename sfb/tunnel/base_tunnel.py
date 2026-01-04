@@ -1256,7 +1256,8 @@ class BaseTunnel(object):
         )
 
     def _collect_segments(self, max_payload, keepalive_data=None,
-                          return_pending=False, control_only=False):
+                          return_pending=False, control_only=False,
+                          max_data_segments=None):
         """
         Collect segments from channels for transmission.
 
@@ -1265,6 +1266,7 @@ class BaseTunnel(object):
             keepalive_data: Optional keepalive bytes if no data (legacy)
             return_pending: If True, return (segments, pending_data)
             control_only: If True, only collect control channel segments
+            max_data_segments: Optional limit for non-control segments
 
         Returns:
             list: List of Segment instances if return_pending is False
@@ -1281,6 +1283,7 @@ class BaseTunnel(object):
             keepalive_data=keepalive_data,
             return_pending=return_pending,
             control_only=control_only,
+            max_data_segments=max_data_segments,
         )
 
     def start_background(self):

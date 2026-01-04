@@ -132,8 +132,9 @@ def parse_client_hello_body(body):
     Returns:
         tuple: (payload, cipher_suites)
     """
-    # Some of the checks below are stricter than needed for payload extraction;
-    # we may relax them in the future if validation overhead is not worthwhile.
+    # Some checks below are stricter than needed for payload extraction; we may
+    # relax them later (version == TLS 1.2, session_id_len <= 32, cipher list
+    # even/len >= 2, compression list == [0x00], extensions_len == remaining).
     body = to_bytes(body)
     offset = 0
     legacy_version, offset = _read_u16(body, offset)

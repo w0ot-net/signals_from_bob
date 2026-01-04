@@ -269,6 +269,8 @@ class Config:
     socks_relay_write_timeout: Optional[float] = None
     # SOCKS relay buffer size (bytes)
     socks_relay_buffer_size: int = 2048
+    # SOCKS pump poll timeout (seconds)
+    socks_pump_poll_timeout: float = 0.0001
     # Maximum poll backoff for SOCKS pump select/wait loops (seconds)
     socks_pump_backoff_max: float = 0.005
     # SOCKS thread join timeout (seconds)
@@ -433,6 +435,8 @@ class Config:
             raise ValueError("socks_relay_write_timeout must be > 0 or None")
         if self.socks_relay_buffer_size < 1:
             raise ValueError("socks_relay_buffer_size must be >= 1")
+        if self.socks_pump_poll_timeout <= 0:
+            raise ValueError("socks_pump_poll_timeout must be > 0")
         if self.socks_pump_backoff_max <= 0:
             raise ValueError("socks_pump_backoff_max must be > 0")
         if self.socks_thread_join_timeout <= 0:

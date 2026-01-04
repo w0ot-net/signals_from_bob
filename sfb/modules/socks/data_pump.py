@@ -65,7 +65,7 @@ def _select(read_list, write_list, timeout):
 
 
 def _pump_poll_bounds(config):
-    base = config.non_blocking_poll_timeout
+    base = config.socks_pump_poll_timeout
     if base is None or base <= 0:
         base = 0.01
     max_wait = config.socks_pump_backoff_max

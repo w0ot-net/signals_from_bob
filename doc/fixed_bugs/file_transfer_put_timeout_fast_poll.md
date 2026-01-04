@@ -86,11 +86,6 @@ transport details for ICMP/DNS.
   `icmp.send_blocked`/`tunnel.send_blocked` events and 379 retransmits,
   reinforcing that transport pending saturation is the primary limiter rather
   than packet loss.
-- After headroom gating, the latest 5s window on Alice shows 0
-  `icmp.send_blocked` events and only 5 `tunnel.send_blocked` entries with
-  `reason=transport_headroom` (pending=120, headroom=8). The remaining
-  `tunnel.send_blocked` entries in that window are `Send window full` with
-  `max_in_flight=1` immediately before the `tunnel.window_ok` update to 128.
 - Retransmits still appear (50 in the latest 5s window) with no
   `icmp.prune_stale`, so remaining chop is likely driven by SACK gaps or
   out-of-order responses rather than pending saturation.

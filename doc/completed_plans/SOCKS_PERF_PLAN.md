@@ -73,9 +73,8 @@ preserving protocol behavior and cross platform support.
      (max_in_flight * payload_cap) so client stalls cannot trigger recv_overflow.
      Keep the current read-size cap based on channel send buffer availability
      when reading from sockets.
-   - Only gate channel.read if there is sender-side backpressure or guaranteed
-     headroom for in-flight bytes; do not pause reads solely because the socket
-     is not writable.
+   - Only gate channel.read if there is sender-side backpressure; do not pause
+     reads solely because the socket is not writable.
    - Handle EWOULDBLOCK/WSAEWOULDBLOCK consistently on Windows and Linux in
      both pumps.
    - Clarify how socks_relay_socket_timeout and socks_relay_write_timeout map

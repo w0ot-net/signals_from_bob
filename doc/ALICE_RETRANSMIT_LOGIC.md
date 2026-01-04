@@ -215,16 +215,11 @@ Key structured events emitted during retransmit/ACK handling:
 - `on_retransmit()` resets probe growth (reduces aggressiveness).
 - Keepalive polls bypass pacing checks.
 
-### Transport Capacity And Headroom
+### Transport Capacity
 
 All sends require a transport `SendPermit`:
 - `transport.reserve_send()` may return None when in-flight capacity is full.
-- `_reserve_transport_permit()` also enforces headroom by checking
-  `pending_count()` vs `max_in_flight`, and can reject sends if near the limit.
-  - Headroom is `max(2, max_in_flight // 16)` (unless max_in_flight <= headroom).
-  - Uses `permit.pending_before` when provided, otherwise calls `pending_count()`.
-  - If the transport does not expose `pending_count`/`max_in_flight`, headroom
-    checks are skipped.
+- `_reserve_transport_permit()` wraps `reserve_send()` and logs transport blocks.
 
 If no permit is available, retransmit is skipped (no backoff, no send_time
 update).

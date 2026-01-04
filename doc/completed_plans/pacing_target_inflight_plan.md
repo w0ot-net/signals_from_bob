@@ -10,8 +10,6 @@ Recent logs show:
   remains capped by base, keeping inflight high.
 - `window_distance` stalls occur with `unacked` near 1 while `distance`
   is maxed, which blocks new sends behind a single missing seq.
-- `transport_headroom` blockages indicate pending saturation at the
-  transport layer.
 
 The pacer should actively respond to these signals and reduce inflight when
 feedback indicates a smaller pipe.
@@ -27,7 +25,7 @@ feedback indicates a smaller pipe.
      send/recv rates, pending depth, inflight, window-distance stalls,
      retransmit deltas.
    - Define target metrics: high send_rate, low retransmit deltas,
-     low window_distance stalls, low transport_headroom blocks.
+     low window_distance stalls.
 
 2) **Rework pacing target selection**
    - Restore intended behavior: feedback can move target_inflight up or down;
@@ -41,13 +39,12 @@ feedback indicates a smaller pipe.
 3) **Integrate stall signals into pacing**
    - Add a `pacer.on_blocked(reason, now)` hook in Alice:
      - `window_distance` stall with small `unacked` reduces target quickly.
-     - `transport_headroom` or `window_full` reduces target modestly.
+     - `window_full` reduces target modestly.
    - Reset probe state after stalls, similar to retransmit resets.
 
 4) **Add minimal, non-spammy instrumentation**
    - Extend `tunnel.pacer_summary` to include:
-     `blocked_window_distance`, `blocked_transport_headroom`,
-     `blocked_window_full`.
+     `blocked_window_distance`, `blocked_window_full`.
    - Add a low-frequency `tunnel.pacer_adjust` event only when target is
      decreased by feedback or stall signals.
    - Include `tunnel.pacer_adjust` in pacing-focused log profiles.
@@ -74,6 +71,6 @@ feedback indicates a smaller pipe.
 - Implemented feedback-driven target selection for increases and reductions with
   a sample-count stability gate.
 - Added stall-driven reductions with probe resets and summary counters for
-  window distance, transport headroom, and window full blocks.
+  window distance and window full blocks.
 - Added `tunnel.pacer_adjust` logging and updated pacing-focused profiles.
 - Tests: `python3 -m unittest tests.test_pacing`

@@ -26,8 +26,8 @@ class AdaptivePacer(object):
     # Reduction fraction when window_distance stalls with small unacked.
     # Increase to cut faster; decrease to preserve throughput.
     _BLOCK_FAST_REDUCTION = 0.25
-    # Reduction fraction for milder stalls (window_full, transport_headroom,
-    # or window_distance with higher unacked).
+    # Reduction fraction for milder stalls (window_full or window_distance
+    # with higher unacked).
     _BLOCK_SLOW_REDUCTION = 0.125
     # Cooldown window between stall reductions, measured in RTT multiples.
     # Increase to reduce repeated cuts; decrease to respond faster.
@@ -183,7 +183,7 @@ class AdaptivePacer(object):
                 factor = self._BLOCK_FAST_REDUCTION
             else:
                 factor = self._BLOCK_SLOW_REDUCTION
-        elif reason in ('transport_headroom', 'window_full'):
+        elif reason == 'window_full':
             factor = self._BLOCK_SLOW_REDUCTION
         else:
             return 0

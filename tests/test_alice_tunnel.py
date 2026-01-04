@@ -44,6 +44,7 @@ class _DummyTransport(Transport):
         self._recv_mtu = recv_mtu
         self._max_in_flight = max_in_flight
         self._pending = []
+        self.release_calls = 0
 
     def reserve_send(self, now=None):
         pending_before = self.pending_count()
@@ -74,6 +75,10 @@ class _DummyTransport(Transport):
     @property
     def recv_mtu(self):
         return self._recv_mtu
+
+    def release_send(self, permit):
+        self.release_calls += 1
+        return Transport.release_send(self, permit)
 
 
 class _QueueTransport(Transport):
@@ -131,124 +136,6 @@ class _QueueTransport(Transport):
         return self._recv_mtu
 
 
-class _HeadroomTransport(Transport):
-    def __init__(self, pending, max_in_flight=16, send_mtu=200, recv_mtu=200):
-        super(_HeadroomTransport, self).__init__()
-        self._pending = pending
-        self._max_in_flight = max_in_flight
-        self._send_mtu = send_mtu
-        self._recv_mtu = recv_mtu
-        self.release_calls = 0
-
-    def reserve_send(self, now=None):
-        pending_before = self.pending_count()
-        self._ensure_reserved()
-        reserved = len(self._reserved)
-        if pending_before + reserved >= self._max_in_flight:
-            return None
-        return self._reserve_permit(now=now, pending_before=pending_before)
-
-    def _send_impl(self, data, permit):
-        return 0
-
-    def recv(self, timeout=None):
-        return None, None
-
-    def pending_count(self):
-        return self._pending
-
-    @property
-    def max_in_flight(self):
-        return self._max_in_flight
-
-    @property
-    def send_mtu(self):
-        return self._send_mtu
-
-    @property
-    def recv_mtu(self):
-        return self._recv_mtu
-
-    def release_send(self, permit):
-        self.release_calls += 1
-        return Transport.release_send(self, permit)
-
-
-class _PendingBeforeTransport(Transport):
-    def __init__(self, pending_before, max_in_flight=16, send_mtu=200, recv_mtu=200):
-        super(_PendingBeforeTransport, self).__init__()
-        self._pending_before = pending_before
-        self._max_in_flight = max_in_flight
-        self._send_mtu = send_mtu
-        self._recv_mtu = recv_mtu
-        self.release_calls = 0
-
-    def reserve_send(self, now=None):
-        self._ensure_reserved()
-        return self._reserve_permit(now=now, pending_before=self._pending_before)
-
-    def _send_impl(self, data, permit):
-        return 0
-
-    def recv(self, timeout=None):
-        return None, None
-
-    def pending_count(self):
-        raise AssertionError('pending_count should not be called')
-
-    @property
-    def max_in_flight(self):
-        return self._max_in_flight
-
-    @property
-    def send_mtu(self):
-        return self._send_mtu
-
-    @property
-    def recv_mtu(self):
-        return self._recv_mtu
-
-    def release_send(self, permit):
-        self.release_calls += 1
-        return Transport.release_send(self, permit)
-
-
-class _ErrorPendingTransport(Transport):
-    def __init__(self, max_in_flight=16, send_mtu=200, recv_mtu=200):
-        super(_ErrorPendingTransport, self).__init__()
-        self._max_in_flight = max_in_flight
-        self._send_mtu = send_mtu
-        self._recv_mtu = recv_mtu
-        self.release_calls = 0
-
-    def reserve_send(self, now=None):
-        self._ensure_reserved()
-        return self._reserve_permit(now=now)
-
-    def _send_impl(self, data, permit):
-        return 0
-
-    def recv(self, timeout=None):
-        return None, None
-
-    def pending_count(self):
-        raise RuntimeError('pending_count error')
-
-    @property
-    def max_in_flight(self):
-        return self._max_in_flight
-
-    @property
-    def send_mtu(self):
-        return self._send_mtu
-
-    @property
-    def recv_mtu(self):
-        return self._recv_mtu
-
-    def release_send(self, permit):
-        self.release_calls += 1
-        return Transport.release_send(self, permit)
 
 
 class _ResponseAlice(AliceTunnel):
@@ -337,56 +224,6 @@ class PollDecisionTests(unittest.TestCase):
         should_poll, keepalive_due, consume_grace = alice._poll_decision(now=6.0)
 
         self.assertEqual((should_poll, keepalive_due, consume_grace), (True, True, False))
-
-
-class TransportHeadroomTests(unittest.TestCase):
-    def test_headroom_blocks_reservation(self):
-        transport = _HeadroomTransport(pending=14, max_in_flight=16)
-        alice = AliceTunnel(transport, make_test_config(), crypto=Plain())
-
-        permit = alice._reserve_transport_permit(now=0.0)
-
-        self.assertIsNone(permit)
-        self.assertEqual(transport.release_calls, 1)
-
-    def test_headroom_allows_reservation(self):
-        transport = _HeadroomTransport(pending=13, max_in_flight=16)
-        alice = AliceTunnel(transport, make_test_config(), crypto=Plain())
-
-        permit = alice._reserve_transport_permit(now=0.0)
-
-        self.assertIsNotNone(permit)
-        self.assertEqual(transport.release_calls, 0)
-        transport.release_send(permit)
-
-    def test_headroom_uses_pending_before(self):
-        transport = _PendingBeforeTransport(pending_before=14, max_in_flight=16)
-        alice = AliceTunnel(transport, make_test_config(), crypto=Plain())
-
-        permit = alice._reserve_transport_permit(now=0.0)
-
-        self.assertIsNone(permit)
-        self.assertEqual(transport.release_calls, 1)
-
-    def test_headroom_skips_on_pending_count_error(self):
-        transport = _ErrorPendingTransport(max_in_flight=16)
-        alice = AliceTunnel(transport, make_test_config(), crypto=Plain())
-
-        permit = alice._reserve_transport_permit(now=0.0)
-
-        self.assertIsNotNone(permit)
-        self.assertEqual(transport.release_calls, 0)
-        transport.release_send(permit)
-
-    def test_headroom_disabled_for_tiny_window(self):
-        transport = _HeadroomTransport(pending=0, max_in_flight=1)
-        alice = AliceTunnel(transport, make_test_config(), crypto=Plain())
-
-        permit = alice._reserve_transport_permit(now=0.0)
-
-        self.assertIsNotNone(permit)
-        self.assertEqual(transport.release_calls, 0)
-        transport.release_send(permit)
 
 
 class ConnectTests(unittest.TestCase):
@@ -523,7 +360,7 @@ class RetransmitTests(unittest.TestCase):
 
 class SendPacketTests(unittest.TestCase):
     def test_send_new_packet_rate_limit_releases_permit(self):
-        transport = _HeadroomTransport(pending=0, max_in_flight=16)
+        transport = _DummyTransport(max_in_flight=16)
         config = make_test_config(
             tunnel_send_rate=1.0,
             tunnel_send_burst=1.0,

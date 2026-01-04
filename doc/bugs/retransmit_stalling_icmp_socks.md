@@ -30,8 +30,8 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Timeline windows: Bob ~50.2s, Alice ~15.5s (client log ended earlier).
 - Alice `tunnel.packet_send`: 8844; `tunnel.retransmit`: 2787 (~31.5%);
   2327 unique seqs, max 29 repeats on one seq.
-- Alice `tunnel.send_blocked`: 3576 total; 3515 `transport_headroom`
-  at `pending=120` (max_in_flight=128, headroom=8).
+- Alice `tunnel.send_blocked`: 3576 total; `pending` often at 120
+  (max_in_flight=128).
 - Alice `icmp.send`: 87.5% of sends at `pending>=110`; 40.6% at `pending=120`.
 - Bob `tunnel.packet_send`: 20404; `tunnel.retransmit`: 480 (~2.4%).
 - Bob `tunnel.retransmit_skip`: 19913, mostly `ack_progress` (19753),
@@ -45,8 +45,8 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Timeline windows: Bob ~32.9s, Alice ~11.5s (client log ended earlier).
 - Alice `tunnel.packet_send`: 5879; `tunnel.retransmit`: 1804 (~30.7%);
   retransmits are data packets (`seg_count` 1/2).
-- Alice `tunnel.send_blocked`: 2323 total; 2266 `transport_headroom`
-  at `pending=120` (max_in_flight=128, headroom=8).
+- Alice `tunnel.send_blocked`: 2323 total; `pending` often at 120
+  (max_in_flight=128).
 - Alice `tunnel.packet_recv`: 5761 total; 2111 with non-zero SACK (~36.7%).
   Max repeated ACK run: 118 packets at the same ACK (1210).
 - SACK highest-offset histogram: most gaps are small (offset 1 dominates),
@@ -64,7 +64,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Alice `tunnel.packet_send`: 2091; `tunnel.retransmit`: 169 (~8.1%),
   all `reason=rto`.
 - Alice `tunnel.send_blocked`: 12101 total; 11219 `window_distance`,
-  468 `transport_headroom`, 78 `retransmit_budget`.
+  78 `retransmit_budget`; remaining blocks were other reasons.
 - Alice `tunnel.send_window_distance`: 11220 events with `buffered=128`;
   typical `distance`/`distance_limit` ~236-243 and `unacked` ~108-115.
 - Alice `icmp.prune_stale`: 4 (unexpected with 0% loss).
@@ -90,7 +90,8 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Alice `tunnel.packet_send`: 1573; `tunnel.retransmit`: 112 (~7.1%),
   all `reason=rto`.
 - Alice `tunnel.send_blocked`: 21285 total; 20174 `window_distance`,
-  738 `send_window_full`, 317 `transport_headroom`, 56 `retransmit_budget`.
+  738 `send_window_full`, 56 `retransmit_budget`; remaining blocks were
+  other reasons.
 - Alice `icmp.prune_stale`: 5 (still unexpected with 0% loss).
 - Largest response gap on Alice: ~10.1s; max repeated ACK run was 243 packets.
 - Bob `tunnel.retransmit`: 271; `tunnel.retransmit_skip`: 1847
@@ -106,7 +107,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   `logs/server_log.db` (Bob) had 273722 rows (~09:23:33-09:25:07 UTC).
 - Transport: ICMP (`icmp.send`/`icmp.recv` present).
 - Alice `tunnel.send_window_distance`: 5515; `tunnel.send_blocked`: 11680
-  (5515 `window_distance`, 6094 `transport_headroom`); `tunnel.retransmit`: 25.
+  (5515 `window_distance`); `tunnel.retransmit`: 25.
 - `distance` and `distance_limit` pinned at 128 (max_in_flight/effective_cap).
 - `unacked` low while `buffered` high (median `unacked` 4, p90 10, max 117;
   median `buffered` 124, p90 127, max 127), consistent with cumulative ACK
@@ -132,7 +133,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Sources: `logs/client_log.db` (Alice) had 100107 rows (~09:47:31-09:48:02 UTC);
   `logs/server_log.db` (Bob) had 284809 rows (~09:47:32-09:48:54 UTC).
 - Alice had no `tunnel.send_window_distance` events in the DB logs; her
-  `tunnel.send_blocked` was dominated by `transport_headroom` (6482/6537).
+  `tunnel.send_blocked` count was 6537.
 - Bob `tunnel.send_window_distance`: 17 and `tunnel.send_blocked`: 17
   (`window_distance` only).
 - Bob `tunnel.retransmit`: 39; `tunnel.retransmit_skip`: 34499
@@ -144,7 +145,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Sources: `logs/client_log.db` (Alice) had 32300 rows (~09:58:19-09:58:31 UTC);
   `logs/server_log.db` (Bob) had 86307 rows (~09:58:16-09:58:45 UTC).
 - Both sides show zero `tunnel.send_window_distance` events in the DB logs.
-- Alice `tunnel.send_blocked`: 2156, mostly `transport_headroom` (2096/2156).
+- Alice `tunnel.send_blocked`: 2156 total.
 - Bob `tunnel.retransmit`: 28; `tunnel.retransmit_skip`: 10805.
 
 ## Latest findings (2026-01-03, default logs snapshot with distance spam)
@@ -153,7 +154,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - `cli.log_startup` confirms `icmp_retransmit_debug` on both sides with
   `tunnel.send_window_distance` whitelisted and empty blacklist.
 - Alice `tunnel.send_window_distance`: 2002; `tunnel.send_blocked`: 12202
-  (`transport_headroom` 10144, `window_distance` 2002).
+  (`window_distance` 2002).
 - Alice distance metrics pinned at 128 with low `unacked` (median 6) and high
   `buffered` (median 122, p90 126), indicating cumulative ACK stalls with
   SACKed gaps.
@@ -176,7 +177,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Sources: `logs/client_log.db` (Alice) had 94600 rows (~10:31:49-10:32:18 UTC).
 -  `logs/server_log.db` (Bob) had 232506 rows (~10:31:44-10:32:58 UTC).
 - Alice `tunnel.send_window_distance`: 6407; `tunnel.send_blocked`: 11135
-  (`window_distance` 6407, `transport_headroom` 4670).
+  (`window_distance` 6407).
 - Alice distance metrics pinned at 128 with low `unacked` (median 5, p90 12)
   and high `buffered` (median 123, p90 126).
 - Alice `tunnel.retransmit`: 44 (new stall-triggered retransmits firing).
@@ -228,8 +229,8 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   `distance` 128 (`distance_limit` 128, `effective_cap` 128) with `unacked` 113,
   `buffered` 15, and `missing_seq` == `last_cum_ack` 105
   (`missing_in_unacked` True).
-- Alice `tunnel.send_blocked`: 3476, all `reason=transport_headroom` with
-  `headroom` 8, `pending` 120, `limit` 120, `max_in_flight` 128.
+- Alice `tunnel.send_blocked`: 3476, with `pending` 120 and
+  `max_in_flight` 128.
 - Sources: `logs/server_log.db` (Bob) sampled the most recent 200000 rows
   (ids 33384-233383, ~10:56:28-10:57:14 UTC).
 - `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
@@ -283,8 +284,8 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Alice `tunnel.send_window_distance`: 7457; `tunnel.send_blocked`: 7962;
   `tunnel.retransmit`: 23; `tunnel.packet_recv`: 2049.
 - Alice `tunnel.send_blocked` reasons: `window_distance` 7456,
-  `transport_headroom` 426 (`headroom` 16, `pending` 240, `limit` 240,
-  `max_in_flight` 256), `retransmit_budget` 11.
+  `retransmit_budget` 11; remaining blocks aligned with `pending` near 240
+  of `max_in_flight` 256.
 - Alice distance metrics pinned at 256 (`distance_limit` 256) with
   `buffered` median 224 (max 256) and `unacked` median 32 (min 0). Latest
   event shows `missing_in_unacked` False and `missing_age` null while
@@ -312,7 +313,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   `unacked` (79) exceeds the current threshold (distance_limit / 4 = 64),
   so the missing packet waits for RTO instead of an early retransmit.
 - Alice `tunnel.send_blocked` reasons: `window_distance` 833,
-  `transport_headroom` 499, `retransmit_budget` 2.
+  `retransmit_budget` 2; remaining blocks were other reasons.
 - Sources: `logs/server_log.db` (Bob) had 16579 rows (~11:32:46-11:33:03 UTC).
 - `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
   "/var/www/html/server_log.db".
@@ -407,7 +408,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Alice shows `tunnel.window_ok_recv` and `tunnel.window_ok_apply` (both twice),
   so negotiation succeeded with `negotiated_window` 128.
 - Alice `tunnel.send_window_distance`: 625; `tunnel.send_blocked`: 1968
-  (`transport_headroom` 1343, `window_distance` 625).
+  (`window_distance` 625).
 - Latest distance event shows `distance` 128 with `buffered` 127 and `unacked` 1;
   missing age ~0.10s with a retransmit already sent (`missing_retransmit_count`
   1), indicating frequent cap stalls even with quick recovery.

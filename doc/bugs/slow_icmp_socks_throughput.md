@@ -179,7 +179,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
   - Alice `icmp.send` and `icmp.recv` show max inter-arrival gaps near 1.0s (median ~0.0006s, p95 ~0.004s).
   - `tunnel.ack` intervals show the same ~1.0s max gap, indicating periodic poll/response stalls.
 - Window/backpressure:
-  - Alice `tunnel.send_blocked` reasons split between `transport_headroom` (1,343) and `window_distance` (625).
+  - Alice `tunnel.send_blocked` includes `window_distance` (625); remaining blocks were other reasons.
   - `tunnel.send_window_distance` is constant at 128 (min/max/avg 128), matching the max-in-flight cap.
   - `tunnel.pacer_state` shows `target_inflight` capped at 128 with `target_mode` always `base`; no dynamic increase observed.
 - Pump stats:
@@ -227,13 +227,12 @@ LOG_PROFILES['socks_throughput_debug'] = {
   - `tunnel.pacer_state` shows `target_inflight=128` with `target_mode=base` while `feedback_target` hovers around ~33 (ack_rate_ewma ~230 pps, srtt ~147 ms).
   - `unacked_count` commonly 108-114; pacer is not reducing inflight based on feedback.
 - Alice send gating:
-  - `tunnel.send_blocked` frequently reports `transport_headroom` at `pending=120` of `max_in_flight=128`.
   - `tunnel.send_window_distance` repeats with `distance=128`, `unacked=1`, `buffered=127`, indicating a single missing seq stalls new sends.
   - Retransmits occur, but subsequent sends are still blocked until the missing seq is acked.
 - Bob retransmit cooldown:
   - `tunnel.retransmit_skip` on Bob uses `poll_ewma~0.0013s` and `window=128`, yielding `cooldown~0.16s` and repeated skips while `unacked` remains 80-90.
 - Takeaways:
-  - Alice is polling very aggressively (sub-2ms EWMA), but inflight is capped by transport headroom and window-distance stalls; the feedback target suggests a lower inflight may reduce gaps.
+  - Alice is polling very aggressively (sub-2ms EWMA), but inflight is capped by window-distance stalls; the feedback target suggests a lower inflight may reduce gaps.
   - Bob’s cooldown is driven by Alice’s high poll rate and window size, which can defer opportunistic retransmits during loss.
 
 ## Log Review: Feedback-Driven Pacing (Jan 3, 2026, post-change)
@@ -241,7 +240,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Throughput (Alice `sock.pump_stats`, target_to_channel):
   - ~3.42 MB over ~46.16s, ~74 KB/s (~0.074 MB/s).
 - Pacer adjustments (Alice):
-  - `tunnel.pacer_adjust`: 140 total; 139 `window_distance`, 1 `transport_headroom`.
+  - `tunnel.pacer_adjust`: 140 total; 139 `window_distance`, 1 other.
   - `tunnel.pacer_target` target_inflight min/avg/max: 1 / ~16.0 / 128.
   - `tunnel.pacer_target` mode: feedback 852, probe 46, base 18.
   - `feedback_target` avg ~31 vs `base_target` avg ~128 (feedback/base ~0.24).
@@ -295,7 +294,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
   - `tunnel.pacer_target` target_inflight avg ~27 (median 27, max 128) with `ack_rate_ewma` ~240 pps and `srtt_ms` ~114.
   - `tunnel.pacer_state` block_reason is `window_distance` in 6964/7099 entries, so feedback pacing is dominating the send cap.
 - Alice send blocking:
-  - `tunnel.send_blocked`: 16336 `window_distance` (1 `transport_headroom`, 3 `retransmit_budget`).
+  - `tunnel.send_blocked`: 16336 `window_distance`; 3 `retransmit_budget`.
   - `distance_limit` avg ~26.7 (median 27); `unacked` avg ~24; `buffered` avg ~6.3 (max 65).
 - Payload efficiency:
   - `channel.pack` avg payload ~1308/1312; keepalive count 0.
@@ -330,3 +329,14 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Takeaways:
   - The peaks and valleys line up with 1s-scale pump backoff/idle waits, consistent with channel backpressure rather than loss-driven retransmits.
   - Poll pacing looks steady in this run (interval ~1.0-1.27 ms), so smoothing likely needs backpressure or pacing adjustments rather than retransmit changes.
+
+## Log Review: SACK Hole Stalls (Jan 4, 2026, latest)
+- Logs: `logs/client_log.db`.
+- Send window distance stalls: 798 `tunnel.send_window_distance` events with `distance=128` and `distance_limit=128`; `buffered` avg ~120.8 while `unacked` avg ~7.2 (min 4), so the window is full mostly due to buffered, not unacked, packets.
+- Missing packet is in unacked: `missing_in_unacked=true`, `missing_seq=last_cum_ack`, `missing_age` up to ~1.72s while `ack_miss_count` is very high (avg ~7.9k, max ~8.5k), indicating repeated SACKs acking ahead but a single hole blocking cumulative ACK.
+- Pacer cap is low during stalls: `pacer_cap` ranges 11-114 (avg ~17.8), but `unacked` is already below that, so the stall is not from pacer gating.
+- Transport pending not saturated: `icmp.send` pending averages ~45 (max 73) with no `icmp.send_blocked`, so ICMP is not hitting the 128 in-flight cap.
+- Retransmits remain gated by `ack_silence` (~0.39-0.41s vs rto 0.5s), so the missing packet can sit >1s before an RTO-based retransmit.
+- Takeaways:
+  - The oscillation likely comes from a single missing packet (SACK hole) that blocks cumulative ACK and stalls the window while later packets are already acked via SACK.
+  - Candidate fix: add a fast retransmit path for the missing seq when SACK shows a hole (e.g., after N ack_miss hits or missing_age > rto/2), or relax the ack_silence gate when the missing seq is old and still unacked.

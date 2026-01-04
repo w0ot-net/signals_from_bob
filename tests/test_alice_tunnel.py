@@ -458,7 +458,7 @@ class SendGateTests(unittest.TestCase):
 
         self.assertFalse(allowed)
 
-    def test_send_window_distance_respects_effective_cap(self):
+    def test_send_window_distance_ignores_pacer_cap(self):
         transport = _DummyTransport()
         config = make_test_config(
             tunnel_initial_window=10,
@@ -471,7 +471,7 @@ class SendGateTests(unittest.TestCase):
 
         allowed = alice._can_send_new(now=0.0)
 
-        self.assertFalse(allowed)
+        self.assertTrue(allowed)
 
     def test_send_window_full_blocks_new_send(self):
         transport = _DummyTransport()

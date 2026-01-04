@@ -627,16 +627,14 @@ class AliceTunnel(BaseTunnel):
                 unacked=self._send_window.unacked_count,
             )
             return False
-        effective_cap = None
+        pacer_cap = None
         if self._pacer.enabled:
             cap = self._pacer_cap()
-            effective_cap = min(
+            pacer_cap = min(
                 self._send_window._max_in_flight,
                 self._pacer.target_inflight(cap, srtt_ms=self._rtt.srtt_ms),
             )
-        distance_info = self._send_window_distance_info(
-            cap_override=effective_cap
-        )
+        distance_info = self._send_window_distance_info()
         exceeded = False
         if distance_info is not None:
             distance = distance_info[0]
@@ -659,6 +657,8 @@ class AliceTunnel(BaseTunnel):
                     'next_seq': next_seq,
                     'side': 'alice',
                 }
+                if pacer_cap is not None:
+                    fields['pacer_cap'] = pacer_cap
                 fields.update(
                     self._send_window_distance_details(now, last_cum_ack)
                 )
@@ -675,18 +675,21 @@ class AliceTunnel(BaseTunnel):
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Send window distance exceeded',
-                lambda: {
-                    'distance': distance,
-                    'distance_limit': distance_limit,
-                    'buffered': buffered,
-                    'unacked': unacked,
-                    'max_in_flight': max_in_flight,
-                    'effective_cap': effective_cap,
-                    'last_cum_ack': last_cum_ack,
-                    'next_seq': next_seq,
-                    'side': 'alice',
-                    'reason': 'window_distance',
-                },
+                lambda: (
+                    dict({
+                        'distance': distance,
+                        'distance_limit': distance_limit,
+                        'buffered': buffered,
+                        'unacked': unacked,
+                        'max_in_flight': max_in_flight,
+                        'effective_cap': effective_cap,
+                        'last_cum_ack': last_cum_ack,
+                        'next_seq': next_seq,
+                        'side': 'alice',
+                        'reason': 'window_distance',
+                    }, **({'pacer_cap': pacer_cap}
+                          if pacer_cap is not None else {}))
+                ),
             )
             self._log_reliability_state(
                 logging.DEBUG,

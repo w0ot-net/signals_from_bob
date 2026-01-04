@@ -171,10 +171,10 @@ redundant retransmits. If faster recovery is needed, Bob can call
 The total number of unacked packets remains capped at max_in_flight, so the
 SACK bitmap always covers all outstanding packets.
 
-With adaptive pacing enabled, Alice applies a local effective inflight cap
-equal to min(negotiated max_in_flight, pacer target inflight). The send-window
-distance guard uses this cap to avoid outrunning SACK coverage when pacing
-tightens, without renegotiating window sizes.
+With adaptive pacing enabled, Alice gates new sends using the pacer target
+inflight. The send-window distance guard still uses the negotiated
+max_in_flight (SACK window) to avoid overrunning the peer's SACK coverage.
+Pacing does not tighten the distance guard.
 
 ---
 

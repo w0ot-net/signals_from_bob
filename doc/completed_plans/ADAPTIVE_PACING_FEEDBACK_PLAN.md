@@ -54,7 +54,7 @@ target inflight count adapts to the observed pipe instead of staying fixed.
 - Keep keepalive-only polls exempt once due (existing behavior).
 
 ## Configuration Additions
-- `tunnel_pace_feedback_gain` (float, default 1.0, > 0)
+- `tunnel_pace_feedback_gain` (float, default 1.25, > 0)
 - `tunnel_pace_ack_ewma_alpha` (float, default 0.2, 0 < alpha <= 1)
 - `tunnel_pace_rtt_floor_ms` (float, default 5.0, > 0)
 - `tunnel_pace_ack_idle_reset_sec` (float, default 2.0, > 0)

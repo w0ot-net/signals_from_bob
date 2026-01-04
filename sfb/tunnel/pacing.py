@@ -11,12 +11,26 @@ class AdaptivePacer(object):
     Adaptive pacing controller driven by inflight targets.
     """
 
+    # Drop threshold for EWMA ACK rate. Lower values make probes reset on
+    # smaller slowdowns; higher values tolerate more variation before reset.
     _ACK_RATE_DROP_FACTOR = 0.8
+    # Probe increment per RTT step. Increase to ramp inflight faster; decrease
+    # to make probing more conservative.
     _PROBE_STEP = 1
+    # Minimum ACK samples before allowing feedback to reduce inflight. Higher
+    # values delay reductions to avoid oscillation on sparse ACKs.
     _FEEDBACK_MIN_SAMPLES = 3
+    # "Small unacked" threshold for aggressive window-distance cuts. Lower
+    # values make the fast reduction trigger less often.
     _BLOCK_SMALL_UNACKED = 2
+    # Reduction fraction when window_distance stalls with small unacked.
+    # Increase to cut faster; decrease to preserve throughput.
     _BLOCK_FAST_REDUCTION = 0.25
+    # Reduction fraction for milder stalls (window_full, transport_headroom,
+    # or window_distance with higher unacked).
     _BLOCK_SLOW_REDUCTION = 0.125
+    # Cooldown window between stall reductions, measured in RTT multiples.
+    # Increase to reduce repeated cuts; decrease to respond faster.
     _BLOCK_COOLDOWN_RTT_FACTOR = 1.0
 
     def __init__(self, enabled, target_inflight_ratio, min_inflight,

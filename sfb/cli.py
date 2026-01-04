@@ -824,6 +824,8 @@ def main(args=None):
         except ValueError as e:
             _print_error(str(e))
             return 2
+    if parsed.verbose and config.tunnel_pacer_summary_interval <= 0:
+        config.tunnel_pacer_summary_interval = 1.0
 
     # Setup logging
     level = logging.DEBUG if parsed.verbose else logging.INFO

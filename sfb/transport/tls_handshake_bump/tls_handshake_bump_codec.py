@@ -15,7 +15,7 @@ import re
 import struct
 import zlib
 
-from ...compat import byte_at, require_bytes_like, text_type, to_bytes
+from ...compat import PY2, byte_at, require_bytes_like, text_type, to_bytes
 
 
 TLS_CONTENT_TYPE_HANDSHAKE = 0x16
@@ -56,7 +56,7 @@ def base32_encode(data):
     """Encode bytes to base32 without padding, lowercase."""
     data = require_bytes_like(data)
     encoded = base64.b32encode(to_bytes(data)).rstrip(b'=')
-    return encoded.decode('ascii').lower()
+    return encoded.lower().decode('ascii')
 
 
 def base32_decode(value):
@@ -72,16 +72,37 @@ def base32_decode(value):
     return base64.b32decode(padded.encode('ascii'))
 
 
+def _base32_decode_bytes(value):
+    if isinstance(value, text_type):
+        raise TypeError('Expected bytes for base32 decode')
+    if isinstance(value, bytes):
+        raw = value
+    elif isinstance(value, bytearray):
+        raw = bytes(value) if PY2 else value
+    else:
+        raw = to_bytes(value)
+    pad = (8 - len(raw) % 8) % 8
+    if pad:
+        raw = raw + (b'=' * pad)
+    return base64.b32decode(raw.upper())
+
+
 def encode_sni_name(payload, base_domain):
     """
     Encode payload into an SNI name under base_domain.
     """
-    payload = to_bytes(payload)
     base_domain = normalize_domain(base_domain)
+    return encode_sni_name_with_labels(payload, base_domain.split('.'))
+
+
+def encode_sni_name_with_labels(payload, base_labels):
+    """
+    Encode payload into an SNI name using a normalized base domain label list.
+    """
+    payload = to_bytes(payload)
     encoded = _encode_payload(payload)
     labels = _split_labels(encoded, MAX_LABEL_LEN)
-    labels.extend(base_domain.split('.'))
-    _validate_labels(labels)
+    labels.extend(base_labels)
     _validate_name_length(labels)
     return '.'.join(labels)
 
@@ -90,6 +111,14 @@ def decode_sni_name(name, base_domain):
     """
     Decode payload from an SNI name under base_domain.
     """
+    base_domain = normalize_domain(base_domain)
+    return decode_sni_name_with_base(name, base_domain)
+
+
+def decode_sni_name_with_base(name, base_domain):
+    """
+    Decode payload from an SNI name using a normalized base domain.
+    """
     if not isinstance(name, text_type):
         raise TypeError('SNI must be text')
     try:
@@ -97,7 +126,6 @@ def decode_sni_name(name, base_domain):
     except UnicodeError:
         raise ValueError('SNI must be ASCII')
     name = _strip_trailing_dot(name).lower()
-    base_domain = normalize_domain(base_domain)
     if name == base_domain:
         raise ValueError('SNI payload missing')
     suffix = '.' + base_domain
@@ -134,35 +162,56 @@ def decode_cn_value(value):
     return _decode_response_payload(value)
 
 
-def scan_response_payload(data, max_payload_len=None, max_token_len=None):
+def scan_response_payload(data, max_payload_len=None, max_token_len=None,
+                          start_offset=0):
     """
     Scan bytes for a valid response token and return payload bytes.
+
+    start_offset: optional byte offset to begin scanning.
     """
-    data = to_bytes(data)
+    if isinstance(data, text_type):
+        raise TypeError('Expected bytes for response scan')
+    if isinstance(data, (bytes, bytearray)):
+        scan_bytes = data
+    else:
+        scan_bytes = to_bytes(data)
+    if PY2 and isinstance(scan_bytes, bytearray):
+        scan_bytes = bytes(scan_bytes)
+    if start_offset is None or start_offset < 0:
+        start_offset = 0
     min_len = SFB_BUMP_RESPONSE_TOKEN_MIN_LEN
-    for match in _RESPONSE_TOKEN_RE.finditer(data):
+    if max_token_len is not None and max_token_len < min_len:
+        return None
+    if start_offset >= len(scan_bytes):
+        return None
+    for match in _RESPONSE_TOKEN_RE.finditer(scan_bytes, start_offset):
         token_bytes = match.group(0)
         token_len = len(token_bytes)
-        if max_token_len is None or token_len <= max_token_len:
+        if token_len < min_len:
+            continue
+        max_start = token_len - min_len
+        for start in range(0, max_start + 1):
+            payload_len = _try_decode_response_header(
+                token_bytes[start:start + min_len]
+            )
+            if payload_len is None:
+                continue
+            if max_payload_len is not None and payload_len > max_payload_len:
+                continue
+            encoded_len = _base32_len(payload_len + SFB_BUMP_RESPONSE_HEADER_LEN)
+            if encoded_len < min_len:
+                continue
+            if max_token_len is not None and encoded_len > max_token_len:
+                continue
+            end = start + encoded_len
+            if end > token_len:
+                continue
             payload = _try_decode_response_token(
-                token_bytes,
+                token_bytes[start:end],
                 max_payload_len=max_payload_len,
             )
             if payload is not None:
                 return payload
-        if max_token_len is not None and token_len > max_token_len:
-            token_len = max_token_len
-        if token_len < min_len:
-            continue
-        for start in range(0, len(token_bytes) - min_len + 1):
-            window_max = min(token_len, len(token_bytes) - start)
-            for length in range(window_max, min_len - 1, -1):
-                payload = _try_decode_response_token(
-                    token_bytes[start:start + length],
-                    max_payload_len=max_payload_len,
-                )
-                if payload is not None:
-                    return payload
     return None
 
 
@@ -397,15 +446,50 @@ def _decode_response_payload(text, max_payload_len=None):
     return payload
 
 
+def _decode_response_payload_bytes(value, max_payload_len=None):
+    decoded = _base32_decode_bytes(value)
+    if len(decoded) < SFB_BUMP_RESPONSE_HEADER_LEN:
+        raise ValueError('Response header truncated')
+    version = byte_at(decoded, 0)
+    if version != SFB_BUMP_RESPONSE_VERSION:
+        raise ValueError('Response version invalid')
+    payload_len = struct.unpack('!H', decoded[1:3])[0]
+    checksum = struct.unpack('!H', decoded[3:5])[0]
+    payload = decoded[SFB_BUMP_RESPONSE_HEADER_LEN:]
+    if payload_len > len(payload):
+        raise ValueError('Response length mismatch')
+    if payload_len < len(payload):
+        extra = payload[payload_len:]
+        if extra.rstrip(b'\x00'):
+            raise ValueError('Response padding mismatch')
+        payload = payload[:payload_len]
+    if max_payload_len is not None and payload_len > max_payload_len:
+        raise ValueError('Response payload too large')
+    if checksum != _response_checksum(payload):
+        raise ValueError('Response checksum mismatch')
+    return payload
+
+
 def _try_decode_response_token(token_bytes, max_payload_len=None):
     try:
-        token_text = token_bytes.decode('ascii')
-    except UnicodeError:
-        return None
-    try:
-        return _decode_response_payload(token_text, max_payload_len=max_payload_len)
+        return _decode_response_payload_bytes(
+            token_bytes,
+            max_payload_len=max_payload_len,
+        )
     except Exception:
         return None
+
+
+def _try_decode_response_header(token_bytes):
+    try:
+        decoded = _base32_decode_bytes(token_bytes)
+    except Exception:
+        return None
+    if len(decoded) < SFB_BUMP_RESPONSE_HEADER_LEN:
+        return None
+    if byte_at(decoded, 0) != SFB_BUMP_RESPONSE_VERSION:
+        return None
+    return struct.unpack('!H', decoded[1:3])[0]
 
 
 def _response_checksum(payload):

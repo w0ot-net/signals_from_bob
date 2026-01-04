@@ -229,7 +229,7 @@ class TlsHandshakeBumpServer(Server):
             self._close_conn(sock)
             return None
         try:
-            payload = codec.decode_sni_name(sni_name, self._base_domain)
+            payload = codec.decode_sni_name_with_base(sni_name, self._base_domain)
         except ValueError:
             self._log_parse_error('tls_bump.sni_decode')
             self._close_conn(sock)

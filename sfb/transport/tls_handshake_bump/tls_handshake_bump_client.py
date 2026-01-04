@@ -24,7 +24,7 @@ from ..proxy_helpers import (
 )
 from . import tls_handshake_bump_codec as codec
 from .tls_handshake_bump_config import validate_tls_bump_config, parse_host_port
-from ...compat import buffer_view, require_bytes_like, text_type, to_bytes
+from ...compat import PY2, buffer_view, require_bytes_like, text_type, to_bytes
 from ...config import Config
 from ...logging_util import get_logger, log_event
 from ... import time_provider
@@ -86,6 +86,7 @@ class _PendingConn(object):
         'handshake_complete',
         'handshake_deadline',
         'recv_buf',
+        'scan_offset',
     )
 
     def __init__(self, sock, connect_deadline, proxy_send_buf, sni_name, request_buf):
@@ -105,6 +106,7 @@ class _PendingConn(object):
         self.handshake_complete = False
         self.handshake_deadline = None
         self.recv_buf = bytearray()
+        self.scan_offset = 0
 
 
 class TlsHandshakeBumpClient(Transport):
@@ -130,6 +132,10 @@ class TlsHandshakeBumpClient(Transport):
         self._response_mode = validated['response_mode']
         self._response_regex = validated['response_regex']
         self._response_regex_text = validated['response_regex_text']
+        self._base_domain_labels = self._base_domain.split('.')
+        self._request_prefix, self._request_suffix = _build_https_request_parts(
+            self._request_path
+        )
 
         self._max_in_flight = config.max_in_flight
         target_host, target_port = parse_host_port(config.tls_bump_target)
@@ -249,11 +255,18 @@ class TlsHandshakeBumpClient(Transport):
             )
 
         try:
-            sni_name = codec.encode_sni_name(data, self._base_domain)
+            sni_name = codec.encode_sni_name_with_labels(
+                data,
+                self._base_domain_labels,
+            )
         except ValueError as exc:
             raise TransportError('SNI encode failed: %s' % exc)
         try:
-            request_buf = _build_https_request(sni_name, self._request_path)
+            request_buf = _build_https_request(
+                sni_name,
+                self._request_prefix,
+                self._request_suffix,
+            )
         except ValueError as exc:
             raise TransportError('Request build failed: %s' % exc)
 
@@ -587,7 +600,7 @@ class TlsHandshakeBumpClient(Transport):
             self._log_parse_error('tls_bump.response_too_large', corr_id)
             self._close_pending(corr_id, state)
             return None
-        payload = self._extract_payload(state.recv_buf, corr_id)
+        payload = self._extract_payload(state, corr_id)
         if payload is None:
             return None
         if len(payload) > self._recv_mtu:
@@ -607,9 +620,13 @@ class TlsHandshakeBumpClient(Transport):
         )
         return (corr_id, payload)
 
-    def _extract_payload(self, buffer_bytes, corr_id):
+    def _extract_payload(self, state, corr_id):
+        buffer_bytes = state.recv_buf
         if self._response_mode == 'regex':
-            match = self._response_regex.search(to_bytes(buffer_bytes))
+            search_bytes = buffer_bytes
+            if PY2 or not isinstance(search_bytes, (bytes, bytearray)):
+                search_bytes = to_bytes(search_bytes)
+            match = self._response_regex.search(search_bytes)
             if match is None:
                 return None
             token_bytes = match.group(1)
@@ -629,8 +646,14 @@ class TlsHandshakeBumpClient(Transport):
                 buffer_bytes,
                 max_payload_len=self._recv_mtu,
                 max_token_len=self._cn_max_len,
+                start_offset=state.scan_offset,
             )
             if payload is None:
+                lookback = self._cn_max_len if self._cn_max_len else 0
+                if lookback:
+                    state.scan_offset = max(0, len(buffer_bytes) - lookback + 1)
+                else:
+                    state.scan_offset = 0
                 return None
             return payload
         raise TransportError('Invalid TLS bump response mode: %s' % self._response_mode)
@@ -805,24 +828,26 @@ def _build_connect_request(target_hostport, proxy_auth=None):
     return b'\r\n'.join(lines)
 
 
-def _build_https_request(sni_name, path):
-    if not isinstance(sni_name, text_type):
-        raise ValueError('SNI must be text')
+def _build_https_request_parts(path):
     if not isinstance(path, text_type):
         raise ValueError('Path must be text')
     try:
-        sni_bytes = sni_name.encode('ascii')
         path_bytes = path.encode('ascii')
     except UnicodeError:
-        raise ValueError('SNI and path must be ASCII')
-    lines = [
-        b'GET ' + path_bytes + b' HTTP/1.1',
-        b'Host: ' + sni_bytes,
-        b'Connection: close',
-        b'',
-        b'',
-    ]
-    return b'\r\n'.join(lines)
+        raise ValueError('Path must be ASCII')
+    prefix = b'GET ' + path_bytes + b' HTTP/1.1\r\nHost: '
+    suffix = b'\r\nConnection: close\r\n\r\n'
+    return prefix, suffix
+
+
+def _build_https_request(sni_name, prefix, suffix):
+    if not isinstance(sni_name, text_type):
+        raise ValueError('SNI must be text')
+    try:
+        sni_bytes = sni_name.encode('ascii')
+    except UnicodeError:
+        raise ValueError('SNI must be ASCII')
+    return prefix + sni_bytes + suffix
 
 
 def _create_ssl_context():

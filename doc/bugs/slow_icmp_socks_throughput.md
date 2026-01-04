@@ -334,6 +334,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Logs: `logs/client_log.db`.
 - Send window distance stalls: 798 `tunnel.send_window_distance` events with `distance=128` and `distance_limit=128`; `buffered` avg ~120.8 while `unacked` avg ~7.2 (min 4), so the window is full mostly due to buffered, not unacked, packets.
 - Missing packet is in unacked: `missing_in_unacked=true`, `missing_seq=last_cum_ack`, `missing_age` up to ~1.72s while `ack_miss_count` is very high (avg ~7.9k, max ~8.5k), indicating repeated SACKs acking ahead but a single hole blocking cumulative ACK.
+- Cumulative ACK does not advance past the hole: `tunnel.ack` max `ack=2984`; RTO retransmits only cover seq 2980-2983 (no `tunnel.retransmit` for seq 2984), so the missing packet appears to persist through shutdown.
 - Pacer cap is low during stalls: `pacer_cap` ranges 11-114 (avg ~17.8), but `unacked` is already below that, so the stall is not from pacer gating.
 - Transport pending not saturated: `icmp.send` pending averages ~45 (max 73) with no `icmp.send_blocked`, so ICMP is not hitting the 128 in-flight cap.
 - Retransmits remain gated by `ack_silence` (~0.39-0.41s vs rto 0.5s), so the missing packet can sit >1s before an RTO-based retransmit.

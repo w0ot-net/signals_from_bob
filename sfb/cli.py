@@ -275,12 +275,6 @@ def add_client_pacing_args(parser, config):
              config.tunnel_pace_ack_ewma_alpha
     )
     parser.add_argument(
-        '--pace-retransmit-penalty', type=float,
-        default=config.tunnel_pace_retransmit_penalty,
-        help='Adaptive pacing retransmit penalty (default: %s)' %
-             config.tunnel_pace_retransmit_penalty
-    )
-    parser.add_argument(
         '--pace-rtt-floor-ms', type=float,
         default=config.tunnel_pace_rtt_floor_ms,
         help='Adaptive pacing RTT floor ms (default: %s)' %
@@ -429,8 +423,6 @@ def create_config(args):
             args, 'pace_feedback_gain', None)
         config_kwargs['tunnel_pace_ack_ewma_alpha'] = getattr(
             args, 'pace_ack_ewma_alpha', None)
-        config_kwargs['tunnel_pace_retransmit_penalty'] = getattr(
-            args, 'pace_retransmit_penalty', None)
         config_kwargs['tunnel_pace_rtt_floor_ms'] = getattr(
             args, 'pace_rtt_floor_ms', None)
         config_kwargs['tunnel_pace_ack_idle_reset_sec'] = getattr(

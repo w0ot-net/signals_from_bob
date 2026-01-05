@@ -2,7 +2,7 @@
 
 ## Goal
 - When Bob shuts down intentionally, he sends a tunnel control message that
-  instructs Alice to close.
+  instructs Alice to close and requires an acknowledgment.
 - The notification respects the asymmetry rules: Bob only responds to polls,
   so the shutdown notice is delivered in a response packet.
 
@@ -25,30 +25,31 @@
 
 ## Plan
 1. Define a new tunnel control message.
-   - Add `tun_shutdown(reason=None)` to `sfb/tunnel/tunnel_control_messages.py`.
+   - Add `tun_shutdown(reason=None)` and `tun_shutdown_ok()` to
+     `sfb/tunnel/tunnel_control_messages.py`.
    - Document `{"t":"tun","c":"shutdown","reason":"<text>"}` in
      doc/CONTROL_MESSAGES.md and doc/PROTOCOL.md.
+   - Document the required acknowledgment:
+     `{"t":"tun","c":"shutdown_ok"}`.
    - Clarify behavior in doc/TUNNEL.md: Bob sends on shutdown, Alice closes
-     on receipt.
-   - If an acknowledgment is needed, also define `tun_shutdown_ok` and document
-     the simple two-step flow; otherwise keep it one-way.
+     after sending shutdown_ok.
 
 2. Add Bob-side shutdown signaling.
    - Add flags in `sfb/tunnel/bob_tunnel.py` to track shutdown requested/sent.
    - Implement `request_shutdown(reason=None)` to enqueue the control message
-     and set a deadline (optional) for waiting on a final poll.
+     and set a deadline for waiting on shutdown_ok.
    - In `_send_response`, ensure the shutdown message is queued before segment
      collection so it is included in the next response.
    - After sending the response that contains the shutdown notice, mark it as
-     sent and close the tunnel (or wait briefly for an optional ack).
+     sent and wait briefly for shutdown_ok before closing.
    - Keep the tunnel state CONNECTED until the notice is sent to avoid the
      unexpected-state path in `handle_request`.
 
 3. Handle shutdown on Alice.
    - Extend `BaseTunnel._handle_tunnel_message` to recognize `shutdown`.
-   - Implement `_handle_shutdown` to log the event and call `close()`.
-   - If an ack is added, enqueue it before closing and allow one more poll to
-     flush it (bounded by a timeout).
+   - Implement `_handle_shutdown` to log, send shutdown_ok, and then close.
+   - Ensure the shutdown_ok is queued before closing and allow one more poll
+     to flush it (bounded by a timeout).
 
 4. Update CLI shutdown path.
    - In `sfb/cli.py`, replace direct `tunnel.close()` calls in Bob signal
@@ -60,10 +61,13 @@
 5. Logging and docs.
    - Add `tunnel.shutdown_request` (Bob) and `tunnel.shutdown_recv` (Alice)
      log events with side/reason fields.
+   - Add `tunnel.shutdown_ack` (Bob) and `tunnel.shutdown_ok_send` (Alice)
+     for the acknowledgment flow.
    - Document the new events in doc/LOGGING.md.
 
 6. Tests (no E2E runs).
    - Add unit coverage in `tests/test_tunnel.py`:
      - Receiving `tun.shutdown` closes the tunnel.
-     - Bob queues a shutdown message and includes it in a response.
+     - Alice queues shutdown_ok before close.
+     - Bob queues a shutdown message and closes after shutdown_ok or timeout.
    - Avoid tests in tests/e2e; those are user-run only.

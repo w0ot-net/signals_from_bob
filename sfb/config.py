@@ -61,6 +61,18 @@ class Config:
     # Timeout before considering an ICMP request stale (seconds)
     icmp_pending_timeout: float = 10.0
 
+    # --- UDP Ephemeral Transport ---
+    # Target host:port for Alice
+    udp_ephemeral_target: Optional[str] = None
+    # Listen host:port for Bob
+    udp_ephemeral_listen_addr: str = "0.0.0.0:9999"
+    # Max SFB packet size to send/receive in UDP payload
+    udp_ephemeral_payload_mtu: int = 1200
+    # Timeout before considering a UDP request stale (seconds)
+    udp_ephemeral_pending_timeout: float = 5.0
+    # Minutes before reusing a UDP source port
+    udp_ephemeral_source_port_reuse_minutes: float = 1.0
+
     # --- TLS ClientHello Transport ---
     # Alice target host:port
     tls_target: str = "127.0.0.1:443"
@@ -367,6 +379,14 @@ class Config:
             raise ValueError("icmp_payload_mtu must be > 0")
         if self.icmp_pending_timeout <= 0:
             raise ValueError("icmp_pending_timeout must be > 0")
+
+        # UDP ephemeral validation
+        if self.udp_ephemeral_payload_mtu <= 0:
+            raise ValueError("udp_ephemeral_payload_mtu must be > 0")
+        if self.udp_ephemeral_pending_timeout <= 0:
+            raise ValueError("udp_ephemeral_pending_timeout must be > 0")
+        if self.udp_ephemeral_source_port_reuse_minutes < 0:
+            raise ValueError("udp_ephemeral_source_port_reuse_minutes must be >= 0")
 
         # Crypto validation
         if self.crypto_mode not in ("none", "xor", "rc4"):

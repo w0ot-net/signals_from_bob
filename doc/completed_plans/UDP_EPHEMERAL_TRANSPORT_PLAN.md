@@ -90,3 +90,11 @@ Add UDP transport settings to `Config`, with CLI flags:
   - Port reuse cooldown enforcement using `time_provider`.
   - Pending timeout cleanup closes sockets.
 - Run with `python3 -m unittest` (no `tests/e2e/`).
+
+## Execution Notes
+- Added UDP ephemeral transport client/server with per-request sockets,
+  pending tracking, and source port cooldown enforcement.
+- Wired new UDP ephemeral config fields and CLI flags, plus transport registry
+  registration.
+- Documented the new transport and updated the transport overview.
+- Tests not run (per instructions).

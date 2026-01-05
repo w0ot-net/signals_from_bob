@@ -36,6 +36,7 @@ from .memory import (
 
 from .dns import DnsClient, DnsServer
 from .icmp import IcmpClient, IcmpServer
+from .udp_ephemeral import UdpEphemeralClient, UdpEphemeralServer
 from .tls_handshake import TlsClient, TlsServer
 from .tls_handshake_bump import TlsHandshakeBumpClient, TlsHandshakeBumpServer
 
@@ -73,6 +74,10 @@ TRANSPORTS = {
         'client': IcmpClient,
         'server': IcmpServer,
     },
+    'udp_ephemeral': {
+        'client': UdpEphemeralClient,
+        'server': UdpEphemeralServer,
+    },
     'tls_handshake': {
         'client': TlsClient,
         'server': TlsServer,
@@ -107,6 +112,8 @@ __all__ = [
     'create_inmemory_transport_pair',
     'IcmpClient',
     'IcmpServer',
+    'UdpEphemeralClient',
+    'UdpEphemeralServer',
     'TlsClient',
     'TlsServer',
     'TlsHandshakeBumpClient',

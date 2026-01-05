@@ -452,6 +452,47 @@ def add_icmp_client_args(parser, config, require_target=True):
     )
 
 
+def add_udp_ephemeral_common_args(parser, config):
+    """Add UDP ephemeral arguments shared by client and server."""
+    parser.add_argument(
+        '--udp-ephemeral-mtu', type=int,
+        default=config.udp_ephemeral_payload_mtu,
+        help='Max UDP payload size in bytes (default: %s)' %
+             config.udp_ephemeral_payload_mtu
+    )
+
+
+def add_udp_ephemeral_client_args(parser, config, require_target=True):
+    """Add UDP ephemeral client-specific arguments."""
+    parser.add_argument(
+        '--target',
+        default=config.udp_ephemeral_target,
+        required=require_target,
+        help='UDP target host:port for client'
+    )
+    parser.add_argument(
+        '--udp-ephemeral-pending-timeout', type=float,
+        default=config.udp_ephemeral_pending_timeout,
+        help='Pending timeout in seconds (default: %s)' %
+             config.udp_ephemeral_pending_timeout
+    )
+    parser.add_argument(
+        '--udp-ephemeral-source-port-reuse-minutes', type=float,
+        default=config.udp_ephemeral_source_port_reuse_minutes,
+        help='Minutes before reusing a source port (default: %s)' %
+             config.udp_ephemeral_source_port_reuse_minutes
+    )
+
+
+def add_udp_ephemeral_server_args(parser, config):
+    """Add UDP ephemeral server-specific arguments."""
+    parser.add_argument(
+        '--udp-ephemeral-listen-addr',
+        default=config.udp_ephemeral_listen_addr,
+        help='UDP listen host:port for server'
+    )
+
+
 def add_tls_client_args(parser, config):
     """Add TLS client-specific arguments."""
     parser.add_argument(
@@ -781,6 +822,14 @@ def parse_args(args=None):
             add_icmp_common_args(parser, config_defaults)
             if role_for_args == 'client':
                 add_icmp_client_args(parser, config_defaults, require_target=True)
+        elif transport == 'udp_ephemeral':
+            add_udp_ephemeral_common_args(parser, config_defaults)
+            if role_for_args == 'server':
+                add_udp_ephemeral_server_args(parser, config_defaults)
+            else:
+                add_udp_ephemeral_client_args(
+                    parser, config_defaults, require_target=True
+                )
         elif transport == 'tls_handshake':
             if role_for_args == 'server':
                 add_tls_server_args(parser, config_defaults)
@@ -834,6 +883,22 @@ def create_config(args):
         config_kwargs['icmp_payload_mtu'] = getattr(args, 'icmp_mtu', None)
         if args.role == 'client':
             config_kwargs['icmp_target'] = getattr(args, 'target', None)
+    elif args.transport == 'udp_ephemeral':
+        config_kwargs['udp_ephemeral_payload_mtu'] = getattr(
+            args, 'udp_ephemeral_mtu', None
+        )
+        if args.role == 'client':
+            config_kwargs['udp_ephemeral_target'] = getattr(args, 'target', None)
+            config_kwargs['udp_ephemeral_pending_timeout'] = getattr(
+                args, 'udp_ephemeral_pending_timeout', None
+            )
+            config_kwargs['udp_ephemeral_source_port_reuse_minutes'] = getattr(
+                args, 'udp_ephemeral_source_port_reuse_minutes', None
+            )
+        else:
+            config_kwargs['udp_ephemeral_listen_addr'] = getattr(
+                args, 'udp_ephemeral_listen_addr', None
+            )
     elif args.transport == 'tls_handshake':
         if args.role == 'client':
             config_kwargs['tls_target'] = getattr(args, 'target', None)

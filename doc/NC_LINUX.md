@@ -9,7 +9,7 @@ This module is linux-only and uses only the Python standard library.
 Run on Bob (server role) with explicit local and remote fd specs:
 
 ```
-python3 sfb.py server --module nc_linux bind --local <spec> --remote <spec>
+python3 sfb.py --role bob --module nc_linux --local <spec> --remote <spec>
 ```
 
 ## FD Spec Format

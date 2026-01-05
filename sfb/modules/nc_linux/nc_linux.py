@@ -186,8 +186,9 @@ class NcLinuxModule(RequestResponseMixin, BaseModule):
 
     TYPE = T_NC
     DEFAULT_COMMAND = None
-    REQUIRES_COMMAND = True
+    REQUIRES_COMMAND = False
     REMOTE_MODULE = 'nc_linux'
+    USES_SUBCOMMANDS = False
 
     @classmethod
     def register_commands(cls, subparsers, role, config=None):
@@ -196,21 +197,25 @@ class NcLinuxModule(RequestResponseMixin, BaseModule):
         timeout_default = None
         if config is not None:
             timeout_default = config.nc_linux_bind_timeout
-        bind_p = subparsers.add_parser(
-            'bind',
-            help='Bind a channel to a local file descriptor (linux only)',
+        group = subparsers.add_argument_group(
+            'nc_linux options',
+            'Bind a tunnel channel between Bob and Alice using fd specs.\n'
+            'FD spec formats: fd number, /path, host:port, [::1]:port.\n'
+            'Examples: --local 3 --remote /tmp/data.txt',
         )
-        bind_p.add_argument(
+        group.add_argument(
             '--local',
             required=True,
-            help='Local fd spec (fd int, path, host:port)',
+            metavar='SPEC',
+            help='Bob-side fd spec (fd number, path, host:port)',
         )
-        bind_p.add_argument(
+        group.add_argument(
             '--remote',
             required=True,
-            help='Remote fd spec (fd int, path, host:port)',
+            metavar='SPEC',
+            help='Alice-side fd spec (fd number, path, host:port)',
         )
-        bind_p.add_argument(
+        group.add_argument(
             '--timeout',
             type=float,
             default=timeout_default,
@@ -443,11 +448,8 @@ class NcLinuxModule(RequestResponseMixin, BaseModule):
         )
 
     def _close_channel(self, ch):
-        channel = self._tunnel.channel_manager.get_channel(ch)
-        if channel is None:
-            return
         try:
-            channel.close()
+            self._tunnel.channel_manager.close_channel(ch)
         except Exception:
             pass
 

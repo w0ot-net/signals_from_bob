@@ -852,11 +852,14 @@ def parse_args(args=None):
         if role_for_args == 'server':
             add_server_args(parser, config_defaults)
 
-        # Module subcommands
+        # Module subcommands or module-specific args
         if partial_args.module:
             module_cls = AVAILABLE_MODULES[partial_args.module]
-            subparsers = parser.add_subparsers(dest='command', help='Module commands')
-            module_cls.register_commands(subparsers, role_for_args, config=config_defaults)
+            if getattr(module_cls, 'USES_SUBCOMMANDS', True):
+                subparsers = parser.add_subparsers(dest='command', help='Module commands')
+                module_cls.register_commands(subparsers, role_for_args, config=config_defaults)
+            else:
+                module_cls.register_commands(parser, role_for_args, config=config_defaults)
 
     parsed = parser.parse_args(arg_list)
     if parsed.role is not None:
@@ -1090,7 +1093,8 @@ def run_server(args, config, crypto, logger):
 
     def handle_signal(sig, frame):
         if shutdown_requested[0]:
-            sys.exit(1)
+            # Force exit without raising SystemExit during atexit cleanup.
+            os._exit(1)
         shutdown_requested[0] = True
         log_event(
             logger,
@@ -1223,19 +1227,20 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
         # Allow module message type
         tunnel.allow_message_type(module_cls.TYPE)
 
-        if getattr(args, 'command', None) is None:
-            default_cmd = getattr(module_cls, 'DEFAULT_COMMAND', None)
-            if default_cmd:
-                args.command = default_cmd
-            elif getattr(module_cls, 'REQUIRES_COMMAND', False):
-                log_event(
-                    logger,
-                    logging.ERROR,
-                    'cli.module_command_required',
-                    'Module requires a command',
-                    lambda: {'module': module_name},
-                )
-                return 1
+        if getattr(module_cls, 'USES_SUBCOMMANDS', True):
+            if getattr(args, 'command', None) is None:
+                default_cmd = getattr(module_cls, 'DEFAULT_COMMAND', None)
+                if default_cmd:
+                    args.command = default_cmd
+                elif getattr(module_cls, 'REQUIRES_COMMAND', False):
+                    log_event(
+                        logger,
+                        logging.ERROR,
+                        'cli.module_command_required',
+                        'Module requires a command',
+                        lambda: {'module': module_name},
+                    )
+                    return 1
 
         # Run module command
         return module_cls.run_command(args, tunnel, module_logger)
@@ -1298,7 +1303,8 @@ def run_client(args, config, crypto, logger):
 
     def handle_signal(sig, frame):
         if shutdown_requested[0]:
-            sys.exit(1)
+            # Force exit without raising SystemExit during atexit cleanup.
+            os._exit(1)
         shutdown_requested[0] = True
         log_event(
             logger,

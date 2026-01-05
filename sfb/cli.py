@@ -409,19 +409,11 @@ def add_common_args(parser, config, require_domain=True, require_role=True):
 
 def add_dns_server_args(parser, config):
     """Add DNS server-specific arguments."""
-    host, port = _split_host_port(config.dns_listen_addr, 53)
     parser.add_argument(
         '--listen-addr',
-        default=None,
-        help='DNS server listen host:port (overrides --dns-host/--dns-port)'
-    )
-    parser.add_argument(
-        '--dns-host', default=host,
-        help='DNS server listen address (default: %s)' % host
-    )
-    parser.add_argument(
-        '--dns-port', type=int, default=port,
-        help='DNS server listen port (default: %s)' % port
+        default=config.dns_listen_addr,
+        help='DNS server listen host:port (default: %s)' %
+             config.dns_listen_addr
     )
     parser.add_argument(
         '--idle-timeout', type=int, default=config.tunnel_idle_timeout,
@@ -880,13 +872,9 @@ def create_config(args):
     if args.transport == 'dns':
         if args.role == 'server':
             listen_addr = getattr(args, 'listen_addr', None)
-            if listen_addr:
-                host, port = _split_host_port(listen_addr, 53)
-            else:
-                host = getattr(args, 'dns_host', None)
-                port = getattr(args, 'dns_port', None)
-                if host is None or port is None:
-                    host, port = _split_host_port(Config().dns_listen_addr, 53)
+            if not listen_addr:
+                listen_addr = Config().dns_listen_addr
+            host, port = _split_host_port(listen_addr, 53)
             config_kwargs['dns_listen_addr'] = '%s:%d' % (host, port)
             config_kwargs['tunnel_idle_timeout'] = float(args.idle_timeout)
         else:

@@ -30,10 +30,13 @@ does not support IPv6 addresses or IPv6 sockets.
 
 - Keep Python 2.7/3 compatibility and standard library only.
 - Treat any IPv6 literal (including bracketed host:port) as invalid input.
-- Surface clear, consistent errors that say "IPv6 not supported" instead of
-  generic parsing failures.
 - Keep asymmetry behavior unchanged; this is a documentation and validation
   clarity update, not a protocol change.
+
+## Non-Goals
+
+- Standardize error messages to say "IPv6 not supported" instead of keeping
+  generic parsing failures.
 
 ## Implementation Steps
 

@@ -8,7 +8,6 @@ pipelined request/response transport.
 
 from __future__ import absolute_import
 
-import json
 import logging
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
@@ -1546,33 +1545,8 @@ class AliceTunnel(BaseTunnel):
         self._last_recv_time = now
 
         # Check if packet contains real data.
-        # Real data = any data segment, or control messages other than legacy pong.
-        # Keepalive-flag packets have no segments and are not real data.
-        # Control segments carry one JSON message per line, not multiple.
-        has_real_data = False
-        if not (packet.flags & FLAG_KEEPALIVE):
-            for seg in packet.segments:
-                if not seg.is_control:
-                    # Data segment - definitely real data
-                    has_real_data = True
-                else:
-                    # Control segment - check if it's not just legacy pong
-                    # Control data is newline-delimited JSON
-                    lines = seg.data.split(b'\n')
-                    for line in lines:
-                        if not line:
-                            continue
-                        try:
-                            msg = json.loads(line.decode('ascii'))
-                        except (ValueError, TypeError):
-                            has_real_data = True
-                            break
-                        if not isinstance(msg, dict):
-                            has_real_data = True
-                            break
-                        if msg.get('t') != 'tun' or msg.get('c') != 'pong':
-                            has_real_data = True
-                            break
+        # Keepalive-flag packets carry no segments and are treated as no data.
+        has_real_data = not (packet.flags & FLAG_KEEPALIVE)
         if has_real_data:
             self._got_data = True
 

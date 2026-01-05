@@ -85,8 +85,8 @@ class ProxyHelperTests(unittest.TestCase):
             2.5,
         )
         self.assertEqual(values['proxy_timeout'], 1.5)
-        self.assertIsNone(values['tls_http_proxy'])
-        self.assertIsNone(values['tls_http_proxy_auth'])
+        self.assertIsNone(values['proxy_addr'])
+        self.assertIsNone(values['proxy_auth'])
 
     def test_validate_proxy_config_auth_requires_proxy(self):
         with self.assertRaises(TransportError):

@@ -8,6 +8,7 @@ from __future__ import absolute_import
 from ...compat import text_type
 from ...protocol.constants import PACKET_HEADER_SIZE
 from ..transport_base import TransportError
+from ..proxy_helpers import validate_proxy_config
 from . import tls_handshake_bump_cert_template as cert_template
 from . import tls_handshake_bump_codec as codec
 from ...utils import build_host_port_error_map, parse_host_port_or_raise
@@ -75,12 +76,18 @@ def validate_tls_bump_config(config, role):
     request_path = None
     if role == 'client':
         _require_host_port(config.tls_bump_target, 'tls_bump_target')
-        proxy_addr, proxy_auth, proxy_timeout = _validate_proxy_config(
+        proxy_values = validate_proxy_config(
             config.tls_bump_http_proxy,
             config.tls_bump_http_proxy_auth,
             config.tls_bump_proxy_timeout,
             connect_timeout,
+            proxy_label='tls_bump_http_proxy',
+            proxy_auth_label='tls_bump_http_proxy_auth',
+            proxy_timeout_label='tls_bump_proxy_timeout',
         )
+        proxy_addr = proxy_values['proxy_addr']
+        proxy_auth = proxy_values['proxy_auth']
+        proxy_timeout = proxy_values['proxy_timeout']
         request_path = _validate_request_path(config.tls_bump_request_path)
         pending_timeout = connect_timeout + handshake_timeout
         if proxy_addr is not None and proxy_timeout is not None:
@@ -163,45 +170,4 @@ def _validate_request_path(value):
         raise TransportError('tls_bump_request_path must start with /')
     if any(ch.isspace() for ch in value):
         raise TransportError('tls_bump_request_path must not contain whitespace')
-    return value
-
-
-
-
-def _validate_proxy_config(proxy, proxy_auth, proxy_timeout, connect_timeout):
-    proxy_timeout_value = None
-    proxy_addr = None
-    proxy_auth_value = None
-    if proxy is not None:
-        proxy_addr = _validate_proxy_addr(proxy)
-        if proxy_auth is not None:
-            proxy_auth_value = _validate_proxy_auth(proxy_auth)
-        if proxy_timeout is None:
-            proxy_timeout_value = connect_timeout
-        else:
-            proxy_timeout_value = _require_positive_float(
-                proxy_timeout, 'tls_bump_proxy_timeout'
-            )
-    else:
-        if proxy_auth is not None:
-            raise TransportError('tls_bump_http_proxy_auth requires tls_bump_http_proxy')
-        if proxy_timeout is not None:
-            proxy_timeout_value = _require_positive_float(
-                proxy_timeout, 'tls_bump_proxy_timeout'
-            )
-    return proxy_addr, proxy_auth_value, proxy_timeout_value
-
-
-def _validate_proxy_addr(value):
-    value = _require_ascii_text(value, 'tls_bump_http_proxy')
-    if any(ch.isspace() for ch in value):
-        raise TransportError('tls_bump_http_proxy must not contain whitespace')
-    parse_host_port_or_raise(value, _HOST_PORT_ERROR_MAP)
-    return value
-
-
-def _validate_proxy_auth(value):
-    value = _require_ascii_text(value, 'tls_bump_http_proxy_auth')
-    if ':' not in value:
-        raise TransportError('tls_bump_http_proxy_auth must be user:pass')
     return value

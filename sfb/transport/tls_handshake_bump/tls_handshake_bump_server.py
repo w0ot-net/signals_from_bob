@@ -9,7 +9,7 @@ import errno
 import logging
 import socket
 
-from ..transport_base import Server, TransportError, raise_bind_error
+from ..transport_base import Server, TransportError, _get_errno, raise_bind_error
 from . import tls_handshake_bump_cert as bump_cert
 from . import tls_handshake_bump_codec as codec
 from . import tls_handshake_bump_selector as bump_selector
@@ -381,13 +381,3 @@ class TlsHandshakeBumpServer(Server):
                 pass
             self._sock = None
 
-
-def _get_errno(exc):
-    err = getattr(exc, 'errno', None)
-    if err is None and getattr(exc, 'args', None):
-        if exc.args:
-            try:
-                err = int(exc.args[0])
-            except (TypeError, ValueError):
-                err = None
-    return err

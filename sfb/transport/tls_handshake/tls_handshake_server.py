@@ -10,7 +10,7 @@ import logging
 import select
 import socket
 
-from ..transport_base import Server, TransportError, raise_bind_error
+from ..transport_base import Server, TransportError, _get_errno, raise_bind_error
 from . import tls_handshake_codec as codec
 from .tls_handshake_config import validate_tls_config
 from ...utils import parse_host_port
@@ -392,13 +392,3 @@ class TlsServer(Server):
                 pass
             self._sock = None
 
-
-def _get_errno(exc):
-    err = getattr(exc, 'errno', None)
-    if err is None and getattr(exc, 'args', None):
-        if exc.args:
-            try:
-                err = int(exc.args[0])
-            except (TypeError, ValueError):
-                err = None
-    return err

@@ -69,35 +69,46 @@ def parse_connect_response(buffer, start_offset=0):
     return status, header_end
 
 
-def validate_proxy_config(tls_http_proxy, tls_http_proxy_auth,
-                          tls_proxy_timeout, connect_timeout):
+def validate_proxy_config(proxy, proxy_auth, proxy_timeout, connect_timeout,
+                          proxy_label='tls_http_proxy',
+                          proxy_auth_label='tls_http_proxy_auth',
+                          proxy_timeout_label='tls_proxy_timeout',
+                          host_port_error_map=None):
     """
     Validate proxy config inputs and return normalized values.
     """
-    proxy_timeout = None
+    if host_port_error_map is None:
+        host_port_error_map = _HOST_PORT_ERROR_MAP
+    proxy_timeout_value = None
     proxy_addr = None
-    proxy_auth = None
-    if tls_http_proxy is not None:
-        proxy_addr = _validate_proxy_addr(tls_http_proxy)
-        if tls_http_proxy_auth is not None:
-            proxy_auth = _validate_proxy_auth(tls_http_proxy_auth)
-        if tls_proxy_timeout is None:
-            proxy_timeout = connect_timeout
+    proxy_auth_value = None
+    if proxy is not None:
+        proxy_addr = _validate_proxy_addr(
+            proxy, proxy_label, host_port_error_map
+        )
+        if proxy_auth is not None:
+            proxy_auth_value = _validate_proxy_auth(
+                proxy_auth, proxy_auth_label
+            )
+        if proxy_timeout is None:
+            proxy_timeout_value = connect_timeout
         else:
-            proxy_timeout = _require_positive_float(
-                tls_proxy_timeout, 'tls_proxy_timeout'
+            proxy_timeout_value = _require_positive_float(
+                proxy_timeout, proxy_timeout_label
             )
     else:
-        if tls_http_proxy_auth is not None:
-            raise TransportError('tls_http_proxy_auth requires tls_http_proxy')
-        if tls_proxy_timeout is not None:
-            proxy_timeout = _require_positive_float(
-                tls_proxy_timeout, 'tls_proxy_timeout'
+        if proxy_auth is not None:
+            raise TransportError(
+                '%s requires %s' % (proxy_auth_label, proxy_label)
+            )
+        if proxy_timeout is not None:
+            proxy_timeout_value = _require_positive_float(
+                proxy_timeout, proxy_timeout_label
             )
     return {
-        'tls_http_proxy': proxy_addr,
-        'tls_http_proxy_auth': proxy_auth,
-        'proxy_timeout': proxy_timeout,
+        'proxy_addr': proxy_addr,
+        'proxy_auth': proxy_auth_value,
+        'proxy_timeout': proxy_timeout_value,
     }
 
 
@@ -123,18 +134,18 @@ def _require_ascii_text(value, label):
     return value
 
 
-def _validate_proxy_addr(value):
-    value = _require_ascii_text(value, 'tls_http_proxy')
+def _validate_proxy_addr(value, label, host_port_error_map):
+    value = _require_ascii_text(value, label)
     if any(ch.isspace() for ch in value):
-        raise TransportError('tls_http_proxy must not contain whitespace')
-    parse_host_port_or_raise(value, _HOST_PORT_ERROR_MAP)
+        raise TransportError('%s must not contain whitespace' % label)
+    parse_host_port_or_raise(value, host_port_error_map)
     return value
 
 
-def _validate_proxy_auth(value):
-    value = _require_ascii_text(value, 'tls_http_proxy_auth')
+def _validate_proxy_auth(value, label):
+    value = _require_ascii_text(value, label)
     if ':' not in value:
-        raise TransportError('tls_http_proxy_auth must be user:pass')
+        raise TransportError('%s must be user:pass' % label)
     return value
 
 

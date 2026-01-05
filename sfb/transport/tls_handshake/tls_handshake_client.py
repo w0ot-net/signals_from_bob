@@ -14,6 +14,7 @@ from ..transport_base import (
     Transport,
     TransportError,
     PendingTracker,
+    _get_errno,
     prune_and_count,
 )
 from ..proxy_helpers import (
@@ -712,13 +713,3 @@ class TlsClient(Transport):
             self._close_pending(corr_id, state)
         self._pending.clear()
 
-
-def _get_errno(exc):
-    err = getattr(exc, 'errno', None)
-    if err is None and getattr(exc, 'args', None):
-        if exc.args:
-            try:
-                err = int(exc.args[0])
-            except (TypeError, ValueError):
-                err = None
-    return err

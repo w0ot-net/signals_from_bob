@@ -124,6 +124,7 @@ class BaseTunnel(object):
         self._pending_send_mtu = None  # Pending send MTU increase awaiting ack
         self._mtu_negotiated = False
         self._window_negotiated = False
+        self._window_final = False
 
         # Module handlers for control message dispatch
         # Maps message type (t field) to handler callable
@@ -1123,13 +1124,14 @@ class BaseTunnel(object):
 
         # Negotiate: use minimum of requested, our proposed, and max (64)
         agreed = min(requested, self._proposed_window, self.MAX_WINDOW)
+        final = requested >= self._proposed_window
         self._window_negotiated = True
 
         # Update send window limit
         self._send_window._max_in_flight = agreed
 
         # Send confirmation
-        self.control.send_message(tun_window_ok(agreed))
+        self.control.send_message(tun_window_ok(agreed, final=final))
         log_event(
             self._logger,
             logging.INFO,
@@ -1138,6 +1140,7 @@ class BaseTunnel(object):
             lambda: {
                 'requested': requested,
                 'agreed': agreed,
+                'final': final,
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
@@ -1149,6 +1152,7 @@ class BaseTunnel(object):
         Updates negotiated_window and send_window limit.
         """
         agreed = msg.get('size', self._default_window)
+        final = bool(msg.get('final'))
         log_event(
             self._logger,
             logging.DEBUG,
@@ -1157,6 +1161,7 @@ class BaseTunnel(object):
             lambda: {
                 'size': agreed,
                 'msg': msg,
+                'final': final,
                 'negotiated_window': self.negotiated_window,
                 'window_negotiated': self._window_negotiated,
                 'send_window_max': self._send_window._max_in_flight,
@@ -1181,6 +1186,8 @@ class BaseTunnel(object):
         prev_send_window = self._send_window._max_in_flight
 
         self._window_negotiated = True
+        if final:
+            self._window_final = True
 
         # Update send window limit
         self._send_window._max_in_flight = agreed
@@ -1194,6 +1201,7 @@ class BaseTunnel(object):
                 'prev_negotiated_window': prev_negotiated,
                 'prev_window_negotiated': prev_window_negotiated,
                 'prev_send_window_max': prev_send_window,
+                'final': final,
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
@@ -1204,6 +1212,7 @@ class BaseTunnel(object):
             'Window updated (size=%d)' % agreed,
             lambda: {
                 'agreed': agreed,
+                'final': final,
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )

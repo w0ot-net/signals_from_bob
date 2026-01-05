@@ -1570,6 +1570,8 @@ class AliceTunnel(BaseTunnel):
 
     def _maybe_request_window(self, now):
         """Request a larger window if conditions allow."""
+        if self._window_final:
+            return
         # Retry initial negotiation even without ACK progress.
         if not self._window_negotiated:
             if now - self._last_window_request_time >= self._window_growth_interval:

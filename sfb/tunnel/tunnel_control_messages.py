@@ -71,13 +71,16 @@ def tun_window(size):
     return ControlMessage(T_TUNNEL, 'window', size=size)
 
 
-def tun_window_ok(size):
+def tun_window_ok(size, final=False):
     """
     Window size negotiation response.
 
     Args:
         size: Agreed max in-flight packets
+        final: True if the window cannot be increased further
     """
+    if final:
+        return ControlMessage(T_TUNNEL, 'window_ok', size=size, final=True)
     return ControlMessage(T_TUNNEL, 'window_ok', size=size)
 
 

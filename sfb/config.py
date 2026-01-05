@@ -67,7 +67,7 @@ class Config:
     # Listen host:port for Bob
     udp_ephemeral_listen_addr: str = "0.0.0.0:53"
     # Max SFB packet size to send/receive in UDP payload
-    udp_ephemeral_payload_mtu: int = 1200
+    udp_ephemeral_payload_mtu: int = 1400
     # Timeout before considering a UDP request stale (seconds)
     udp_ephemeral_pending_timeout: float = 5.0
     # Minutes before reusing a UDP source port

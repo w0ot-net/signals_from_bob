@@ -54,15 +54,15 @@ Client settings:
 
 Server settings:
 
-- `udp_ephemeral_listen_addr` (`--udp-ephemeral-listen-addr`)
+- `udp_ephemeral_listen_addr` (`--listen-addr` or `--udp-ephemeral-listen-addr`)
 - `udp_ephemeral_payload_mtu` (`--udp-ephemeral-mtu`)
 
 Defaults:
 
-- `udp_ephemeral_payload_mtu`: 1200
+- `udp_ephemeral_payload_mtu`: 1400
 - `udp_ephemeral_pending_timeout`: 5.0
 - `udp_ephemeral_source_port_reuse_minutes`: 1.0
-- `udp_ephemeral_listen_addr`: 0.0.0.0:9999
+- `udp_ephemeral_listen_addr`: 0.0.0.0:53
 
 ---
 

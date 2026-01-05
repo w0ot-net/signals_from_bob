@@ -31,7 +31,7 @@ def make_test_config(**overrides):
         'tunnel_keepalive_interval': 5.0,
         'max_in_flight': 16,
         'tunnel_connect_timeout': 10.0,
-        'tunnel_timeout_packets': 100,
+        'tunnel_no_response_timeout': 100.0,
     }
     defaults.update(overrides)
     return Config(**defaults)
@@ -1137,7 +1137,7 @@ class AliceRetransmitTimingTests(unittest.TestCase):
 
         config = make_test_config(
             tunnel_keepalive_interval=100.0,
-            tunnel_timeout_packets=1000,
+            tunnel_no_response_timeout=1000.0,
         )
         transport = MockTransport()
         alice = AliceTunnel(transport, config, crypto=Plain())
@@ -1172,7 +1172,7 @@ class AliceRetransmitTimingTests(unittest.TestCase):
 
         config = make_test_config(
             tunnel_keepalive_interval=100.0,
-            tunnel_timeout_packets=1000,
+            tunnel_no_response_timeout=1000.0,
         )
         transport = MockTransport()
         alice = AliceTunnel(transport, config, crypto=Plain())
@@ -1209,17 +1209,25 @@ class AliceRetransmitTimingTests(unittest.TestCase):
 class AliceTimeoutTests(unittest.TestCase):
     """Tests for Alice timeout behavior."""
 
-    def test_packets_without_response_timeout_closes(self):
-        config = make_test_config(tunnel_timeout_packets=3)
+    def test_no_response_timeout_closes(self):
+        config = make_test_config(tunnel_no_response_timeout=3.0)
         transport = MockTransport()
         alice = AliceTunnel(transport, config, crypto=Plain())
         alice._set_state(TunnelState.CONNECTED)
-        alice._packets_since_response = alice._max_packets_without_response
+        time_state = {'now': 10.0}
 
-        result = alice.tick()
+        def fake_now():
+            return time_state['now']
 
-        self.assertFalse(result)
-        self.assertEqual(alice.state, TunnelState.CLOSED)
+        time_provider.set_time_source(fake_now, clamp=False)
+        try:
+            alice._last_recv_time = time_state['now'] - 4.0
+            result = alice.tick()
+
+            self.assertFalse(result)
+            self.assertEqual(alice.state, TunnelState.CLOSED)
+        finally:
+            time_provider.reset_time_source()
 
 
 class IdleTimeoutTests(unittest.TestCase):

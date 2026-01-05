@@ -143,7 +143,7 @@ Current structured events (non-exhaustive):
 - `tunnel.retransmit_skip`
 - `tunnel.keepalive_drop`
 - `tunnel.keepalive_suppressed`
-- `tunnel.timeout_packets`
+- `tunnel.timeout_no_response`
 - `tunnel.tick_error`
 - `tunnel.bg_error`
 - `tunnel.closed`

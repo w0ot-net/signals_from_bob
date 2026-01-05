@@ -72,18 +72,18 @@ If the connection dies, each side detects it differently:
 
 | Aspect | Alice | Bob |
 |--------|-------|-----|
-| Metric | Packets sent without response | Monotonic silence |
-| Threshold | 30 consecutive packets with no response | 60 seconds without poll |
-| Rationale | Can count her own sends | Cannot send, so counts time |
+| Metric | Monotonic silence since last response | Monotonic silence |
+| Threshold | 60 seconds without response | 60 seconds without poll |
+| Rationale | Avoids poll-rate dependence | Cannot send, so counts time |
 
 **Alice:**
-- Counts packets sent without receiving any response from Bob
+- Uses monotonic time since last response from Bob
 - "Response" means any packet from Bob (which carries an ack field), not
   specifically cumulative ack advancement
-- If 30 consecutive packets sent with no response, connection is dead
+- If no response for 60 seconds, connection is dead
 - A stuck cumulative ack with active responses indicates packet loss (handled
   by retransmission), not a dead connection
-- Packet-based to accommodate variable polling intervals
+- Time-based to avoid dependence on polling rate
 
 **Bob:**
 - Cannot send packets unless Alice polls
@@ -162,6 +162,6 @@ keepalive-only response, Alice returns to the idle polling interval.
 | Tunnel initiation | Yes | Yes (with latency) |
 | Retransmit trigger | Timer (RTO) | Opportunity (poll) |
 | RTT tracking | Yes | No |
-| Timeout metric | 30 packets with no response | 60s silence |
+| Timeout metric | 60s without response | 60s silence |
 | Throughput limit | max_in_flight | Alice's query rate |
 | Pipelining | Sends parallel queries | Responds serially |

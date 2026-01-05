@@ -249,16 +249,15 @@ All sends require a transport `SendPermit`:
 If no permit is available, retransmit is skipped (no backoff, no send_time
 update).
 
-## Packet-Count Timeout (Failure Detection)
+## No-Response Timeout (Failure Detection)
 
-Alice tracks `_packets_since_response`:
-- Incremented on every successful send (new or retransmit).
-- Reset to 0 on any valid decoded response (regardless of ACK progress).
-- Invalid or undecodable responses do not reset the counter.
+Alice tracks time since the last valid response:
+- `_last_recv_time` updates on any valid decoded response.
+- Invalid or undecodable responses do not reset the timer.
   - Keepalive-only and ack-only responses still count as valid responses.
 
-If `_packets_since_response >= tunnel_timeout_packets`, Alice closes the
-connection and logs `tunnel.timeout_packets`. Retransmissions stop once closed.
+If `now - _last_recv_time >= tunnel_no_response_timeout`, Alice closes the
+connection and logs `tunnel.timeout_no_response`. Retransmissions stop once closed.
 
 ## Logging And Stats
 
@@ -267,7 +266,7 @@ Key retransmit-related events:
 - `tunnel.send_blocked`: emitted when rate-limited or transport-blocked.
 - `tunnel.packet_send` and `tunnel.packet_recv`: all sends/receives.
 - `tunnel.ack`: ACK/SACK processing details.
-- `tunnel.timeout_packets`: packet-count timeout triggered.
+- `tunnel.timeout_no_response`: no-response timeout triggered.
 
 If `tunnel_stats_enabled`:
 - `ReliabilityStats.retransmit_packets` increments per retransmit.
@@ -281,7 +280,7 @@ Retransmit-related settings in `Config`:
 - `protocol_initial_rto_ms` (default 1000)
 - `protocol_min_rto_ms` (default 500)
 - `protocol_max_rto_ms` (default 10000)
-- `tunnel_timeout_packets` (default 257)
+- `tunnel_no_response_timeout` (default 60.0)
 - `tunnel_retransmit_cap` (default 2)
 - `tunnel_fast_retransmit_enabled` (default True)
 - `tunnel_fast_retransmit_min_age_ratio` (default 0.25)

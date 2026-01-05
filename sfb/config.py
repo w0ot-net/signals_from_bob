@@ -144,8 +144,8 @@ class Config:
     max_in_flight: int = 128
     # Handshake/connection timeout (seconds)
     tunnel_connect_timeout: float = 10.0
-    # Alice: packets sent without response before giving up
-    tunnel_timeout_packets: int = 257
+    # Alice: seconds without response before giving up
+    tunnel_no_response_timeout: float = 60.0
     # Alice: max retransmits per tick (RTO + fast retransmit)
     tunnel_retransmit_cap: int = 2
     # Alice: enable fast retransmit for SACK holes
@@ -397,6 +397,8 @@ class Config:
             raise ValueError("tunnel_pong_grace_polls must be >= 0")
         if self.tunnel_idle_timeout <= 0:
             raise ValueError("tunnel_idle_timeout must be > 0")
+        if self.tunnel_no_response_timeout <= 0:
+            raise ValueError("tunnel_no_response_timeout must be > 0")
         if self.tunnel_initial_window < 1 or self.tunnel_initial_window > 256:
             raise ValueError("tunnel_initial_window must be 1-256")
         if self.tunnel_retransmit_cap < 1:

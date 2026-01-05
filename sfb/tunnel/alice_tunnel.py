@@ -79,9 +79,8 @@ class AliceTunnel(BaseTunnel):
         self._last_send_time = 0
         self._last_recv_time = 0
 
-        # Timeout detection: packets sent without any response
-        self._packets_since_response = 0
-        self._max_packets_without_response = config.tunnel_timeout_packets
+        # Timeout detection: seconds without any response
+        self._no_response_timeout = config.tunnel_no_response_timeout
 
         # Track if Bob sent real data since the last poll we sent.
         self._got_data = False
@@ -279,7 +278,6 @@ class AliceTunnel(BaseTunnel):
         try:
             self._set_state(TunnelState.CONNECTED)
             self._last_recv_time = time_provider.now()
-            self._packets_since_response = 0
 
             # Retransmit final ACK until we see any response from Bob.
             start = time_provider.now()
@@ -421,7 +419,6 @@ class AliceTunnel(BaseTunnel):
                     received_any = True
 
         if received_valid:
-            self._packets_since_response = 0
             # Clear pending data flag if all data has been acked
             if self._send_window.unacked_count == 0:
                 self._has_pending_data_acks = False
@@ -430,20 +427,25 @@ class AliceTunnel(BaseTunnel):
                 if last_resp_has_data:
                     self._pong_grace_remaining = self._pong_grace_polls
 
-        # Check connection timeout
-        if self._packets_since_response >= self._max_packets_without_response:
-            self._set_state(TunnelState.CLOSED)
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'tunnel.timeout_packets',
-                'Connection timeout after packets without response',
-                lambda: {
-                    'count': self._max_packets_without_response,
-                    'side': 'alice',
-                },
-            )
-            return False
+        # Check connection timeout (no response from Bob)
+        if self._last_recv_time:
+            silence = now - self._last_recv_time
+            if silence < 0:
+                silence = 0.0
+            if silence >= self._no_response_timeout:
+                self._set_state(TunnelState.CLOSED)
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'tunnel.timeout_no_response',
+                    'Connection timeout after no response',
+                    lambda: {
+                        'elapsed': round(silence, 3),
+                        'timeout': self._no_response_timeout,
+                        'side': 'alice',
+                    },
+                )
+                return False
 
         if self._fast_retransmit_enabled:
             self._prune_fast_retransmit_counts()
@@ -1397,7 +1399,6 @@ class AliceTunnel(BaseTunnel):
         self._last_send_time = now
         self._packets_sent += 1
         self._bytes_sent += len(packet_data)
-        self._packets_since_response += 1
         log_event(
             self._logger,
             logging.DEBUG,
@@ -1483,7 +1484,6 @@ class AliceTunnel(BaseTunnel):
         self._last_send_time = now
         self._packets_sent += 1
         self._bytes_sent += len(packet_data)
-        self._packets_since_response += 1
         def build_fields():
             fields = {
                 'seq': seq,

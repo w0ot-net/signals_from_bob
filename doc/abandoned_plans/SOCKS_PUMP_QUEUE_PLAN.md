@@ -67,3 +67,6 @@ backpressure.
 - Run non-E2E tests relevant to SOCKS or channel behavior (user runs E2E).
 - Verify pump logs show stable bytes in/out and queue sizes without tight
   polling backoff.
+
+## Abandonment notes
+- 2025-09-19: Abandoned per request; no implementation work recorded.

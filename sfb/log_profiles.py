@@ -404,6 +404,7 @@ LOG_PROFILES = {
         'log_component_protocol': False,
         'log_component_module_socks': False,
         'log_component_module_file_transfer': False,
+        'log_component_module_nc_linux': False,
         'log_event_whitelist': (),
         'log_event_blacklist': ('*',),
     },

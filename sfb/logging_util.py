@@ -145,6 +145,14 @@ class ComponentFilter(logging.Filter):
             'sfb.modules.file_transfer',
             'FileTransferModule',
         )
+        self._module_nc_linux_enabled = bool(
+            getattr(config, 'log_component_module_nc_linux', True)
+        )
+        self._module_nc_linux_event_prefix = 'nc.'
+        self._module_nc_linux_logger_prefixes = (
+            'sfb.modules.nc_linux',
+            'NcLinuxModule',
+        )
 
     def filter(self, record):
         if record.levelno >= logging.ERROR:
@@ -161,6 +169,8 @@ class ComponentFilter(logging.Filter):
             if not self._channel_enabled and event_text.startswith(self._channel_event_prefix):
                 return False
             if not self._module_socks_enabled and event_text.startswith(self._module_socks_event_prefix):
+                return False
+            if not self._module_nc_linux_enabled and event_text.startswith(self._module_nc_linux_event_prefix):
                 return False
             if self._event_whitelist and not _match_any(event_text, self._event_whitelist):
                 return False
@@ -183,6 +193,9 @@ class ComponentFilter(logging.Filter):
             return False
         if (not self._module_file_transfer_enabled and
                 name.startswith(self._module_file_transfer_logger_prefixes)):
+            return False
+        if (not self._module_nc_linux_enabled and
+                name.startswith(self._module_nc_linux_logger_prefixes)):
             return False
         return True
 

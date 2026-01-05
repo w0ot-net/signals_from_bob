@@ -411,6 +411,11 @@ def add_dns_server_args(parser, config):
     """Add DNS server-specific arguments."""
     host, port = _split_host_port(config.dns_listen_addr, 53)
     parser.add_argument(
+        '--listen-addr',
+        default=None,
+        help='DNS server listen host:port (overrides --dns-host/--dns-port)'
+    )
+    parser.add_argument(
         '--dns-host', default=host,
         help='DNS server listen address (default: %s)' % host
     )
@@ -487,6 +492,11 @@ def add_udp_ephemeral_client_args(parser, config, require_target=True):
 def add_udp_ephemeral_server_args(parser, config):
     """Add UDP ephemeral server-specific arguments."""
     parser.add_argument(
+        '--listen-addr',
+        default=None,
+        help='UDP listen host:port for server (alias of --udp-ephemeral-listen-addr)'
+    )
+    parser.add_argument(
         '--udp-ephemeral-listen-addr',
         default=config.udp_ephemeral_listen_addr,
         help='UDP listen host:port for server'
@@ -536,6 +546,11 @@ def add_tls_client_args(parser, config):
 
 def add_tls_server_args(parser, config):
     """Add TLS server-specific arguments."""
+    parser.add_argument(
+        '--listen-addr',
+        default=None,
+        help='TLS server listen host:port (alias of --tls-listen-addr)'
+    )
     parser.add_argument(
         '--tls-listen-addr',
         default=config.tls_listen_addr,
@@ -597,6 +612,11 @@ def add_tls_bump_client_args(parser, config):
 
 def add_tls_bump_server_args(parser, config):
     """Add TLS bump server-specific arguments."""
+    parser.add_argument(
+        '--listen-addr',
+        default=None,
+        help='TLS bump server listen host:port (alias of --tls-bump-listen-addr)'
+    )
     parser.add_argument(
         '--tls-bump-listen-addr',
         default=config.tls_bump_listen_addr,
@@ -861,10 +881,14 @@ def create_config(args):
     # DNS transport args
     if args.transport == 'dns':
         if args.role == 'server':
-            host = getattr(args, 'dns_host', None)
-            port = getattr(args, 'dns_port', None)
-            if host is None or port is None:
-                host, port = _split_host_port(Config().dns_listen_addr, 53)
+            listen_addr = getattr(args, 'listen_addr', None)
+            if listen_addr:
+                host, port = _split_host_port(listen_addr, 53)
+            else:
+                host = getattr(args, 'dns_host', None)
+                port = getattr(args, 'dns_port', None)
+                if host is None or port is None:
+                    host, port = _split_host_port(Config().dns_listen_addr, 53)
             config_kwargs['dns_listen_addr'] = '%s:%d' % (host, port)
             config_kwargs['tunnel_idle_timeout'] = float(args.idle_timeout)
         else:
@@ -886,9 +910,13 @@ def create_config(args):
                 args, 'udp_ephemeral_source_port_reuse_minutes', None
             )
         else:
-            config_kwargs['udp_ephemeral_listen_addr'] = getattr(
-                args, 'udp_ephemeral_listen_addr', None
-            )
+            listen_addr = getattr(args, 'listen_addr', None)
+            if listen_addr:
+                config_kwargs['udp_ephemeral_listen_addr'] = listen_addr
+            else:
+                config_kwargs['udp_ephemeral_listen_addr'] = getattr(
+                    args, 'udp_ephemeral_listen_addr', None
+                )
     elif args.transport == 'tls_handshake':
         if args.role == 'client':
             config_kwargs['tls_target'] = getattr(args, 'target', None)
@@ -901,7 +929,11 @@ def create_config(args):
             config_kwargs['tls_max_clienthello_bytes'] = getattr(args, 'tls_mtu', None)
             config_kwargs['tls_max_serverhello_bytes'] = getattr(args, 'tls_mtu', None)
         else:
-            config_kwargs['tls_listen_addr'] = getattr(args, 'tls_listen_addr', None)
+            listen_addr = getattr(args, 'listen_addr', None)
+            if listen_addr:
+                config_kwargs['tls_listen_addr'] = listen_addr
+            else:
+                config_kwargs['tls_listen_addr'] = getattr(args, 'tls_listen_addr', None)
             config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
             config_kwargs['tls_clienthello_padding_target'] = getattr(
                 args, 'tls_clienthello_padding_target', None)
@@ -919,8 +951,12 @@ def create_config(args):
             config_kwargs['tls_bump_cn_max_len'] = getattr(
                 args, 'tls_bump_cn_max_len', None)
         else:
-            config_kwargs['tls_bump_listen_addr'] = getattr(
-                args, 'tls_bump_listen_addr', None)
+            listen_addr = getattr(args, 'listen_addr', None)
+            if listen_addr:
+                config_kwargs['tls_bump_listen_addr'] = listen_addr
+            else:
+                config_kwargs['tls_bump_listen_addr'] = getattr(
+                    args, 'tls_bump_listen_addr', None)
             config_kwargs['tls_bump_max_clienthello_bytes'] = getattr(
                 args, 'tls_bump_max_clienthello_bytes', None)
 
@@ -1445,6 +1481,7 @@ def main(args=None):
             'log_component_module_file_transfer': (
                 config.log_component_module_file_transfer
             ),
+            'log_component_module_nc_linux': config.log_component_module_nc_linux,
         },
     )
 

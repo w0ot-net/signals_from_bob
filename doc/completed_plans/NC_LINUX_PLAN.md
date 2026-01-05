@@ -62,3 +62,10 @@ flow over the channel.
 - Should Alice close the bound fd when the channel closes, or leave it open?
 - Do we need read-only/write-only modes for one-way bindings?
 - Should a bind failure trigger an automatic channel close on Bob?
+
+## Execution Notes
+- Required explicit local/remote fd specs; no stdin/stdout defaults.
+- Bound fds close on channel shutdown; no read-only/write-only modes added.
+- Bind failures close the channel on both sides.
+- Accepted fd specs as numeric fd, path, or host:port ([::1]:port supported).
+- Ran `python3 -m unittest tests.test_nc_linux integration_tests.test_nc_linux`.

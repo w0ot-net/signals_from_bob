@@ -130,6 +130,47 @@ bytes are sent.
 
 ---
 
+## NC Linux Module
+
+**Message type**: `nc`
+
+### Overview
+
+Bob binds a tunnel channel to a local file descriptor on Alice. Both sides
+pump bytes between their local fd and the tunnel channel. This module is
+Linux-only and closes the bound fd when the channel closes.
+
+### FD Spec
+
+The bind request accepts one of:
+- Numeric fd (e.g., `3`)
+- Path (e.g., `/tmp/data.txt`)
+- TCP address (e.g., `1.1.1.1:443` or `[::1]:443`)
+
+### Flow
+
+```
+Bob                             Alice
+ │                                │
+ │── {t:ch,c:open} ──────────────▶│
+ │◀─ {t:ch,c:open_ok} ────────────│
+ │── {t:nc,c:bind,ch,fd} ─────────▶│
+ │◀─ {t:nc,c:bind_ok} ────────────│
+ │══ ch data ═════════════════════▶│ fd
+ │◀═ ch data ══════════════════════│ fd
+ │── {t:ch,c:close} ──────────────▶│
+```
+
+### Control Messages
+
+```json
+{"t":"nc","c":"bind","rid":1,"ch":2,"fd":"1.1.1.1:443"}
+{"t":"nc","c":"bind_ok","rid":1,"ch":2}
+{"t":"nc","c":"err","rid":1,"ch":2,"code":"open_failed","reason":"..."}
+```
+
+---
+
 ## Shell Module (Future)
 
 **Message type**: `sh`

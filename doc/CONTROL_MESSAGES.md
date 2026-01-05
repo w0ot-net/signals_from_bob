@@ -86,6 +86,7 @@ messages to the appropriate module based on the `t` field.
 |------|--------|-------------|
 | `file` | File Transfer | List, get, put files |
 | `sock` | SOCKS Proxy | SOCKS5 proxy control |
+| `nc` | NC Linux | Bind a channel to a Linux file descriptor |
 | `sh` | Shell | Interactive shell sessions |
 | `fwd` | Port Forward | TCP port forwarding (future) |
 

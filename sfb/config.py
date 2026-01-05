@@ -65,7 +65,7 @@ class Config:
     # Target host:port for Alice
     udp_ephemeral_target: Optional[str] = None
     # Listen host:port for Bob
-    udp_ephemeral_listen_addr: str = "0.0.0.0:9999"
+    udp_ephemeral_listen_addr: str = "0.0.0.0:53"
     # Max SFB packet size to send/receive in UDP payload
     udp_ephemeral_payload_mtu: int = 1200
     # Timeout before considering a UDP request stale (seconds)
@@ -243,6 +243,16 @@ class Config:
     # File transfer command timeout (seconds), None = no timeout
     file_transfer_timeout: Optional[float] = None
 
+    # --- NC Linux ---
+    # Bind request timeout (seconds)
+    nc_linux_bind_timeout: float = 10.0
+    # TCP connect timeout for host:port specs (seconds)
+    nc_linux_connect_timeout: float = 10.0
+    # Pump buffer size (bytes)
+    nc_linux_buffer_size: int = 4096
+    # Pump poll timeout (seconds)
+    nc_linux_poll_timeout: float = 0.01
+
     # --- Modules ---
     # Module shutdown join timeout (seconds)
     module_shutdown_timeout: float = 5.0
@@ -299,6 +309,8 @@ class Config:
     log_component_module_socks: bool = True
     # Enable file transfer module logging (stdout + SQLite)
     log_component_module_file_transfer: bool = True
+    # Enable nc_linux module logging (stdout + SQLite)
+    log_component_module_nc_linux: bool = True
 
     # --- SOCKS ---
     # SOCKS server listen host
@@ -491,6 +503,16 @@ class Config:
         # File transfer validation
         if self.file_transfer_chunk_size < 1:
             raise ValueError("file_transfer_chunk_size must be >= 1")
+
+        # NC Linux validation
+        if self.nc_linux_bind_timeout <= 0:
+            raise ValueError("nc_linux_bind_timeout must be > 0")
+        if self.nc_linux_connect_timeout <= 0:
+            raise ValueError("nc_linux_connect_timeout must be > 0")
+        if self.nc_linux_buffer_size < 1:
+            raise ValueError("nc_linux_buffer_size must be >= 1")
+        if self.nc_linux_poll_timeout <= 0:
+            raise ValueError("nc_linux_poll_timeout must be > 0")
 
         # Module validation
         if self.module_shutdown_timeout <= 0:

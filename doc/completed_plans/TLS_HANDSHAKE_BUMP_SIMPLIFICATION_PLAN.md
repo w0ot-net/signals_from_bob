@@ -1,6 +1,6 @@
 # TLS Handshake Bump Simplification Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 
@@ -76,3 +76,11 @@ compatibility.
 - Run `python3 -m unittest tests.test_tls_handshake_bump_codec`.
 - Run `python3 -m unittest tests.test_tls_client_server`.
 - Do not run tests in `tests/e2e/`.
+
+## Execution Notes
+
+- Implemented phase-based client state handling in TLS bump and TLS handshake clients.
+- Centralized base domain and SNI validation through codec helpers with error mapping.
+- Ran `python3 -m unittest tests.test_tls_handshake_bump_client_server`.
+- Ran `python3 -m unittest tests.test_tls_handshake_bump_codec`.
+- Ran `python3 -m unittest tests.test_tls_client_server` (skipped=5).

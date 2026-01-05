@@ -5,8 +5,6 @@ TLS transport configuration validation helpers.
 
 from __future__ import absolute_import
 
-import re
-
 from ...compat import text_type
 from ...protocol.constants import PACKET_HEADER_SIZE
 from ..transport_base import TransportError
@@ -14,7 +12,15 @@ from ..proxy_helpers import validate_proxy_config
 from . import tls_handshake_codec as codec
 
 
-_SNI_ALLOWED = re.compile(r'^[A-Za-z0-9.-]+$')
+_SNI_ERROR_MAP = {
+    'SNI must be text': 'tls_sni must be text',
+    'SNI must be ASCII': 'tls_sni must be ASCII',
+    'SNI length invalid': 'tls_sni length invalid',
+    'SNI must not start/end with dot': 'tls_sni must not start/end with dot',
+    'SNI must not contain empty labels': 'tls_sni must not contain empty labels',
+    'SNI contains invalid characters': 'tls_sni contains invalid characters',
+    'SNI label length invalid': 'tls_sni label length invalid',
+}
 
 
 def validate_tls_config(config, role):
@@ -164,25 +170,13 @@ def _require_non_negative_int(value, label):
 
 
 def _validate_sni(value):
-    if not isinstance(value, text_type):
-        raise TransportError('tls_sni must be text')
     try:
-        value.encode('ascii')
-    except UnicodeError:
-        raise TransportError('tls_sni must be ASCII')
-    if not value or len(value) > 253:
-        raise TransportError('tls_sni length invalid')
-    if value.startswith('.') or value.endswith('.'):
-        raise TransportError('tls_sni must not start/end with dot')
-    if '..' in value:
-        raise TransportError('tls_sni must not contain empty labels')
-    if not _SNI_ALLOWED.match(value):
-        raise TransportError('tls_sni contains invalid characters')
-    labels = value.split('.')
-    for label in labels:
-        if not label or len(label) > 63:
-            raise TransportError('tls_sni label length invalid')
-    return value
+        return codec.normalize_sni(value)
+    except ValueError as exc:
+        mapped = _SNI_ERROR_MAP.get(str(exc))
+        if mapped is None:
+            mapped = 'tls_sni invalid: %s' % exc
+        raise TransportError(mapped)
 
 
 def _validate_alpn(value):

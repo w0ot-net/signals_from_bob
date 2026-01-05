@@ -59,39 +59,41 @@ for name in ('WSAECONNRESET',):
     if value is not None:
         _RESET_ERRORS.add(value)
 
+_PHASE_CONNECT = 'connect'
+_PHASE_PROXY = 'proxy'
+_PHASE_HANDSHAKE = 'handshake'
+_PHASE_REQUEST = 'request'
+_PHASE_RESPONSE = 'response'
+
 class _PendingConn(object):
     __slots__ = (
         'sock',
+        'phase',
         'send_buf',
         'send_off',
         'recv_buf',
         'record_len',
         'connect_deadline',
         'handshake_deadline',
-        'send_complete',
-        'connecting',
         'proxy_send_buf',
         'proxy_send_off',
         'proxy_recv_buf',
         'proxy_deadline',
-        'proxy_complete',
     )
 
     def __init__(self, sock, send_buf, connect_deadline, proxy_send_buf=None):
         self.sock = sock
+        self.phase = _PHASE_CONNECT
         self.send_buf = send_buf
         self.send_off = 0
         self.recv_buf = bytearray()
         self.record_len = None
         self.connect_deadline = connect_deadline
         self.handshake_deadline = None
-        self.send_complete = False
-        self.connecting = True
         self.proxy_send_buf = proxy_send_buf
         self.proxy_send_off = 0
         self.proxy_recv_buf = bytearray()
         self.proxy_deadline = None
-        self.proxy_complete = proxy_send_buf is None
 
 
 class TlsClient(Transport):
@@ -262,19 +264,9 @@ class TlsClient(Transport):
 
         err = sock.connect_ex(self._connect_addr)
         if err == 0:
-            state.connecting = False
-            if state.proxy_complete:
-                if self._flush_send(corr_id, state, now):
-                    state.send_complete = True
-                    state.connect_deadline = None
-                    state.handshake_deadline = now + self._handshake_timeout
-            else:
-                state.connect_deadline = None
-                if self._proxy_timeout is not None:
-                    state.proxy_deadline = now + self._proxy_timeout
-                self._flush_proxy_send(corr_id, state)
+            self._handle_connect_success(corr_id, state, now)
         elif err in _IN_PROGRESS:
-            state.connecting = True
+            state.phase = _PHASE_CONNECT
         else:
             self._close_pending(corr_id, state)
             log_event(
@@ -331,11 +323,15 @@ class TlsClient(Transport):
                     return (None, None)
                 continue
 
-            for sock in ready_w:
-                self._handle_writable(sock, now)
-
-            for sock in ready_r:
-                result = self._handle_readable(sock)
+            ready = set(ready_r)
+            ready.update(ready_w)
+            for sock in ready:
+                result = self._drive_socket(
+                    sock,
+                    now,
+                    sock in ready_r,
+                    sock in ready_w,
+                )
                 if result is not None:
                     return result
 
@@ -344,60 +340,112 @@ class TlsClient(Transport):
             if deadline is not None and time_provider.now() >= deadline:
                 return (None, None)
 
-    def _handle_writable(self, sock, now):
-        corr_id = self._sock_to_corr.get(sock)
-        if corr_id is None:
-            return
-        state = self._pending_state.get(corr_id)
+    def _drive_socket(self, sock, now, can_read, can_write):
+        corr_id, state = self._lookup_state(sock)
         if state is None:
-            return
-        if state.connecting:
-            err = sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
-            if err != 0:
-                self._close_pending(corr_id, state)
-                log_event(
-                    _LOG,
-                    logging.WARNING,
-                    'tls.connect_error',
-                    'TLS connect error',
-                    lambda: {'error': err},
-                )
-                if err in _SOFT_CONNECT_ERRORS:
-                    return
-                raise TransportError('TLS connect failed: %s' % err)
-            state.connecting = False
-            if not state.proxy_complete:
-                state.connect_deadline = None
-                if self._proxy_timeout is not None:
-                    state.proxy_deadline = now + self._proxy_timeout
-        if not state.proxy_complete:
-            self._flush_proxy_send(corr_id, state)
-            return
-        if state.send_complete:
-            return
-        if state.connect_deadline is None:
-            state.connect_deadline = now + self._connect_timeout
-        if self._flush_send(corr_id, state, now):
-            state.send_complete = True
-            state.connect_deadline = None
-            state.handshake_deadline = now + self._handshake_timeout
+            return None
+        if can_write:
+            result = self._drive_write(corr_id, state, now)
+            if result is not None:
+                return result
+        if can_read:
+            result = self._drive_read(corr_id, state)
+            if result is not None:
+                return result
+        return None
 
-    def _handle_readable(self, sock):
-        corr_id = self._sock_to_corr.get(sock)
-        if corr_id is None:
+    def _drive_write(self, corr_id, state, now):
+        phase = state.phase
+        if phase == _PHASE_CONNECT:
+            return self._finish_connect(corr_id, state, now)
+        if phase == _PHASE_PROXY:
+            self._flush_proxy_send(corr_id, state)
             return None
-        state = self._pending_state.get(corr_id)
-        if state is None:
+        if phase == _PHASE_REQUEST:
+            if state.connect_deadline is None:
+                state.connect_deadline = now + self._connect_timeout
+            if self._flush_send(corr_id, state, now):
+                state.phase = _PHASE_RESPONSE
+                state.connect_deadline = None
+                state.handshake_deadline = now + self._handshake_timeout
             return None
-        if state.connecting:
-            return None
-        if not state.proxy_complete:
+        return None
+
+    def _drive_read(self, corr_id, state):
+        phase = state.phase
+        if phase == _PHASE_PROXY:
             self._recv_proxy_response(corr_id, state)
             return None
-        if not state.send_complete:
-            return None
-        result = self._recv_record(corr_id, state)
-        return result
+        if phase == _PHASE_RESPONSE:
+            return self._recv_record(corr_id, state)
+        return None
+
+    def _finish_connect(self, corr_id, state, now):
+        err = state.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+        if err != 0:
+            self._close_pending(corr_id, state)
+            log_event(
+                _LOG,
+                logging.WARNING,
+                'tls.connect_error',
+                'TLS connect error',
+                lambda: {'error': err},
+            )
+            if err in _SOFT_CONNECT_ERRORS:
+                return None
+            raise TransportError('TLS connect failed: %s' % err)
+        self._handle_connect_success(corr_id, state, now)
+        return None
+
+    def _lookup_state(self, sock):
+        corr_id = self._sock_to_corr.get(sock)
+        if corr_id is None:
+            return None, None
+        state = self._pending_state.get(corr_id)
+        if state is None:
+            return None, None
+        return corr_id, state
+
+    def _handle_connect_success(self, corr_id, state, now):
+        if state.proxy_send_buf is not None:
+            state.phase = _PHASE_PROXY
+            state.connect_deadline = None
+            if self._proxy_timeout is not None:
+                state.proxy_deadline = now + self._proxy_timeout
+            self._flush_proxy_send(corr_id, state)
+        else:
+            state.phase = _PHASE_REQUEST
+            if self._flush_send(corr_id, state, now):
+                state.phase = _PHASE_RESPONSE
+                state.connect_deadline = None
+                state.handshake_deadline = now + self._handshake_timeout
+
+    def _phase_deadline(self, state):
+        phase = state.phase
+        if phase == _PHASE_CONNECT:
+            return state.connect_deadline
+        if phase == _PHASE_PROXY:
+            return state.proxy_deadline
+        if phase == _PHASE_REQUEST:
+            return state.connect_deadline
+        if phase == _PHASE_RESPONSE:
+            return state.handshake_deadline
+        return None
+
+    def _phase_interests(self, state):
+        phase = state.phase
+        if phase == _PHASE_CONNECT:
+            return False, True
+        if phase == _PHASE_PROXY:
+            if (state.proxy_send_buf is not None and
+                    state.proxy_send_off < len(state.proxy_send_buf)):
+                return False, True
+            return True, False
+        if phase == _PHASE_REQUEST:
+            return False, True
+        if phase == _PHASE_RESPONSE:
+            return True, False
+        return False, False
 
     def _recv_proxy_response(self, corr_id, state):
         try:
@@ -437,7 +485,7 @@ class TlsClient(Transport):
             self._log_proxy_error('extra_bytes', corr_id, bytes=len(extra))
             self._close_pending(corr_id, state)
             return None
-        state.proxy_complete = True
+        state.phase = _PHASE_REQUEST
         state.proxy_deadline = None
         state.proxy_send_buf = None
         state.proxy_recv_buf = bytearray()
@@ -517,17 +565,9 @@ class TlsClient(Transport):
             now = time_provider.now()
         stale = []
         for corr_id, state in list(self._pending_state.items()):
-            deadline = None
-            if state.connecting:
-                deadline = state.connect_deadline
-            elif not state.proxy_complete:
-                deadline = state.proxy_deadline
-            elif not state.send_complete:
-                deadline = state.connect_deadline
-            else:
-                deadline = state.handshake_deadline
+            deadline = self._phase_deadline(state)
             if deadline is not None and now > deadline:
-                if not state.proxy_complete and not state.connecting:
+                if state.phase == _PHASE_PROXY:
                     self._log_proxy_error('timeout', corr_id)
                 stale.append((corr_id, state))
         for corr_id, state in stale:
@@ -601,22 +641,10 @@ class TlsClient(Transport):
     def _select_timeout(self, now, deadline, timeout):
         earliest = None
         for state in self._pending_state.values():
-            if state.connecting:
-                if state.connect_deadline is not None:
-                    if earliest is None or state.connect_deadline < earliest:
-                        earliest = state.connect_deadline
-            elif not state.proxy_complete:
-                if state.proxy_deadline is not None:
-                    if earliest is None or state.proxy_deadline < earliest:
-                        earliest = state.proxy_deadline
-            elif not state.send_complete:
-                if state.connect_deadline is not None:
-                    if earliest is None or state.connect_deadline < earliest:
-                        earliest = state.connect_deadline
-            else:
-                if state.handshake_deadline is not None:
-                    if earliest is None or state.handshake_deadline < earliest:
-                        earliest = state.handshake_deadline
+            state_deadline = self._phase_deadline(state)
+            if state_deadline is not None:
+                if earliest is None or state_deadline < earliest:
+                    earliest = state_deadline
         if timeout == 0:
             return 0
         if deadline is not None:
@@ -634,17 +662,10 @@ class TlsClient(Transport):
         read_list = []
         write_list = []
         for state in self._pending_state.values():
-            if state.connecting:
-                write_list.append(state.sock)
-            elif not state.proxy_complete:
-                if (state.proxy_send_buf is not None and
-                        state.proxy_send_off < len(state.proxy_send_buf)):
-                    write_list.append(state.sock)
-                else:
-                    read_list.append(state.sock)
-            elif state.send_complete:
+            want_read, want_write = self._phase_interests(state)
+            if want_read:
                 read_list.append(state.sock)
-            else:
+            if want_write:
                 write_list.append(state.sock)
         return read_list, write_list
 

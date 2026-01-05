@@ -9,6 +9,7 @@ carry SFB packet bytes in the session_ticket extension.
 from __future__ import absolute_import
 
 import os
+import re
 import struct
 
 from ...compat import byte_at, text_type, to_bytes
@@ -69,6 +70,33 @@ DEFAULT_CIPHER_SUITES = (
     0x002F,  # TLS_RSA_WITH_AES_128_CBC_SHA
     0x0035,  # TLS_RSA_WITH_AES_256_CBC_SHA
 )
+
+_SNI_ALLOWED = re.compile(r'^[A-Za-z0-9.-]+$')
+
+
+def normalize_sni(name):
+    """
+    Normalize and validate an SNI value.
+    """
+    if not isinstance(name, text_type):
+        raise ValueError('SNI must be text')
+    try:
+        name.encode('ascii')
+    except UnicodeError:
+        raise ValueError('SNI must be ASCII')
+    if not name or len(name) > 253:
+        raise ValueError('SNI length invalid')
+    if name.startswith('.') or name.endswith('.'):
+        raise ValueError('SNI must not start/end with dot')
+    if '..' in name:
+        raise ValueError('SNI must not contain empty labels')
+    if not _SNI_ALLOWED.match(name):
+        raise ValueError('SNI contains invalid characters')
+    labels = name.split('.')
+    for label in labels:
+        if not label or len(label) > 63:
+            raise ValueError('SNI label length invalid')
+    return name
 
 
 def parse_record_header(header, max_record_bytes=None):

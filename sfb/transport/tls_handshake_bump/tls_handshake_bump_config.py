@@ -5,8 +5,6 @@ TLS handshake bump transport configuration validation.
 
 from __future__ import absolute_import
 
-import re
-
 from ...compat import text_type
 from ...protocol.constants import PACKET_HEADER_SIZE
 from ..transport_base import TransportError
@@ -14,7 +12,17 @@ from . import tls_handshake_bump_cert_template as cert_template
 from . import tls_handshake_bump_codec as codec
 
 
-_DOMAIN_ALLOWED = re.compile(r'^[A-Za-z0-9.-]+$')
+_BASE_DOMAIN_ERROR_MAP = {
+    'Base domain must be text': 'tls_bump_base_domain must be text',
+    'Base domain must be ASCII': 'tls_bump_base_domain must be ASCII',
+    'Base domain required': 'tls_bump_base_domain required',
+    'Base domain must not start/end with dot': 'tls_bump_base_domain must not start/end with dot',
+    'Base domain must not contain empty labels': 'tls_bump_base_domain must not contain empty labels',
+    'Base domain contains invalid characters': 'tls_bump_base_domain contains invalid characters',
+    'Empty label in name': 'tls_bump_base_domain must not contain empty labels',
+    'Label exceeds max length': 'tls_bump_base_domain label length invalid',
+    'Name exceeds max length': 'tls_bump_base_domain length invalid',
+}
 
 
 def validate_tls_bump_config(config, role):
@@ -156,19 +164,13 @@ def _validate_base_domain(value):
     value = value.rstrip('.')
     if not value:
         raise TransportError('tls_bump_base_domain required')
-    if value.startswith('.') or value.endswith('.'):
-        raise TransportError('tls_bump_base_domain must not start/end with dot')
-    if '..' in value:
-        raise TransportError('tls_bump_base_domain must not contain empty labels')
-    if not _DOMAIN_ALLOWED.match(value):
-        raise TransportError('tls_bump_base_domain contains invalid characters')
-    labels = value.split('.')
-    for label in labels:
-        if not label or len(label) > codec.MAX_LABEL_LEN:
-            raise TransportError('tls_bump_base_domain label length invalid')
-    if len(value) > codec.MAX_NAME_LEN:
-        raise TransportError('tls_bump_base_domain length invalid')
-    return value.lower()
+    try:
+        return codec.normalize_domain(value)
+    except ValueError as exc:
+        mapped = _BASE_DOMAIN_ERROR_MAP.get(str(exc))
+        if mapped is None:
+            mapped = 'tls_bump_base_domain invalid: %s' % exc
+        raise TransportError(mapped)
 
 
 def _validate_request_path(value):

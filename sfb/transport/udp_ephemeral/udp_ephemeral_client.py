@@ -5,6 +5,7 @@ UDP ephemeral client transport for Alice.
 
 from __future__ import absolute_import
 
+import errno
 import logging
 import select
 import socket
@@ -22,6 +23,23 @@ from ...logging_util import get_logger, log_event
 from ... import time_provider
 
 _LOG = get_logger(__name__)
+
+_SOFT_RECV_ERRORS = set([errno.ECONNREFUSED, errno.EHOSTUNREACH, errno.ENETUNREACH])
+for name in ('WSAECONNREFUSED', 'WSAECONNRESET', 'WSAENETUNREACH', 'WSAEHOSTUNREACH'):
+    value = getattr(errno, name, None)
+    if value is not None:
+        _SOFT_RECV_ERRORS.add(value)
+
+
+def _get_errno(exc):
+    err = getattr(exc, 'errno', None)
+    if err is None and getattr(exc, 'args', None):
+        if exc.args:
+            try:
+                err = int(exc.args[0])
+            except (TypeError, ValueError):
+                err = None
+    return err
 
 
 class _PendingRequest(object):
@@ -257,6 +275,22 @@ class UdpEphemeralClient(Transport):
         try:
             data = sock.recv(self._recv_bufsize)
         except socket.error as e:
+            err = _get_errno(e)
+            if err in _SOFT_RECV_ERRORS:
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'udp_ephemeral.recv_refused',
+                    'UDP ephemeral receive refused',
+                    lambda: {
+                        'corr_id': corr_id,
+                        'local_port': state.local_port,
+                        'error': str(e),
+                    },
+                )
+                now = time_provider.now()
+                self._drop_pending(corr_id, state, now)
+                return None
             log_event(
                 _LOG,
                 logging.WARNING,

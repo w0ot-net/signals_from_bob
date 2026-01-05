@@ -55,3 +55,9 @@ tunnel channel per connection.
 - Failures send `fwd/err` and close channels without leaking threads.
 - Logs are filterable via the new module log toggle.
 - Documentation fully describes the module and its control messages.
+
+## Execution Notes
+- Implemented the port_fwd module with control messages, relay helpers, and logging.
+- Added config defaults/validation plus logging toggle integration.
+- Updated documentation and added doc/PORT_FWD.md.
+- Did not run tests (per instructions; e2e tests are user-run only).

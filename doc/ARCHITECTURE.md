@@ -103,6 +103,7 @@ the PSK without connection-specific material.
 Built on top of channels. Examples:
 
 - **SOCKS proxy**: Bob runs SOCKS server, Alice relays connections
+- **Port forward**: Bob listens locally, Alice connects to a fixed target
 - **File transfer**: Upload/download files between Alice and Bob
 
 ### Platform Support
@@ -193,10 +194,17 @@ sfb/
 │       └── dns_server.py      # Bob's DNS server
 ├── modules/
 │   ├── __init__.py
-│   └── file_transfer/
+│   ├── file_transfer/
+│   │   ├── __init__.py
+│   │   ├── file_transfer_control_messages.py
+│   │   └── file_transfer.py
+│   └── port_fwd/
 │       ├── __init__.py
-│       ├── file_transfer_control_messages.py
-│       └── file_transfer.py
+│       ├── port_fwd_control_messages.py
+│       ├── port_fwd_logging.py
+│       ├── data_pump.py
+│       ├── relay_connection.py
+│       └── port_fwd.py
 └── tunnel/
     ├── __init__.py            # Exports AliceTunnel, BobTunnel
     ├── base_tunnel.py         # BaseTunnel with shared functionality

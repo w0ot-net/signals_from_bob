@@ -86,6 +86,47 @@ message type (`sock`) for target negotiation:
 
 ---
 
+## Port Forward Module
+
+**Message type**: `fwd`
+
+See `doc/PORT_FWD.md` for the complete specification.
+
+### Overview
+
+Bob listens on a local TCP address and forwards each inbound connection to a
+fixed Alice-side target. Each connection uses a dedicated channel for relay.
+
+```
+User App ──▶ Bob Port Fwd ══════▶ Alice Relay ──▶ Target
+            (local host:port)     (tunnel)       (remote host:port)
+```
+
+### Flow
+
+```
+Client                Bob                           Alice              Target
+  │                    │                              │                   │
+  │── TCP connect ────▶│                              │                   │
+  │                    │── {t:ch,c:open} ───────────▶│                   │
+  │                    │◀─ {t:ch,c:open_ok} ─────────│                   │
+  │                    │── {t:fwd,c:connect} ───────▶│                   │
+  │                    │                              │── TCP connect ──▶│
+  │                    │◀─ {t:fwd,c:connect_ok} ─────│                   │
+  │◀══ data ══════════▶│══ channel data ═════════════▶│══ data ══════════▶│
+  │── close ──────────▶│── {t:ch,c:close} ──────────▶│── close ─────────▶│
+```
+
+### Control Messages
+
+```json
+{"t":"fwd","c":"connect","rid":1,"ch":2,"host":"10.0.0.5","port":22}
+{"t":"fwd","c":"connect_ok","rid":1,"ch":2,"bhost":"10.0.0.1","bport":54321}
+{"t":"fwd","c":"err","rid":1,"ch":2,"code":"refused","reason":"connection refused"}
+```
+
+---
+
 ## File Transfer Module
 
 **Message type**: `file`

@@ -88,9 +88,61 @@ messages to the appropriate module based on the `t` field.
 | `sock` | SOCKS Proxy | SOCKS5 proxy control |
 | `nc` | NC Linux | Bind a channel to a Linux file descriptor |
 | `sh` | Shell | Interactive shell sessions |
-| `fwd` | Port Forward | TCP port forwarding (future) |
+| `fwd` | Port Forward | TCP port forwarding |
 
 New modules should choose a short, unique type code (2-4 characters).
+
+---
+
+## Port Forward Messages (t="fwd")
+
+Port forward uses a request/response handshake on channel 0 followed by raw
+data on the assigned channel.
+
+### connect
+
+Bob asks Alice to connect to the fixed target.
+
+```json
+{"t":"fwd","c":"connect","rid":1,"ch":2,"host":"10.0.0.5","port":22}
+```
+
+| Field | Description |
+|-------|-------------|
+| `rid` | Request ID for correlation |
+| `ch` | Channel ID allocated by Bob |
+| `host` | Target hostname or IP |
+| `port` | Target port |
+
+### connect_ok
+
+Alice connected to the target.
+
+```json
+{"t":"fwd","c":"connect_ok","rid":1,"ch":2,"bhost":"10.0.0.1","bport":54321}
+```
+
+| Field | Description |
+|-------|-------------|
+| `rid` | Request ID |
+| `ch` | Channel ID |
+| `bhost` | Bound local host (optional, for logging) |
+| `bport` | Bound local port (optional, for logging) |
+
+### err
+
+Connection failed.
+
+```json
+{"t":"fwd","c":"err","rid":1,"ch":2,"code":"refused","reason":"connection refused"}
+```
+
+| Field | Description |
+|-------|-------------|
+| `rid` | Request ID |
+| `ch` | Channel ID |
+| `code` | Error code (`refused`, `timeout`, `unreachable_host`, `unreachable_net`, `general`) |
+| `reason` | Human-readable reason |
 
 ---
 

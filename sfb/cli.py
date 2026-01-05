@@ -1475,6 +1475,7 @@ def main(args=None):
             'log_component_channel': config.log_component_channel,
             'log_component_protocol': config.log_component_protocol,
             'log_component_module_socks': config.log_component_module_socks,
+            'log_component_module_port_fwd': config.log_component_module_port_fwd,
             'log_component_module_file_transfer': (
                 config.log_component_module_file_transfer
             ),

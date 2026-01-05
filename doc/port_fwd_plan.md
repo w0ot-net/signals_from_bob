@@ -39,8 +39,7 @@ tunnel channel per connection.
    - Send `fwd/connect_ok` on success or `fwd/err` on failure.
    - On success, start a relay between the socket and the channel.
 4. Build the relay/pump helpers:
-   - Reuse the socket/channel pump pattern from SOCKS or extract a shared
-     helper so port_fwd can log with `fwd.*` event names.
+   - Reuse the socket/channel pump pattern from SOCKS 
    - Ensure EOF propagation uses `channel.close_write()` and socket shutdown.
    - Track per-connection state and clean up on errors or close.
 5. Wire in logging and config:

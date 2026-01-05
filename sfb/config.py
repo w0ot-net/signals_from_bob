@@ -294,7 +294,6 @@ class Config:
         'module.send',
         'module.recv',
         'sock.pump_stats',
-        'fwd.pump_stats',
         'channel.drain',
         'channel.pack',
         'channel.send_buf_*',
@@ -308,8 +307,6 @@ class Config:
     )
     # Enable SOCKS module logging (stdout + SQLite)
     log_component_module_socks: bool = True
-    # Enable port forward module logging (stdout + SQLite)
-    log_component_module_port_fwd: bool = True
     # Enable file transfer module logging (stdout + SQLite)
     log_component_module_file_transfer: bool = True
     # Enable nc_linux module logging (stdout + SQLite)
@@ -344,30 +341,6 @@ class Config:
     socks_pump_backoff_max: float = 0.001
     # SOCKS thread join timeout (seconds)
     socks_thread_join_timeout: float = 2.0
-
-    # --- Port Forward ---
-    # Port forward listen backlog
-    port_fwd_listen_backlog: int = 5
-    # Port forward accept loop timeout (seconds)
-    port_fwd_accept_timeout: float = 0.5
-    # Channel open timeout for port forward (seconds)
-    port_fwd_channel_open_timeout: float = 10.0
-    # Port forward connect request timeout (seconds)
-    port_fwd_connect_timeout: float = 30.0
-    # Target connect timeout for port forward relay (seconds)
-    port_fwd_connect_target_timeout: float = 30.0
-    # Port forward relay channel read poll timeout (seconds)
-    port_fwd_relay_channel_timeout: float = 0.5
-    # Port forward relay send stall timeout for non-blocking pumps (seconds)
-    port_fwd_relay_write_timeout: Optional[float] = None
-    # Port forward relay buffer size (bytes)
-    port_fwd_relay_buffer_size: int = 2048
-    # Port forward pump poll timeout (seconds)
-    port_fwd_pump_poll_timeout: float = 0.0001
-    # Maximum poll backoff for port forward pump select/wait loops (seconds)
-    port_fwd_pump_backoff_max: float = 0.001
-    # Port forward thread join timeout (seconds)
-    port_fwd_thread_join_timeout: float = 2.0
 
     # --- Protocol (rarely need changing) ---
     # Maximum packet size (bytes)
@@ -573,31 +546,6 @@ class Config:
             raise ValueError("socks_pump_backoff_max must be > 0")
         if self.socks_thread_join_timeout <= 0:
             raise ValueError("socks_thread_join_timeout must be > 0")
-
-        # Port forward validation
-        if self.port_fwd_listen_backlog < 1:
-            raise ValueError("port_fwd_listen_backlog must be >= 1")
-        if self.port_fwd_accept_timeout <= 0:
-            raise ValueError("port_fwd_accept_timeout must be > 0")
-        if self.port_fwd_channel_open_timeout <= 0:
-            raise ValueError("port_fwd_channel_open_timeout must be > 0")
-        if self.port_fwd_connect_timeout <= 0:
-            raise ValueError("port_fwd_connect_timeout must be > 0")
-        if self.port_fwd_connect_target_timeout <= 0:
-            raise ValueError("port_fwd_connect_target_timeout must be > 0")
-        if self.port_fwd_relay_channel_timeout <= 0:
-            raise ValueError("port_fwd_relay_channel_timeout must be > 0")
-        if (self.port_fwd_relay_write_timeout is not None and
-                self.port_fwd_relay_write_timeout <= 0):
-            raise ValueError("port_fwd_relay_write_timeout must be > 0 or None")
-        if self.port_fwd_relay_buffer_size < 1:
-            raise ValueError("port_fwd_relay_buffer_size must be >= 1")
-        if self.port_fwd_pump_poll_timeout <= 0:
-            raise ValueError("port_fwd_pump_poll_timeout must be > 0")
-        if self.port_fwd_pump_backoff_max <= 0:
-            raise ValueError("port_fwd_pump_backoff_max must be > 0")
-        if self.port_fwd_thread_join_timeout <= 0:
-            raise ValueError("port_fwd_thread_join_timeout must be > 0")
 
         # Protocol validation
         if self.protocol_min_rto_ms >= self.protocol_max_rto_ms:

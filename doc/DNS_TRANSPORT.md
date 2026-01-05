@@ -29,6 +29,10 @@ Alice                                           Bob
   │                                               │
 ```
 
+The transport is asymmetric: Alice initiates all DNS queries (polls) and Bob
+only responds to those queries. Bob cannot send unsolicited traffic, and his
+throughput is bounded by Alice's polling rate.
+
 ---
 
 ## Operating Modes
@@ -45,15 +49,16 @@ Alice ────────────────────────�
 ```
 
 **Characteristics:**
-- Alice must know Bob's IP address and query it directly
+- Alice must know Bob's IP:port address and query it directly
 - No domain registration or NS records needed
 - Base domain can be anything (e.g., `x.local`)
 - Lower latency (no resolver hops)
-- Works when Alice can reach Bob on UDP/53
+- Works when Alice can reach Bob on the configured UDP port
 
 **Configuration:**
-- Alice: `resolver` set to Bob's address (required)
-- Bob: Listens on configured address
+- Alice: `dns_resolver` set to Bob's address (required)
+- Bob: Listens on configured address (direct mode commonly uses port 5353 for
+  local tests; port 53 also works with sufficient privileges)
 
 ### Authoritative Mode
 
@@ -71,9 +76,11 @@ Alice ──▶ Recursive Resolver ──▶ ... ──▶ Bob
 - Higher latency (resolver hops)
 - Traffic blends with normal DNS
 - Works when Alice cannot reach Bob directly
+- Requires Bob to listen on UDP/53 for resolver reachability
 
 **Configuration:**
-- Alice: `resolver` optional (uses system resolver if unset)
+- Alice: `dns_resolver` optional (uses system resolver if unset; `/etc/resolv.conf`
+  on Unix and `nslookup` output on Windows)
 - Bob: Must be authoritative NS for `base_domain`
 
 ### Mode Comparison
@@ -137,18 +144,18 @@ Every query includes a unique nonce as the first label. This ensures that:
 - Each query is treated as a fresh lookup
 - TTL=0 in responses is reinforced by query uniqueness
 
-The nonce is a 4-character base32 string derived from a counter or random
-value. Bob strips the first label before decoding the packet data.
+The nonce is a 4-character base32 string derived from a 16-bit counter that
+starts at a random value and increments for each query. Bob skips the nonce
+label before decoding the packet data.
 
 ```python
 # Alice: generate unique nonce for each query
-self.nonce_counter += 1
-nonce = base32_encode(self.nonce_counter & 0xFFFF).zfill(4)[:4]
-query_name = nonce + '.' + encode_data(packet) + '.' + base_domain
+self._nonce = (self._nonce + 1) & 0xFFFF
+nonce_label = base32_encode(struct.pack('>H', self._nonce))[:4]
+query_name = nonce_label + '.' + encode_data(packet, label_max_len) + '.' + base_domain
 
-# Bob: strip nonce before decoding
-labels = query_name.split('.')
-data_labels = labels[1:-len(base_domain.split('.'))]  # skip nonce, skip base_domain
+# Bob: decode query (skips nonce and base domain)
+data = decode_query_name(query_name, base_domain, label_max_len)
 ```
 
 The nonce consumes 5 characters of the 253-character name limit (4 chars + dot).
@@ -195,12 +202,18 @@ Base32 encoded: `JBSWY3DP`
 
 CNAME target: `JBSWY3DP.0.tunnel.example.com`
 
+Resolvers may issue follow-up A queries for the CNAME target. Bob answers those
+queries using `dns_cname_a_addr` (default `0.0.0.0`).
+
 ### DNS Constraints
 
 | Constraint | Limit |
 |------------|-------|
-| UDP packet size | 512 bytes |
+| UDP packet size | 512 bytes (EDNS0 payload size is capped at 512 by config) |
 | CNAME target name length | 253 characters max |
+
+`dns_recv_bufsize_min` only affects the socket recv buffer; it does not change
+the on-wire DNS size limit.
 
 Note: With asymmetric MTU negotiation, Alice and Bob advertise independent
 send/receive MTUs. Response capacity beyond the query MTU can still help if
@@ -216,83 +229,100 @@ the peer accepts a larger receive MTU.
 
 ## MTU Calculation
 
-The transport computes a per-domain MTU so each tunnel packet fits in a single
-DNS query and response. The MTU depends on the base domain length.
+The DNS transport exposes per-direction MTUs:
 
-### Query-Side MTU
+- Alice send_mtu / Bob recv_mtu: query-side MTU (encoded in the QNAME).
+- Alice recv_mtu / Bob send_mtu: response-side MTU (encoded in the CNAME target).
+
+These values depend on `base_domain`, `cname_label`, and `label_max_len`. The
+tunnel negotiates tx/rx MTUs independently (asymmetric MTU).
+
+### Query-Side MTU (Alice send_mtu, Bob recv_mtu)
 
 ```
-available_chars = 253 - len(base_domain) - 1 - 5  # -1 trailing dot, -5 nonce+dot
-label_overhead = floor(available_chars / (50 + 1))
+available_chars = 253 - len(base_domain) - 1 - 4 - 1  # nonce is 4 chars
+label_overhead = floor(available_chars / (label_max_len + 1))
 usable_chars = available_chars - label_overhead
 query_mtu = floor(usable_chars * 5 / 8)           # base32 decode ratio
 ```
 
-**Example with `tunnel.example.com` (18 chars):**
+**Example with `tunnel.example.com` (18 chars, label_max_len=50):**
 
 ```
-available_chars = 253 - 18 - 1 - 5 = 229
+available_chars = 253 - 18 - 1 - 4 - 1 = 229
 label_overhead = floor(229 / 51) = 4
 usable_chars = 229 - 4 = 225
 query_mtu = floor(225 * 5 / 8) = 140 bytes
 ```
 
-### Response-Side MTU
+### Response-Side MTU (Alice recv_mtu, Bob send_mtu)
 
 ```
+cname_suffix = cname_label + '.' + base_domain
 available_chars = 253 - len(cname_suffix) - 1
-label_overhead = floor(available_chars / (50 + 1))
+label_overhead = floor(available_chars / (label_max_len + 1))
 usable_chars = available_chars - label_overhead
 response_mtu = floor(usable_chars * 5 / 8)
 ```
 
-### Effective MTU
-
-The transport MTU is the minimum of query and response MTU:
+**Example with `tunnel.example.com`, cname_label=`0`, label_max_len=50:**
 
 ```
-transport_mtu = min(query_mtu, response_mtu)
+response_mtu = 142 bytes
 ```
 
-For `tunnel.example.com`: `min(141, 191) = 141 bytes`
+### CNAME Payload Cap (512-byte DNS responses)
 
-The query side is always the bottleneck due to base32's higher overhead and
-DNS name length limits.
+When `dns_response_type=CNAME` and `dns_edns_size <= 512`, the full DNS response
+must fit in 512 bytes and includes the original QNAME in both the question and
+answer sections. This reduces the usable response payload for long queries.
+
+The client precomputes a conservative `payload_cap`, and the server computes a
+per-query cap based on the actual QNAME wire length. Bob clamps the max packet
+size to at least 512 bytes for this calculation and uses the per-query cap to
+limit response payloads.
+
+For `tunnel.example.com` with `cname_label=0` and `label_max_len=50`, the cap is
+84 bytes.
 
 ### MTU Examples by Domain Length
 
-| Base Domain | Length | Query MTU | Response MTU | Effective MTU |
-|-------------|--------|-----------|--------------|---------------|
-| `t.co` | 4 | 150 | 191 | 150 |
-| `example.com` | 11 | 145 | 191 | 145 |
-| `tunnel.example.com` | 18 | 141 | 191 | 141 |
-| `sub.tunnel.example.com` | 22 | 138 | 191 | 138 |
-| `very.long.subdomain.example.com` | 31 | 133 | 191 | 133 |
+| Base Domain | Length | Query MTU | Response MTU | CNAME Payload Cap (512) |
+|-------------|--------|-----------|--------------|-------------------------|
+| `t.co` | 4 | 149 | 151 | 93 |
+| `example.com` | 11 | 145 | 146 | 88 |
+| `tunnel.example.com` | 18 | 140 | 142 | 84 |
+| `sub.tunnel.example.com` | 22 | 138 | 140 | 81 |
+| `very.long.subdomain.example.com` | 31 | 132 | 134 | 76 |
 
-Shorter domains provide higher MTU and thus higher throughput.
+Shorter domains and shorter `cname_label` values provide higher MTU and payload
+cap, which improves throughput.
+
+Values above assume `dns_label_max_len=50`, `dns_cname_label=0`, and
+`dns_edns_size=512`.
 
 ---
 
 ## Label Splitting Algorithm
 
-When encoding a packet into DNS labels, the base32 data must be split to
-respect the 63-character label limit, with a nonce prefix for cache busting.
+When encoding a packet into DNS labels, the base32 data is split to respect
+`label_max_len` (default 50, max 63), with a nonce prefix for cache busting.
 
 ### Encoding Algorithm
 
 ```python
-def encode_query(packet, base_domain, nonce_counter):
+def encode_query(packet, base_domain, nonce_counter, label_max_len):
     # Generate cache-busting nonce
-    nonce = base32_encode(nonce_counter & 0xFFFF).rstrip('=')[:4]
+    nonce = base32_encode(struct.pack('>H', nonce_counter & 0xFFFF))[:4]
 
     # Encode packet data
     b32 = base32_encode(packet).rstrip('=')
 
-    # Split into 63-char labels
+    # Split into label_max_len labels
     labels = [nonce]
     while b32:
-        labels.append(b32[:63])
-        b32 = b32[63:]
+        labels.append(b32[:label_max_len])
+        b32 = b32[label_max_len:]
 
     return '.'.join(labels) + '.' + base_domain
 ```
@@ -302,27 +332,18 @@ def encode_query(packet, base_domain, nonce_counter):
 Packet: 100 bytes
 Base32: 160 characters
 Nonce: 4 characters
-Labels: 1 (nonce) + ceil(160 / 63) = 4 labels
+Labels: 1 (nonce) + ceil(160 / 50) = 5 labels
 
 ```
-A7B3.<63 chars>.<63 chars>.<34 chars>.tunnel.example.com
+A7B3.<50 chars>.<50 chars>.<50 chars>.<10 chars>.tunnel.example.com
 ```
 
 ### Decoding Algorithm
 
 ```python
-def decode_query(query_name, base_domain):
-    # Remove base domain suffix
-    suffix_len = len(base_domain) + 1  # +1 for dot
-    data_part = query_name[:-suffix_len]
-
-    # Split into labels and skip nonce (first label)
-    labels = data_part.split('.')
-    data_labels = labels[1:]  # skip nonce
-
-    # Concatenate and decode
-    b32 = ''.join(data_labels)
-    return base32_decode(b32)
+def decode_query(query_name, base_domain, label_max_len):
+    # decode_query_name validates suffix and skips the nonce label
+    return decode_query_name(query_name, base_domain, label_max_len)
 ```
 
 ---
@@ -336,136 +357,74 @@ responses.
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `base_domain` | Tunnel domain suffix | `tunnel.example.com` |
-| `resolver` | DNS server to query | `203.0.113.1:53` |
-| `query_type` | Query record type | `A` |
-| `response_type` | Response record type | `CNAME` |
-| `label_max_len` | Max tunnel label length | `50` |
-| `cname_label` | Label for CNAME suffix | `0` |
-| `timeout` | Query timeout | `5s` |
-| `pending_timeout` | Stale query timeout (frees in-flight slots, min 1s) | `10s` |
+| `dns_base_domain` | Tunnel domain suffix | `tunnel.example.com` |
+| `dns_resolver` | DNS server to query (host:port) | `203.0.113.1:53` |
+| `dns_query_type` | Query record type (fixed to `A`) | `A` |
+| `dns_response_type` | Response record type (fixed to `CNAME`) | `CNAME` |
+| `dns_label_max_len` | Max tunnel label length (4-63) | `50` |
+| `dns_cname_label` | Label for CNAME suffix | `0` |
+| `dns_edns_size` | UDP payload size (must be <= 512) | `512` |
+| `dns_recv_bufsize_min` | Minimum UDP recv buffer size | `4096` |
+| `dns_pending_timeout` | Stale query timeout (frees in-flight slots, min 1s) | `5s` |
 
-**Direct mode:** `resolver` must be set to Bob's address. The `base_domain` can
+**Direct mode:** `dns_resolver` must be set to Bob's address. The `base_domain` can
 be any valid domain suffix (e.g., `x.local`); it just needs to match Bob's
 configuration.
 
-**Authoritative mode:** `resolver` is optional. If unset, Alice reads
-`/etc/resolv.conf` to discover system resolvers. The `base_domain` must be the
-domain Bob is authoritative for.
+**Authoritative mode:** `dns_resolver` is optional. If unset, Alice loads system
+resolvers from `/etc/resolv.conf` on Unix or `nslookup` output on Windows. The
+`base_domain` must be the domain Bob is authoritative for.
 
 ### Transport Interface
 
 ```python
-class DnsTransport(Transport):
-    """
-    DNS transport with pipelining support.
+from sfb.transport.dns import DnsClient
 
-    Uses non-blocking I/O to manage multiple in-flight queries.
-    Correlation IDs map to DNS query IDs internally.
-    """
+client = DnsClient(config)
 
-    def __init__(self, base_domain, resolver=None, config=None, timeout=5.0):
-        self._socket = socket.socket(AF_INET, SOCK_DGRAM)
-        self._socket.setblocking(False)
-        self._pending = {}      # corr_id -> _PendingQuery
-        self._dns_id_map = {}   # dns_query_id -> corr_id
-        self._next_corr_id = 1
-        self._max_in_flight = config.max_in_flight
-
-    def reserve_send(self, now=None):
-        """Prune stale entries, check capacity, and reserve a send permit."""
-        ...
-
-    def send(self, packet, permit):
-        """Encode packet, send DNS query, return correlation ID."""
-        corr_id = self._next_corr_id
-        self._next_corr_id += 1
-
-        query_name = self.encode_query(packet)
-        dns_id = self.next_dns_id()
-
-        self._pending[corr_id] = _PendingQuery(
-            corr_id=corr_id,
-            dns_id=dns_id,
-            send_time=time_provider.now(),
-        )
-        self._dns_id_map[dns_id] = corr_id
-
-        self.send_dns_query(query_name, dns_id, qtype=A)
-        return corr_id
-
-    def recv(self, timeout=None):
-        """
-        Receive next available response.
-
-        Uses select() to wait for socket readability.
-        Returns (corr_id, data) or (None, None) on timeout.
-        """
-        # Wait for socket readable
-        readable, _, _ = select.select([self._socket], [], [], timeout)
-        if not readable:
-            return (None, None)
-
-        # Read response
-        raw, addr = self._socket.recvfrom(4096)
-        dns_id, response_data = self.decode_dns_response(raw)
-
-        # Match to correlation ID
-        corr_id = self._dns_id_map.pop(dns_id, None)
-        if corr_id is None:
-            return (None, None)  # Unknown/duplicate
-
-        self._pending.pop(corr_id, None)
-        return (corr_id, self.decode_response(response_data))
-
-    def pending_count(self):
-        return len(self._pending)
-
-    def release_send(self, permit):
-        """Release a reserved permit when a send is skipped."""
-        ...
-
-    @property
-    def max_in_flight(self):
-        return self._max_in_flight
-
-    @property
-    def send_mtu(self):
-        return self._send_mtu
-
-    @property
-    def recv_mtu(self):
-        return self._recv_mtu
-
-    def close(self):
-        self._socket.close()
+permit = client.reserve_send()
+if permit is None:
+    raise RuntimeError('capacity exhausted')
+corr_id = client.send(packet, permit)
+corr_id, response = client.recv(timeout=5.0)
 ```
+
+`send()` requires a `SendPermit` from `reserve_send()`. Use `release_send()` if
+you reserve a permit but skip a send. `recv(timeout)` returns `(corr_id, data)`
+or `(None, None)` on timeout.
 
 ### Usage Patterns
 
 **Serial (max_in_flight=1 or explicit recv after each send):**
 
 ```python
-config = Config(max_in_flight=1)
-transport = DnsTransport(domain, resolver, config=config)
-permit = transport.reserve_send()
+config = Config(
+    dns_base_domain=domain,
+    dns_resolver=resolver,
+    max_in_flight=1,
+)
+client = DnsClient(config)
+permit = client.reserve_send()
 if permit is None:
     raise RuntimeError('capacity exhausted')
-corr_id = transport.send(packet, permit)
-corr_id, response = transport.recv(timeout=5.0)
+corr_id = client.send(packet, permit)
+corr_id, response = client.recv(timeout=5.0)
 ```
 
 **Pipelined:**
 
 ```python
-config = Config()
-transport = DnsTransport(domain, resolver, config=config)
+config = Config(
+    dns_base_domain=domain,
+    dns_resolver=resolver,
+)
+client = DnsClient(config)
 
 # Alice's tick loop
 def tick():
     # Drain available responses (non-blocking)
     while True:
-        corr_id, response = transport.recv(timeout=0)
+        corr_id, response = client.recv(timeout=0)
         if corr_id is None:
             break
         process_response(corr_id, response)
@@ -475,10 +434,10 @@ def tick():
         packet = next_packet()
         if packet is None:
             break
-        permit = transport.reserve_send()
+        permit = client.reserve_send()
         if permit is None:
             break
-        transport.send(packet, permit)
+        client.send(packet, permit)
 ```
 
 Responses may arrive out of order. The reliability layer uses sequence numbers
@@ -494,14 +453,14 @@ timestamps:
 
 ```python
 # Tunnel layer tracks: corr_id -> (seq, send_time, is_retransmit)
-    permit = transport.reserve_send()
+    permit = client.reserve_send()
     if permit is None:
         return
-    corr_id = transport.send(packet_data, permit)
+    corr_id = client.send(packet_data, permit)
     in_flight[corr_id] = InFlightPacket(seq, time_provider.now(), is_retransmit=False)
 
 # When response arrives
-corr_id, response = transport.recv(timeout=0)
+corr_id, response = client.recv(timeout=0)
 if corr_id in in_flight:
     info = in_flight.pop(corr_id)
     if not info.is_retransmit:
@@ -519,13 +478,9 @@ single prune and reuses the result to avoid redundant O(n) work:
 ```python
 def _prune_stale(self):
     """Remove pending queries older than pending_timeout."""
-    now = time_provider.now()
-    stale = [cid for cid, pq in self._pending.items()
-             if now - pq.send_time > self._pending_timeout]
-    for cid in stale:
-        dns_id = self._pending[cid].dns_id
-        del self._pending[cid]
-        self._dns_to_corr.pop(dns_id, None)
+    stale = self._pending.prune(now=time_provider.now())
+    for _, pending in stale:
+        self._dns_to_corr.pop(pending.dns_id, None)
 ```
 
 Pruning cannot be disabled (`pending_timeout` minimum is 1 second). This
@@ -543,14 +498,15 @@ Bob is the tunnel server. He runs a DNS server and responds to Alice's queries.
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `base_domain` | Tunnel domain suffix to recognize | `tunnel.example.com` |
-| `listen_addr` | UDP address to listen on | `0.0.0.0:53` |
-| `query_type` | Query record type | `A` |
-| `response_type` | Response record type | `CNAME` |
-| `label_max_len` | Max tunnel label length | `50` |
-| `cname_label` | Label for CNAME suffix | `0` |
-| `cname_a_addr` | A record for CNAME follow-ups | `0.0.0.0` |
-| `ttl` | TTL for responses | `0` (no caching) |
+| `dns_base_domain` | Tunnel domain suffix to recognize | `tunnel.example.com` |
+| `dns_listen_addr` | UDP address to listen on | `0.0.0.0:53` |
+| `dns_query_type` | Query record type (fixed to `A`) | `A` |
+| `dns_response_type` | Response record type (fixed to `CNAME`) | `CNAME` |
+| `dns_label_max_len` | Max tunnel label length (4-63) | `50` |
+| `dns_cname_label` | Label for CNAME suffix | `0` |
+| `dns_cname_a_addr` | A record for CNAME follow-ups | `0.0.0.0` |
+| `dns_edns_size` | UDP payload size (must be <= 512) | `512` |
+| `dns_recv_bufsize_min` | Minimum UDP recv buffer size | `4096` |
 
 ### DNS Server Setup
 
@@ -559,8 +515,8 @@ port, and Alice queries him directly. The `base_domain` just needs to match
 Alice's configuration; it doesn't need to be a real domain.
 
 ```
-# Bob listens on 203.0.113.1:53
-# Alice queries 203.0.113.1:53 directly
+# Bob listens on 203.0.113.1:5353
+# Alice queries 203.0.113.1:5353 directly
 # base_domain can be anything, e.g., "x.local"
 ```
 
@@ -570,7 +526,7 @@ for `base_domain`. This requires:
 1. Domain registration or control of parent zone
 2. NS record pointing to Bob's server
 3. Glue record (A record for the nameserver if self-hosted)
-4. Firewall: UDP port 53 open
+4. Firewall: UDP port 53 open (authoritative mode expects port 53)
 
 Example DNS zone for `example.com`:
 
@@ -584,33 +540,17 @@ With this configuration, queries for `*.tunnel.example.com` are routed to Bob.
 ### Transport Interface
 
 ```python
-class DnsTransport:
-    def recv(self):
-        """Receive DNS query and decode packet. Blocking."""
-        while True:
-            query, client_addr = self.recv_dns_query()  # blocks
-            if not query.name.endswith(self.base_domain):
-                continue  # Ignore non-tunnel queries
-            decoded = self.decode_query(query.name)
-            def responder(packet):
-                response_data = self.encode_response(packet)
-                self.send_dns_response(query.id, client_addr, response_data)
-            return decoded, responder
+from sfb.transport.dns import DnsServer
 
-    def close(self):
-        """Close UDP socket."""
-        self.socket.close()
-
-    @property
-    def recv_mtu(self):
-        """Maximum bytes that can be received in one poll."""
-        return self._recv_mtu
-
-    @property
-    def send_mtu(self):
-        """Maximum bytes that can be sent in one response."""
-        return self._send_mtu
+server = DnsServer(config)
+data, responder = server.recv(timeout=None)
+if data is not None:
+    response_data = process(data)
+    responder(response_data)
 ```
+
+`recv()` returns `(None, None)` on timeout. The `responder` callable sends the
+response for the corresponding query.
 
 ### Serial Processing
 
@@ -618,7 +558,7 @@ Bob must respond to each query before receiving the next:
 
 ```python
 while running:
-    alice_packet, responder = transport.recv()   # blocks
+    alice_packet, responder = server.recv()      # blocks
     bob_packet = process(alice_packet)           # tunnel processing
     responder(bob_packet)                        # respond to that query
 ```
@@ -636,11 +576,11 @@ Between `recv()` and the responder callback, Bob holds the query context
 Bob should set TTL=0 on tunnel responses to prevent caching:
 
 ```python
-def send_dns_response(self, query_id, client_addr, response_data):
+def send_dns_response(self, query_id, qname, client_addr, response_data):
     response = DnsResponse()
     response.id = query_id
     response.add_answer(
-        name=self.base_domain,
+        name=qname,
         qtype=CNAME,
         ttl=0,              # No caching
         data=response_data
@@ -652,34 +592,36 @@ Caching would cause stale data and break the tunnel.
 
 ### Handling Non-Tunnel Queries
 
-In authoritative mode, Bob may receive legitimate DNS queries for the domain
-(e.g., SOA, NS from resolvers). He should respond appropriately:
+In authoritative mode, Bob may receive resolver follow-ups and other queries.
+The DNS server handles them minimally to avoid timeouts:
 
 ```python
-# cname_suffix = cname_label + '.' + base_domain
 def recv_dns_query(self):
     while True:
         data, addr = self.socket.recvfrom(512)
         query = DnsQuery.decode(data)
 
-        if query.qtype == A and query.name.endswith(self.base_domain):
-            return query, addr
-
-        if query.qtype == A and query.name.endswith(cname_suffix):
-            self.send_a_response(query, addr)
+        if not query.name.endswith(self.base_domain):
             continue
 
-        # Handle other query types minimally (authoritative mode)
-        if query.qtype == SOA:
-            self.send_soa_response(query, addr)
-        elif query.qtype == NS:
-            self.send_ns_response(query, addr)
-        else:
-            self.send_nxdomain(query, addr)
+        if query.qtype != A:
+            self.send_empty_response(query, addr, reason='qtype_mismatch')
+            continue
+
+        if query.name.endswith(cname_suffix):
+            self.send_cname_followup(query, addr)
+            continue
+
+        try:
+            return decode_query_name(query.name, self.base_domain), addr
+        except ValueError:
+            self.send_empty_response(query, addr, reason='decode_failed')
+            continue
 ```
 
-In direct mode, Bob can simply ignore non-A queries since Alice only sends A
-queries for tunnel data.
+In direct mode, Bob still ignores queries outside `base_domain` and returns
+empty responses for qtype mismatches or decode failures to avoid resolver
+timeouts.
 
 ### Outbound Buffer
 
@@ -691,9 +633,13 @@ Bob queues outbound packets. When Alice polls:
 4. If data: encode and send
 5. If no channel data is queued: send keepalive-only packet (FLAG_KEEPALIVE,
    zero segments)
+6. If there is pending data but nothing fits, send an ack-only response
+   (keepalive suppressed)
 
 The response always contains a valid tunnel packet (with seq/ack headers). When
-no data is queued, the packet carries no segments and sets FLAG_KEEPALIVE.
+no data is queued, the packet carries no segments and sets FLAG_KEEPALIVE. When
+pending data exists but no segments fit, Bob sends an ack-only response without
+the keepalive flag.
 
 ---
 
@@ -745,7 +691,8 @@ Alice → Recursive Resolver → ... → Bob
 
 The tunnel works through resolvers because:
 - A queries are passed through unchanged
-- CNAME responses are returned to Alice (often with an A follow-up)
+- CNAME responses are returned to Alice (often with an A follow-up, which Bob
+  answers using `dns_cname_a_addr`)
 - TTL=0 prevents caching
 
 However, some resolvers may:
@@ -775,8 +722,9 @@ direct query when Alice can reach Bob on UDP/53.
 |-------|----------|
 | Malformed query | Ignore (no response) |
 | Wrong domain suffix | Ignore |
-| Base32 decode failure | Ignore |
-| Packet too large for response | Should not happen (MTU enforced) |
+| QTYPE mismatch | Send empty NOERROR+SOA (avoid resolver timeouts) |
+| Base32 decode failure | Send empty NOERROR+SOA (avoid resolver timeouts) |
+| Response encode error | Log and drop response |
 
 ### Network Errors
 
@@ -795,24 +743,24 @@ No domain setup required. Alice queries Bob directly with maximum performance.
 
 **Alice:**
 ```python
-transport = DnsTransport(
-    base_domain='x',                 # Shortest possible domain
-    resolver='203.0.113.1:53',       # Bob's address (required)
-    timeout=5.0
+config = Config(
+    dns_base_domain='x',              # Shortest possible domain
+    dns_resolver='203.0.113.1:5353',  # Bob's address (required)
 )
+client = DnsClient(config)
 ```
 
 **Bob:**
 ```python
-transport = DnsTransport(
-    base_domain='x',                 # Must match Alice
-    listen_addr='0.0.0.0:53',
-    ttl=0
+config = Config(
+    dns_base_domain='x',              # Must match Alice
+    dns_listen_addr='0.0.0.0:5353',
 )
+server = DnsServer(config)
 ```
 
-This configuration provides maximum throughput: ~150 bytes per packet
-with 16x pipelining.
+This configuration uses an unprivileged port for local tests. Use port 53 if
+you can bind it directly.
 
 ### Authoritative Mode
 
@@ -820,20 +768,20 @@ Requires DNS delegation to Bob.
 
 **Alice:**
 ```python
-transport = DnsTransport(
-    base_domain='tunnel.example.com',
-    resolver=None,                   # Use system resolver
-    timeout=5.0
+config = Config(
+    dns_base_domain='tunnel.example.com',
+    dns_resolver=None,               # Use system resolver
 )
+client = DnsClient(config)
 ```
 
 **Bob:**
 ```python
-transport = DnsTransport(
-    base_domain='tunnel.example.com',
-    listen_addr='0.0.0.0:53',
-    ttl=0
+config = Config(
+    dns_base_domain='tunnel.example.com',
+    dns_listen_addr='0.0.0.0:53',
 )
+server = DnsServer(config)
 ```
 
 **DNS Setup:**
@@ -849,11 +797,11 @@ Alice queries Bob directly but uses a real domain (for fallback capability).
 
 **Alice:**
 ```python
-transport = DnsTransport(
-    base_domain='tunnel.example.com',
-    resolver='203.0.113.1:53',       # Query Bob directly for lower latency
-    timeout=5.0
+config = Config(
+    dns_base_domain='tunnel.example.com',
+    dns_resolver='203.0.113.1:53',   # Query Bob directly for lower latency
 )
+client = DnsClient(config)
 ```
 
 This combines the reliability of a real domain (can fall back to resolver)
@@ -869,24 +817,25 @@ This section describes techniques to maximize throughput over the DNS transport.
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| Query overhead | ~30 bytes | DNS header + question overhead |
-| Response overhead | ~45 bytes | DNS header + answer overhead |
-| Encoding overhead (query) | 1.625x | Base32 |
-| Encoding overhead (response) | 1.625x | Base32 in CNAME target |
-| Base MTU | 130-150 bytes (query), ~125-145 bytes (response) | Depends on suffix length |
+| Query overhead | 12 + qname_len + 4 bytes | DNS header + question |
+| Response overhead | 12 + qname_len + 4 + qname_len + 10 bytes | Header + question + answer (without RDATA) |
+| Encoding overhead (query/response) | 1.625x | Base32 in QNAME/CNAME |
+| MTU (label_max_len=50) | 132-151 bytes (query), 134-153 bytes (response) | Depends on domain and cname_label |
+| CNAME payload cap (512) | 76-94 bytes | Depends on domain and cname_label |
 
 ### Optimal Domain Selection
 
-Shorter base domains provide higher query-side MTU:
+Shorter base domains and shorter `dns_cname_label` values provide higher MTU
+and payload caps:
 
-| Base Domain | Query MTU | Improvement |
-|-------------|-----------|-------------|
-| `t.co` | 150 | +10 bytes vs 19-char domain |
-| `a.io` | 150 | +10 bytes |
-| `x.local` (direct mode) | 148 | +8 bytes |
-| `tunnel.example.com` | 140 | baseline |
+| Base Domain | Query MTU | CNAME Payload Cap (512) |
+|-------------|-----------|-------------------------|
+| `t.co` | 149 | 93 |
+| `x.local` (direct mode) | 147 | 91 |
+| `tunnel.example.com` | 140 | 84 |
 
-For direct mode, use the shortest possible domain (e.g., `x.x` = 3 chars).
+For direct mode, use the shortest possible domain (e.g., `x.x` or `x`) and a
+short `dns_cname_label`.
 
 ### Aggressive Pipelining
 
@@ -895,19 +844,19 @@ Alice should maintain `max_in_flight` queries in-flight at all times
 
 ```python
 # Optimal pipelining loop
-while data_to_send or transport.pending_count() > 0:
+while data_to_send or client.pending_count() > 0:
     # Send up to max_in_flight
     while data_to_send:
         packet = next_packet()
-        permit = transport.reserve_send()
+        permit = client.reserve_send()
         if permit is None:
             break
-        corr_id = transport.send(packet, permit)
+        corr_id = client.send(packet, permit)
         in_flight[corr_id] = packet.seq
 
     # Drain all available responses (non-blocking)
     while True:
-        corr_id, response = transport.recv(timeout=0)
+        corr_id, response = client.recv(timeout=0)
         if corr_id is None:
             break
         in_flight.pop(corr_id, None)
@@ -930,14 +879,14 @@ while running:
         packet = next_outbound()
         if packet is None:
             break
-        permit = transport.reserve_send()
+        permit = client.reserve_send()
         if permit is None:
             break
-        transport.send(packet, permit)
+        client.send(packet, permit)
 
     # Process responses with short timeout
     while True:
-        corr_id, response = transport.recv(timeout=0.01)
+        corr_id, response = client.recv(timeout=0.01)
         if corr_id is None:
             break
         process(response)
@@ -967,26 +916,30 @@ def prepare_response(mtu):
 
 ### Performance Summary
 
-| Configuration | Query MTU | Response MTU | Effective |
-|---------------|-----------|--------------|-----------|
-| Standard CNAME | 140 | 140 | 140 |
-| Short domain (direct) | 150 | 150 | 150 |
+| Configuration | Query MTU | Response MTU | CNAME Payload Cap (512) |
+|---------------|-----------|--------------|-------------------------|
+| `tunnel.example.com` | 140 | 142 | 84 |
+| `x` (direct mode) | 151 | 153 | 94 |
 
-The bottleneck is the smaller of the query-side and response-side MTUs.
+With 512-byte DNS responses, the CNAME payload cap often becomes the limiting
+factor for response payload size.
 
 ### Throughput Estimates
 
-The estimates below assume CNAME responses and a short CNAME suffix.
+The estimates below assume CNAME responses with `tunnel.example.com` (payload
+cap 84 bytes) unless noted otherwise. Payload bytes refer to tunnel packet
+bytes; application payload is smaller due to protocol headers.
 
 | Scenario | Packets/s | Payload/pkt | Throughput |
 |----------|-----------|-------------|------------|
-| Sequential, 100ms RTT | 10 | 130 | 1.3 KB/s |
-| Pipelined x8, 100ms RTT | 80 | 130 | 10.4 KB/s |
-| Pipelined x16, 100ms RTT | 160 | 130 | 20.8 KB/s |
-| Pipelined x16, 50ms RTT | 320 | 130 | 41.6 KB/s |
-| Direct mode, 10ms RTT, x16 | 1600 | 140 | 224 KB/s |
+| Sequential, 100ms RTT | 10 | 84 | 0.84 KB/s |
+| Pipelined x8, 100ms RTT | 80 | 84 | 6.7 KB/s |
+| Pipelined x16, 100ms RTT | 160 | 84 | 13.4 KB/s |
+| Pipelined x16, 50ms RTT | 320 | 84 | 26.9 KB/s |
+| Direct mode, 10ms RTT, x16 (`x`) | 1600 | 94 | 150 KB/s |
 
 Maximum theoretical throughput in ideal conditions (direct mode, minimal RTT,
-max pipelining): **200+ KB/s**
+max pipelining): **~150 KB/s**
 
-Practical throughput with authoritative mode through resolvers: **10-50 KB/s**
+Practical throughput with authoritative mode through resolvers is usually
+lower due to resolver latency and rate limiting.

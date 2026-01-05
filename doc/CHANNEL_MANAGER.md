@@ -86,6 +86,8 @@ Incoming segments are routed by channel ID:
   rate-limited per channel ID.
 - If delivery would exceed a channel's receive buffer, the channel is aborted
   with `close_err`.
+- Control segments from a packet are delivered and processed before any data
+  segments in that packet so open/close state changes apply before data.
 
 ---
 

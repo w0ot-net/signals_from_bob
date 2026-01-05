@@ -543,6 +543,46 @@ class BaseTunnelGapTests(unittest.TestCase):
         self.assertEqual(tunnel._send_window.last_cum_ack, 10)
         self.assertEqual(tunnel._send_window.last_cum_ack_time, last_time)
 
+    def test_process_incoming_packet_orders_control_before_data(self):
+        from sfb.protocol import Packet, Segment, CHANNEL_CONTROL
+        from sfb.channel.channel import STATE_OPEN, STATE_OPENING
+        from sfb.tunnel.tunnel_control_messages import ch_open_ok, encode
+
+        tunnel = BaseTunnel(make_test_config())
+        tunnel._set_state(TunnelState.CONNECTED)
+        tunnel._recv_window.set_initial_seq(0)
+
+        channel = tunnel.channel_manager.open_channel()
+        self.assertEqual(channel.state, STATE_OPENING)
+
+        delivered_states = []
+        original_deliver = channel._deliver
+
+        def deliver_with_state(data):
+            delivered_states.append(channel.state)
+            original_deliver(data)
+
+        channel._deliver = deliver_with_state
+
+        control_segment = Segment(
+            CHANNEL_CONTROL,
+            encode(ch_open_ok(channel.id)),
+        )
+        data_segment = Segment(channel.id, b'hi')
+        packet = Packet(
+            seq=0,
+            ack=0,
+            sack=0,
+            flags=0,
+            segments=[control_segment, data_segment],
+        )
+
+        tunnel._process_incoming_packet(packet, now=time_provider.now())
+
+        self.assertEqual(channel.state, STATE_OPEN)
+        self.assertEqual(delivered_states, [STATE_OPEN])
+        self.assertEqual(channel.read(2, timeout=0), b'hi')
+
     def test_process_control_messages_handles_invalid_json(self):
         tunnel = BaseTunnel(make_test_config())
         tunnel.control._deliver(b'notjson\n')

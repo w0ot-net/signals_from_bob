@@ -138,7 +138,15 @@ class ChannelManager(object):
     def _register_channel_locked(self, channel):
         channel._close_callback = self._on_channel_close
         channel._half_close_callback = self._on_channel_half_close
-        channel._set_send_state_callback(self._on_channel_send_state)
+        def _send_state_callback(channel_id, has_data, seq,
+                                 channel_ref=channel):
+            self._on_channel_send_state(
+                channel_ref,
+                channel_id,
+                has_data,
+                seq,
+            )
+        channel._set_send_state_callback(_send_state_callback)
         self._channels[channel.id] = channel
         self._unknown_channel_last.pop(channel.id, None)
         self._id_reuse_until.pop(channel.id, None)
@@ -164,11 +172,11 @@ class ChannelManager(object):
             del self._active_channels[channel_id]
         return channel
 
-    def _on_channel_send_state(self, channel_id, has_data, seq):
+    def _on_channel_send_state(self, channel, channel_id, has_data, seq):
         if channel_id == CHANNEL_CONTROL:
             return
         with self._lock:
-            if channel_id not in self._channels:
+            if self._channels.get(channel_id) is not channel:
                 return
             last_seq = self._send_state_seq.get(channel_id, 0)
             if seq <= last_seq:

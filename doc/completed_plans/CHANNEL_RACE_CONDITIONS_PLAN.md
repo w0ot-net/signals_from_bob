@@ -47,3 +47,12 @@ packet, and ensure stale send-state callbacks cannot affect a reused channel ID.
 - The callback guard is low risk and preserves Python 2.7/3 compatibility using
   standard library constructs only.
 - Keep behavior consistent on Windows and Linux.
+
+## Execution Notes
+- Confirmed `BaseTunnel._process_incoming_packet` already processes control
+  segments before data in the same packet.
+- Wrapped send-state callbacks to validate channel identity before mutating
+  send-state tracking.
+- Added a unit test covering `open_ok` plus data in one packet.
+- Updated channel manager documentation for the ordering guarantee.
+- Tests not run (per instructions; user will run non-E2E tests).

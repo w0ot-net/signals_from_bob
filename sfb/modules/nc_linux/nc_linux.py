@@ -448,8 +448,11 @@ class NcLinuxModule(RequestResponseMixin, BaseModule):
         )
 
     def _close_channel(self, ch):
+        channel = self._tunnel.channel_manager.get_channel(ch)
+        if channel is None:
+            return
         try:
-            self._tunnel.channel_manager.close_channel(ch)
+            channel.close()
         except Exception:
             pass
 

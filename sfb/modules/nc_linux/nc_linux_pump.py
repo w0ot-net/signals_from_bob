@@ -7,6 +7,7 @@ import errno
 import logging
 import os
 import select
+import socket
 
 from ...channel import ChannelError
 from ...logging_util import log_event
@@ -50,6 +51,23 @@ def _select(read_list, write_list, timeout):
         if _is_interrupted(exc):
             return [], []
         raise
+
+
+def _shutdown_fd_write(fd):
+    try:
+        sock = socket.fromfd(fd, socket.AF_INET, socket.SOCK_STREAM)
+    except Exception:
+        return False
+    try:
+        sock.shutdown(socket.SHUT_WR)
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
 
 
 def _poll_bounds(config):
@@ -304,6 +322,7 @@ def pump_channel_to_fd(channel, fd, config, logger, stop_event,
                 if channel.is_closed:
                     exit_reason = 'channel_closed'
                 else:
+                    _shutdown_fd_write(fd)
                     exit_reason = 'remote_half_close'
                 break
 

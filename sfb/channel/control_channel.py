@@ -46,6 +46,18 @@ class ControlChannel(Channel):
         data = encode_message(obj)
         return self.write(data)
 
+    def close(self):
+        """Control channel lifetime is tied to the tunnel."""
+        return
+
+    def abort(self, code='aborted', message='Channel aborted'):
+        """Ignore abort requests for control channel."""
+        return
+
+    def close_write(self):
+        """Ignore half-close requests for control channel."""
+        return
+
     def write(self, data):
         written = Channel.write(self, data)
         if written:

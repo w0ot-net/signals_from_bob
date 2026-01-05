@@ -723,6 +723,15 @@ class ChannelManager(object):
         channel_id = msg.get('ch')
         if channel_id is None:
             return
+        if channel_id == CHANNEL_CONTROL:
+            log_event(
+                logger,
+                logging.WARNING,
+                'channel.control_close_blocked',
+                'Ignoring close for control channel',
+                lambda: {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+            )
+            return
 
         with self._lock:
             channel = self._channels.get(channel_id)
@@ -745,6 +754,18 @@ class ChannelManager(object):
         """Handle CLOSE_ERR request from peer."""
         channel_id = msg.get('ch')
         if channel_id is None:
+            return
+        if channel_id == CHANNEL_CONTROL:
+            log_event(
+                logger,
+                logging.WARNING,
+                'channel.control_close_blocked',
+                'Ignoring close for control channel',
+                lambda: {
+                    'ch': channel_id,
+                    'side': 'alice' if self._is_alice else 'bob',
+                },
+            )
             return
 
         code = msg.get('code', 'remote_error')
@@ -803,6 +824,15 @@ class ChannelManager(object):
         """Handle CLOSE_OK response."""
         channel_id = msg.get('ch')
         if channel_id is None:
+            return
+        if channel_id == CHANNEL_CONTROL:
+            log_event(
+                logger,
+                logging.WARNING,
+                'channel.control_close_blocked',
+                'Ignoring close_ok for control channel',
+                lambda: {'ch': channel_id, 'side': 'alice' if self._is_alice else 'bob'},
+            )
             return
 
         with self._lock:

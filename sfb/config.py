@@ -116,6 +116,8 @@ class Config:
     tls_bump_response_regex: Optional[str] = None
     # Max ClientHello record size (bytes, includes 5-byte header)
     tls_bump_max_clienthello_bytes: int = 4096
+    # Optional CN max length override for TLS bump client receive MTU
+    tls_bump_cn_max_len: Optional[int] = None
 
     # --- Crypto ---
     # Encryption mode: 'none', 'xor', 'rc4'

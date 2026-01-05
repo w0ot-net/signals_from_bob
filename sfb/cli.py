@@ -557,6 +557,11 @@ def add_tls_bump_client_args(parser, config):
         default=config.tls_bump_response_regex,
         help='Regex with capture group for base32 response token (optional)'
     )
+    parser.add_argument(
+        '--tls-bump-cn-max-len', type=int,
+        default=config.tls_bump_cn_max_len,
+        help='TLS bump CN max length override for client receive MTU'
+    )
 
 
 def add_tls_bump_server_args(parser, config):
@@ -860,6 +865,8 @@ def create_config(args):
                 args, 'tls_bump_response_mode', None)
             config_kwargs['tls_bump_response_regex'] = getattr(
                 args, 'tls_bump_response_regex', None)
+            config_kwargs['tls_bump_cn_max_len'] = getattr(
+                args, 'tls_bump_cn_max_len', None)
         else:
             config_kwargs['tls_bump_listen_addr'] = getattr(
                 args, 'tls_bump_listen_addr', None)

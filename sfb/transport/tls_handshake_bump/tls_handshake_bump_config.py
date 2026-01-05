@@ -45,6 +45,9 @@ def validate_tls_bump_config(config, role):
 
     base_domain = _validate_base_domain(config.tls_bump_base_domain)
     cn_max_len = cert_template.CN_LEN
+    cn_override = getattr(config, 'tls_bump_cn_max_len', None)
+    if role == 'client' and cn_override is not None:
+        cn_max_len = _require_positive_int(cn_override, 'tls_bump_cn_max_len')
 
     sni_payload_cap = codec.calc_sni_payload_cap(base_domain)
     cn_payload_cap = codec.calc_cn_payload_cap(cn_max_len)

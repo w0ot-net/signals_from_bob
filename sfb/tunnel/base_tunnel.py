@@ -910,6 +910,9 @@ class BaseTunnel(object):
             },
         )
 
+        prev_send = self._send_mtu
+        prev_recv = self._recv_mtu
+
         # Negotiate each direction independently.
         agreed_recv = min(peer_send_mtu, self._proposed_recv_mtu or self._default_mtu)
         agreed_send = min(peer_recv_mtu, self._proposed_send_mtu or self._default_mtu)
@@ -942,6 +945,21 @@ class BaseTunnel(object):
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
+        if prev_send != self._send_mtu or prev_recv != self._recv_mtu:
+            log_event(
+                self._logger,
+                logging.INFO,
+                'tunnel.mtu_change',
+                'MTU updated',
+                lambda: {
+                    'prev_send': prev_send,
+                    'prev_recv': prev_recv,
+                    'send': self._send_mtu,
+                    'recv': self._recv_mtu,
+                    'context': 'mtu_request',
+                    'side': 'alice' if self._is_initiator else 'bob',
+                },
+            )
 
     def _handle_mtu_ok(self, msg):
         """
@@ -964,6 +982,9 @@ class BaseTunnel(object):
                 },
             )
             return
+
+        prev_send = self._send_mtu
+        prev_recv = self._recv_mtu
 
         # Clamp to our transport limits.
         agreed_send = min(peer_recv_mtu, self._proposed_send_mtu or self._default_mtu)
@@ -988,6 +1009,21 @@ class BaseTunnel(object):
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
+        if prev_send != self._send_mtu or prev_recv != self._recv_mtu:
+            log_event(
+                self._logger,
+                logging.INFO,
+                'tunnel.mtu_change',
+                'MTU updated',
+                lambda: {
+                    'prev_send': prev_send,
+                    'prev_recv': prev_recv,
+                    'send': self._send_mtu,
+                    'recv': self._recv_mtu,
+                    'context': 'mtu_ok',
+                    'side': 'alice' if self._is_initiator else 'bob',
+                },
+            )
 
     def _handle_mtu_ack(self, msg):
         """
@@ -995,6 +1031,8 @@ class BaseTunnel(object):
 
         Now Bob can safely use the larger MTU for sending.
         """
+        prev_send = self._send_mtu
+        prev_recv = self._recv_mtu
         if self._pending_send_mtu is not None:
             self._send_mtu = self._pending_send_mtu
             self._pending_send_mtu = None
@@ -1010,6 +1048,21 @@ class BaseTunnel(object):
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
+        if prev_send != self._send_mtu or prev_recv != self._recv_mtu:
+            log_event(
+                self._logger,
+                logging.INFO,
+                'tunnel.mtu_change',
+                'MTU updated',
+                lambda: {
+                    'prev_send': prev_send,
+                    'prev_recv': prev_recv,
+                    'send': self._send_mtu,
+                    'recv': self._recv_mtu,
+                    'context': 'mtu_ack',
+                    'side': 'alice' if self._is_initiator else 'bob',
+                },
+            )
 
     def _handle_window(self, msg):
         """

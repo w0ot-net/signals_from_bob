@@ -34,8 +34,9 @@ ACK behavior:
 ## Receive Path
 
 1. Parse the header, then decrypt the body (if crypto is enabled).
-2. Validate structure and flags. If invalid, drop silently.
-3. If the packet is a duplicate, ignore it.
+2. Decode segments and validate flags. Decode failures are logged and dropped.
+   Invalid keepalive packets are treated as protocol violations and close the tunnel.
+3. If the packet is a duplicate or outside the SACK window, drop it.
 4. If in order, deliver to the next layer and advance `ack`.
 5. If out of order, buffer it and set the SACK bit.
 6. When gaps are filled, release buffered packets in order.
@@ -65,10 +66,11 @@ packets are skipped during retransmit scans.
 - On ACK or SACK, remove acknowledged packets from the queue.
 - Send window tracking records cumulative ACK progress (value/time and last
   progress time) for retransmit gating and diagnostics.
-- If a packet remains unacked past the retransmission timeout (RTO),
-  retransmit it. Alice may also fast retransmit earlier when SACK progress
-  indicates a missing cumulative ACK hole. Retransmits reuse an existing
-  sequence number and do not create new outstanding slots.
+- Retransmission is asymmetric: Alice retransmits on RTO (and may fast
+  retransmit earlier when SACK progress indicates a missing cumulative ACK
+  hole); Bob retransmits opportunistically when polled and cooldown allows.
+  Retransmits reuse an existing sequence number and do not create new
+  outstanding slots.
 
 ---
 
@@ -84,6 +86,8 @@ rto = clamp(rto, 500ms, 10s)
 
 **Initialization:** Before the first RTT sample, use rto = 1000ms. After the
 first sample, set srtt = sample directly (no smoothing on first measurement).
+These values are configurable via protocol_initial_rto_ms,
+protocol_min_rto_ms, and protocol_max_rto_ms (defaults 1000/500/10000ms).
 
 **Karn's Algorithm:** Do not sample RTT from retransmitted packets. The ack
 could be for the original or the retransmit, making the sample ambiguous.
@@ -125,7 +129,8 @@ and the sender naturally pauses.
 Keepalives are header-only packets marked with `FLAG_KEEPALIVE` and zero
 segments. They are normal packets that participate in seq/ack like any other.
 Alice sends keepalive polls only when no channel has data to transmit; Bob
-responds with keepalive only when no channel has data to transmit.
+responds with keepalive only when no channel has data to transmit. Keepalives
+with SYN/ACK flags, segments, or before connection are protocol violations.
 
 ---
 

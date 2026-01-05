@@ -86,14 +86,17 @@ class _PendingConn(object):
         'ssl_want',
         'handshake_complete',
         'handshake_deadline',
+        'pending_deadline',
         'recv_buf',
         'scan_offset',
     )
 
-    def __init__(self, sock, connect_deadline, proxy_send_buf, sni_name, request_buf):
+    def __init__(self, sock, connect_deadline, pending_deadline, proxy_send_buf,
+                 sni_name, request_buf):
         self.sock = sock
         self.connecting = True
         self.connect_deadline = connect_deadline
+        self.pending_deadline = pending_deadline
         self.proxy_send_buf = proxy_send_buf
         self.proxy_send_off = 0
         self.proxy_recv_buf = bytearray()
@@ -276,6 +279,7 @@ class TlsHandshakeBumpClient(Transport):
         state = _PendingConn(
             sock=sock,
             connect_deadline=now + self._connect_timeout,
+            pending_deadline=now + self._pending_timeout,
             proxy_send_buf=self._proxy_request,
             sni_name=sni_name,
             request_buf=request_buf,
@@ -650,6 +654,8 @@ class TlsHandshakeBumpClient(Transport):
                 deadline = state.proxy_deadline
             elif not state.handshake_complete:
                 deadline = state.handshake_deadline
+            else:
+                deadline = state.pending_deadline
             if deadline is not None and now > deadline:
                 if not state.proxy_complete and not state.connecting:
                     self._log_proxy_error('timeout', corr_id)
@@ -698,6 +704,10 @@ class TlsHandshakeBumpClient(Transport):
                 if state.handshake_deadline is not None:
                     if earliest is None or state.handshake_deadline < earliest:
                         earliest = state.handshake_deadline
+            else:
+                if state.pending_deadline is not None:
+                    if earliest is None or state.pending_deadline < earliest:
+                        earliest = state.pending_deadline
         if timeout == 0:
             return 0
         if deadline is not None:

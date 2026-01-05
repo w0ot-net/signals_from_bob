@@ -319,7 +319,7 @@ transport = DnsTransport(resolver, domain, config=config)
 
 ### Considerations
 
-- Default payload MTU is 1400 bytes to avoid fragmentation
+- Default payload MTU is 1350 bytes to avoid fragmentation
 - Source port reuse cooldown is configurable (minutes)
 - Request/response remains Alice-initiated; Bob only responds to polls
 - See `UDP_EPHEMERAL_TRANSPORT.md` for full details

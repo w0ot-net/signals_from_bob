@@ -59,7 +59,7 @@ Server settings:
 
 Defaults:
 
-- `udp_ephemeral_payload_mtu`: 1400
+- `udp_ephemeral_payload_mtu`: 1350
 - `udp_ephemeral_pending_timeout`: 5.0
 - `udp_ephemeral_source_port_reuse_minutes`: 1.0
 - `udp_ephemeral_listen_addr`: 0.0.0.0:53

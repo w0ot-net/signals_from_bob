@@ -158,6 +158,7 @@ def decode_name(data, offset, allow_compression=True):
         if not jumped:
             end_offset = offset
 
+    _validate_name_length(labels)
     name = '.'.join(labels)
     if end_offset is None:
         end_offset = offset

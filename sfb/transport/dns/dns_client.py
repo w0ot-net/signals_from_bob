@@ -526,7 +526,9 @@ class DnsClient(Transport):
 
         for _ in range(ancount):
             try:
-                offset = codec.skip_name(data, offset)  # NAME
+                answer_name, offset = codec.decode_name(
+                    data, offset, allow_compression=True
+                )
             except ValueError:
                 return query_id, qname, None, rcode, 'answer_name'
 
@@ -542,6 +544,10 @@ class DnsClient(Transport):
                 return query_id, qname, None, rcode, 'answer_rdlength'
 
             if rclass != codec.QCLASS_IN or rtype != self._rtype:
+                offset += rdlength
+                continue
+
+            if answer_name.lower() != qname:
                 offset += rdlength
                 continue
 

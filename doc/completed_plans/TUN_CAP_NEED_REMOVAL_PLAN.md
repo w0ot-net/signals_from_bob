@@ -57,3 +57,7 @@
 
 7) Commit and push
    - Commit the changes and push (per project rule).
+
+## Execution notes
+- 2025-09-19: Confirmed no remaining cap_need/cap_clear references in code or tests.
+- 2025-09-19: Moved to completed plans after verifying removal.

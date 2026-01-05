@@ -57,3 +57,11 @@ validation and error messaging, then update all call sites to use it.
 ## Validation
 - `python3 -m unittest tests.test_nc_linux`
 - Add a focused unit test for `sfb/utils.py` once implemented.
+
+## Execution Notes
+- Added `sfb/utils.py` with `parse_host_port` and new tests in `tests/test_utils.py`.
+- Updated host:port parsing call sites in CLI, DNS, UDP ephemeral, TLS, proxy, port_fwd, and nc_linux.
+- Updated nc_linux validation to reject invalid host:port specs.
+- Updated `doc/MODULES.md` to remove IPv6 host:port example.
+- Added nc_linux unit coverage for invalid host:port.
+- Tests not run (per instructions).

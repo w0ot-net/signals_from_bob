@@ -10,6 +10,7 @@ import re
 from ...compat import text_type
 from ...protocol.constants import PACKET_HEADER_SIZE
 from ..transport_base import TransportError
+from ...utils import parse_host_port as _parse_host_port
 from ..proxy_helpers import validate_proxy_config
 from . import tls_handshake_codec as codec
 
@@ -108,20 +109,10 @@ def validate_tls_config(config, role):
 
 
 def parse_host_port(addr):
-    if not isinstance(addr, text_type):
-        raise TransportError('Address must be text')
-    if ':' not in addr:
-        raise TransportError('Address must include port')
-    host, port_text = addr.rsplit(':', 1)
-    if not host:
-        raise TransportError('Address host required')
     try:
-        port = int(port_text, 10)
-    except ValueError:
-        raise TransportError('Address port invalid')
-    if port < 1 or port > 65535:
-        raise TransportError('Address port out of range')
-    return host, port
+        return _parse_host_port(addr)
+    except ValueError as exc:
+        raise TransportError(str(exc))
 
 
 def _require_host_port(addr, label):

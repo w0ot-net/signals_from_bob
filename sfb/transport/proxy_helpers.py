@@ -9,6 +9,7 @@ import base64
 
 from .transport_base import TransportError
 from ..compat import text_type
+from ..utils import parse_host_port
 
 
 PROXY_HEADER_LIMIT = 8192
@@ -123,7 +124,10 @@ def _validate_proxy_addr(value):
     value = _require_ascii_text(value, 'tls_http_proxy')
     if any(ch.isspace() for ch in value):
         raise TransportError('tls_http_proxy must not contain whitespace')
-    _parse_host_port(value)
+    try:
+        parse_host_port(value)
+    except ValueError as exc:
+        raise TransportError(str(exc))
     return value
 
 
@@ -132,23 +136,6 @@ def _validate_proxy_auth(value):
     if ':' not in value:
         raise TransportError('tls_http_proxy_auth must be user:pass')
     return value
-
-
-def _parse_host_port(addr):
-    if not isinstance(addr, text_type):
-        raise TransportError('Address must be text')
-    if ':' not in addr:
-        raise TransportError('Address must include port')
-    host, port_text = addr.rsplit(':', 1)
-    if not host:
-        raise TransportError('Address host required')
-    try:
-        port = int(port_text, 10)
-    except ValueError:
-        raise TransportError('Address port invalid')
-    if port < 1 or port > 65535:
-        raise TransportError('Address port out of range')
-    return host, port
 
 
 def _require_positive_float(value, label):

@@ -18,6 +18,7 @@ except ImportError:
 from ..base_module import BaseModule, RequestResponseMixin, ModuleError, blocking
 from ...compat import PY2, integer_types, text_type, to_native_str
 from ...logging_util import get_logger, log_event
+from ...utils import parse_host_port as _utils_parse_host_port
 from ... import time_provider
 from ...channel import ChannelError
 from .nc_linux_control_messages import T_NC, nc_bind, nc_bind_ok, nc_err
@@ -479,20 +480,32 @@ def _coerce_spec(spec):
 
 
 def _parse_host_port(spec):
-    if spec.startswith('['):
-        return None
-    if spec.count(':') != 1:
-        return None
-    host, port_text = spec.rsplit(':', 1)
-    if not host or not port_text:
-        return None
+    if not isinstance(spec, text_type):
+        if isinstance(spec, bytes):
+            try:
+                spec = spec.decode('utf-8')
+            except Exception:
+                spec = spec.decode('utf-8', 'replace')
+        else:
+            try:
+                spec = text_type(spec)
+            except Exception:
+                spec = text_type(repr(spec))
     try:
-        port = int(port_text)
-    except Exception:
-        return None
-    if port < 1 or port > 65535:
-        return None
-    return host, port
+        return _utils_parse_host_port(spec)
+    except ValueError as exc:
+        message = str(exc)
+        if message == 'Address must be host:port (IPv6 unsupported)':
+            raise NcLinuxError('invalid_spec', 'address must be host:port (ipv6 unsupported)')
+        if message in ('Address must include port', 'Address host required'):
+            raise NcLinuxError('invalid_spec', 'address must be host:port')
+        if message == 'Address port invalid':
+            raise NcLinuxError('invalid_spec', 'port invalid')
+        if message == 'Address port out of range':
+            raise NcLinuxError('invalid_spec', 'port out of range')
+        if message == 'Address must be ASCII':
+            raise NcLinuxError('invalid_spec', 'address must be ASCII')
+        raise NcLinuxError('invalid_spec', message)
 
 
 def _parse_spec(spec):
@@ -509,9 +522,8 @@ def _parse_spec(spec):
         raise NcLinuxError('invalid_spec', 'address must be host:port (ipv6 unsupported)')
     if '/' in spec:
         return ('path', spec)
-    host_port = _parse_host_port(spec)
-    if host_port:
-        return ('addr', host_port)
+    if ':' in spec:
+        return ('addr', _parse_host_port(spec))
     return ('path', spec)
 
 

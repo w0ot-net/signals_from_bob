@@ -25,6 +25,7 @@ from .dns_utils import load_system_resolvers
 from ...compat import require_bytes_like
 from ...config import Config
 from ...logging_util import get_logger, log_event
+from ...utils import parse_host_port
 from ... import time_provider
 
 _LOG = get_logger(__name__)
@@ -79,11 +80,11 @@ class DnsClient(Transport):
         # Parse resolver address or use system resolver
         resolver = config.dns_resolver
         if resolver:
-            if ':' in resolver:
-                host, port = resolver.rsplit(':', 1)
-                self._resolver = (host, int(port))
-            else:
-                self._resolver = (resolver, 53)
+            try:
+                host, port = parse_host_port(resolver, default_port=53)
+            except ValueError as exc:
+                raise TransportError(str(exc))
+            self._resolver = (host, port)
         else:
             resolvers = load_system_resolvers()
             if not resolvers:

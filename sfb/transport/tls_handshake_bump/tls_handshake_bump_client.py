@@ -775,6 +775,7 @@ class TlsHandshakeBumpClient(Transport):
         return infos[0][4]
 
     def _create_socket(self):
+        # TODO: consider a small pre-connect pool to trim TCP setup latency.
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setblocking(False)
         return sock

@@ -112,20 +112,16 @@ class Config:
     tls_bump_http_proxy_auth: Optional[str] = None
     # Bob listen host:port
     tls_bump_listen_addr: str = "0.0.0.0:443"
-    # Timeout before considering a TLS bump request stale (seconds)
-    tls_bump_pending_timeout: float = 5.0
+    # End-to-end timeout for a TLS bump request (seconds)
+    tls_bump_pending_timeout: float = 12.0
     # TLS bump connect timeout (seconds)
     tls_bump_connect_timeout: float = 3.0
     # TLS bump HTTP proxy handshake timeout (seconds, None = connect timeout)
     tls_bump_proxy_timeout: Optional[float] = None
-    # TLS bump handshake/response timeout (seconds)
+    # TLS bump handshake timeout (seconds)
     tls_bump_handshake_timeout: float = 5.0
     # HTTPS request path to trigger proxy error page
     tls_bump_request_path: str = "/"
-    # Response extraction mode: 'scan' or 'regex' (None = auto)
-    tls_bump_response_mode: Optional[str] = None
-    # Optional regex with capture group for base32 response token
-    tls_bump_response_regex: Optional[str] = None
     # Max ClientHello record size (bytes, includes 5-byte header)
     tls_bump_max_clienthello_bytes: int = 4096
     # Optional CN max length override for TLS bump client receive MTU

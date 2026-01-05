@@ -75,10 +75,24 @@ def validate_tls_bump_config(config, role):
             connect_timeout,
         )
         request_path = _validate_request_path(config.tls_bump_request_path)
-        _require_scan_response_mode(config.tls_bump_response_mode)
-        _reject_response_regex(config.tls_bump_response_regex)
     else:
         _require_host_port(config.tls_bump_listen_addr, 'tls_bump_listen_addr')
+
+    min_pending = max(connect_timeout, handshake_timeout)
+    if role == 'client':
+        min_pending = connect_timeout + handshake_timeout
+        if proxy_addr is not None and proxy_timeout is not None:
+            min_pending += proxy_timeout
+    if pending_timeout < min_pending:
+        if role == 'client':
+            if proxy_addr is not None:
+                raise TransportError(
+                    'tls_bump_pending_timeout must cover connect+proxy+handshake'
+                )
+            raise TransportError(
+                'tls_bump_pending_timeout must cover connect+handshake'
+            )
+        raise TransportError('tls_bump_pending_timeout must be >= connect/handshake')
 
     return {
         'pending_timeout': pending_timeout,
@@ -180,29 +194,6 @@ def _validate_request_path(value):
     return value
 
 
-def _require_scan_response_mode(value):
-    if value is None:
-        return 'scan'
-    if not isinstance(value, text_type):
-        raise TransportError('tls_bump_response_mode must be text')
-    try:
-        value.encode('ascii')
-    except UnicodeError:
-        raise TransportError('tls_bump_response_mode must be ASCII')
-    value = value.strip().lower()
-    if not value:
-        return 'scan'
-    if value != 'scan':
-        raise TransportError('tls_bump_response_mode must be scan')
-    return 'scan'
-
-
-def _reject_response_regex(value):
-    if value is None:
-        return
-    if not isinstance(value, text_type):
-        raise TransportError('tls_bump_response_regex must be text')
-    raise TransportError('tls_bump_response_regex is not supported')
 
 
 def _validate_proxy_config(proxy, proxy_auth, proxy_timeout, connect_timeout):

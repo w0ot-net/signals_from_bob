@@ -2,7 +2,7 @@
 
 ## Goals
 - Clear handshake deadlines once the TLS handshake finishes so response wait uses pending timeout.
-- Allow TLS 1.2 negotiation on Python 2 when the OpenSSL build supports it.
+- Require TLS 1.2 support and fail loudly if the runtime cannot provide it.
 - Make pending timeout semantics consistent with sequential phase timing.
 - Document the single-record ClientHello limitation.
 
@@ -10,7 +10,7 @@
 - sfb/transport/tls_handshake_bump/tls_handshake_bump_client.py
 - sfb/transport/tls_handshake_bump/tls_handshake_bump_config.py
 - sfb/config.py
-- doc/TLS_HANDSHAKE_BUMP_TRANSPORT.md
+- doc/completed_plans/TLS_HANDSHAKE_BUMP_TRANSPORT.md
 
 ## Plan
 1. Handshake deadline cleanup
@@ -18,9 +18,9 @@
    - In `_prune_deadlines`, only consider `handshake_deadline` while the handshake is in progress.
    - Leave response waiting bounded by `pending_timeout`.
 
-2. Python 2 TLS 1.2 support
-   - Update `_create_ssl_context` to prefer `PROTOCOL_TLS_CLIENT` when available.
-   - For Python 2 fallback, use `PROTOCOL_SSLv23` (or `PROTOCOL_TLSv1_2` if present) and disable SSLv2/SSLv3 via context options when supported.
+2. TLS 1.2 requirement
+   - Detect TLS 1.2 availability (`ssl.HAS_TLSv1_2` or `ssl.PROTOCOL_TLSv1_2`).
+   - Fail loudly with a `TransportError` if TLS 1.2 is not available.
    - Keep certificate verification disabled as before.
 
 3. Pending timeout semantics
@@ -32,5 +32,4 @@
    - Add a short doc note describing the end-to-end meaning of `pending_timeout`.
 
 4. Documentation
-   - Add a limitation to `doc/TLS_HANDSHAKE_BUMP_TRANSPORT.md` stating that the ClientHello must fit in a single TLS record (no fragmentation handling).
-
+   - Add a limitation to `doc/completed_plans/TLS_HANDSHAKE_BUMP_TRANSPORT.md` stating that the ClientHello must fit in a single TLS record (no fragmentation handling).

@@ -1,6 +1,6 @@
 # Alice Poll Keepalive Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -91,3 +91,13 @@ transport send fails.
 ## Validation
 
 - Run unit tests for tunnel/reliability behavior (do not run `tests/e2e/`).
+
+## Execution Notes
+
+- Enforced keepalive flags on empty sends and updated keepalive replacement
+  behavior when the send window is full.
+- Added data-only unacked tracking to clear fast-poll state once data is acked.
+- Reordered transport sends ahead of send-window accounting with send-failure
+  logging.
+- Updated retransmit/poll docs for keepalive flag and drop behavior.
+- Tests not run (per instructions).

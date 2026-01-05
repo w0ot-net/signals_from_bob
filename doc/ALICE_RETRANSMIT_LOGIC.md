@@ -191,21 +191,21 @@ arrive, which in turn drives RTT samples and retransmit timing.
 
 `AliceTunnel._poll_decision()`:
 - If the last response had only keepalive and grace polls remain:
-  - Poll immediately (no keepalive flag), decrement grace.
+  - Poll immediately, decrement grace.
 - If grace expired:
-  - Poll only when `now - last_send_time >= keepalive_interval`,
-    and use FLAG_KEEPALIVE.
+  - Poll only when `now - last_send_time >= keepalive_interval`.
 - If Alice saw real data or has pending data acks:
-  - Poll immediately (no keepalive flag).
+  - Poll immediately.
 - Otherwise:
-  - Poll at `keepalive_interval` using FLAG_KEEPALIVE.
+  - Poll at `keepalive_interval`.
 
 Keepalive specifics:
-- Keepalive packets have FLAG_KEEPALIVE and zero segments.
+- Any packet with zero segments always carries FLAG_KEEPALIVE, including grace
+  polls and ACK-progress polls.
 - They still use sequence numbers and are tracked in the send window, but do
   not contribute RTT samples.
-- If a keepalive is due and the window is full, the oldest keepalive is dropped
-  so a fresh keepalive poll can be sent.
+- If an empty keepalive poll is ready and the window is full, the oldest
+  keepalive is dropped so a replacement keepalive poll can be sent.
 - Keepalive responses are suppressed when any channel has pending data; real
   data replaces keepalives.
 

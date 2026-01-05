@@ -76,6 +76,14 @@ class SendWindow(object):
         """Number of unacked packets."""
         return len(self._unacked)
 
+    def data_unacked_count(self):
+        """Number of unacked packets carrying segments."""
+        count = 0
+        for pkt in self._unacked.values():
+            if pkt.segments:
+                count += 1
+        return count
+
     @property
     def last_cum_ack(self):
         """Last cumulative ACK observed from peer, or None."""

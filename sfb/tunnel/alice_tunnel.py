@@ -420,7 +420,7 @@ class AliceTunnel(BaseTunnel):
 
         if received_valid:
             # Clear pending data flag if all data has been acked
-            if self._send_window.unacked_count == 0:
+            if self._send_window.data_unacked_count() == 0:
                 self._has_pending_data_acks = False
             if last_resp_has_data is not None:
                 self._last_was_pong_only = not last_resp_has_data
@@ -551,7 +551,31 @@ class AliceTunnel(BaseTunnel):
             should_poll, keepalive_due, consume_pong_grace = self._poll_decision(now)
             if not should_poll:
                 break
-            if keepalive_due and not self._send_window.can_send:
+            if serial_window:
+                if self._channel_manager.control_send_event.is_set():
+                    continue
+            else:
+                if self._channel_manager.has_pending_data():
+                    continue
+            window_full = not self._send_window.can_send
+            if window_full:
+                if not self._can_send_new(
+                        now=now,
+                        keepalive_only=keepalive_due,
+                        allow_window_full=True):
+                    break
+            else:
+                if not self._can_send_new(
+                        now=now,
+                        keepalive_only=keepalive_due):
+                    break
+            if not self._poll_pacing_allows_send(now):
+                pacing_blocked = True
+                break
+            permit = self._reserve_transport_permit(now)
+            if permit is None:
+                break
+            if window_full:
                 dropped_seq = self._send_window.drop_oldest_keepalive(
                     reason='window_full', now=now
                 )
@@ -567,17 +591,12 @@ class AliceTunnel(BaseTunnel):
                         },
                     )
                 if dropped_seq is None:
+                    self._transport.release_send(permit)
                     break
-            if not self._can_send_new(
-                    now=now,
-                    keepalive_only=keepalive_due):
-                break
-            if not self._poll_pacing_allows_send(now):
-                pacing_blocked = True
-                break
-            permit = self._reserve_transport_permit(now)
-            if permit is None:
-                break
+                self._send_new_packet([], now, flags=FLAG_KEEPALIVE, permit=permit)
+                if consume_pong_grace and self._pong_grace_remaining > 0:
+                    self._pong_grace_remaining -= 1
+                continue
             segments = self._collect_segments(
                 self._send_mtu,
                 control_only=serial_window,
@@ -611,7 +630,7 @@ class AliceTunnel(BaseTunnel):
 
         return True
 
-    def _can_send_new(self, now=None, keepalive_only=False):
+    def _can_send_new(self, now=None, keepalive_only=False, allow_window_full=False):
         """Check if we can send a new packet."""
         if now is None:
             now = time_provider.now()
@@ -619,34 +638,35 @@ class AliceTunnel(BaseTunnel):
             if self._send_window.unacked_count > 0:
                 return False
         if not self._send_window.can_send:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Send window full',
-                lambda: {
-                    'unacked': self._send_window.unacked_count,
-                    'max_in_flight': self._send_window._max_in_flight,
-                    'side': 'alice',
-                },
-            )
-            self._log_reliability_state(
-                logging.DEBUG,
-                'tunnel.reliability_state',
-                'Reliability state after send blocked',
-                now=now,
-                extra_fields={
-                    'context': 'send_blocked',
-                    'reason': 'window_full',
-                    'keepalive_only': keepalive_only,
-                },
-            )
-            self._note_pacer_blocked(
-                'window_full',
-                now,
-                unacked=self._send_window.unacked_count,
-            )
-            return False
+            if not allow_window_full:
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.send_blocked',
+                    'Send window full',
+                    lambda: {
+                        'unacked': self._send_window.unacked_count,
+                        'max_in_flight': self._send_window._max_in_flight,
+                        'side': 'alice',
+                    },
+                )
+                self._log_reliability_state(
+                    logging.DEBUG,
+                    'tunnel.reliability_state',
+                    'Reliability state after send blocked',
+                    now=now,
+                    extra_fields={
+                        'context': 'send_blocked',
+                        'reason': 'window_full',
+                        'keepalive_only': keepalive_only,
+                    },
+                )
+                self._note_pacer_blocked(
+                    'window_full',
+                    now,
+                    unacked=self._send_window.unacked_count,
+                )
+                return False
         pacer_cap = None
         if self._pacer.enabled:
             cap = self._pacer_cap()
@@ -1346,6 +1366,8 @@ class AliceTunnel(BaseTunnel):
 
     def _send_new_packet(self, segments, now, flags=0, permit=None):
         """Send a new packet with given segments."""
+        if not segments:
+            flags |= FLAG_KEEPALIVE
         packet, seq = self._build_packet(flags=flags, segments=segments)
         encrypted_body, packet_data = self._encode_packet_for_send(packet)
 
@@ -1381,16 +1403,34 @@ class AliceTunnel(BaseTunnel):
                 return
 
         try:
-            self._send_window.send(
-                segments,
-                flags=flags,
-                encrypted_body=encrypted_body,
-                now=now,
-            )
-        except Exception:
+            self._transport.send(packet_data, permit)
+        except Exception as exc:
             self._transport.release_send(permit)
-            raise
-        self._transport.send(packet_data, permit)
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.packet_send_failed',
+                'Packet send failed',
+                lambda: {
+                    'seq': packet.seq,
+                    'ack': packet.ack,
+                    'sack': packet.sack,
+                    'flags': packet.flags,
+                    'seg_count': len(packet.segments),
+                    'bytes': len(packet_data),
+                    'context': 'new',
+                    'side': 'alice',
+                    'error': str(exc),
+                },
+                exc_info=True,
+            )
+            return
+        self._send_window.send(
+            segments,
+            flags=flags,
+            encrypted_body=encrypted_body,
+            now=now,
+        )
         self._advance_poll_pacing(now)
         if self._pacer.enabled:
             cap = self._pacer_cap()
@@ -1413,6 +1453,8 @@ class AliceTunnel(BaseTunnel):
 
     def _send_retransmit(self, seq, segments, flags, encrypted_body, now, reason=None):
         """Retransmit a packet."""
+        if not segments:
+            flags |= FLAG_KEEPALIVE
         packet = self._rebuild_packet(seq, segments, flags=flags)
         encrypted_body, packet_data = self._encode_packet_for_send(
             packet,
@@ -1471,13 +1513,32 @@ class AliceTunnel(BaseTunnel):
                     prev_age = 0.0
                 prev_age = round(prev_age, 6)
         try:
-            self._send_window.mark_retransmit(seq, now=now)
-        except Exception:
+            self._transport.send(packet_data, permit)
+        except Exception as exc:
             self._transport.release_send(permit)
-            raise
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.packet_send_failed',
+                'Packet send failed',
+                lambda: {
+                    'seq': packet.seq,
+                    'ack': packet.ack,
+                    'sack': packet.sack,
+                    'flags': packet.flags,
+                    'seg_count': len(packet.segments),
+                    'bytes': len(packet_data),
+                    'context': 'retransmit',
+                    'reason': reason,
+                    'side': 'alice',
+                    'error': str(exc),
+                },
+                exc_info=True,
+            )
+            return False
+        self._send_window.mark_retransmit(seq, now=now)
         if self._pacer.enabled:
             self._pacer.on_retransmit(now)
-        self._transport.send(packet_data, permit)
         self._advance_poll_pacing(now)
 
         self._consume_retransmit_budget()

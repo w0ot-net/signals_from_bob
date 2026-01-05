@@ -21,7 +21,7 @@ from sfb.transport import create_inmemory_transport_pair
 from sfb.tunnel import AliceTunnel, BobTunnel, TunnelState
 
 
-_TRANSFER_COUNT = 500
+_TRANSFER_COUNT = 10000
 _CONCURRENCY = 20
 _DUMMY_SIZE = 4096
 

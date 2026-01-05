@@ -193,7 +193,11 @@ class SocksServerModule(BaseModule):
             self._logger,
             logging.INFO,
             'sock.server_listen',
-            'SOCKS5 server listening',
+            'SOCKS5 server listening (host=%s port=%d backlog=%d)' % (
+                listen_addr,
+                listen_port,
+                self._config.socks_listen_backlog,
+            ),
             lambda: add_fields(sock_fields(
                 side='bob',
                 peer='client',

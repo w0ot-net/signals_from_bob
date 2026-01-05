@@ -1131,7 +1131,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
             logger,
             logging.INFO,
             'cli.module_loaded',
-            'Module loaded',
+            'Module loaded (module=%s)' % remote_module,
             lambda: {'module': remote_module},
         )
 

@@ -900,7 +900,7 @@ class BaseTunnel(object):
             self._logger,
             logging.INFO,
             'tunnel.mtu_propose',
-            'MTU request received',
+            'MTU request received (tx=%d rx=%d)' % (peer_send_mtu, peer_recv_mtu),
             lambda: {
                 'tx': peer_send_mtu,
                 'rx': peer_recv_mtu,
@@ -930,7 +930,11 @@ class BaseTunnel(object):
             self._logger,
             logging.INFO,
             'tunnel.mtu_ok',
-            'MTU negotiate response',
+            'MTU negotiate response (recv=%d send_applied=%d send_pending=%s)' % (
+                agreed_recv,
+                self._send_mtu,
+                self._pending_send_mtu,
+            ),
             lambda: {
                 'recv': agreed_recv,
                 'send_applied': self._send_mtu,
@@ -1030,7 +1034,10 @@ class BaseTunnel(object):
             self._logger,
             logging.INFO,
             'tunnel.window_propose',
-            'Window request received',
+            'Window request received (size=%d max_in_flight=%d)' % (
+                requested,
+                self._proposed_window,
+            ),
             lambda: {
                 'size': requested,
                 'side': 'alice' if self._is_initiator else 'bob',
@@ -1051,7 +1058,7 @@ class BaseTunnel(object):
             self._logger,
             logging.INFO,
             'tunnel.window_ok',
-            'Window negotiated',
+            'Window negotiated (requested=%d agreed=%d)' % (requested, agreed),
             lambda: {
                 'requested': requested,
                 'agreed': agreed,

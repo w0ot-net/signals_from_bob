@@ -87,7 +87,7 @@ class LossyInMemoryFileTransferIntegrationTests(unittest.TestCase):
         self._orig_handle_get_ok = None
         self._chaos_applied = False
         self._send_impairment = None
-        self._recv_impairment = None
+        self._no_impairment = None
         self._config = _make_config()
         self._dest_path = os.path.join(
             _TMP_DIR,
@@ -103,8 +103,8 @@ class LossyInMemoryFileTransferIntegrationTests(unittest.TestCase):
         )
 
         handshake_impairment = NetworkImpairment()
+        self._no_impairment = NetworkImpairment()
         self._send_impairment = chaos(seed=7)
-        self._recv_impairment = chaos(seed=11)
 
         self._alice_transport = LossyTransport(
             client,
@@ -132,7 +132,7 @@ class LossyInMemoryFileTransferIntegrationTests(unittest.TestCase):
                 _apply_lossy_transport_impairment(
                     self._alice_transport,
                     self._send_impairment,
-                    self._recv_impairment,
+                    self._no_impairment,
                 )
                 self._chaos_applied = True
 

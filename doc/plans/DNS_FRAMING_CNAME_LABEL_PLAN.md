@@ -3,12 +3,13 @@
 ## Goal
 - Make DNS query/response payload sizes fixed with a length-prefix framing layer.
 - Precompute a single response payload cap at transport init and remove per-query sizing work.
-- Freeze the CNAME label to a constant and drop dns_cname_a_addr and follow-up handling.
+- Freeze the CNAME label to a constant while preserving authoritative-mode resolver handling.
 
 ## Non-Goals
 - Change non-DNS transports or the reliability protocol.
 - Add non-stdlib dependencies or drop Python 2.7/3 compatibility.
 - Run E2E tests under tests/e2e (user will run them).
+- Drop authoritative DNS mode or resolver-based operation.
 
 ## Affected Components
 - sfb/transport/dns/codec.py
@@ -50,19 +51,22 @@
      and pad response payloads before encoding the CNAME target.
    - Keep asymmetric send/recv MTU negotiation based on the per-direction data
      caps.
-5) Freeze CNAME label and drop dns_cname_a_addr:
+5) Freeze CNAME label while keeping authoritative mode:
    - Replace config-driven cname label with a constant (e.g., "0").
-   - Remove dns_cname_label and dns_cname_a_addr from Config and validation.
-   - Remove CNAME follow-up A handling and related code paths; DNS transport
-     becomes direct-mode only (no recursive resolver follow-ups).
-   - Require dns_resolver for DNS client CLI/config when DNS transport is used.
-6) Update documentation for framing and direct-only DNS behavior:
-   - DNS_TRANSPORT: framing format, fixed sizes, and direct-only mode.
-   - DNS_CNAME_SUFFIX: update rationale to constant label and no follow-ups.
+   - Remove dns_cname_label from Config and validation.
+   - Keep dns_cname_a_addr and CNAME follow-up A handling for recursive resolver
+     follow-ups in authoritative mode.
+   - Keep dns_resolver optional; retain system resolver loading for authoritative
+     mode.
+6) Update documentation for framing and constant-label DNS behavior:
+   - DNS_TRANSPORT: framing format, fixed sizes, and both direct + authoritative
+     modes.
+   - DNS_CNAME_SUFFIX: update rationale to constant label; keep follow-up
+     handling details for resolvers.
    - TRANSPORTS/PROTOCOL: update any references to resolver behavior and
      response encoding.
 7) Update tests:
    - Adjust DNS codec/client/server tests for framing and constant label.
-   - Remove or repurpose dns_utils tests if authoritative mode support is
-     removed.
+   - Update dns_utils tests only if resolver behavior changes; keep
+     authoritative-mode coverage.
    - Ensure DNS E2E direct-mode tests use port 5353; do not run them.

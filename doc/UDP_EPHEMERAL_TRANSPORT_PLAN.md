@@ -1,10 +1,10 @@
-# UDP One-Shot Transport Plan
+# UDP Ephemeral Transport Plan
 
 ## Context
 We need a new transport for a network where Alice can send exactly one UDP
 message per socket and receive one reply, then must use a new UDP socket so
 the source port changes. Alice must not reuse the same source port within N
-minutes (default 1). A socket pool may help performance.
+minutes (default 1).
 
 ## Goals
 - Add a new UDP transport that enforces one request/one response per socket.
@@ -19,21 +19,21 @@ minutes (default 1). A socket pool may help performance.
 - E2E tests (user will run them).
 
 ## Affected Components
-- `sfb/transport/udp_one_shot/__init__.py`
-- `sfb/transport/udp_one_shot/udp_one_shot_client.py`
-- `sfb/transport/udp_one_shot/udp_one_shot_server.py`
-- `sfb/transport/udp_one_shot/udp_one_shot_config.py` (if we centralize validation)
+- `sfb/transport/udp_ephemeral/__init__.py`
+- `sfb/transport/udp_ephemeral/udp_ephemeral_client.py`
+- `sfb/transport/udp_ephemeral/udp_ephemeral_server.py`
+- `sfb/transport/udp_ephemeral/udp_ephemeral_config.py` (if we centralize validation)
 - `sfb/transport/__init__.py` (register transport)
 - `sfb/config.py` (defaults and config fields)
 - `sfb/cli.py` (CLI args and config wiring)
 - `doc/TRANSPORTS.md` (transport list and description)
-- `doc/UDP_ONE_SHOT_TRANSPORT.md` (new transport doc)
+- `doc/UDP_EPHEMERAL_TRANSPORT.md` (new transport doc)
 - `tests/test_udp_one_shot_transport.py` (if we add unit coverage)
 
 ## Proposed Design
 
 ### Transport Name
-Tentative name: `udp_one_shot` (open to change).
+Transport name: `udp_ephemeral`.
 
 ### Client (Alice)
 - Each send uses a fresh UDP socket bound to an ephemeral port.
@@ -50,13 +50,10 @@ Tentative name: `udp_one_shot` (open to change).
   - Map corr_id -> state (socket, send_time, local_port).
   - `recv()` uses `select.select()` on the pending sockets, reads the first
     ready response, closes the socket, and returns `(corr_id, data)`.
+- Allow multiple in-flight requests, bounded by `max_in_flight`.
 - MTU:
   - Enforce `send_mtu` and `recv_mtu` on payload length.
-- Optional socket pool:
-  - Configurable `udp_socket_pool_size`.
-  - Pre-create sockets that satisfy the cooldown rule.
-  - `reserve_send()` pulls from the pool when available; after use, close and
-    replenish the pool on demand.
+No socket pool (skip for now).
 
 ### Server (Bob)
 - Single UDP socket bound to `udp_listen_addr`.
@@ -67,29 +64,25 @@ Tentative name: `udp_one_shot` (open to change).
 
 ### Configuration
 Add UDP transport settings to `Config`, with CLI flags:
-- `udp_target` (client target host:port).
-- `udp_listen_addr` (server listen host:port).
-- `udp_payload_mtu` (default chosen below).
-- `udp_pending_timeout` (seconds).
-- `udp_source_port_reuse_minutes` (float, default 1.0).
-- `udp_socket_pool_size` (int, default 0 or 1).
+- `udp_ephemeral_target` (client target host:port).
+- `udp_ephemeral_listen_addr` (server listen host:port).
+- `udp_ephemeral_payload_mtu` (default chosen below).
+- `udp_ephemeral_pending_timeout` (seconds).
+- `udp_ephemeral_source_port_reuse_minutes` (float, default 1.0).
 
 ### Defaults
-- `udp_payload_mtu`: propose 1200 (safe for UDP without fragmentation), unless
-  you prefer a different default.
-- `udp_socket_pool_size`: default 0 (no pool) unless you want eager pooling.
+- `udp_ephemeral_payload_mtu`: 1200 (safe for UDP without fragmentation).
+- `udp_ephemeral_source_port_reuse_minutes`: 1.0.
 
 ## Detailed Steps
-1. Decide transport name and config defaults.
-2. Add Config fields and CLI wiring for client/server args.
-3. Implement `UdpOneShotClient` with:
+1. Add Config fields and CLI wiring for client/server args.
+2. Implement `UdpEphemeralClient` with:
    - Socket allocation with port cooldown enforcement.
    - Pending tracker, corr_id mapping, and recv select loop.
-   - Optional socket pool.
-4. Implement `UdpOneShotServer` with single socket and responder closure.
-5. Register the transport in `sfb/transport/__init__.py`.
-6. Add docs: `doc/UDP_ONE_SHOT_TRANSPORT.md` and update `doc/TRANSPORTS.md`.
-7. Add focused unit tests if desired (no E2E runs).
+3. Implement `UdpEphemeralServer` with single socket and responder closure.
+4. Register the transport in `sfb/transport/__init__.py`.
+5. Add docs: `doc/UDP_EPHEMERAL_TRANSPORT.md` and update `doc/TRANSPORTS.md`.
+6. Add focused unit tests if desired (no E2E runs).
 
 ## Test Plan
 - Unit tests for:
@@ -97,11 +90,3 @@ Add UDP transport settings to `Config`, with CLI flags:
   - Port reuse cooldown enforcement using `time_provider`.
   - Pending timeout cleanup closes sockets.
 - Run with `python3 -m unittest` (no `tests/e2e/`).
-
-## Open Questions
-- Transport name: `udp_one_shot` vs `udp_single_use` or another?
-- Should we allow multiple in-flight sockets, or force `max_in_flight=1`?
-- Preferred default `udp_payload_mtu` (1200 vs 1472)?
-- If no eligible source port is available, should we block until reuse window
-  expires or fail fast with a TransportError?
-- Do you want a nonzero default socket pool size?

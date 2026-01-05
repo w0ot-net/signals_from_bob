@@ -22,7 +22,8 @@ transport send fails.
 - Keepalive suppression on Bob (no keepalive when pending data) remains
   unchanged; this plan only changes Alice's poll behavior.
 - Pending-data ACK tracking should follow unacked packets with segments, not
-  keepalives.
+  keepalives, so Alice does not stay in fast-poll mode when only keepalive
+  packets remain unacked.
 - Send-window bookkeeping should only advance after a transport send succeeds.
 
 ## Implementation Steps
@@ -32,7 +33,8 @@ transport send fails.
    and window gating.
 2. When Alice is about to send an empty poll and the send window is full, allow
    dropping the oldest keepalive even if the poll was triggered by grace or ACK
-   progress, so the empty KEEPALIVE poll can go out.
+   progress, because once empty polls always carry KEEPALIVE the window can be
+   clogged entirely by keepalive-only entries.
 3. Add a `data_unacked_count` or `has_data_unacked` helper on `SendWindow` and
    use it in `AliceTunnel.tick()` to clear `_has_pending_data_acks` once only
    keepalives remain unacked.

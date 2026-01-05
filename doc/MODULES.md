@@ -212,7 +212,7 @@ Linux-only and closes the bound fd when the channel closes.
 The bind request accepts one of:
 - Numeric fd (e.g., `3`)
 - Path (e.g., `/tmp/data.txt`)
-- TCP address (e.g., `1.1.1.1:443`, IPv4 only)
+- TCP address (e.g., `1.1.1.1:443` or `[::1]:443`)
 
 ### Flow
 

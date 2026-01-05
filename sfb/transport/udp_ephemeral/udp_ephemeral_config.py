@@ -5,7 +5,7 @@ UDP ephemeral transport configuration validation helpers.
 
 from __future__ import absolute_import
 
-from ...utils import parse_host_port as _parse_host_port
+from ...compat import text_type
 from ..transport_base import TransportError
 
 
@@ -55,10 +55,20 @@ def validate_udp_ephemeral_config(config, role):
 
 
 def parse_host_port(addr):
+    if not isinstance(addr, text_type):
+        raise TransportError('Address must be text')
+    if ':' not in addr:
+        raise TransportError('Address must include port')
+    host, port_text = addr.rsplit(':', 1)
+    if not host:
+        raise TransportError('Address host required')
     try:
-        return _parse_host_port(addr)
-    except ValueError as exc:
-        raise TransportError(str(exc))
+        port = int(port_text, 10)
+    except ValueError:
+        raise TransportError('Address port invalid')
+    if port < 1 or port > 65535:
+        raise TransportError('Address port out of range')
+    return host, port
 
 
 def _require_positive_float(value, label):

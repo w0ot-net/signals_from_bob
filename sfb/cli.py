@@ -31,7 +31,6 @@ from .transport import TRANSPORTS, TransportError, get_transport_class
 from .tunnel import AliceTunnel, BobTunnel, TunnelState
 from .modules import AVAILABLE_MODULES
 from .modules.base_module import ModuleError
-from .utils import parse_host_port
 from . import time_provider
 
 
@@ -299,6 +298,13 @@ def _write_tls_bump_cert_template(path, cn_len, offsets, cert_der):
     lines.append('')
     with open(path, 'w') as handle:
         handle.write('\n'.join(lines))
+
+
+def _split_host_port(addr, default_port):
+    if ':' in addr:
+        host, port = addr.rsplit(':', 1)
+        return host, int(port)
+    return addr, default_port
 
 
 def _has_arg_prefix(args, prefix):
@@ -868,7 +874,7 @@ def create_config(args):
             listen_addr = getattr(args, 'listen_addr', None)
             if not listen_addr:
                 listen_addr = Config().dns_listen_addr
-            host, port = parse_host_port(listen_addr, default_port=53)
+            host, port = _split_host_port(listen_addr, 53)
             config_kwargs['dns_listen_addr'] = '%s:%d' % (host, port)
             config_kwargs['tunnel_idle_timeout'] = float(args.idle_timeout)
         else:
@@ -1100,7 +1106,7 @@ def run_server(args, config, crypto, logger):
 def run_server_passive(args, tunnel, logger):
     """Run server in passive mode (no command, just wait for connections)."""
     if args.transport == 'dns':
-        host, port = parse_host_port(tunnel._config.dns_listen_addr, default_port=53)
+        host, port = _split_host_port(tunnel._config.dns_listen_addr, 53)
         log_event(
             logger,
             logging.INFO,
@@ -1157,10 +1163,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
 
         # Wait for client to connect
         if args.transport == 'dns':
-            host, port = parse_host_port(
-                tunnel._config.dns_listen_addr,
-                default_port=53,
-            )
+            host, port = _split_host_port(tunnel._config.dns_listen_addr, 53)
             log_event(
                 logger,
                 logging.INFO,

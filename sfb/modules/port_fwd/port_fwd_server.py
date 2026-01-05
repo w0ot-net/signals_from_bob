@@ -22,7 +22,6 @@ from ..relay_logging import (
 )
 from ...logging_util import log_event
 from ...compat import text_type
-from ...utils import parse_host_port as _utils_parse_host_port
 from ... import time_provider
 
 
@@ -58,23 +57,18 @@ def _parse_host_port(spec):
     spec = _coerce_text(spec)
     if not spec:
         raise ModuleError('invalid_spec', 'address required')
+    if spec.startswith('[') or spec.count(':') != 1:
+        raise ModuleError('invalid_spec', 'address must be host:port (IPv6 unsupported)')
+    host, port_text = spec.rsplit(':', 1)
+    if not host or not port_text:
+        raise ModuleError('invalid_spec', 'address must be host:port')
     try:
-        return _utils_parse_host_port(spec)
-    except ValueError as exc:
-        message = str(exc)
-        if message == 'Address must be text':
-            raise ModuleError('invalid_spec', 'address required')
-        if message == 'Address must be ASCII':
-            raise ModuleError('invalid_spec', 'address must be ASCII')
-        if message == 'Address must be host:port (IPv6 unsupported)':
-            raise ModuleError('invalid_spec', 'address must be host:port (IPv6 unsupported)')
-        if message in ('Address must include port', 'Address host required'):
-            raise ModuleError('invalid_spec', 'address must be host:port')
-        if message == 'Address port invalid':
-            raise ModuleError('invalid_spec', 'port invalid')
-        if message == 'Address port out of range':
-            raise ModuleError('invalid_spec', 'port out of range')
-        raise ModuleError('invalid_spec', message)
+        port = int(port_text, 10)
+    except (TypeError, ValueError):
+        raise ModuleError('invalid_spec', 'port invalid')
+    if port < 1 or port > 65535:
+        raise ModuleError('invalid_spec', 'port out of range')
+    return host, port
 
 
 class PortForwardServerModule(BaseModule):

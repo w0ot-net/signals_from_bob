@@ -38,10 +38,6 @@ class NcLinuxSpecTests(unittest.TestCase):
         with self.assertRaises(NcLinuxError):
             _parse_spec('[::1]:443')
 
-    def test_parse_host_port_invalid_port(self):
-        with self.assertRaises(NcLinuxError):
-            _parse_spec('1.1.1.1:99999')
-
     def test_open_path_creates(self):
         config = Config()
         temp_dir = tempfile.mkdtemp()

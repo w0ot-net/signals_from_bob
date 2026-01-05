@@ -24,12 +24,12 @@
 1) Add a data-unacked counter to SendWindow and update it in send/ack paths so Alice can query it in O(1).
 2) Keep _unacked ordered by sequence (for cumulative ACK), but track oldest-by-send-time separately (min-heap or cached pointer). Use lazy validation on retransmit/ack updates; fall back to a scan only when the cache is stale.
 3) In BaseTunnel packet processing, deliver control segments for each ready packet, then process control messages once per packet; keep control-before-data ordering and remove the redundant post-loop control polling.
-4) Treat "real data" as the presence of segments (control or data), not the KEEPALIVE flag. Ack-only responses (no segments) should not trigger Alice's data pacing. If pending data cannot fit, consider an explicit pending-data hint so Alice keeps polling.
-5) Add a data-pending event in ChannelManager (mirroring control_send_event) so Alice can check pending state without repeated lock acquisition inside the hot send loop. Update it on register/unregister, send-state transitions, and active-channel pruning.
+4) Treat "real data" as the presence of segments (control or data), not the KEEPALIVE flag. Ack-only responses (no segments) should not trigger Alice's data pacing. Add a HAS_PENDING_DATA header flag so Bob can signal "data queued but no segment fits" and Alice keeps polling without treating the packet as data.
+5) Add a data-pending event in ChannelManager (mirroring control_send_event) that is inclusive of control messages, so Alice can check pending state without repeated lock acquisition inside the hot send loop. Update it on register/unregister, send-state transitions, and active-channel pruning.
 6) Add a fast path in BaseTunnel decode to skip Segment.decode_all when the decrypted body is empty.
-7) Update doc/TUNNEL.md and doc/ASYMMETRY.md to document the "real data" definition, ack-only behavior, and pending-data note.
+7) Update doc/TUNNEL.md and doc/ASYMMETRY.md to document the "real data" definition, ack-only behavior, and HAS_PENDING_DATA semantics.
 
 ## Performance/Complexity Proposals
 - Use a min-heap with lazy deletion to keep oldest-unacked selection near O(log n) without reordering _unacked.
 - Prefer segment-presence checks over keepalive flags for pacing decisions to reduce false "data received" signals.
-- Add a pending-data hint (control message or header bit) only if ack-only responses cause observable poll slowdown.
+- Add a pending-data hint via HAS_PENDING_DATA so ack-only responses do not cause poll slowdown.

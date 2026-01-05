@@ -242,6 +242,8 @@ class Config:
     file_transfer_root: str = "."
     # File transfer command timeout (seconds), None = no timeout
     file_transfer_timeout: Optional[float] = None
+    # Maximum concurrent active file transfers (per module instance)
+    file_transfer_max_active: int = 1
 
     # --- NC Linux ---
     # Bind request timeout (seconds)
@@ -503,6 +505,8 @@ class Config:
         # File transfer validation
         if self.file_transfer_chunk_size < 1:
             raise ValueError("file_transfer_chunk_size must be >= 1")
+        if self.file_transfer_max_active < 1:
+            raise ValueError("file_transfer_max_active must be >= 1")
 
         # NC Linux validation
         if self.nc_linux_bind_timeout <= 0:

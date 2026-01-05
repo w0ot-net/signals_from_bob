@@ -132,8 +132,10 @@ The sender treats `hash_ok` as transfer success and `err` as failure.
 - The sender closes the channel after transmitting `size` bytes and sending
   the hash. The receiver closes after hash validation or on error.
 
-Only one file operation is active at a time (including list). If a new request
-arrives while an operation is in progress, respond with `err` and `code="busy"`.
+By default only one file operation is active at a time (including list). The
+concurrency limit is configurable via `file_transfer_max_active`. If a new
+request arrives while the limit is reached, respond with `err` and
+`code="busy"`.
 
 ---
 

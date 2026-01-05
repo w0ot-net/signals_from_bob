@@ -242,11 +242,11 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         self._chunk_size = config.file_transfer_chunk_size
         self._channel_open_timeout = config.channel_open_timeout
         self._hash_timeout = config.file_transfer_hash_timeout
+        self._max_active = config.file_transfer_max_active
 
-        # Single active transfer enforcement
+        # Active transfer tracking
         self._active_lock = threading.Lock()
-        self._active = False
-        self._active_rid = None
+        self._active_rids = set()
 
         # Hash tracking for transfers
         self._hash_lock = threading.Lock()
@@ -654,26 +654,24 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
     def _reserve_active(self, rid):
         """Reserve active slot (raises if busy)."""
         with self._active_lock:
-            if self._active:
+            if (self._max_active is not None and
+                    len(self._active_rids) >= self._max_active):
                 raise FileTransferError('busy', 'transfer in progress')
-            self._active = True
-            self._active_rid = rid
+            self._active_rids.add(rid)
 
     def _try_reserve_active(self, rid):
         """Try to reserve active slot (returns False if busy)."""
         with self._active_lock:
-            if self._active:
+            if (self._max_active is not None and
+                    len(self._active_rids) >= self._max_active):
                 return False
-            self._active = True
-            self._active_rid = rid
+            self._active_rids.add(rid)
             return True
 
     def _clear_active(self, rid):
         """Clear active slot if we own it."""
         with self._active_lock:
-            if self._active_rid == rid:
-                self._active = False
-                self._active_rid = None
+            self._active_rids.discard(rid)
 
     def _wait_hash_value(self, rid, timeout):
         """Wait for a hash value to arrive for this request."""

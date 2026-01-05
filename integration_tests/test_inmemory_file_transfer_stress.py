@@ -5,7 +5,13 @@ from __future__ import absolute_import
 
 import os
 import tempfile
+import threading
 import unittest
+
+try:
+    from Queue import Queue, Empty
+except ImportError:
+    from queue import Queue, Empty
 
 from sfb import time_provider
 from sfb.config import Config
@@ -16,6 +22,7 @@ from sfb.tunnel import AliceTunnel, BobTunnel, TunnelState
 
 
 _TRANSFER_COUNT = 500
+_CONCURRENCY = 20
 _DUMMY_SIZE = 4096
 
 
@@ -30,6 +37,7 @@ def _make_config():
     config.max_in_flight = 64
     config.tunnel_initial_window = 32
     config.channel_id_reuse_cooldown = 0.0
+    config.file_transfer_max_active = _CONCURRENCY
     return config
 
 
@@ -41,13 +49,66 @@ def _write_dummy_file(path, size):
         handle.close()
 
 
-def _select_sink_path(tmp_dir):
-    if os.name != 'nt' and os.path.isabs(os.devnull):
-        return os.devnull, False
-    return os.path.join(
-        tmp_dir,
-        'sfb_file_transfer_sink_%d.bin' % os.getpid(),
-    ), True
+def _use_devnull():
+    return os.name != 'nt' and os.path.isabs(os.devnull)
+
+
+def _cleanup_sink_files(tmp_dir, prefix):
+    if not os.path.isdir(tmp_dir):
+        return
+    for name in os.listdir(tmp_dir):
+        if name.startswith(prefix):
+            try:
+                os.unlink(os.path.join(tmp_dir, name))
+            except OSError:
+                pass
+
+
+def _run_transfer_batch(module, source_path, tmp_dir, sink_prefix,
+                        use_devnull, count, concurrency, timeout):
+    work = Queue()
+    for index in range(count):
+        work.put(index)
+    errors = []
+    errors_lock = threading.Lock()
+
+    def worker(worker_id):
+        while True:
+            try:
+                index = work.get_nowait()
+            except Empty:
+                return
+            if use_devnull:
+                dest_path = os.devnull
+            else:
+                dest_path = os.path.join(
+                    tmp_dir,
+                    '%s%d_%d.bin' % (sink_prefix, worker_id, index),
+                )
+            try:
+                module.get(source_path, dest_path, timeout=timeout)
+            except Exception as exc:
+                with errors_lock:
+                    errors.append(exc)
+            finally:
+                if not use_devnull:
+                    try:
+                        os.unlink(dest_path)
+                    except OSError:
+                        pass
+                work.task_done()
+
+    threads = []
+    for worker_id in range(concurrency):
+        t = threading.Thread(target=worker, args=(worker_id,))
+        t.daemon = True
+        threads.append(t)
+        t.start()
+    work.join()
+    for t in threads:
+        t.join()
+    if errors:
+        raise errors[0]
 
 
 class InMemoryFileTransferStressTests(unittest.TestCase):
@@ -58,12 +119,13 @@ class InMemoryFileTransferStressTests(unittest.TestCase):
             self._tmp_dir,
             'sfb_file_transfer_dummy_%d.bin' % os.getpid(),
         )
-        self._sink_path, self._sink_is_temp = _select_sink_path(self._tmp_dir)
+        self._use_devnull = _use_devnull()
+        self._sink_prefix = 'sfb_file_transfer_sink_%d_' % os.getpid()
 
         if os.path.exists(self._dummy_path):
             os.unlink(self._dummy_path)
-        if self._sink_is_temp and os.path.exists(self._sink_path):
-            os.unlink(self._sink_path)
+        if not self._use_devnull:
+            _cleanup_sink_files(self._tmp_dir, self._sink_prefix)
         _write_dummy_file(self._dummy_path, _DUMMY_SIZE)
 
         client, server = create_inmemory_transport_pair(
@@ -95,25 +157,33 @@ class InMemoryFileTransferStressTests(unittest.TestCase):
         if self._bob is not None:
             self._bob.stop_background()
             self._bob.close()
-        if self._sink_is_temp and os.path.exists(self._sink_path):
-            os.unlink(self._sink_path)
+        if not self._use_devnull:
+            _cleanup_sink_files(self._tmp_dir, self._sink_prefix)
         if self._dummy_path and os.path.exists(self._dummy_path):
             os.unlink(self._dummy_path)
 
     def test_bidirectional_file_transfer_stress(self):
         timeout = 5.0
-        for _ in range(_TRANSFER_COUNT):
-            self._alice_file.get(
-                self._dummy_path,
-                self._sink_path,
-                timeout=timeout,
-            )
-        for _ in range(_TRANSFER_COUNT):
-            self._bob_file.get(
-                self._dummy_path,
-                self._sink_path,
-                timeout=timeout,
-            )
+        _run_transfer_batch(
+            self._alice_file,
+            self._dummy_path,
+            self._tmp_dir,
+            self._sink_prefix,
+            self._use_devnull,
+            _TRANSFER_COUNT,
+            _CONCURRENCY,
+            timeout,
+        )
+        _run_transfer_batch(
+            self._bob_file,
+            self._dummy_path,
+            self._tmp_dir,
+            self._sink_prefix,
+            self._use_devnull,
+            _TRANSFER_COUNT,
+            _CONCURRENCY,
+            timeout,
+        )
 
 
 if __name__ == '__main__':

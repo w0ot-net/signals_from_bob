@@ -1,7 +1,7 @@
 # DNS CNAME Suffix Rationale
 
 This document explains why DNS transport responses use a CNAME target suffix
-of the form `0.<base_domain>`.
+of the form `<cname_label>.<base_domain>` (default `0.<base_domain>`).
 
 ## Background
 
@@ -21,7 +21,8 @@ that follow-up as tunnel data and feed it into the tunnel, which is incorrect.
 
 ## Why the `0.` label exists
 
-We add a short, non-base32 label before the base domain:
+We add a short, non-base32 label before the base domain (configurable as
+`dns_cname_label`, default `0`):
 
 ```
 <data_labels>.0.<base_domain>
@@ -33,8 +34,8 @@ tunnel queries:
 - Tunnel queries: `<nonce>.<data_labels>.<base_domain>`
 - CNAME follow-ups: `<data_labels>.0.<base_domain>`
 
-Because `0` is not part of the base32 alphabet (`A-Z`, `2-7`), it cannot appear
-in tunnel data labels. This prevents collisions and makes the detection
+Because the label must include non-base32 characters, it cannot appear in
+tunnel data labels. This prevents collisions and makes the detection
 unambiguous.
 
 ## Why not just use `<base_domain>` alone

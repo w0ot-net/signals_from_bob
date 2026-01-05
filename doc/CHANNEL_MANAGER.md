@@ -22,7 +22,9 @@ policy. It reflects the implementation in `sfb/channel/channel_manager.py`.
 - Alice allocates odd IDs: 1, 3, 5, ...
 - Bob allocates even IDs: 2, 4, 6, ...
 - Allocation wraps around and skips IDs still in use.
-- Closed IDs are not reused until `channel_id_reuse_cooldown` seconds elapse.
+- Closed IDs allocated by the local side are not reused until
+  `channel_id_reuse_cooldown` seconds elapse; remote-owned IDs are not tracked
+  for reuse cooldown.
 - If all IDs are in use, allocation fails with an error.
 
 ---
@@ -83,7 +85,7 @@ Channel 0 handling is special in segment packing:
 Incoming segments are routed by channel ID:
 - If the channel exists, the data is delivered to it.
 - Unknown channel IDs are dropped and trigger a `close_err` back to the peer,
-  rate-limited per channel ID.
+  rate-limited per channel ID; channel 0 is exempt from `close_err` responses.
 - If delivery would exceed a channel's receive buffer, the channel is aborted
   with `close_err`.
 - Control segments from a packet are delivered and processed before any data

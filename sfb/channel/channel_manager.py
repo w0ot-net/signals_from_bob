@@ -34,6 +34,7 @@ from .control_channel import ControlChannel
 from .channel_control_messages import (
     ch_open,
     ch_open_ok,
+    ch_open_fail,
     ch_close,
     ch_close_ok,
     ch_close_err,
@@ -76,6 +77,7 @@ class ChannelManager(object):
         self._unknown_channel_last = {}
         self._id_reuse_cooldown = config.channel_id_reuse_cooldown
         self._id_reuse_until = {}
+        self._channel_request_handler = None
 
         # Channel ID allocation
         # Alice uses odd IDs (1, 3, 5...), Bob uses even (2, 4, 6...)
@@ -107,6 +109,16 @@ class ChannelManager(object):
     def control_send_event(self):
         """Event set when control channel has pending send data."""
         return self._control.send_event
+
+    def set_channel_request_handler(self, handler):
+        """
+        Set handler for remote channel open requests.
+
+        The handler must return True to accept the channel, False to reject.
+        """
+        if handler is not None and not callable(handler):
+            raise TypeError('handler must be callable or None')
+        self._channel_request_handler = handler
 
     def has_pending_data(self, include_control=True):
         """Return True if any channel has queued send data."""
@@ -400,8 +412,8 @@ class ChannelManager(object):
             self._handle_half_close(msg)
         # Tunnel messages handled by tunnel
 
-    def collect_segments(self, max_payload, keepalive_data=None,
-                         return_pending=False, control_only=False):
+    def collect_segments(self, max_payload, return_pending=False,
+                         control_only=False):
         """
         Collect segments from channels for transmission.
 
@@ -409,12 +421,9 @@ class ChannelManager(object):
         1. Channel 0 priority (control data first)
         2. Primary channel fill (round-robin selection)
         3. Round-robin fill for remaining space
-        4. Optional keepalive_data only when no other segments were added
 
         Args:
             max_payload: Max total segment bytes to collect
-            keepalive_data: Optional keepalive bytes to include only if
-                           no other data is being sent (legacy)
             return_pending: If True, return (segments, pending_data)
             control_only: If True, only collect control channel segments
         Returns:
@@ -497,14 +506,7 @@ class ChannelManager(object):
                             segments.append(Segment(cid, data))
                             remaining -= SEGMENT_HEADER_SIZE + len(data)
 
-        # Step 5: Optional keepalive_data if no other segments were added
-        keepalive_sent = False
-        if not segments and keepalive_data and remaining > SEGMENT_HEADER_SIZE:
-            if len(keepalive_data) <= remaining - SEGMENT_HEADER_SIZE:
-                segments.append(Segment(CHANNEL_CONTROL, keepalive_data))
-                keepalive_sent = True
-
-        if segments or keepalive_data:
+        if segments:
             payload_bytes = 0
             for seg in segments:
                 payload_bytes += len(seg.data)
@@ -517,7 +519,6 @@ class ChannelManager(object):
                     'seg_count': len(segments),
                     'payload_bytes': payload_bytes,
                     'max_payload': max_payload,
-                    'keepalive': keepalive_sent,
                     'side': 'alice' if self._is_alice else 'bob',
                 },
             )
@@ -651,6 +652,48 @@ class ChannelManager(object):
 
         # Auto-accept: channels are generic pipes, application layer
         # handles any additional negotiation after channel is open
+        with self._lock:
+            if channel_id in self._channels:
+                return
+
+        handler = self._channel_request_handler
+        if handler is not None:
+            try:
+                accepted = bool(handler(channel_id))
+            except Exception as exc:
+                self._control.send_message(
+                    ch_open_fail(channel_id, 'handler_error')
+                )
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    'channel.open_reject',
+                    'Channel open rejected by handler error',
+                    lambda: {
+                        'ch': channel_id,
+                        'reason': 'handler_error',
+                        'error': repr(exc),
+                        'side': 'alice' if self._is_alice else 'bob',
+                    },
+                )
+                return
+            if not accepted:
+                self._control.send_message(
+                    ch_open_fail(channel_id, 'rejected')
+                )
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    'channel.open_reject',
+                    'Channel open rejected by handler',
+                    lambda: {
+                        'ch': channel_id,
+                        'reason': 'rejected',
+                        'side': 'alice' if self._is_alice else 'bob',
+                    },
+                )
+                return
+
         with self._lock:
             if channel_id in self._channels:
                 return

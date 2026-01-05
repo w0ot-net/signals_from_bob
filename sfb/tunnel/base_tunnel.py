@@ -1231,14 +1231,13 @@ class BaseTunnel(object):
             },
         )
 
-    def _collect_segments(self, max_payload, keepalive_data=None,
-                          return_pending=False, control_only=False):
+    def _collect_segments(self, max_payload, return_pending=False,
+                          control_only=False):
         """
         Collect segments from channels for transmission.
 
         Args:
             max_payload: Max bytes for segments
-            keepalive_data: Optional keepalive bytes if no data (legacy)
             return_pending: If True, return (segments, pending_data)
             control_only: If True, only collect control channel segments
         Returns:
@@ -1253,7 +1252,6 @@ class BaseTunnel(object):
                 max_payload = cap_payload
         return self._channel_manager.collect_segments(
             max_payload,
-            keepalive_data=keepalive_data,
             return_pending=return_pending,
             control_only=control_only,
         )

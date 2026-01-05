@@ -26,3 +26,9 @@
    - note channel 0 is exempt from close_err responses,
    - remove keepalive_data wording.
 5) Verify doc/TUNNEL.md still matches the new hook API; update if needed.
+
+## Execution Notes
+- Added channel request handler support with open_fail on rejection or handler error.
+- Removed keepalive_data packing path and updated segment collection signatures.
+- Updated doc/CHANNEL_MANAGER.md for ID reuse scope and channel 0 close_err behavior.
+- Verified doc/TUNNEL.md already reflects the hook API; no changes needed.

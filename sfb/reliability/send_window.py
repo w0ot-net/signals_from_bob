@@ -158,6 +158,20 @@ class SendWindow(object):
         if now is None:
             now = time_provider.now()
 
+        if self._ack_is_future(ack):
+            unacked = len(self._unacked)
+            return (
+                [],
+                0,
+                0,
+                unacked,
+                unacked,
+                self._last_cum_ack,
+                self._last_cum_ack_time,
+                False,
+                False,
+            )
+
         prev_cum_ack = self._last_cum_ack
         prev_cum_ack_time = self._last_cum_ack_time
         ack_advanced = False
@@ -200,6 +214,9 @@ class SendWindow(object):
         """
         if now is None:
             now = time_provider.now()
+
+        if self._ack_is_future(ack):
+            return ([], 0, 0)
 
         rtt_samples = []
         acked_count = 0
@@ -651,6 +668,9 @@ class SendWindow(object):
                 oldest = (seq, pkt)
                 oldest_time = pkt_time
         return oldest
+
+    def _ack_is_future(self, ack):
+        return seq_gt(ack, self._next_seq)
 
     def get_ack_debug_info(self, seq=None, now=None):
         if now is None:

@@ -24,6 +24,8 @@ class RecvWindow(object):
     """
 
     def __init__(self, max_buffer=MAX_IN_FLIGHT, stats=None):
+        if max_buffer > MAX_IN_FLIGHT:
+            raise ValueError('max_buffer cannot exceed %d' % MAX_IN_FLIGHT)
         self._next_expected = 0
         self._buffer = {}  # seq -> packet_data (out-of-order)
         self._max_buffer = max_buffer

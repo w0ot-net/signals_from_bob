@@ -1151,7 +1151,7 @@ class BaseTunnel(object):
 
         Updates negotiated_window and send_window limit.
         """
-        agreed = msg.get('size', self._default_window)
+        reported = msg.get('size', self._default_window)
         final = bool(msg.get('final'))
         log_event(
             self._logger,
@@ -1159,7 +1159,7 @@ class BaseTunnel(object):
             'tunnel.window_ok_recv',
             'Window response received',
             lambda: {
-                'size': agreed,
+                'size': reported,
                 'msg': msg,
                 'final': final,
                 'negotiated_window': self.negotiated_window,
@@ -1168,18 +1168,32 @@ class BaseTunnel(object):
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
-        if not isinstance(agreed, integer_types) or agreed < 1:
+        if not isinstance(reported, integer_types) or reported < 1:
             log_event(
                 self._logger,
                 logging.WARNING,
                 'tunnel.window_invalid',
                 'Invalid window response',
                 lambda: {
-                    'size': agreed,
+                    'size': reported,
                     'side': 'alice' if self._is_initiator else 'bob',
                 },
             )
             return
+        max_allowed = min(self._proposed_window, self.MAX_WINDOW)
+        if reported > max_allowed:
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.window_clamp',
+                'Window response exceeds local max',
+                lambda: {
+                    'size': reported,
+                    'max_allowed': max_allowed,
+                    'side': 'alice' if self._is_initiator else 'bob',
+                },
+            )
+        agreed = min(reported, max_allowed)
 
         prev_negotiated = self.negotiated_window
         prev_window_negotiated = self._window_negotiated

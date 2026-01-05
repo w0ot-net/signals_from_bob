@@ -16,7 +16,7 @@ import threading
 from ..base_module import BaseModule, ModuleError
 from ...logging_util import log_event
 from ... import time_provider
-from ..relay_connection import RelayConnection
+from .relay_connection import RelayConnection
 from .socks_control_messages import T_SOCK, sock_connect
 from ..relay_logging import (
     add_fields,

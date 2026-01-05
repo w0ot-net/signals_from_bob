@@ -4,9 +4,9 @@ Status: draft
 
 ## Goal
 
-Ensure Alice never emits empty packets without FLAG_KEEPALIVE, align poll
-behavior with the intended keepalive semantics, keep pending-data ACK tracking
-from being held open by keepalives, and avoid recording unacked sends when the
+Ensure Alice never emits empty non-keepalive packets, make the polling rules
+explicit and consistent with that requirement, keep keepalive-only unacked
+packets from forcing fast polling, and avoid recording unacked sends when the
 transport send fails.
 
 ## Affected Components
@@ -15,33 +15,74 @@ transport send fails.
 - sfb/reliability/send_window.py
 - doc/ALICE_RETRANSMIT_LOGIC.md
 
-## Design Notes
+## Current Behavior (Today)
 
-- Empty polls are always flagged KEEPALIVE; non-keepalive packets must carry at
-  least one segment.
-- Keepalive suppression on Bob (no keepalive when pending data) remains
-  unchanged; this plan only changes Alice's poll behavior.
-- Pending-data ACK tracking should follow unacked packets with segments, not
-  keepalives, so Alice does not stay in fast-poll mode when only keepalive
-  packets remain unacked.
-- Send-window bookkeeping should only advance after a transport send succeeds.
+### Empty poll keepalive flag
+
+- Today: `_poll_decision()` returns `keepalive_due=False` for grace/ACK-progress
+  polls, and the docs imply those are non-keepalive polls, but there is no
+  explicit enforcement point that prevents empty non-keepalive packets from
+  being emitted by future call sites.
+
+### Empty poll when window is full
+
+- Today: the code only drops the oldest keepalive when `keepalive_due=True`.
+  If the send window is full of keepalive-only entries and a grace/ACK-progress
+  poll triggers an empty poll, the poll is blocked even though only keepalives
+  are in flight.
+
+### Pending-data ACK tracking
+
+- Today: `_has_pending_data_acks` is cleared only when `unacked_count == 0`.
+  If real data is fully acked but keepalive-only packets remain unacked, Alice
+  stays in fast-poll mode.
+
+### Send-window accounting order
+
+- Today: `send_window.send()` / `mark_retransmit()` runs before the transport
+  send. If the transport send fails, we still have an unacked entry for a
+  packet that never went out, which can clog the window and trigger retransmits.
+
+## Planned Behavior (After Change)
+
+### Empty poll keepalive flag
+
+- After change: any packet with zero segments always carries FLAG_KEEPALIVE.
+  We enforce this at the send path so empty non-keepalive packets cannot be
+  emitted. Docs are updated to state that grace polls are still keepalive
+  flagged. This makes the rule explicit and future-proof.
+
+### Empty poll when window is full
+
+- After change: when Alice is about to send an empty poll and the window is
+  full, drop the oldest keepalive regardless of whether the poll was triggered
+  by idle keepalive, grace, or ACK progress. This keeps polling moving when
+  only keepalives are in flight.
+
+### Pending-data ACK tracking
+
+- After change: `_has_pending_data_acks` tracks unacked packets with segments
+  only. Keepalive-only unacked packets no longer keep Alice in fast-poll mode.
+
+### Send-window accounting order
+
+- After change: transport send happens before send-window bookkeeping. On send
+  failure, we log and return without mutating send-window state.
 
 ## Implementation Steps
 
-1. Update Alice's poll send path to derive the keepalive flag from `segments`
-   (empty => KEEPALIVE) while preserving existing poll pacing, rate limiting,
-   and window gating.
-2. When Alice is about to send an empty poll and the send window is full, allow
-   dropping the oldest keepalive even if the poll was triggered by grace or ACK
-   progress, because once empty polls always carry KEEPALIVE the window can be
-   clogged entirely by keepalive-only entries.
-3. Add a `data_unacked_count` or `has_data_unacked` helper on `SendWindow` and
-   use it in `AliceTunnel.tick()` to clear `_has_pending_data_acks` once only
-   keepalives remain unacked.
+1. Enforce the rule "empty => FLAG_KEEPALIVE" in Alice's send path while
+   preserving poll pacing, rate limiting, and window gating.
+2. When an empty poll is about to be sent and the send window is full, drop the
+   oldest keepalive regardless of the poll trigger (idle, grace, or ACK
+   progress) so the new keepalive poll can go out.
+3. Add a `data_unacked_count` or `has_data_unacked` helper on `SendWindow`, and
+   use it in `AliceTunnel.tick()` to clear `_has_pending_data_acks` once no
+   packets with segments remain unacked.
 4. Reorder send accounting in `_send_new_packet` and `_send_retransmit` so the
-   transport send happens before `send_window.send()` / `mark_retransmit()`;
-   on send failure, log and exit without mutating send-window state.
-5. Update `doc/ALICE_RETRANSMIT_LOGIC.md` to describe that empty polls always
+   transport send happens before `send_window.send()` / `mark_retransmit()`.
+   On send failure, log and exit without mutating send-window state.
+5. Update `doc/ALICE_RETRANSMIT_LOGIC.md` to state that empty polls always
    carry FLAG_KEEPALIVE, including during grace polls.
 
 ## Validation

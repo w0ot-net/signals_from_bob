@@ -75,11 +75,20 @@ class BobTunnel(BaseTunnel):
 
         # Handshake state
         self._handshake_complete = False
+        self._serve_forever_active = False
 
     def serve_forever(self):
         """
         Serve requests until closed or idle timeout.
         """
+        if self._bg_thread is not None and self._bg_thread.is_alive():
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.serve_conflict',
+                'serve_forever called while background loop is running',
+                lambda: {'side': 'bob'},
+            )
         log_event(
             self._logger,
             logging.INFO,
@@ -88,34 +97,49 @@ class BobTunnel(BaseTunnel):
             lambda: {'side': 'bob'},
         )
 
-        while self._state != TunnelState.CLOSED:
-            try:
-                result = self._transport.recv(timeout=self._config.tunnel_bob_poll_interval)
-                if result is None or result[0] is None:
-                    # Timeout - check idle
-                    if self._check_idle_timeout():
+        self._serve_forever_active = True
+        try:
+            while self._state != TunnelState.CLOSED:
+                try:
+                    result = self._transport.recv(timeout=self._config.tunnel_bob_poll_interval)
+                    if result is None or result[0] is None:
+                        # Timeout - check idle
+                        if self._check_idle_timeout():
+                            break
+                        continue
+
+                    data, responder = result
+                    self.handle_request(data, responder)
+
+                except Exception as e:
+                    # Suppress socket errors during shutdown
+                    if self._state == TunnelState.CLOSED:
                         break
-                    continue
+                    log_event(
+                        self._logger,
+                        logging.WARNING,
+                        'tunnel.serve_error',
+                        'Serve loop error',
+                        lambda: {
+                            'error': str(e),
+                            'loop': 'serve_forever',
+                            'side': 'bob',
+                        },
+                        exc_info=True,
+                    )
+        finally:
+            self._serve_forever_active = False
 
-                data, responder = result
-                self.handle_request(data, responder)
-
-            except Exception as e:
-                # Suppress socket errors during shutdown
-                if self._state == TunnelState.CLOSED:
-                    break
-                log_event(
-                    self._logger,
-                    logging.WARNING,
-                    'tunnel.serve_error',
-                    'Serve loop error',
-                    lambda: {
-                        'error': str(e),
-                        'loop': 'serve_forever',
-                        'side': 'bob',
-                    },
-                    exc_info=True,
-                )
+    def start_background(self):
+        if self._serve_forever_active:
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.serve_conflict',
+                'start_background called while serve_forever is running',
+                lambda: {'side': 'bob'},
+            )
+        super(BobTunnel, self).start_background()
 
     def _run_loop(self):
         """Background thread loop - processes requests until stopped."""

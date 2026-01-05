@@ -47,7 +47,7 @@ class ModuleLoader(object):
 
         # For controller side: track pending load requests
         self._pending_lock = threading.Lock()
-        self._pending = {}  # name -> Event
+        self._pending = {}  # name -> {'waiters': [], 'in_flight': bool}
 
         tunnel.register_module(T_MOD, self._dispatch)
 
@@ -154,10 +154,15 @@ class ModuleLoader(object):
         """Signal a pending load request."""
         with self._pending_lock:
             pending = self._pending.get(name)
-            if pending:
-                pending['success'] = success
-                pending['reason'] = reason
-                pending['event'].set()
+            if pending is None:
+                return
+            pending['in_flight'] = False
+            for waiter in pending['waiters']:
+                waiter['success'] = success
+                waiter['reason'] = reason
+                waiter['event'].set()
+            if not pending['waiters']:
+                self._pending.pop(name, None)
 
     def load_remote(self, name, timeout=30.0):
         """
@@ -173,21 +178,27 @@ class ModuleLoader(object):
         Raises:
             ModuleLoadError: If loading failed or timed out
         """
-        # Create pending entry
-        created = False
+        waiter = {
+            'event': threading.Event(),
+            'success': False,
+            'reason': None,
+        }
+        send_request = False
         with self._pending_lock:
             pending = self._pending.get(name)
             if pending is None:
                 pending = {
-                    'event': threading.Event(),
-                    'success': False,
-                    'reason': None,
+                    'waiters': [],
+                    'in_flight': False,
                 }
                 self._pending[name] = pending
-                created = True
+            pending['waiters'].append(waiter)
+            if not pending['in_flight']:
+                pending['in_flight'] = True
+                send_request = True
 
         try:
-            if created:
+            if send_request:
                 # Send load request
                 self._send(mod_load(name))
                 log_event(
@@ -199,17 +210,22 @@ class ModuleLoader(object):
                 )
 
             # Wait for response
-            if not pending['event'].wait(timeout=timeout):
+            if not waiter['event'].wait(timeout=timeout):
                 raise ModuleLoadError('Timeout waiting for module load: %s' % name)
 
-            if not pending['success']:
+            if not waiter['success']:
                 raise ModuleLoadError('Failed to load module %s: %s' % (
-                    name, pending['reason'] or 'unknown error'))
+                    name, waiter['reason'] or 'unknown error'))
 
             return True
         finally:
-            if created:
-                with self._pending_lock:
+            with self._pending_lock:
+                pending = self._pending.get(name)
+                if pending is None:
+                    return
+                if waiter in pending['waiters']:
+                    pending['waiters'].remove(waiter)
+                if not pending['in_flight'] and not pending['waiters']:
                     self._pending.pop(name, None)
 
     def _send(self, msg):

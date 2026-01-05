@@ -128,6 +128,7 @@ class BaseTunnel(object):
         # Module handlers for control message dispatch
         # Maps message type (t field) to handler callable
         self._module_handlers = {}
+        self._module_handlers_lock = threading.Lock()
         self._module_loader = None
 
         # Statistics
@@ -142,6 +143,7 @@ class BaseTunnel(object):
         # Background thread support
         self._bg_thread = None
         self._bg_stop = False
+        self._bg_lock = threading.Lock()
 
     def _init_transport_limits(self, transport):
         """
@@ -669,11 +671,26 @@ class BaseTunnel(object):
                 'Delivering segments',
                 lambda: {'seq': seq, 'segments': len(ready_packet.segments)},
             )
+            control_segments = []
+            data_segments = []
             for segment in ready_packet.segments:
+                if segment.is_control:
+                    control_segments.append(segment)
+                else:
+                    data_segments.append(segment)
+
+            for segment in control_segments:
                 self._channel_manager.deliver_segment(segment)
                 delivered_segments = True
 
-        # Process control messages
+            if control_segments:
+                self._process_control_messages()
+
+            for segment in data_segments:
+                self._channel_manager.deliver_segment(segment)
+                delivered_segments = True
+
+        # Process any remaining control messages
         if delivered_segments:
             self._process_control_messages()
 
@@ -729,11 +746,12 @@ class BaseTunnel(object):
         Raises:
             ValueError: If type_code is reserved or already registered
         """
-        if type_code in self.RESERVED_TYPES:
-            raise ValueError('Cannot register reserved type: %s' % type_code)
-        if type_code in self._module_handlers:
-            raise ValueError('Handler already registered: %s' % type_code)
-        self._module_handlers[type_code] = handler
+        with self._module_handlers_lock:
+            if type_code in self.RESERVED_TYPES:
+                raise ValueError('Cannot register reserved type: %s' % type_code)
+            if type_code in self._module_handlers:
+                raise ValueError('Handler already registered: %s' % type_code)
+            self._module_handlers[type_code] = handler
         log_event(
             self._logger,
             logging.DEBUG,
@@ -752,16 +770,17 @@ class BaseTunnel(object):
         Returns:
             bool: True if handler was removed, False if not found
         """
-        if type_code in self._module_handlers:
-            del self._module_handlers[type_code]
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.module_unregister',
-                'Unregistered module handler',
-                lambda: {'type': type_code},
-            )
-            return True
+        with self._module_handlers_lock:
+            if type_code in self._module_handlers:
+                del self._module_handlers[type_code]
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.module_unregister',
+                    'Unregistered module handler',
+                    lambda: {'type': type_code},
+                )
+                return True
         return False
 
     def _dispatch_control_message(self, msg):
@@ -798,25 +817,29 @@ class BaseTunnel(object):
             self._handle_tunnel_message(cmd, msg)
         elif msg_type == 'ch':
             self._handle_channel_message(cmd, msg)
-        elif msg_type in self._module_handlers:
-            try:
-                self._module_handlers[msg_type](msg)
-            except Exception as e:
+        else:
+            handler = None
+            with self._module_handlers_lock:
+                handler = self._module_handlers.get(msg_type)
+            if handler is not None:
+                try:
+                    handler(msg)
+                except Exception as e:
+                    log_event(
+                        self._logger,
+                        logging.WARNING,
+                        'tunnel.module_error',
+                        'Module handler error',
+                        lambda: {'type': msg_type, 'error': str(e)},
+                    )
+            else:
                 log_event(
                     self._logger,
-                    logging.WARNING,
-                    'tunnel.module_error',
-                    'Module handler error',
-                    lambda: {'type': msg_type, 'error': str(e)},
+                    logging.DEBUG,
+                    'tunnel.control_unknown',
+                    'Unknown message type',
+                    lambda: {'type': msg_type},
                 )
-        else:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.control_unknown',
-                'Unknown message type',
-                lambda: {'type': msg_type},
-            )
 
     def _handle_tunnel_message(self, cmd, msg):
         """
@@ -1219,13 +1242,16 @@ class BaseTunnel(object):
         The loop runs until stop_background() is called or the tunnel closes.
         Subclasses must implement _run_loop() to define their specific loop.
         """
-        if self._bg_thread is not None:
-            return  # Already running
+        with self._bg_lock:
+            if self._bg_thread is not None:
+                if self._bg_thread.is_alive():
+                    return  # Already running
+                self._bg_thread = None
 
-        self._bg_stop = False
-        self._bg_thread = threading.Thread(target=self._bg_run)
-        self._bg_thread.daemon = True
-        self._bg_thread.start()
+            self._bg_stop = False
+            self._bg_thread = threading.Thread(target=self._bg_run)
+            self._bg_thread.daemon = True
+            self._bg_thread.start()
 
     def stop_background(self, timeout=None):
         """
@@ -1234,11 +1260,22 @@ class BaseTunnel(object):
         Args:
             timeout: Max seconds to wait for thread to finish
         """
-        self._bg_stop = True
         if timeout is None:
             timeout = self._config.tunnel_bg_stop_timeout
-        if self._bg_thread is not None:
+        with self._bg_lock:
+            self._bg_stop = True
+            if self._bg_thread is None:
+                return
             self._bg_thread.join(timeout=timeout)
+            if self._bg_thread.is_alive():
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.bg_stop_timeout',
+                    'Background thread still running after stop timeout',
+                    lambda: {'side': 'alice' if self._is_initiator else 'bob'},
+                )
+                return
             self._bg_thread = None
 
     def _bg_run(self):

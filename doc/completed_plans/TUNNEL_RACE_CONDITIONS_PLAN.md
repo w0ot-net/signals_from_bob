@@ -52,3 +52,10 @@ module load responses.
   cleanly.
 - Concurrency changes should remain compatible with Windows and Linux and use
   only the Python standard library.
+
+## Execution Notes
+- Added locks for background thread lifecycle and module handler dispatch.
+- Updated ModuleLoader pending coordination to batch concurrent requests.
+- Added guard warnings for concurrent Bob serve_forever/start_background use.
+- Ran `python3 -m unittest tests.test_module_loader tests.test_bob_tunnel tests.test_tunnel`.
+- Manual concurrency exercise not run here.

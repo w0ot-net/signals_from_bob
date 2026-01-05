@@ -182,7 +182,10 @@ class ModuleLoaderTest(unittest.TestCase):
         loader = ModuleLoader(tunnel)
         with self.assertRaises(ModuleLoadError):
             loader.load_remote('dummy', timeout=0.1)
-        self.assertEqual(loader._pending, {})
+        self.assertIn('dummy', loader._pending)
+        pending = loader._pending['dummy']
+        self.assertTrue(pending['in_flight'])
+        self.assertEqual(pending['waiters'], [])
 
     def test_shutdown_calls_module_and_unregisters(self):
         tunnel = DummyTunnel()

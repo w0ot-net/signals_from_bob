@@ -20,6 +20,7 @@ from ...compat import PY2, integer_types, text_type, to_native_str
 from ...logging_util import get_logger, log_event
 from ... import time_provider
 from ...channel import ChannelError
+from ...utils import build_host_port_error_map, parse_host_port_or_raise
 from .nc_linux_control_messages import T_NC, nc_bind, nc_bind_ok, nc_err
 from .nc_linux_pump import pump_fd_to_channel, pump_channel_to_fd
 
@@ -27,6 +28,21 @@ from .nc_linux_pump import pump_fd_to_channel, pump_channel_to_fd
 class NcLinuxError(ModuleError):
     """NC Linux module error."""
     pass
+
+
+def _nc_linux_error(reason):
+    return NcLinuxError('invalid_spec', reason)
+
+
+_HOST_PORT_ERROR_MAP = build_host_port_error_map(
+    _nc_linux_error,
+    base_message='address must be host:port',
+    overrides={
+        'invalid_port': 'port invalid',
+        'port_range': 'port out of range',
+        'ipv6_unsupported': 'address must be host:port (ipv6 unsupported)',
+    },
+)
 
 
 class _BoundFd(object):
@@ -478,23 +494,6 @@ def _coerce_spec(spec):
     return to_native_str(spec)
 
 
-def _parse_host_port(spec):
-    if spec.startswith('['):
-        return None
-    if spec.count(':') != 1:
-        return None
-    host, port_text = spec.rsplit(':', 1)
-    if not host or not port_text:
-        return None
-    try:
-        port = int(port_text)
-    except Exception:
-        return None
-    if port < 1 or port > 65535:
-        return None
-    return host, port
-
-
 def _parse_spec(spec):
     spec = _coerce_spec(spec)
     if spec is None:
@@ -509,8 +508,8 @@ def _parse_spec(spec):
         raise NcLinuxError('invalid_spec', 'address must be host:port (ipv6 unsupported)')
     if '/' in spec:
         return ('path', spec)
-    host_port = _parse_host_port(spec)
-    if host_port:
+    if ':' in spec:
+        host_port = parse_host_port_or_raise(spec, _HOST_PORT_ERROR_MAP)
         return ('addr', host_port)
     return ('path', spec)
 

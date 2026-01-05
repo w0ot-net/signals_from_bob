@@ -16,6 +16,7 @@ sites to use it without per-module string matching.
 - Consistent validation (text type, empty host, port range) across modules.
 - Centralize error classification so callers do not replicate mapping logic.
 - Remove duplicate helper functions and inline parsing.
+- minimize code duplication!
 
 ## Affected Components
 - `sfb/utils.py` (new shared parser)
@@ -62,3 +63,13 @@ sites to use it without per-module string matching.
 ## Validation
 - `python3 -m unittest tests.test_nc_linux`
 - Add a focused unit test for `sfb/utils.py` once implemented.
+
+## Execution Notes
+- Added `sfb/utils.py` with shared host:port parsing and error mapping helpers.
+- Added `build_host_port_error_map` to remove duplicated per-module error maps.
+- Replaced per-module host:port parsing in DNS, TLS, UDP, proxy, CLI, port_fwd, and nc_linux.
+- Added `tests/test_utils.py` for shared parser coverage.
+- Tests run:
+  - `python3 -m unittest tests.test_utils`
+  - `python3 -m unittest tests.test_nc_linux`
+- Docs scan: no IPv6 host:port examples found outside completed plans.

@@ -10,6 +10,7 @@ from ...protocol.constants import PACKET_HEADER_SIZE
 from ..transport_base import TransportError
 from ..proxy_helpers import validate_proxy_config
 from . import tls_handshake_codec as codec
+from ...utils import build_host_port_error_map, parse_host_port_or_raise
 
 
 _SNI_ERROR_MAP = {
@@ -21,6 +22,9 @@ _SNI_ERROR_MAP = {
     'SNI contains invalid characters': 'tls_sni contains invalid characters',
     'SNI label length invalid': 'tls_sni label length invalid',
 }
+
+
+_HOST_PORT_ERROR_MAP = build_host_port_error_map(TransportError)
 
 
 def validate_tls_config(config, role):
@@ -113,30 +117,10 @@ def validate_tls_config(config, role):
     }
 
 
-def parse_host_port(addr):
-    """
-    Parse host:port (IPv4 only; IPv6 literals are unsupported).
-    """
-    if not isinstance(addr, text_type):
-        raise TransportError('Address must be text')
-    if ':' not in addr:
-        raise TransportError('Address must include port')
-    host, port_text = addr.rsplit(':', 1)
-    if not host:
-        raise TransportError('Address host required')
-    try:
-        port = int(port_text, 10)
-    except ValueError:
-        raise TransportError('Address port invalid')
-    if port < 1 or port > 65535:
-        raise TransportError('Address port out of range')
-    return host, port
-
-
 def _require_host_port(addr, label):
     if addr is None:
         raise TransportError('%s required' % label)
-    parse_host_port(addr)
+    parse_host_port_or_raise(addr, _HOST_PORT_ERROR_MAP)
 
 
 def _require_positive_float(value, label):

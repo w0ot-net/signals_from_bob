@@ -22,10 +22,26 @@ from ..relay_logging import (
 )
 from ...logging_util import log_event
 from ...compat import text_type
+from ...utils import build_host_port_error_map, parse_host_port_or_raise
 from ... import time_provider
 
 
 T_FWD = 'fwd'
+
+
+def _module_error(reason):
+    return ModuleError('invalid_spec', reason)
+
+
+_HOST_PORT_ERROR_MAP = build_host_port_error_map(
+    _module_error,
+    base_message='address must be host:port',
+    overrides={
+        'invalid_port': 'port invalid',
+        'port_range': 'port out of range',
+        'ipv6_unsupported': 'address must be host:port (IPv6 unsupported)',
+    },
+)
 
 
 class _PendingConnect(object):
@@ -51,24 +67,6 @@ def _coerce_text(value):
         return text_type(value)
     except Exception:
         return text_type(repr(value))
-
-
-def _parse_host_port(spec):
-    spec = _coerce_text(spec)
-    if not spec:
-        raise ModuleError('invalid_spec', 'address required')
-    if spec.startswith('[') or spec.count(':') != 1:
-        raise ModuleError('invalid_spec', 'address must be host:port (IPv6 unsupported)')
-    host, port_text = spec.rsplit(':', 1)
-    if not host or not port_text:
-        raise ModuleError('invalid_spec', 'address must be host:port')
-    try:
-        port = int(port_text, 10)
-    except (TypeError, ValueError):
-        raise ModuleError('invalid_spec', 'port invalid')
-    if port < 1 or port > 65535:
-        raise ModuleError('invalid_spec', 'port out of range')
-    return host, port
 
 
 class PortForwardServerModule(BaseModule):
@@ -106,8 +104,18 @@ class PortForwardServerModule(BaseModule):
             remote_spec = getattr(args, 'remote', None)
             if local_spec is None or remote_spec is None:
                 raise ModuleError('invalid_spec', 'local and remote required')
-            local_host, local_port = _parse_host_port(local_spec)
-            remote_host, remote_port = _parse_host_port(remote_spec)
+            local_spec = _coerce_text(local_spec)
+            remote_spec = _coerce_text(remote_spec)
+            if not local_spec or not remote_spec:
+                raise ModuleError('invalid_spec', 'address required')
+            local_host, local_port = parse_host_port_or_raise(
+                local_spec,
+                _HOST_PORT_ERROR_MAP,
+            )
+            remote_host, remote_port = parse_host_port_or_raise(
+                remote_spec,
+                _HOST_PORT_ERROR_MAP,
+            )
             module.start(
                 listen_host=local_host,
                 listen_port=local_port,

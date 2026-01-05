@@ -5,8 +5,11 @@ UDP ephemeral transport configuration validation helpers.
 
 from __future__ import absolute_import
 
-from ...compat import text_type
 from ..transport_base import TransportError
+from ...utils import build_host_port_error_map, parse_host_port_or_raise
+
+
+_HOST_PORT_ERROR_MAP = build_host_port_error_map(TransportError)
 
 
 def validate_udp_ephemeral_config(config, role):
@@ -39,11 +42,17 @@ def validate_udp_ephemeral_config(config, role):
     if role == 'client':
         if config.udp_ephemeral_target is None:
             raise TransportError('udp_ephemeral_target required')
-        target_addr = parse_host_port(config.udp_ephemeral_target)
+        target_addr = parse_host_port_or_raise(
+            config.udp_ephemeral_target,
+            _HOST_PORT_ERROR_MAP,
+        )
     else:
         if config.udp_ephemeral_listen_addr is None:
             raise TransportError('udp_ephemeral_listen_addr required')
-        listen_addr = parse_host_port(config.udp_ephemeral_listen_addr)
+        listen_addr = parse_host_port_or_raise(
+            config.udp_ephemeral_listen_addr,
+            _HOST_PORT_ERROR_MAP,
+        )
 
     return {
         'payload_mtu': payload_mtu,
@@ -52,26 +61,6 @@ def validate_udp_ephemeral_config(config, role):
         'target_addr': target_addr,
         'listen_addr': listen_addr,
     }
-
-
-def parse_host_port(addr):
-    """
-    Parse host:port (IPv4 only; IPv6 literals are unsupported).
-    """
-    if not isinstance(addr, text_type):
-        raise TransportError('Address must be text')
-    if ':' not in addr:
-        raise TransportError('Address must include port')
-    host, port_text = addr.rsplit(':', 1)
-    if not host:
-        raise TransportError('Address host required')
-    try:
-        port = int(port_text, 10)
-    except ValueError:
-        raise TransportError('Address port invalid')
-    if port < 1 or port > 65535:
-        raise TransportError('Address port out of range')
-    return host, port
 
 
 def _require_positive_float(value, label):

@@ -12,7 +12,8 @@ import socket
 
 from ..transport_base import Server, TransportError, raise_bind_error
 from . import tls_handshake_codec as codec
-from .tls_handshake_config import validate_tls_config, parse_host_port
+from .tls_handshake_config import validate_tls_config
+from ...utils import parse_host_port
 from ...compat import require_bytes_like, to_bytes
 from ...config import Config
 from ...logging_util import get_logger, log_event

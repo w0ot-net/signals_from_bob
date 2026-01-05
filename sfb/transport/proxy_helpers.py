@@ -9,10 +9,14 @@ import base64
 
 from .transport_base import TransportError
 from ..compat import text_type
+from ..utils import build_host_port_error_map, parse_host_port_or_raise
 
 
 PROXY_HEADER_LIMIT = 8192
 PROXY_HEADER_TOO_LARGE = -1
+
+
+_HOST_PORT_ERROR_MAP = build_host_port_error_map(TransportError)
 
 
 def build_connect_request(target_hostport, proxy_auth=None):
@@ -123,7 +127,7 @@ def _validate_proxy_addr(value):
     value = _require_ascii_text(value, 'tls_http_proxy')
     if any(ch.isspace() for ch in value):
         raise TransportError('tls_http_proxy must not contain whitespace')
-    _parse_host_port(value)
+    parse_host_port_or_raise(value, _HOST_PORT_ERROR_MAP)
     return value
 
 
@@ -132,26 +136,6 @@ def _validate_proxy_auth(value):
     if ':' not in value:
         raise TransportError('tls_http_proxy_auth must be user:pass')
     return value
-
-
-def _parse_host_port(addr):
-    """
-    Parse host:port (IPv4 only; IPv6 literals are unsupported).
-    """
-    if not isinstance(addr, text_type):
-        raise TransportError('Address must be text')
-    if ':' not in addr:
-        raise TransportError('Address must include port')
-    host, port_text = addr.rsplit(':', 1)
-    if not host:
-        raise TransportError('Address host required')
-    try:
-        port = int(port_text, 10)
-    except ValueError:
-        raise TransportError('Address port invalid')
-    if port < 1 or port > 65535:
-        raise TransportError('Address port out of range')
-    return host, port
 
 
 def _require_positive_float(value, label):

@@ -16,6 +16,7 @@ from ..transport_base import Server, TransportError, raise_bind_error
 from . import codec
 from ...config import Config, DNS_STANDARD_SIZE
 from ...logging_util import get_logger, log_event
+from ...utils import parse_host_port
 from ... import time_provider
 
 
@@ -77,11 +78,8 @@ class DnsServer(Server):
 
         # Parse listen address
         listen_addr = config.dns_listen_addr
-        if ':' in listen_addr:
-            host, port = listen_addr.rsplit(':', 1)
-            self._listen_addr = (host, int(port))
-        else:
-            self._listen_addr = (listen_addr, 53)
+        host, port = parse_host_port(listen_addr, default_port=53)
+        self._listen_addr = (host, port)
 
         # Create and bind UDP socket
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

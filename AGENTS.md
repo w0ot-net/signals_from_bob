@@ -17,6 +17,7 @@ Project Rules
 - breaking changes are acceptable when they improve cleanliness or performance; make the clean change and update all call sites in the same change, and avoid compatibility shims or transitional signatures for internal APIs
 - for code reviews, try to answer your own questions; if that is not possible, suggest likely best options when posing questions, grounded in observed facts
 - for code reviews or plan reviews, ignore any changes to tests unless I explicitly ask about tests
+- for code/document reviews, ignore anything under doc/completed_plans and doc/abandoned_plans
 - when asked to evaluate a <plan>.md, perform a full code review of all affected components
 - when asked to draft a <plan>.md, include a section that lists all affected components
 - when executing a <plan>.md, add notes about how it was executed and then move it into doc/completed_plans

@@ -15,10 +15,12 @@ Fine-grained logging is controlled in `sfb/config.py` and applies to both
 stdout and SQLite handlers.
 
 Current toggles:
--- `log_component_transport_dns` (default: false) - enable or disable DNS
+- `log_component_transport_dns` (default: false) - enable or disable DNS
   transport logs and events (`dns.*`).
 - `log_component_transport_icmp` (default: false) - enable or disable ICMP
-  transport logs.
+  transport logs and events (`icmp.*`).
+- `log_component_transport_tls` (default: false) - enable or disable TLS
+  transport logs and events (`tls.*`).
 - `log_component_tunnel` (default: true) - enable or disable tunnel logs and
   events (`tunnel.*`).
 - `log_component_channel` (default: false) - enable or disable channel logs and
@@ -27,7 +29,9 @@ Current toggles:
 - `log_component_module_relay` (default: true) - enable or disable relay module
   logs and events (`sock.*`, `fwd.*`).
 - `log_component_module_file_transfer` (default: true) - enable or disable file
-  transfer module logs.
+  transfer module logs and events (`file.*`).
+- `log_component_module_nc_linux` (default: true) - enable or disable nc_linux
+  module logs and events (`nc.*`).
 
 Set the default in `sfb/config.py`, or pass to `Config(...)` when embedding.
 Logger names are standardized under the `sfb.*` namespace for consistency.
@@ -41,12 +45,13 @@ python3 -m sfb.cli --log-profile tunnel_verbose ...
 ```
 
 Profiles live in `sfb/log_profiles.py`. You can add new profiles there to
-toggle `log_component_*` flags or override `log_event_whitelist` and
-`log_event_blacklist` settings.
+toggle `log_component_*` flags, override `log_event_whitelist` and
+`log_event_blacklist`, and set other logging-related config values (for
+example, `tunnel_pacer_summary_interval`).
 
 Available profiles (current):
 - `all_events`
-- `channel_close_debug`
+- `channel_close_debug` (default)
 - `dns_socks_stall_debug`
 - `dns_transport`
 - `dns_troubleshoot`
@@ -54,7 +59,7 @@ Available profiles (current):
 - `icmp_retransmit_debug`
 - `icmp_transport`
 - `no_logging`
-- `scp_stalled_icmp_socks` (default)
+- `scp_stalled_icmp_socks`
 - `socks_starvation`
 - `socks_throughput_debug`
 - `socks_instrumentation`
@@ -72,7 +77,8 @@ You can filter structured events (those emitted via `log_event`) by pattern:
 Matching uses `fnmatch` wildcards (for example, `tunnel.mtu*`).
 If the whitelist is non-empty, only matching events are emitted.
 Blacklist is applied after whitelist.
-Plain logger messages without an `event` field are not affected.
+Plain logger messages without an `event` field are not filtered by the
+whitelist or blacklist, but they still respect component toggles.
 Records at ERROR or higher always pass filtering.
 
 Default blacklist (to reduce high-volume debug events):
@@ -96,6 +102,8 @@ Default blacklist (to reduce high-volume debug events):
 - `dns.recv`
 - `icmp.send`
 - `icmp.recv`
+- `tls.send`
+- `tls.recv`
 
 ## Schema
 

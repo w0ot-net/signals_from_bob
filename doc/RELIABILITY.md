@@ -42,10 +42,11 @@ ACK behavior:
 
 ### Buffer Limits
 
-The out-of-order buffer is bounded by the negotiated max_in_flight (maximum 256).
-Because max_in_flight is negotiated and capped at 256, the receiver's buffer
-capacity always matches or exceeds the sender's window. Buffer overflow should
-not occur under normal operation.
+The out-of-order buffer is bounded by the local max_in_flight proposal
+(min(config.max_in_flight, 256)) and is not resized during window negotiation.
+Because the negotiated send window is clamped to each side's proposal, the
+receiver's buffer capacity always matches or exceeds the sender's window.
+Buffer overflow should not occur under normal operation.
 
 If a packet arrives that would exceed the buffer (e.g., due to implementation
 mismatch or misbehaving peer), drop the incoming packet silently. Do not drop

@@ -1,128 +1,128 @@
 # -*- coding: ascii -*-
 """
-SOCKS server module (runs on Bob).
+Port forward server module (runs on Bob).
 
-Accepts SOCKS5 clients on a local TCP port and proxies their
-connections through the tunnel to Alice.
+Accepts local TCP connections and forwards them through the tunnel
+to a fixed remote host:port on Alice.
 """
 
 from __future__ import absolute_import
 
 import logging
 import socket
-import struct
 import threading
 
 from ..base_module import BaseModule, ModuleError
-from ...logging_util import log_event
-from ... import time_provider
 from ..relay_connection import RelayConnection
-from .socks_control_messages import T_SOCK, sock_connect
+from ..relay_control_messages import relay_connect
 from ..relay_logging import (
     add_fields,
     duration_secs,
     relay_fields,
 )
+from ...logging_util import log_event
+from ...compat import text_type
+from ... import time_provider
 
 
-# SOCKS5 constants
-SOCKS5_VERSION = 0x05
-SOCKS5_AUTH_NONE = 0x00
-SOCKS5_AUTH_NO_ACCEPTABLE = 0xFF
-SOCKS5_CMD_CONNECT = 0x01
-SOCKS5_ATYP_IPV4 = 0x01
-SOCKS5_ATYP_DOMAIN = 0x03
-SOCKS5_ATYP_IPV6 = 0x04
-
-# SOCKS5 reply codes
-SOCKS5_REP_SUCCESS = 0x00
-SOCKS5_REP_GENERAL_FAILURE = 0x01
-SOCKS5_REP_NOT_ALLOWED = 0x02
-SOCKS5_REP_NET_UNREACHABLE = 0x03
-SOCKS5_REP_HOST_UNREACHABLE = 0x04
-SOCKS5_REP_REFUSED = 0x05
-SOCKS5_REP_TTL_EXPIRED = 0x06
-SOCKS5_REP_CMD_NOT_SUPPORTED = 0x07
-SOCKS5_REP_ADDR_NOT_SUPPORTED = 0x08
-
-# Map error codes to SOCKS5 reply codes
-ERROR_TO_SOCKS5 = {
-    'ok': SOCKS5_REP_SUCCESS,
-    'general': SOCKS5_REP_GENERAL_FAILURE,
-    'denied': SOCKS5_REP_NOT_ALLOWED,
-    'unreachable_net': SOCKS5_REP_NET_UNREACHABLE,
-    'unreachable_host': SOCKS5_REP_HOST_UNREACHABLE,
-    'refused': SOCKS5_REP_REFUSED,
-    'timeout': SOCKS5_REP_TTL_EXPIRED,
-    'unsupported_cmd': SOCKS5_REP_CMD_NOT_SUPPORTED,
-    'unsupported_addr': SOCKS5_REP_ADDR_NOT_SUPPORTED,
-}
-
-
-class Socks5Error(Exception):
-    """SOCKS5 protocol error."""
-
-    def __init__(self, code, message):
-        Exception.__init__(self, message)
-        self.code = code
-        self.message = message
+T_FWD = 'fwd'
 
 
 class _PendingConnect(object):
     """Tracks a pending connect request awaiting response."""
 
-    __slots__ = ('event', 'error', 'bind_host', 'bind_port')
+    __slots__ = ('event', 'error', 'reason')
 
     def __init__(self):
         self.event = threading.Event()
         self.error = None
-        self.bind_host = None
-        self.bind_port = None
+        self.reason = None
 
 
-class SocksServerModule(BaseModule):
+def _coerce_text(value):
+    if isinstance(value, text_type):
+        return value
+    if isinstance(value, bytes):
+        try:
+            return value.decode('ascii')
+        except Exception:
+            return value.decode('ascii', 'replace')
+    try:
+        return text_type(value)
+    except Exception:
+        return text_type(repr(value))
+
+
+def _parse_host_port(spec):
+    spec = _coerce_text(spec)
+    if not spec:
+        raise ModuleError('invalid_spec', 'address required')
+    if spec.startswith('['):
+        end = spec.find(']')
+        if end == -1:
+            raise ModuleError('invalid_spec', 'invalid bracketed address')
+        if len(spec) <= end + 2 or spec[end + 1] != ':':
+            raise ModuleError('invalid_spec', 'address must include port')
+        host = spec[1:end]
+        port_text = spec[end + 2:]
+    else:
+        if spec.count(':') != 1:
+            raise ModuleError('invalid_spec', 'address must be host:port')
+        host, port_text = spec.rsplit(':', 1)
+    if not host or not port_text:
+        raise ModuleError('invalid_spec', 'address must be host:port')
+    try:
+        port = int(port_text, 10)
+    except (TypeError, ValueError):
+        raise ModuleError('invalid_spec', 'port invalid')
+    if port < 1 or port > 65535:
+        raise ModuleError('invalid_spec', 'port out of range')
+    return host, port
+
+
+class PortForwardServerModule(BaseModule):
     """
-    SOCKS5 proxy server module.
+    Port forward server module.
 
-    Accepts SOCKS5 clients on a local TCP port and proxies their
-    connections through the tunnel to the relay module on the peer.
+    Accepts local TCP clients on Bob and relays connections through
+    the tunnel to a fixed remote host:port on Alice.
     """
 
-    TYPE = T_SOCK
+    TYPE = T_FWD
     DEFAULT_COMMAND = 'start'
     REQUIRES_COMMAND = True
-    REMOTE_MODULE = 'socks_relay'
+    REMOTE_MODULE = 'port_fwd_relay'
 
     @classmethod
     def register_commands(cls, subparsers, role, config=None):
-        """Register CLI subcommands for SOCKS server."""
-        host_default = '0.0.0.0'
-        port_default = 1080
-        if config is not None:
-            host_default = config.relay_listen_host
-            port_default = config.relay_listen_port
-        start_p = subparsers.add_parser('start', help='Start SOCKS5 proxy server')
+        """Register CLI subcommands for port forward server."""
+        start_p = subparsers.add_parser('start', help='Start TCP port forward server')
         start_p.add_argument(
-            '--socks-host', default=host_default,
-            help='SOCKS server listen address (default: %s)' % host_default
+            '--local', required=True,
+            help='Local listen address (HOST:PORT)'
         )
         start_p.add_argument(
-            '--socks-port', type=int, default=port_default,
-            help='SOCKS server listen port (default: %s)' % port_default
+            '--remote', required=True,
+            help='Remote target address (HOST:PORT)'
         )
 
     @classmethod
     def run_command(cls, args, tunnel, logger):
-        """Start the SOCKS server and run until tunnel closes."""
+        """Start the port forward server and run until tunnel closes."""
         module = cls(tunnel, logger=logger)
         try:
-            host = getattr(args, 'socks_host', None)
-            port = getattr(args, 'socks_port', None)
-            if host is None:
-                host = module._config.relay_listen_host
-            if port is None:
-                port = module._config.relay_listen_port
-            module.start(listen_addr=host, listen_port=port)
+            local_spec = getattr(args, 'local', None)
+            remote_spec = getattr(args, 'remote', None)
+            if local_spec is None or remote_spec is None:
+                raise ModuleError('invalid_spec', 'local and remote required')
+            local_host, local_port = _parse_host_port(local_spec)
+            remote_host, remote_port = _parse_host_port(remote_spec)
+            module.start(
+                listen_host=local_host,
+                listen_port=local_port,
+                remote_host=remote_host,
+                remote_port=remote_port,
+            )
 
             # Wait for tunnel to close
             while tunnel.connected:
@@ -132,7 +132,7 @@ class SocksServerModule(BaseModule):
             module.shutdown()
 
     def __init__(self, tunnel, logger=None):
-        super(SocksServerModule, self).__init__(tunnel, logger=logger)
+        super(PortForwardServerModule, self).__init__(tunnel, logger=logger)
         self._config = tunnel._config
 
         # TCP server
@@ -140,8 +140,14 @@ class SocksServerModule(BaseModule):
         self._accept_thread = None
         self._running = False
 
+        # Target
+        self._remote_host = None
+        self._remote_port = None
+        self._listen_host = None
+        self._listen_port = None
+
         # Connection tracking
-        self._connections = {}  # rid -> _ServerConnection
+        self._connections = {}  # rid -> RelayConnection
         self._connections_lock = threading.Lock()
 
         # Request ID allocation
@@ -160,31 +166,33 @@ class SocksServerModule(BaseModule):
         with self._connections_lock:
             return len(self._connections)
 
-    def start(self, listen_addr=None, listen_port=None):
+    def start(self, listen_host, listen_port, remote_host, remote_port):
         """
-        Start the SOCKS5 server.
+        Start the port forward server.
 
         Args:
-            listen_addr: Address to listen on
+            listen_host: Address to listen on
             listen_port: Port to listen on
+            remote_host: Remote target host
+            remote_port: Remote target port
         """
         if self._running:
-            raise ModuleError('already_running', 'SOCKS server already running')
+            raise ModuleError('already_running', 'port forward already running')
 
-        if listen_addr is None:
-            listen_addr = self._config.relay_listen_host
-        if listen_port is None:
-            listen_port = self._config.relay_listen_port
+        self._listen_host = listen_host
+        self._listen_port = listen_port
+        self._remote_host = remote_host
+        self._remote_port = remote_port
 
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._server_socket.bind((listen_addr, listen_port))
+        self._server_socket.bind((listen_host, listen_port))
         self._server_socket.listen(self._config.relay_listen_backlog)
 
         self._running = True
         self._accept_thread = threading.Thread(
             target=self._accept_loop,
-            name='socks-accept',
+            name='fwd-accept',
         )
         self._accept_thread.daemon = True
         self._accept_thread.start()
@@ -192,38 +200,33 @@ class SocksServerModule(BaseModule):
         log_event(
             self._logger,
             logging.INFO,
-            'sock.server_listen',
-            'SOCKS5 server listening (host=%s port=%d backlog=%d)' % (
-                listen_addr,
-                listen_port,
-                self._config.relay_listen_backlog,
-            ),
+            'fwd.server_listen',
+            'Port forward listening',
             lambda: add_fields(relay_fields(
                 side='bob',
-                peer='client',
+                peer='local',
             ), {
-                'host': listen_addr,
+                'host': listen_host,
                 'port': listen_port,
                 'backlog': self._config.relay_listen_backlog,
+                'remote_host': remote_host,
+                'remote_port': remote_port,
             }),
         )
 
     def stop(self):
-        """Stop the SOCKS5 server."""
+        """Stop the port forward server."""
         self._running = False
 
-        # Close server socket to unblock accept
         if self._server_socket:
             try:
                 self._server_socket.close()
             except Exception:
                 pass
 
-        # Wait for accept thread
         if self._accept_thread:
             self._accept_thread.join(timeout=self._config.relay_thread_join_timeout)
 
-        # Stop all connections
         with self._connections_lock:
             connections = list(self._connections.values())
 
@@ -233,11 +236,11 @@ class SocksServerModule(BaseModule):
         log_event(
             self._logger,
             logging.INFO,
-            'sock.server_stop',
-            'SOCKS5 server stopped',
+            'fwd.server_stop',
+            'Port forward stopped',
             lambda: add_fields(relay_fields(
                 side='bob',
-                peer='client',
+                peer='local',
             ), {
                 'connections': self._connection_count(),
                 'pending': self._pending_count(),
@@ -247,7 +250,7 @@ class SocksServerModule(BaseModule):
     def shutdown(self):
         """Stop module and clean up."""
         self.stop()
-        super(SocksServerModule, self).shutdown()
+        super(PortForwardServerModule, self).shutdown()
 
     def _alloc_rid(self):
         """Allocate a unique request ID."""
@@ -258,12 +261,12 @@ class SocksServerModule(BaseModule):
         log_event(
             self._logger,
             logging.DEBUG,
-            'sock.server_rid_alloc',
-            'Allocated SOCKS request id',
+            'fwd.server_rid_alloc',
+            'Allocated forward request id',
             lambda: add_fields(relay_fields(
                 rid=rid,
                 side='bob',
-                peer='client',
+                peer='local',
             ), {
                 'next_rid': next_rid,
                 'connections': self._connection_count(),
@@ -289,89 +292,74 @@ class SocksServerModule(BaseModule):
                 log_event(
                     self._logger,
                     logging.DEBUG,
-                    'sock.server_accept',
+                    'fwd.server_accept',
                     'Accepted connection',
                     lambda: add_fields(relay_fields(
                         side='bob',
-                        peer='client',
+                        peer='local',
                     ), {
                         'host': addr[0],
                         'port': addr[1],
                     }),
                 )
 
-                # Spawn handler thread
                 t = threading.Thread(
                     target=self._handle_client,
                     args=(client_sock, addr),
-                    name='socks-client-%s:%d' % addr,
+                    name='fwd-client-%s:%d' % addr,
                 )
                 t.daemon = True
                 t.start()
 
-            except Exception as e:
+            except Exception as exc:
                 if self._running:
                     log_event(
                         self._logger,
                         logging.ERROR,
-                        'sock.server_accept_error',
+                        'fwd.server_accept_error',
                         'Accept error',
                         lambda: add_fields(relay_fields(
                             side='bob',
-                            peer='client',
-                        ), {'error': str(e)}),
+                            peer='local',
+                        ), {'error': str(exc)}),
                         exc_info=True,
                     )
                     time_provider.sleep(backoff)
                     backoff = min(backoff * 2.0, max_backoff)
 
     def _handle_client(self, sock, addr):
-        """Handle a single SOCKS5 client connection."""
+        """Handle a single port forward connection."""
         rid = self._alloc_rid()
         channel = None
         conn = None
-        pending = None
-        host = None
-        port = None
         ch_id = None
+        pending = None
         cleanup_reason = 'unknown'
         connect_result = None
         connect_error = None
-        handshake_start = time_provider.now()
-        method_time = None
-        request_time = None
         channel_wait_time = None
         connect_latency = None
         connect_request_time = None
+        session_start = time_provider.now()
 
         try:
-            sock.settimeout(self._config.relay_socket_timeout)
-            # SOCKS5 handshake
-            method_start = time_provider.now()
-            self._socks5_negotiate_method(sock)
-            method_time = duration_secs(method_start)
-            request_start = time_provider.now()
-            host, port = self._socks5_read_connect(sock)
-            request_time = duration_secs(request_start)
-
             log_event(
                 self._logger,
                 logging.INFO,
-                'sock.server_connect',
-                'SOCKS connect requested',
+                'fwd.server_connect',
+                'Port forward connect requested',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     side='bob',
-                    peer='client',
+                    peer='local',
                 ), {
-                    'host': host,
-                    'port': port,
                     'client_host': addr[0],
                     'client_port': addr[1],
+                    'remote_host': self._remote_host,
+                    'remote_port': self._remote_port,
                 }),
             )
 
-            # Open tunnel channel
             channel = self._tunnel.channel_manager.open_channel()
             ch_id = channel.id
             channel_wait_start = time_provider.now()
@@ -382,36 +370,37 @@ class SocksServerModule(BaseModule):
                 log_event(
                     self._logger,
                     logging.WARNING,
-                    'sock.server_channel_failed',
+                    'fwd.server_channel_failed',
                     'Channel open failed',
                     lambda: add_fields(relay_fields(
                         rid=rid,
                         ch=ch_id,
                         side='bob',
-                        peer='client',
-                    ), {'host': host, 'port': port}),
+                        peer='local',
+                    ), {
+                        'remote_host': self._remote_host,
+                        'remote_port': self._remote_port,
+                    }),
                 )
-                self._socks5_send_reply(sock, SOCKS5_REP_GENERAL_FAILURE)
                 channel.close()
                 return
             channel_wait_time = duration_secs(channel_wait_start)
 
-            # Create connection tracker
             conn = RelayConnection(
                 rid, channel.id, channel, sock, self._logger, self._config,
                 side='bob',
-                peer_label='Client',
-                socket_to_channel_label='client_to_channel',
-                channel_to_socket_label='channel_to_client',
+                peer_label='Local',
+                socket_to_channel_label='local_to_channel',
+                channel_to_socket_label='channel_to_local',
                 thread_names=(
-                    'socks-rid%d-c2ch' % rid,
-                    'socks-rid%d-ch2c' % rid,
+                    'fwd-rid%d-l2ch' % rid,
+                    'fwd-rid%d-ch2l' % rid,
                 ),
+                event_prefix='fwd',
             )
             with self._connections_lock:
                 self._connections[rid] = conn
 
-            # Register pending and send connect request
             pending = _PendingConnect()
             with self._pending_lock:
                 self._pending[rid] = pending
@@ -419,32 +408,36 @@ class SocksServerModule(BaseModule):
             log_event(
                 self._logger,
                 logging.DEBUG,
-                'sock.server_pending_add',
-                'SOCKS connect pending',
+                'fwd.server_pending_add',
+                'Forward connect pending',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=channel.id,
                     side='bob',
-                    peer='client',
+                    peer='local',
                 ), {'pending': pending_count}),
             )
 
             log_event(
                 self._logger,
                 logging.INFO,
-                'sock.connect_send',
-                'SOCKS connect send',
+                'fwd.connect_send',
+                'Forward connect send',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=channel.id,
                     side='bob',
-                    peer='client',
-                ), {'host': host, 'port': port}),
+                    peer='local',
+                ), {
+                    'remote_host': self._remote_host,
+                    'remote_port': self._remote_port,
+                }),
             )
             connect_request_time = time_provider.now()
-            self.send_message(sock_connect(rid, channel.id, host, port))
+            self.send_message(
+                relay_connect(T_FWD, rid, channel.id, self._remote_host, self._remote_port)
+            )
 
-            # Wait for response
             if not pending.event.wait(timeout=self._config.relay_connect_timeout):
                 connect_latency = duration_secs(connect_request_time)
                 cleanup_reason = 'connect_timeout'
@@ -452,133 +445,125 @@ class SocksServerModule(BaseModule):
                 log_event(
                     self._logger,
                     logging.WARNING,
-                    'sock.server_connect_timeout',
+                    'fwd.server_connect_timeout',
                     'Connect timeout',
                     lambda: add_fields(relay_fields(
                         rid=rid,
                         ch=channel.id,
                         side='bob',
-                        peer='client',
-                    ), {'host': host, 'port': port}),
+                        peer='local',
+                    ), {
+                        'remote_host': self._remote_host,
+                        'remote_port': self._remote_port,
+                    }),
                 )
-                self._socks5_send_reply(sock, SOCKS5_REP_TTL_EXPIRED)
                 return
 
             connect_latency = duration_secs(connect_request_time)
             if pending.error:
-                error_code = ERROR_TO_SOCKS5.get(pending.error, SOCKS5_REP_GENERAL_FAILURE)
                 cleanup_reason = 'connect_failed'
                 connect_result = 'error'
                 connect_error = pending.error
                 log_event(
                     self._logger,
                     logging.INFO,
-                    'sock.server_connect_failed',
+                    'fwd.server_connect_failed',
                     'Connect failed',
                     lambda: add_fields(relay_fields(
                         rid=rid,
                         ch=channel.id,
                         side='bob',
-                        peer='client',
-                    ), {'host': host, 'port': port, 'error': pending.error}),
+                        peer='local',
+                    ), {
+                        'remote_host': self._remote_host,
+                        'remote_port': self._remote_port,
+                        'error': pending.error,
+                        'reason': pending.reason,
+                    }),
                 )
-                self._socks5_send_reply(sock, error_code)
                 return
 
-            # Send success reply
-            bind_host = pending.bind_host or '0.0.0.0'
-            bind_port = pending.bind_port or 0
-            self._socks5_send_reply(sock, SOCKS5_REP_SUCCESS, bind_host, bind_port)
             connect_result = 'ok'
-
             log_event(
                 self._logger,
                 logging.INFO,
-                'sock.server_connected',
+                'fwd.server_connected',
                 'Connected',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=channel.id,
                     side='bob',
-                    peer='client',
-                ), {'host': host, 'port': port, 'bhost': bind_host, 'bport': bind_port}),
+                    peer='local',
+                ), {
+                    'remote_host': self._remote_host,
+                    'remote_port': self._remote_port,
+                }),
             )
 
-            # Start relay and wait for completion
             conn.start_relay()
             conn.wait()
             cleanup_reason = 'relay_complete'
 
-        except Socks5Error as e:
-            cleanup_reason = 'socks5_error'
-            connect_result = 'protocol_error'
-            connect_error = str(e)
-            log_event(
-                self._logger,
-                logging.WARNING,
-                'sock.server_error',
-                'SOCKS5 error',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch_id,
-                    side='bob',
-                    peer='client',
-                ), {'error': str(e)}),
-            )
-        except Exception as e:
+        except Exception as exc:
             cleanup_reason = 'client_handler_error'
             connect_result = 'handler_error'
-            connect_error = str(e)
+            connect_error = str(exc)
             log_event(
                 self._logger,
                 logging.ERROR,
-                'sock.server_client_error',
+                'fwd.server_client_error',
                 'Client handler error',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=ch_id,
                     side='bob',
-                    peer='client',
-                ), {'error': str(e)}),
+                    peer='local',
+                ), {'error': str(exc)}),
                 exc_info=True,
             )
         finally:
             log_event(
                 self._logger,
                 logging.INFO,
-                'sock.server_handshake',
-                'SOCKS server handshake',
+                'fwd.server_session',
+                'Port forward session',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=ch_id,
                     side='bob',
-                    peer='client',
+                    peer='local',
                 ), {
-                    'host': host,
-                    'port': port,
                     'client_host': addr[0],
                     'client_port': addr[1],
-                    'method_time': method_time,
-                    'request_time': request_time,
+                    'remote_host': self._remote_host,
+                    'remote_port': self._remote_port,
                     'channel_wait_time': channel_wait_time,
                     'connect_latency': connect_latency,
-                    'handshake_time': duration_secs(handshake_start),
+                    'session_time': duration_secs(session_start),
                     'connect_result': connect_result,
                     'connect_error': connect_error,
                 }),
             )
             self._cleanup_connection(rid, reason=cleanup_reason)
+            if conn is None:
+                if channel is not None:
+                    try:
+                        channel.close()
+                    except Exception:
+                        pass
+                try:
+                    sock.close()
+                except Exception:
+                    pass
 
     def _cleanup_connection(self, rid, reason=None):
         """Clean up connection resources."""
         pending_removed = False
-        # Remove from pending
         with self._pending_lock:
             if rid in self._pending:
                 pending_removed = True
             self._pending.pop(rid, None)
 
-        # Remove from connections
         with self._connections_lock:
             conn = self._connections.pop(rid, None)
 
@@ -587,13 +572,13 @@ class SocksServerModule(BaseModule):
             log_event(
                 self._logger,
                 logging.DEBUG,
-                'sock.server_cleanup',
+                'fwd.server_cleanup',
                 'Cleaned up connection',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=conn.ch,
                     side='bob',
-                    peer='client',
+                    peer='local',
                 ), {
                     'reason': reason,
                     'pending_removed': pending_removed,
@@ -601,104 +586,6 @@ class SocksServerModule(BaseModule):
                     'pending': self._pending_count(),
                 }),
             )
-
-    # --- SOCKS5 Protocol Implementation ---
-
-    def _recv_exact(self, sock, size):
-        """Receive exactly size bytes from socket."""
-        data = bytearray()
-        while len(data) < size:
-            chunk = sock.recv(size - len(data))
-            if not chunk:
-                raise Socks5Error('closed', 'connection closed')
-            data.extend(chunk)
-        return bytes(data)
-
-    def _socks5_negotiate_method(self, sock):
-        """
-        SOCKS5 method negotiation.
-
-        Client sends: VER | NMETHODS | METHODS
-        Server sends: VER | METHOD
-        """
-        # Read version and method count
-        data = self._recv_exact(sock, 2)
-        version, nmethods = struct.unpack('!BB', data)
-
-        if version != SOCKS5_VERSION:
-            raise Socks5Error('version', 'SOCKS version %d not supported' % version)
-
-        if nmethods == 0:
-            raise Socks5Error('no_methods', 'no methods offered')
-
-        # Read methods
-        methods = self._recv_exact(sock, nmethods)
-
-        # Check for NO AUTH (0x00)
-        if SOCKS5_AUTH_NONE not in methods:
-            # Send rejection
-            sock.sendall(struct.pack('!BB', SOCKS5_VERSION, SOCKS5_AUTH_NO_ACCEPTABLE))
-            raise Socks5Error('auth', 'no acceptable auth method')
-
-        # Accept NO AUTH
-        sock.sendall(struct.pack('!BB', SOCKS5_VERSION, SOCKS5_AUTH_NONE))
-
-    def _socks5_read_connect(self, sock):
-        """
-        Read SOCKS5 CONNECT request.
-
-        Client sends: VER | CMD | RSV | ATYP | DST.ADDR | DST.PORT
-
-        Returns:
-            tuple: (host, port)
-        """
-        # Read header
-        data = self._recv_exact(sock, 4)
-        version, cmd, rsv, atyp = struct.unpack('!BBBB', data)
-
-        if version != SOCKS5_VERSION:
-            raise Socks5Error('version', 'bad version in request')
-
-        if cmd != SOCKS5_CMD_CONNECT:
-            self._socks5_send_reply(sock, SOCKS5_REP_CMD_NOT_SUPPORTED)
-            raise Socks5Error('command', 'only CONNECT supported')
-
-        # Parse address
-        if atyp == SOCKS5_ATYP_IPV4:
-            addr_data = self._recv_exact(sock, 4)
-            host = socket.inet_ntoa(addr_data)
-        elif atyp == SOCKS5_ATYP_DOMAIN:
-            len_byte = self._recv_exact(sock, 1)
-            name_len = struct.unpack('!B', len_byte)[0]
-            host = self._recv_exact(sock, name_len).decode('ascii')
-        elif atyp == SOCKS5_ATYP_IPV6:
-            self._socks5_send_reply(sock, SOCKS5_REP_ADDR_NOT_SUPPORTED)
-            raise Socks5Error('address', 'IPv6 not supported')
-        else:
-            self._socks5_send_reply(sock, SOCKS5_REP_ADDR_NOT_SUPPORTED)
-            raise Socks5Error('address', 'address type %d not supported' % atyp)
-
-        # Read port
-        port_data = self._recv_exact(sock, 2)
-        port = struct.unpack('!H', port_data)[0]
-
-        return host, port
-
-    def _socks5_send_reply(self, sock, reply_code, bind_addr='0.0.0.0', bind_port=0):
-        """
-        Send SOCKS5 reply.
-
-        VER | REP | RSV | ATYP | BND.ADDR | BND.PORT
-        """
-        reply = bytearray([
-            SOCKS5_VERSION,
-            reply_code,
-            0x00,  # Reserved
-            SOCKS5_ATYP_IPV4,  # Address type: IPv4
-        ])
-        reply.extend(socket.inet_aton(bind_addr))
-        reply.extend(struct.pack('!H', bind_port))
-        sock.sendall(bytes(reply))
 
     # --- Response Handlers ---
 
@@ -712,19 +599,17 @@ class SocksServerModule(BaseModule):
             pending = self._pending.get(rid)
 
         if pending:
-            pending.bind_host = msg.get('bhost')
-            pending.bind_port = msg.get('bport')
             pending.event.set()
             log_event(
                 self._logger,
                 logging.INFO,
-                'sock.connect_ok_recv',
-                'SOCKS connect ok recv',
+                'fwd.connect_ok_recv',
+                'Forward connect ok recv',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=msg.get('ch'),
                     side='bob',
-                    peer='client',
+                    peer='local',
                 ), {
                     'bhost': msg.get('bhost'),
                     'bport': msg.get('bport'),
@@ -742,17 +627,18 @@ class SocksServerModule(BaseModule):
 
         if pending:
             pending.error = msg.get('code', 'general')
+            pending.reason = msg.get('reason')
             pending.event.set()
             log_event(
                 self._logger,
                 logging.INFO,
-                'sock.connect_err_recv',
-                'SOCKS connect err recv',
+                'fwd.connect_err_recv',
+                'Forward connect err recv',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=msg.get('ch'),
                     side='bob',
-                    peer='client',
+                    peer='local',
                 ), {
                     'code': msg.get('code'),
                     'reason': msg.get('reason'),

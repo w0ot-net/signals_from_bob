@@ -24,8 +24,8 @@ Current toggles:
 - `log_component_channel` (default: false) - enable or disable channel logs and
   events (`channel.*`).
 - `log_component_protocol` (default: false) - enable or disable protocol logs.
-- `log_component_module_socks` (default: true) - enable or disable SOCKS module
-  logs and events (`sock.*`).
+- `log_component_module_relay` (default: true) - enable or disable relay module
+  logs and events (`sock.*`, `fwd.*`).
 - `log_component_module_file_transfer` (default: true) - enable or disable file
   transfer module logs.
 
@@ -87,6 +87,7 @@ Default blacklist (to reduce high-volume debug events):
 - `module.send`
 - `module.recv`
 - `sock.pump_stats`
+- `fwd.pump_stats`
 - `channel.drain`
 - `channel.pack`
 - `channel.send_buf_*`
@@ -194,6 +195,29 @@ Current structured events (non-exhaustive):
 - `sock.server_listen`
 - `sock.server_stop`
 - `sock.server_handshake`
+- `fwd.connect`
+- `fwd.connect_ok`
+- `fwd.connect_err`
+- `fwd.connect_send`
+- `fwd.connect_recv`
+- `fwd.connect_ok_send`
+- `fwd.connect_ok_recv`
+- `fwd.connect_err_send`
+- `fwd.connect_err_recv`
+- `fwd.relay_start`
+- `fwd.relay_stop`
+- `fwd.relay_complete`
+- `fwd.relay_target_connect`
+- `fwd.pump_start`
+- `fwd.pump_stop`
+- `fwd.pump_stop_event`
+- `fwd.pump_timeout`
+- `fwd.pump_socket_eof`
+- `fwd.pump_channel_eof`
+- `fwd.pump_stats`
+- `fwd.server_listen`
+- `fwd.server_stop`
+- `fwd.server_session`
 - `dns.send`
 - `dns.recv`
 - `dns.send_empty` (reason: `qtype_mismatch`, `decode_failed`)
@@ -209,9 +233,9 @@ Current structured events (non-exhaustive):
 - `tunnel.send_window_distance`
 - `tunnel.poll_pace` (fields: `interval`, `target_inflight`, `pending`, `srtt_ms`)
 
-## SOCKS Events
+## Relay Events
 
-Common `sock.*` fields (presence varies by event):
+Common `sock.*` and `fwd.*` fields (presence varies by event):
 - `rid`, `ch`, `side`, `peer`, `direction`, `label`
 - `bytes_in`, `bytes_out`, `bytes_in_total`, `bytes_out_total`
 - `send_buf_size`, `recv_buf_size`, `buffer_full`, `outbound_size`

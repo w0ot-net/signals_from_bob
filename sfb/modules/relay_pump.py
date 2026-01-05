@@ -1,8 +1,8 @@
 # -*- coding: ascii -*-
 """
-Shared SOCKS data pump helpers.
+Shared relay data pump helpers.
 
-Each SOCKS connection uses two threads; each pump handles one socket/channel.
+Each relay connection uses two threads; each pump handles one socket/channel.
 """
 
 from __future__ import absolute_import
@@ -13,16 +13,20 @@ import logging
 import select
 import socket
 
-from ...logging_util import log_event
-from ...channel import ChannelError
-from ... import time_provider
-from .socks_logging import (
+from ..logging_util import log_event
+from ..channel import ChannelError
+from .. import time_provider
+from .relay_logging import (
     add_field,
     add_fields,
     duration_secs,
     normalize_peer,
-    sock_fields,
+    relay_fields,
 )
+
+
+def _event_name(prefix, name):
+    return '%s.%s' % (prefix, name)
 
 
 def _get_socket_error(exc):
@@ -65,10 +69,10 @@ def _select(read_list, write_list, timeout):
 
 
 def _pump_poll_bounds(config):
-    base = config.socks_pump_poll_timeout
+    base = config.relay_pump_poll_timeout
     if base is None or base <= 0:
         base = 0.01
-    max_wait = config.socks_pump_backoff_max
+    max_wait = config.relay_pump_backoff_max
     if max_wait is None or max_wait <= 0:
         max_wait = base
     if max_wait < base:
@@ -102,7 +106,7 @@ def _outbound_cap(config):
     else:
         cap = max(cap, max_in_flight_bytes)
     if cap <= 0:
-        cap = config.socks_relay_buffer_size
+        cap = config.relay_buffer_size
     return cap
 
 
@@ -115,12 +119,13 @@ def _notify_stop(stop_callback, fields):
         pass
 
 
-def _log_pump_error(logger, rid, ch, side, direction, label, msg, exc):
+def _log_pump_error(logger, rid, ch, side, direction, label, msg, exc,
+                    event_prefix):
     peer = normalize_peer(label)
     log_event(
         logger,
         logging.DEBUG,
-        'sock.relay_error',
+        _event_name(event_prefix, 'relay_error'),
         msg,
         lambda: {
             'rid': rid,
@@ -134,13 +139,13 @@ def _log_pump_error(logger, rid, ch, side, direction, label, msg, exc):
     )
 
 
-def _log_pump_start(logger, rid, ch, side, direction, label):
+def _log_pump_start(logger, rid, ch, side, direction, label, event_prefix):
     peer = normalize_peer(label)
     log_event(
         logger,
         logging.DEBUG,
-        'sock.pump_start',
-        'SOCKS pump start',
+        _event_name(event_prefix, 'pump_start'),
+        'Relay pump start',
         lambda: {
             'rid': rid,
             'ch': ch,
@@ -154,13 +159,14 @@ def _log_pump_start(logger, rid, ch, side, direction, label):
 
 def _log_pump_stop(logger, rid, ch, side, direction, label, reason,
                    stop_event=None, fatal=None, duration=None,
-                   error=None, stats=None, stop_callback=None):
+                   error=None, stats=None, stop_callback=None,
+                   event_prefix='sock'):
     if reason is None:
         reason = 'unknown'
     peer = normalize_peer(label)
 
     def build_fields():
-        fields = sock_fields(
+        fields = relay_fields(
             rid=rid,
             ch=ch,
             side=side,
@@ -188,15 +194,16 @@ def _log_pump_stop(logger, rid, ch, side, direction, label, reason,
         log_event(
             logger,
             logging.DEBUG,
-            'sock.pump_stop',
-            'SOCKS pump stop',
+            _event_name(event_prefix, 'pump_stop'),
+            'Relay pump stop',
             lambda: fields,
         )
 
 
 def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                            rid, ch, side, recv_label, direction,
-                           eof_callback=None, stop_callback=None):
+                           eof_callback=None, stop_callback=None,
+                           event_prefix='sock'):
     """
     Pump data from a socket to a tunnel channel.
 
@@ -222,7 +229,9 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
         base_backoff, max_backoff = _pump_poll_bounds(config)
         backoff = base_backoff
         last_stats = time_provider.now()
-        _log_pump_start(logger, rid, ch, side, direction, recv_label)
+        _log_pump_start(
+            logger, rid, ch, side, direction, recv_label, event_prefix
+        )
         while not stop_event.is_set():
             if pending is not None:
                 try:
@@ -265,7 +274,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction, recv_label,
-                            'Channel write error', exc
+                            'Channel write error', exc, event_prefix
                         )
                     break
                 except Exception as exc:
@@ -275,7 +284,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction, recv_label,
-                            'Channel write error', exc
+                            'Channel write error', exc, event_prefix
                         )
                     break
 
@@ -311,7 +320,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 if not stop_event.is_set():
                     _log_pump_error(
                         logger, rid, ch, side, direction, recv_label,
-                        '%s select error' % recv_label, exc
+                        '%s select error' % recv_label, exc, event_prefix
                     )
                 break
             if not rlist:
@@ -325,7 +334,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 if available <= 0:
                     buffer_full_count += 1
                     break
-                read_size = config.socks_relay_buffer_size
+                read_size = config.relay_buffer_size
                 if available < read_size:
                     read_size = available
                 try:
@@ -339,7 +348,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction, recv_label,
-                            '%s recv error' % recv_label, exc
+                            '%s recv error' % recv_label, exc, event_prefix
                         )
                     break
                 except Exception as exc:
@@ -349,7 +358,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction, recv_label,
-                            '%s recv error' % recv_label, exc
+                            '%s recv error' % recv_label, exc, event_prefix
                         )
                     break
 
@@ -358,9 +367,9 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     log_event(
                         logger,
                         logging.DEBUG,
-                        'sock.pump_socket_eof',
-                        'SOCKS pump socket EOF',
-                        lambda: add_fields(sock_fields(
+                        _event_name(event_prefix, 'pump_socket_eof'),
+                        'Relay pump socket EOF',
+                        lambda: add_fields(relay_fields(
                             rid=rid,
                             ch=ch,
                             side=side,
@@ -375,9 +384,9 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     log_event(
                         logger,
                         logging.DEBUG,
-                        'sock.relay_eof',
+                        _event_name(event_prefix, 'relay_eof'),
                         'Relay EOF',
-                        lambda: add_fields(sock_fields(
+                        lambda: add_fields(relay_fields(
                             rid=rid,
                             ch=ch,
                             side=side,
@@ -391,9 +400,9 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                             log_event(
                                 logger,
                                 logging.DEBUG,
-                                'sock.relay_half_close_request',
-                                'SOCKS relay half-close requested',
-                                lambda: add_fields(sock_fields(
+                                _event_name(event_prefix, 'relay_half_close_request'),
+                                'Relay half-close requested',
+                                lambda: add_fields(relay_fields(
                                     rid=rid,
                                     ch=ch,
                                     side=side,
@@ -407,7 +416,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                             except Exception as exc:
                                 _log_pump_error(
                                     logger, rid, ch, side, direction, recv_label,
-                                    'Half-close callback error', exc
+                                    'Half-close callback error', exc, event_prefix
                                 )
                     return
 
@@ -436,7 +445,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction, recv_label,
-                            'Channel write error', exc
+                            'Channel write error', exc, event_prefix
                         )
                     break
                 except Exception as exc:
@@ -446,7 +455,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction, recv_label,
-                            'Channel write error', exc
+                            'Channel write error', exc, event_prefix
                         )
                     break
 
@@ -455,9 +464,9 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 log_event(
                     logger,
                     logging.DEBUG,
-                    'sock.pump_stats',
-                    'SOCKS pump stats',
-                    lambda: add_fields(sock_fields(
+                    _event_name(event_prefix, 'pump_stats'),
+                    'Relay pump stats',
+                    lambda: add_fields(relay_fields(
                         rid=rid,
                         ch=ch,
                         side=side,
@@ -498,9 +507,9 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
             log_event(
                 logger,
                 logging.DEBUG,
-                'sock.pump_stop_event',
-                'SOCKS pump stop event',
-                lambda: add_fields(sock_fields(
+                _event_name(event_prefix, 'pump_stop_event'),
+                'Relay pump stop event',
+                lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=ch,
                     side=side,
@@ -534,12 +543,13 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 'backoff': round(backoff, 3),
             },
             stop_callback=stop_callback,
+            event_prefix=event_prefix,
         )
 
 
 def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                            rid, ch, side, send_label, direction,
-                           stop_callback=None):
+                           stop_callback=None, event_prefix='sock'):
     """
     Pump data from a tunnel channel to a socket.
 
@@ -569,9 +579,11 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
         last_stats = time_provider.now()
         base_backoff, max_backoff = _pump_poll_bounds(config)
         backoff = base_backoff
-        write_timeout = config.socks_relay_write_timeout
+        write_timeout = config.relay_write_timeout
         last_send = None
-        _log_pump_start(logger, rid, ch, side, direction, send_label)
+        _log_pump_start(
+            logger, rid, ch, side, direction, send_label, event_prefix
+        )
         while not stop_event.is_set():
             progress = False
 
@@ -587,9 +599,9 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         log_event(
                             logger,
                             logging.DEBUG,
-                            'sock.pump_timeout',
-                            'SOCKS pump socket send timeout',
-                            lambda: add_fields(sock_fields(
+                            _event_name(event_prefix, 'pump_timeout'),
+                            'Relay pump socket send timeout',
+                            lambda: add_fields(relay_fields(
                                 rid=rid,
                                 ch=ch,
                                 side=side,
@@ -604,7 +616,8 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         )
                         _log_pump_error(
                             logger, rid, ch, side, direction, send_label,
-                            '%s send timeout' % send_label, socket.timeout()
+                            '%s send timeout' % send_label, socket.timeout(),
+                            event_prefix
                         )
                     break
                 try:
@@ -618,7 +631,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     if not stop_event.is_set():
                         _log_pump_error(
                             logger, rid, ch, side, direction, send_label,
-                            '%s select error' % send_label, exc
+                            '%s select error' % send_label, exc, event_prefix
                         )
                     break
                 if not wlist:
@@ -637,7 +650,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                             if not stop_event.is_set():
                                 _log_pump_error(
                                     logger, rid, ch, side, direction, send_label,
-                                    '%s send error' % send_label, exc
+                                    '%s send error' % send_label, exc, event_prefix
                                 )
                             break
                     except Exception as exc:
@@ -647,7 +660,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         if not stop_event.is_set():
                             _log_pump_error(
                                 logger, rid, ch, side, direction, send_label,
-                                '%s send error' % send_label, exc
+                                '%s send error' % send_label, exc, event_prefix
                             )
                         break
 
@@ -669,14 +682,14 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
 
             if not channel_closed and outbound_size < outbound_limit:
                 space = outbound_limit - outbound_size
-                read_size = config.socks_relay_buffer_size
+                read_size = config.relay_buffer_size
                 if space < read_size:
                     read_size = space
                 if read_size > 0:
                     if outbound_size:
                         read_timeout = 0.0
                     else:
-                        read_timeout = min(config.socks_relay_channel_timeout, backoff)
+                        read_timeout = min(config.relay_channel_timeout, backoff)
                     try:
                         read_start = time_provider.now()
                         data = channel.read(read_size, timeout=read_timeout)
@@ -685,7 +698,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         if not stop_event.is_set():
                             _log_pump_error(
                                 logger, rid, ch, side, direction, send_label,
-                                'Channel read error', exc
+                                'Channel read error', exc, event_prefix
                             )
                         fatal_error = True
                         exit_reason = 'channel_read_error'
@@ -698,9 +711,9 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         log_event(
                             logger,
                             logging.DEBUG,
-                            'sock.pump_channel_eof',
-                            'SOCKS pump channel EOF',
-                            lambda: add_fields(sock_fields(
+                            _event_name(event_prefix, 'pump_channel_eof'),
+                            'Relay pump channel EOF',
+                            lambda: add_fields(relay_fields(
                                 rid=rid,
                                 ch=ch,
                                 side=side,
@@ -715,9 +728,9 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         log_event(
                             logger,
                             logging.DEBUG,
-                            'sock.relay_eof',
+                            _event_name(event_prefix, 'relay_eof'),
                             'Channel EOF',
-                            lambda: add_fields(sock_fields(
+                            lambda: add_fields(relay_fields(
                                 rid=rid,
                                 ch=ch,
                                 side=side,
@@ -746,9 +759,9 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     log_event(
                         logger,
                         logging.DEBUG,
-                        'sock.relay_shutdown_write',
-                        'SOCKS relay socket write shutdown',
-                        lambda: add_fields(sock_fields(
+                        _event_name(event_prefix, 'relay_shutdown_write'),
+                        'Relay socket write shutdown',
+                        lambda: add_fields(relay_fields(
                             rid=rid,
                             ch=ch,
                             side=side,
@@ -777,9 +790,9 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                 log_event(
                     logger,
                     logging.DEBUG,
-                    'sock.pump_stats',
-                    'SOCKS pump stats',
-                    lambda: add_fields(sock_fields(
+                    _event_name(event_prefix, 'pump_stats'),
+                    'Relay pump stats',
+                    lambda: add_fields(relay_fields(
                         rid=rid,
                         ch=ch,
                         side=side,
@@ -822,9 +835,9 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
             log_event(
                 logger,
                 logging.DEBUG,
-                'sock.pump_stop_event',
-                'SOCKS pump stop event',
-                lambda: add_fields(sock_fields(
+                _event_name(event_prefix, 'pump_stop_event'),
+                'Relay pump stop event',
+                lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=ch,
                     side=side,
@@ -858,4 +871,5 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                 'backoff': round(backoff, 3),
             },
             stop_callback=stop_callback,
+            event_prefix=event_prefix,
         )

@@ -88,7 +88,7 @@ messages to the appropriate module based on the `t` field.
 | `sock` | SOCKS Proxy | SOCKS5 proxy control |
 | `nc` | NC Linux | Bind a channel to a Linux file descriptor |
 | `sh` | Shell | Interactive shell sessions |
-| `fwd` | Port Forward | TCP port forwarding (future) |
+| `fwd` | Port Forward | TCP port forwarding |
 
 New modules should choose a short, unique type code (2-4 characters).
 
@@ -262,7 +262,29 @@ Module-specific messages are documented in their respective files:
 
 - **File Transfer** (`t="file"`): See `doc/FILE_TRANSFER.md`
 - **SOCKS Proxy** (`t="sock"`): See `doc/MODULES.md#socks-proxy-module`
+- **Port Forward** (`t="fwd"`): See `doc/PORT_FWD.md`
 - **Shell** (`t="sh"`): See `doc/MODULES.md#shell-module-future`
+
+### Port Forward Messages (t="fwd")
+
+Port forwarding negotiates the target over control messages, then uses the
+channel for bidirectional data flow.
+
+```json
+{"t":"fwd","c":"connect","rid":1,"ch":2,"host":"example.com","port":443}
+{"t":"fwd","c":"connect_ok","rid":1,"ch":2}
+{"t":"fwd","c":"err","rid":1,"ch":2,"code":"refused","reason":"connection refused"}
+```
+
+Fields:
+- `rid`: Request ID for correlation
+- `ch`: Channel ID opened by Bob
+- `host`: Target hostname/IP (connect only)
+- `port`: Target port (connect only)
+- `bhost`: Bound host on Alice (connect_ok only, optional)
+- `bport`: Bound port on Alice (connect_ok only, optional)
+- `code`: Error code (err only)
+- `reason`: Human-readable reason (err only)
 
 ### Module Message Guidelines
 

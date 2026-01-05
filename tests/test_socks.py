@@ -12,10 +12,10 @@ from sfb.config import Config
 from sfb.channel import Channel, STATE_CLOSED, STATE_OPEN
 from sfb.modules.socks import socks_server
 from sfb.modules.socks import socks_relay
-from sfb.modules.socks import data_pump
-from sfb.modules.socks import relay_connection
+from sfb.modules import relay_pump
+from sfb.modules import relay_connection
 from sfb.modules.socks.socks_server import SocksServerModule
-from sfb.modules.socks.relay_connection import RelayConnection
+from sfb.modules.relay_connection import RelayConnection
 from sfb import time_provider
 
 
@@ -113,7 +113,7 @@ class SocksLoopTests(unittest.TestCase):
     def test_accept_loop_backoff_uses_non_blocking_timeout(self):
         config = Config(
             dns_base_domain='test.local',
-            socks_accept_timeout=0.01,
+            relay_accept_timeout=0.01,
             non_blocking_poll_timeout=0.001,
         )
         tunnel = DummyTunnel(config)
@@ -140,14 +140,14 @@ class SocksLoopTests(unittest.TestCase):
         self.assertGreaterEqual(sleep_calls[0], config.non_blocking_poll_timeout)
         if len(sleep_calls) > 1:
             self.assertGreaterEqual(sleep_calls[1], sleep_calls[0])
-            self.assertLessEqual(sleep_calls[1], config.socks_accept_timeout)
+            self.assertLessEqual(sleep_calls[1], config.relay_accept_timeout)
 
     def test_pump_socket_to_channel_waits_for_send_space(self):
         config = Config(
             dns_base_domain='test.local',
             non_blocking_poll_timeout=0.001,
-            socks_pump_backoff_max=0.01,
-            socks_relay_buffer_size=4,
+            relay_pump_backoff_max=0.01,
+            relay_buffer_size=4,
         )
         channel = Channel(1, max_send_buf=4)
         channel._set_state(STATE_OPEN)
@@ -164,7 +164,7 @@ class SocksLoopTests(unittest.TestCase):
         channel.wait_send_space = wait_send_space
         try:
             t = threading.Thread(
-                target=data_pump.pump_socket_to_channel,
+                target=relay_pump.pump_socket_to_channel,
                 args=(
                     sock,
                     channel,
@@ -212,9 +212,9 @@ class SocksLoopTests(unittest.TestCase):
             dns_base_domain='test.local',
             channel_max_recv_buf=262144,
             non_blocking_poll_timeout=0.001,
-            socks_pump_backoff_max=0.01,
-            socks_relay_buffer_size=4096,
-            socks_relay_channel_timeout=0.01,
+            relay_pump_backoff_max=0.01,
+            relay_buffer_size=4096,
+            relay_channel_timeout=0.01,
         )
         channel = Channel(1, max_recv_buf=config.channel_max_recv_buf)
         channel._set_state(STATE_OPEN)
@@ -227,7 +227,7 @@ class SocksLoopTests(unittest.TestCase):
         channel._deliver(b'a' * 65536)
         try:
             t = threading.Thread(
-                target=data_pump.pump_channel_to_socket,
+                target=relay_pump.pump_channel_to_socket,
                 args=(
                     channel,
                     sock,
@@ -261,9 +261,9 @@ class SocksLoopTests(unittest.TestCase):
         config = Config(
             dns_base_domain='test.local',
             non_blocking_poll_timeout=0.001,
-            socks_pump_backoff_max=0.01,
-            socks_relay_buffer_size=1024,
-            socks_relay_channel_timeout=0.01,
+            relay_pump_backoff_max=0.01,
+            relay_buffer_size=1024,
+            relay_channel_timeout=0.01,
         )
         channel = Channel(1, max_recv_buf=1024)
         channel._set_state(STATE_OPEN)
@@ -273,7 +273,7 @@ class SocksLoopTests(unittest.TestCase):
         channel._set_state(STATE_CLOSED)
         try:
             t = threading.Thread(
-                target=data_pump.pump_channel_to_socket,
+                target=relay_pump.pump_channel_to_socket,
                 args=(
                     channel,
                     sock,
@@ -318,9 +318,9 @@ class SocksLoopTests(unittest.TestCase):
             dns_base_domain='test.local',
             non_blocking_poll_timeout=0.001,
             protocol_max_packet_size=64,
-            socks_pump_backoff_max=0.01,
-            socks_relay_buffer_size=32,
-            socks_relay_channel_timeout=0.01,
+            relay_pump_backoff_max=0.01,
+            relay_buffer_size=32,
+            relay_channel_timeout=0.01,
             max_in_flight=2,
         )
         channel = Channel(1, max_recv_buf=128)
@@ -333,7 +333,7 @@ class SocksLoopTests(unittest.TestCase):
         stop_event = threading.Event()
         try:
             t = threading.Thread(
-                target=data_pump.pump_channel_to_socket,
+                target=relay_pump.pump_channel_to_socket,
                 args=(
                     channel,
                     sock,
@@ -396,8 +396,8 @@ class SocksInstrumentationTests(unittest.TestCase):
             socks_server.RelayConnection = DummyRelayConnection
             config = Config(
                 dns_base_domain='test.local',
-                socks_channel_open_timeout=0.1,
-                socks_connect_timeout=0.1,
+                relay_channel_open_timeout=0.1,
+                relay_connect_timeout=0.1,
             )
             tunnel = DummyTunnel(config)
             channel = Channel(2, max_send_buf=4096, max_recv_buf=4096)
@@ -487,9 +487,9 @@ class SocksInstrumentationTests(unittest.TestCase):
         config = Config(
             dns_base_domain='test.local',
             non_blocking_poll_timeout=0.001,
-            socks_pump_backoff_max=0.01,
-            socks_relay_buffer_size=256,
-            socks_relay_channel_timeout=0.01,
+            relay_pump_backoff_max=0.01,
+            relay_buffer_size=256,
+            relay_channel_timeout=0.01,
         )
         channel = Channel(1, max_send_buf=4096, max_recv_buf=4096)
         channel._set_state(STATE_OPEN)

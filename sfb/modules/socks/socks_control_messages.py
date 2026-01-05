@@ -5,7 +5,11 @@ SOCKS proxy control message helpers.
 
 from __future__ import absolute_import
 
-from ...control_message import ControlMessage
+from ..relay_control_messages import (
+    relay_connect,
+    relay_connect_ok,
+    relay_err,
+)
 
 T_SOCK = 'sock'
 
@@ -20,7 +24,7 @@ def sock_connect(rid, ch, host, port):
         host: Target hostname or IP
         port: Target port
     """
-    return ControlMessage(T_SOCK, 'connect', rid=rid, ch=ch, host=host, port=port)
+    return relay_connect(T_SOCK, rid, ch, host, port)
 
 
 def sock_connect_ok(rid, ch, bhost=None, bport=None):
@@ -33,12 +37,12 @@ def sock_connect_ok(rid, ch, bhost=None, bport=None):
         bhost: Bound address (for SOCKS5 reply)
         bport: Bound port (for SOCKS5 reply)
     """
-    fields = {'rid': rid, 'ch': ch}
+    fields = {}
     if bhost is not None:
         fields['bhost'] = bhost
     if bport is not None:
         fields['bport'] = bport
-    return ControlMessage(T_SOCK, 'connect_ok', **fields)
+    return relay_connect_ok(T_SOCK, rid, ch, extra=fields or None)
 
 
 def sock_err(rid, ch, code, reason):
@@ -51,4 +55,4 @@ def sock_err(rid, ch, code, reason):
         code: Error code (refused, timeout, unreachable_host, unreachable_net, general)
         reason: Human-readable reason
     """
-    return ControlMessage(T_SOCK, 'err', rid=rid, ch=ch, code=code, reason=reason)
+    return relay_err(T_SOCK, rid, ch, code, reason)

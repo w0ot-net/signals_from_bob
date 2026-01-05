@@ -1,9 +1,8 @@
 # -*- coding: ascii -*-
 """
-SOCKS relay module.
+Port forward relay module.
 
-Receives connection requests from the SOCKS server module and makes
-outbound TCP connections to target hosts.
+Receives connect requests from Bob and connects to target hosts.
 """
 
 from __future__ import absolute_import
@@ -13,32 +12,30 @@ import logging
 import socket
 import threading
 
-from ..base_module import BaseModule, ModuleError, blocking
-from ...logging_util import log_event
-from ... import time_provider
+from ..base_module import BaseModule, blocking
 from ..relay_connection import RelayConnection
-from .socks_control_messages import (
-    T_SOCK,
-    sock_connect_ok,
-    sock_err,
-)
+from ..relay_control_messages import relay_connect_ok, relay_err
 from ..relay_logging import (
     add_fields,
     duration_secs,
     relay_fields,
 )
+from ...logging_util import log_event
+from ... import time_provider
 
 
-class SocksRelayModule(BaseModule):
+T_FWD = 'fwd'
+
+
+class PortForwardRelayModule(BaseModule):
     """
-    SOCKS5 relay module.
+    Port forward relay module.
 
-    Receives connection requests from the SOCKS server module and makes
-    outbound TCP connections to target hosts, relaying data through
+    Receives connection requests from Bob and relays TCP data through
     the tunnel channel.
     """
 
-    TYPE = T_SOCK
+    TYPE = T_FWD
 
     @classmethod
     def run_command(cls, args, tunnel, logger):
@@ -47,12 +44,11 @@ class SocksRelayModule(BaseModule):
         log_event(
             logger,
             logging.INFO,
-            'sock.relay_ready',
-            'SOCKS relay ready',
+            'fwd.relay_ready',
+            'Port forward relay ready',
             lambda: relay_fields(side='alice', peer='target'),
         )
         try:
-            # Wait for tunnel to close
             while tunnel.connected:
                 time_provider.sleep(tunnel._config.tunnel_connect_poll_interval)
             return 0
@@ -60,24 +56,23 @@ class SocksRelayModule(BaseModule):
             module.shutdown()
 
     def __init__(self, tunnel, logger=None):
-        super(SocksRelayModule, self).__init__(tunnel, logger=logger)
+        super(PortForwardRelayModule, self).__init__(tunnel, logger=logger)
         self._config = tunnel._config
 
-        # Active connections: ch -> _RelayConnection
+        # Active connections: ch -> RelayConnection
         self._connections = {}
         self._connections_lock = threading.Lock()
         self._pending_connects = set()
 
     def shutdown(self):
         """Stop module and clean up connections."""
-        # Stop all active relays
         with self._connections_lock:
             connections = list(self._connections.values())
 
         for conn in connections:
             conn.stop()
 
-        super(SocksRelayModule, self).shutdown()
+        super(PortForwardRelayModule, self).shutdown()
 
     @blocking
     def handle_connect(self, msg):
@@ -94,8 +89,8 @@ class SocksRelayModule(BaseModule):
         log_event(
             self._logger,
             logging.INFO,
-            'sock.connect_recv',
-            'SOCKS connect recv',
+            'fwd.connect_recv',
+            'Forward connect recv',
             lambda: add_fields(relay_fields(
                 rid=rid,
                 ch=ch,
@@ -108,7 +103,7 @@ class SocksRelayModule(BaseModule):
             log_event(
                 self._logger,
                 logging.WARNING,
-                'sock.connect_invalid',
+                'fwd.connect_invalid',
                 'Invalid connect request',
                 lambda: add_fields(relay_fields(
                     rid=rid,
@@ -126,8 +121,8 @@ class SocksRelayModule(BaseModule):
         log_event(
             self._logger,
             logging.INFO,
-            'sock.connect',
-            'SOCKS connect request received',
+            'fwd.connect',
+            'Forward connect request received',
             lambda: add_fields(relay_fields(
                 rid=rid,
                 ch=ch,
@@ -136,13 +131,12 @@ class SocksRelayModule(BaseModule):
             ), {'host': host, 'port': port}),
         )
 
-        # Get channel
         channel = self._tunnel.channel_manager.get_channel(ch)
         if channel is None:
             log_event(
                 self._logger,
                 logging.WARNING,
-                'sock.connect_channel_missing',
+                'fwd.connect_channel_missing',
                 'Channel not found for connect request',
                 lambda: add_fields(relay_fields(
                     rid=rid,
@@ -151,12 +145,12 @@ class SocksRelayModule(BaseModule):
                     peer='target',
                 ), {'host': host, 'port': port}),
             )
-            self.send_message(sock_err(rid, ch, 'general', 'channel not found'))
+            self.send_message(relay_err(T_FWD, rid, ch, 'general', 'channel not found'))
             log_event(
                 self._logger,
                 logging.INFO,
-                'sock.connect_err_send',
-                'SOCKS connect err send',
+                'fwd.connect_err_send',
+                'Forward connect err send',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=ch,
@@ -171,7 +165,6 @@ class SocksRelayModule(BaseModule):
             )
             return
 
-        # Deduplicate connect requests per channel
         reuse_sock = None
         pending = False
         with self._connections_lock:
@@ -191,7 +184,7 @@ class SocksRelayModule(BaseModule):
             log_event(
                 self._logger,
                 logging.DEBUG,
-                'sock.connect_duplicate',
+                'fwd.connect_duplicate',
                 'Duplicate connect, reusing session',
                 lambda: add_fields(relay_fields(
                     rid=rid,
@@ -200,12 +193,14 @@ class SocksRelayModule(BaseModule):
                     peer='target',
                 ), {'state': 'reuse', 'host': host, 'port': port}),
             )
-            self.send_message(sock_connect_ok(rid, ch, bind_host, bind_port))
+            self.send_message(
+                relay_connect_ok(T_FWD, rid, ch, extra={'bhost': bind_host, 'bport': bind_port})
+            )
             log_event(
                 self._logger,
                 logging.INFO,
-                'sock.connect_ok_send',
-                'SOCKS connect ok send',
+                'fwd.connect_ok_send',
+                'Forward connect ok send',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=ch,
@@ -223,7 +218,7 @@ class SocksRelayModule(BaseModule):
             log_event(
                 self._logger,
                 logging.DEBUG,
-                'sock.connect_duplicate',
+                'fwd.connect_duplicate',
                 'Duplicate connect while pending',
                 lambda: add_fields(relay_fields(
                     rid=rid,
@@ -234,14 +229,13 @@ class SocksRelayModule(BaseModule):
             )
             return
 
-        # Wait for channel to open
         channel_wait_start = time_provider.now()
         if not channel.wait_open(timeout=self._config.relay_channel_open_timeout):
             channel_wait_time = duration_secs(channel_wait_start)
             log_event(
                 self._logger,
                 logging.WARNING,
-                'sock.connect_channel_failed',
+                'fwd.connect_channel_failed',
                 'Channel failed to open',
                 lambda: add_fields(relay_fields(
                     rid=rid,
@@ -254,12 +248,12 @@ class SocksRelayModule(BaseModule):
                     'wait_time': channel_wait_time,
                 }),
             )
-            self.send_message(sock_err(rid, ch, 'general', 'channel open failed'))
+            self.send_message(relay_err(T_FWD, rid, ch, 'general', 'channel open failed'))
             log_event(
                 self._logger,
                 logging.INFO,
-                'sock.connect_err_send',
-                'SOCKS connect err send',
+                'fwd.connect_err_send',
+                'Forward connect err send',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=ch,
@@ -278,7 +272,6 @@ class SocksRelayModule(BaseModule):
             return
         channel_wait_time = duration_secs(channel_wait_start)
 
-        # Make TCP connection to target
         target_sock = None
         target_connect_start = time_provider.now()
 
@@ -287,8 +280,8 @@ class SocksRelayModule(BaseModule):
             log_event(
                 self._logger,
                 logging.INFO,
-                'sock.relay_target_connect',
-                'SOCKS relay target connect',
+                'fwd.relay_target_connect',
+                'Forward relay target connect',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=ch,
@@ -306,8 +299,8 @@ class SocksRelayModule(BaseModule):
             log_event(
                 self._logger,
                 level,
-                'sock.connect_err',
-                'SOCKS connect error',
+                'fwd.connect_err',
+                'Forward connect error',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=ch,
@@ -323,12 +316,12 @@ class SocksRelayModule(BaseModule):
                 }),
                 exc_info=exc_info,
             )
-            self.send_message(sock_err(rid, ch, code, reason))
+            self.send_message(relay_err(T_FWD, rid, ch, code, reason))
             log_event(
                 self._logger,
                 logging.INFO,
-                'sock.connect_err_send',
-                'SOCKS connect err send',
+                'fwd.connect_err_send',
+                'Forward connect err send',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=ch,
@@ -347,29 +340,28 @@ class SocksRelayModule(BaseModule):
 
         try:
             target_sock = self._connect_target(host, port)
-        except socket.gaierror as e:
-            _send_connect_error('unreachable_host', str(e))
+        except socket.gaierror as exc:
+            _send_connect_error('unreachable_host', str(exc))
             return
         except socket.timeout:
             _send_connect_error('timeout', 'connection timeout')
             return
-        except socket.error as e:
-            if e.errno == errno.ECONNREFUSED:
+        except socket.error as exc:
+            if exc.errno == errno.ECONNREFUSED:
                 _send_connect_error('refused', 'connection refused')
-            elif e.errno == errno.ENETUNREACH:
-                _send_connect_error('unreachable_net', str(e))
-            elif e.errno == errno.EHOSTUNREACH:
-                _send_connect_error('unreachable_host', str(e))
+            elif exc.errno == errno.ENETUNREACH:
+                _send_connect_error('unreachable_net', str(exc))
+            elif exc.errno == errno.EHOSTUNREACH:
+                _send_connect_error('unreachable_host', str(exc))
             else:
-                _send_connect_error('general', str(e))
+                _send_connect_error('general', str(exc))
             return
-        except Exception as e:
-            _send_connect_error('general', str(e), level=logging.ERROR, exc_info=True)
+        except Exception as exc:
+            _send_connect_error('general', str(exc), level=logging.ERROR, exc_info=True)
             return
 
         target_connect_time = duration_secs(target_connect_start)
 
-        # Get bound address for SOCKS reply
         try:
             bound = target_sock.getsockname()
             bind_host, bind_port = bound[0], bound[1]
@@ -379,8 +371,8 @@ class SocksRelayModule(BaseModule):
         log_event(
             self._logger,
             logging.INFO,
-            'sock.relay_target_connect',
-            'SOCKS relay target connect',
+            'fwd.relay_target_connect',
+            'Forward relay target connect',
             lambda: add_fields(relay_fields(
                 rid=rid,
                 ch=ch,
@@ -398,8 +390,8 @@ class SocksRelayModule(BaseModule):
         log_event(
             self._logger,
             logging.INFO,
-            'sock.connect_ok',
-            'SOCKS connect ok',
+            'fwd.connect_ok',
+            'Forward connect ok',
             lambda: add_fields(relay_fields(
                 rid=rid,
                 ch=ch,
@@ -415,7 +407,6 @@ class SocksRelayModule(BaseModule):
             }),
         )
 
-        # Create and register connection
         conn = RelayConnection(
             rid, ch, channel, target_sock, self._logger, self._config,
             side='alice',
@@ -423,21 +414,23 @@ class SocksRelayModule(BaseModule):
             socket_to_channel_label='target_to_channel',
             channel_to_socket_label='channel_to_target',
             thread_names=(
-                'relay-ch%d-t2c' % ch,
-                'relay-ch%d-c2t' % ch,
+                'fwd-rid%d-t2ch' % rid,
+                'fwd-rid%d-ch2t' % rid,
             ),
+            event_prefix='fwd',
         )
         with self._connections_lock:
             self._connections[ch] = conn
             self._pending_connects.discard(ch)
 
-        # Send success response
-        self.send_message(sock_connect_ok(rid, ch, bind_host, bind_port))
+        self.send_message(
+            relay_connect_ok(T_FWD, rid, ch, extra={'bhost': bind_host, 'bport': bind_port})
+        )
         log_event(
             self._logger,
             logging.INFO,
-            'sock.connect_ok_send',
-            'SOCKS connect ok send',
+            'fwd.connect_ok_send',
+            'Forward connect ok send',
             lambda: add_fields(relay_fields(
                 rid=rid,
                 ch=ch,
@@ -451,7 +444,6 @@ class SocksRelayModule(BaseModule):
             }),
         )
 
-        # Start relay and wait for completion
         try:
             conn.start_relay()
             conn.wait()
@@ -473,13 +465,31 @@ class SocksRelayModule(BaseModule):
         Raises:
             socket.error: On connection failure
         """
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if timeout is None:
             timeout = self._config.relay_target_connect_timeout
-        sock.settimeout(timeout)
-        sock.connect((host, port))
-        sock.settimeout(None)  # Back to blocking for relay
-        return sock
+        last_error = None
+        try:
+            addrinfos = socket.getaddrinfo(
+                host, port, socket.AF_UNSPEC, socket.SOCK_STREAM
+            )
+        except Exception as exc:
+            raise exc
+        for family, socktype, proto, _canon, sockaddr in addrinfos:
+            sock = socket.socket(family, socktype, proto)
+            try:
+                sock.settimeout(timeout)
+                sock.connect(sockaddr)
+                sock.settimeout(None)
+                return sock
+            except Exception as exc:
+                last_error = exc
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+        if last_error is not None:
+            raise last_error
+        raise socket.error('connect failed')
 
     def _cleanup_connection(self, ch):
         """Clean up connection resources."""
@@ -494,8 +504,8 @@ class SocksRelayModule(BaseModule):
         log_event(
             self._logger,
             logging.INFO,
-            'sock.relay_complete',
-            'SOCKS relay complete',
+            'fwd.relay_complete',
+            'Forward relay complete',
             lambda: add_fields(relay_fields(
                 rid=conn.rid,
                 ch=conn.ch,
@@ -506,7 +516,7 @@ class SocksRelayModule(BaseModule):
         log_event(
             self._logger,
             logging.DEBUG,
-            'sock.cleanup',
+            'fwd.cleanup',
             'Cleaned up connection',
             lambda: add_fields(relay_fields(
                 rid=conn.rid,

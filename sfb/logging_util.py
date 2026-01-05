@@ -131,12 +131,15 @@ class ComponentFilter(logging.Filter):
             'tunnel.sfb.protocol.',
             'tunnel.sfb.protocol',
         )
-        self._module_socks_enabled = bool(getattr(config, 'log_component_module_socks', True))
-        self._module_socks_event_prefix = 'sock.'
-        self._module_socks_logger_prefixes = (
+        self._module_relay_enabled = bool(getattr(config, 'log_component_module_relay', True))
+        self._module_relay_event_prefixes = ('sock.', 'fwd.')
+        self._module_relay_logger_prefixes = (
             'sfb.modules.socks',
+            'sfb.modules.port_fwd',
             'SocksServerModule',
             'SocksRelayModule',
+            'PortForwardServerModule',
+            'PortForwardRelayModule',
         )
         self._module_file_transfer_enabled = bool(
             getattr(config, 'log_component_module_file_transfer', True)
@@ -168,7 +171,8 @@ class ComponentFilter(logging.Filter):
                 return False
             if not self._channel_enabled and event_text.startswith(self._channel_event_prefix):
                 return False
-            if not self._module_socks_enabled and event_text.startswith(self._module_socks_event_prefix):
+            if (not self._module_relay_enabled and
+                    event_text.startswith(self._module_relay_event_prefixes)):
                 return False
             if not self._module_nc_linux_enabled and event_text.startswith(self._module_nc_linux_event_prefix):
                 return False
@@ -189,7 +193,7 @@ class ComponentFilter(logging.Filter):
             return False
         if not self._protocol_enabled and name.startswith(self._protocol_logger_prefixes):
             return False
-        if not self._module_socks_enabled and name.startswith(self._module_socks_logger_prefixes):
+        if not self._module_relay_enabled and name.startswith(self._module_relay_logger_prefixes):
             return False
         if (not self._module_file_transfer_enabled and
                 name.startswith(self._module_file_transfer_logger_prefixes)):

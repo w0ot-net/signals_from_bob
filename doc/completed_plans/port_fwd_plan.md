@@ -142,3 +142,13 @@ knobs.
 - Log filtering and profiles can include or exclude both SOCKS and port_fwd
   using a single generic module toggle.
 - Documentation reflects renamed config keys and the new port_fwd module.
+
+## Execution Notes
+- Moved SOCKS relay helpers into shared `sfb/modules/relay_*` modules and
+  generalized event prefixes for SOCKS and port_fwd.
+- Implemented `port_fwd_server` and `port_fwd_relay` modules using the shared
+  relay stack, registered them in module discovery, and added logging filters.
+- Renamed SOCKS relay config keys and hidden CLI flags to generic `relay_*`
+  names across code, scripts, and documentation.
+- Updated control message, module, logging, and architecture docs, and added
+  `doc/PORT_FWD.md`.

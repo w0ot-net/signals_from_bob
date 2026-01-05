@@ -1,6 +1,6 @@
 # -*- coding: ascii -*-
 """
-Shared SOCKS relay connection helper.
+Shared relay connection helper.
 """
 
 from __future__ import absolute_import
@@ -8,15 +8,19 @@ from __future__ import absolute_import
 import logging
 import threading
 
-from ...logging_util import log_event
-from ... import time_provider
-from .data_pump import pump_channel_to_socket, pump_socket_to_channel
-from .socks_logging import (
+from ..logging_util import log_event
+from .. import time_provider
+from .relay_pump import pump_channel_to_socket, pump_socket_to_channel
+from .relay_logging import (
     add_fields,
     duration_secs,
     normalize_peer,
-    sock_fields,
+    relay_fields,
 )
+
+
+def _event_name(prefix, name):
+    return '%s.%s' % (prefix, name)
 
 
 class RelayConnection(object):
@@ -27,11 +31,12 @@ class RelayConnection(object):
         '_stop_event', '_threads', '_thread_names', '_side', '_peer_label',
         '_socket_to_channel_label', '_channel_to_socket_label',
         '_start_time', '_stop_logged', '_pump_info', '_pump_lock',
+        '_event_prefix',
     )
 
     def __init__(self, rid, ch, channel, sock, logger, config, side, peer_label,
                  socket_to_channel_label, channel_to_socket_label,
-                 thread_names=None):
+                 thread_names=None, event_prefix='sock'):
         self.rid = rid
         self.ch = ch
         self.channel = channel
@@ -45,6 +50,7 @@ class RelayConnection(object):
         self._stop_event = threading.Event()
         self._threads = []
         self._thread_names = thread_names or (None, None)
+        self._event_prefix = event_prefix
         self._start_time = None
         self._stop_logged = False
         self._pump_info = {}
@@ -82,9 +88,9 @@ class RelayConnection(object):
         log_event(
             self._logger,
             logging.INFO,
-            'sock.relay_start',
-            'SOCKS relay start',
-            lambda: add_fields(sock_fields(
+            _event_name(self._event_prefix, 'relay_start'),
+            'Relay start',
+            lambda: add_fields(relay_fields(
                 rid=self.rid,
                 ch=self.ch,
                 side=self._side,
@@ -186,9 +192,9 @@ class RelayConnection(object):
         log_event(
             self._logger,
             logging.INFO,
-            'sock.relay_stop',
-            'SOCKS relay stop',
-            lambda: add_fields(sock_fields(
+            _event_name(self._event_prefix, 'relay_stop'),
+            'Relay stop',
+            lambda: add_fields(relay_fields(
                 rid=self.rid,
                 ch=self.ch,
                 side=self._side,
@@ -212,6 +218,7 @@ class RelayConnection(object):
             self._socket_to_channel_label,
             eof_callback=self.channel.close_write,
             stop_callback=self._on_pump_stop,
+            event_prefix=self._event_prefix,
         )
 
     def _relay_channel_to_socket(self):
@@ -228,6 +235,7 @@ class RelayConnection(object):
             self._peer_label,
             self._channel_to_socket_label,
             stop_callback=self._on_pump_stop,
+            event_prefix=self._event_prefix,
         )
 
     def wait(self, timeout=None):
@@ -252,5 +260,5 @@ class RelayConnection(object):
                 pass
 
         for t in self._threads:
-            t.join(timeout=self._config.socks_thread_join_timeout)
+            t.join(timeout=self._config.relay_thread_join_timeout)
         self._log_stop()

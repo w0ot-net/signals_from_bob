@@ -296,6 +296,7 @@ class Config:
         'module.send',
         'module.recv',
         'sock.pump_stats',
+        'fwd.pump_stats',
         'channel.drain',
         'channel.pack',
         'channel.send_buf_*',
@@ -307,42 +308,42 @@ class Config:
         'tls.send',
         'tls.recv',
     )
-    # Enable SOCKS module logging (stdout + SQLite)
-    log_component_module_socks: bool = True
+    # Enable relay module logging (stdout + SQLite)
+    log_component_module_relay: bool = True
     # Enable file transfer module logging (stdout + SQLite)
     log_component_module_file_transfer: bool = True
     # Enable nc_linux module logging (stdout + SQLite)
     log_component_module_nc_linux: bool = True
 
-    # --- SOCKS ---
-    # SOCKS server listen host
-    socks_listen_host: str = "0.0.0.0"
-    # SOCKS server listen port
-    socks_listen_port: int = 1080
-    # SOCKS server listen backlog
-    socks_listen_backlog: int = 5
-    # SOCKS accept loop timeout (seconds)
-    socks_accept_timeout: float = 0.5
-    # Channel open timeout for SOCKS (seconds)
-    socks_channel_open_timeout: float = 10.0
-    # SOCKS connect request timeout (seconds)
-    socks_connect_timeout: float = 30.0
-    # Target connect timeout for SOCKS relay (seconds)
-    socks_connect_target_timeout: float = 30.0
-    # SOCKS relay socket timeout during handshake/connect (seconds)
-    socks_relay_socket_timeout: float = 5.0
-    # SOCKS relay channel read poll timeout (seconds)
-    socks_relay_channel_timeout: float = 0.5
-    # SOCKS relay send stall timeout for non-blocking pumps (seconds)
-    socks_relay_write_timeout: Optional[float] = None
-    # SOCKS relay buffer size (bytes)
-    socks_relay_buffer_size: int = 2048
-    # SOCKS pump poll timeout (seconds)
-    socks_pump_poll_timeout: float = 0.0001
-    # Maximum poll backoff for SOCKS pump select/wait loops (seconds)
-    socks_pump_backoff_max: float = 0.001
-    # SOCKS thread join timeout (seconds)
-    socks_thread_join_timeout: float = 2.0
+    # --- Relay ---
+    # Relay server listen host
+    relay_listen_host: str = "0.0.0.0"
+    # Relay server listen port
+    relay_listen_port: int = 1080
+    # Relay server listen backlog
+    relay_listen_backlog: int = 5
+    # Relay accept loop timeout (seconds)
+    relay_accept_timeout: float = 0.5
+    # Channel open timeout for relay (seconds)
+    relay_channel_open_timeout: float = 10.0
+    # Relay connect request timeout (seconds)
+    relay_connect_timeout: float = 30.0
+    # Target connect timeout for relay (seconds)
+    relay_target_connect_timeout: float = 30.0
+    # Relay socket timeout during handshake/connect (seconds)
+    relay_socket_timeout: float = 5.0
+    # Relay channel read poll timeout (seconds)
+    relay_channel_timeout: float = 0.5
+    # Relay send stall timeout for non-blocking pumps (seconds)
+    relay_write_timeout: Optional[float] = None
+    # Relay buffer size (bytes)
+    relay_buffer_size: int = 2048
+    # Relay pump poll timeout (seconds)
+    relay_pump_poll_timeout: float = 0.0001
+    # Maximum poll backoff for relay pump select/wait loops (seconds)
+    relay_pump_backoff_max: float = 0.001
+    # Relay thread join timeout (seconds)
+    relay_thread_join_timeout: float = 2.0
 
     # --- Protocol (rarely need changing) ---
     # Maximum packet size (bytes)
@@ -523,33 +524,33 @@ class Config:
             raise ValueError("module_shutdown_timeout must be > 0")
 
         # SOCKS validation
-        if self.socks_listen_port < 1 or self.socks_listen_port > 65535:
-            raise ValueError("socks_listen_port must be 1-65535")
-        if self.socks_listen_backlog < 1:
-            raise ValueError("socks_listen_backlog must be >= 1")
-        if self.socks_accept_timeout <= 0:
-            raise ValueError("socks_accept_timeout must be > 0")
-        if self.socks_channel_open_timeout <= 0:
-            raise ValueError("socks_channel_open_timeout must be > 0")
-        if self.socks_connect_timeout <= 0:
-            raise ValueError("socks_connect_timeout must be > 0")
-        if self.socks_connect_target_timeout <= 0:
-            raise ValueError("socks_connect_target_timeout must be > 0")
-        if self.socks_relay_socket_timeout <= 0:
-            raise ValueError("socks_relay_socket_timeout must be > 0")
-        if self.socks_relay_channel_timeout <= 0:
-            raise ValueError("socks_relay_channel_timeout must be > 0")
-        if (self.socks_relay_write_timeout is not None and
-                self.socks_relay_write_timeout <= 0):
-            raise ValueError("socks_relay_write_timeout must be > 0 or None")
-        if self.socks_relay_buffer_size < 1:
-            raise ValueError("socks_relay_buffer_size must be >= 1")
-        if self.socks_pump_poll_timeout <= 0:
-            raise ValueError("socks_pump_poll_timeout must be > 0")
-        if self.socks_pump_backoff_max <= 0:
-            raise ValueError("socks_pump_backoff_max must be > 0")
-        if self.socks_thread_join_timeout <= 0:
-            raise ValueError("socks_thread_join_timeout must be > 0")
+        if self.relay_listen_port < 1 or self.relay_listen_port > 65535:
+            raise ValueError("relay_listen_port must be 1-65535")
+        if self.relay_listen_backlog < 1:
+            raise ValueError("relay_listen_backlog must be >= 1")
+        if self.relay_accept_timeout <= 0:
+            raise ValueError("relay_accept_timeout must be > 0")
+        if self.relay_channel_open_timeout <= 0:
+            raise ValueError("relay_channel_open_timeout must be > 0")
+        if self.relay_connect_timeout <= 0:
+            raise ValueError("relay_connect_timeout must be > 0")
+        if self.relay_target_connect_timeout <= 0:
+            raise ValueError("relay_target_connect_timeout must be > 0")
+        if self.relay_socket_timeout <= 0:
+            raise ValueError("relay_socket_timeout must be > 0")
+        if self.relay_channel_timeout <= 0:
+            raise ValueError("relay_channel_timeout must be > 0")
+        if (self.relay_write_timeout is not None and
+                self.relay_write_timeout <= 0):
+            raise ValueError("relay_write_timeout must be > 0 or None")
+        if self.relay_buffer_size < 1:
+            raise ValueError("relay_buffer_size must be >= 1")
+        if self.relay_pump_poll_timeout <= 0:
+            raise ValueError("relay_pump_poll_timeout must be > 0")
+        if self.relay_pump_backoff_max <= 0:
+            raise ValueError("relay_pump_backoff_max must be > 0")
+        if self.relay_thread_join_timeout <= 0:
+            raise ValueError("relay_thread_join_timeout must be > 0")
 
         # Protocol validation
         if self.protocol_min_rto_ms >= self.protocol_max_rto_ms:

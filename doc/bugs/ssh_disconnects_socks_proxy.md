@@ -65,7 +65,7 @@ Example SSH outcomes:
 
 ## What we've tried
 - Added SOCKS pump instrumentation (`sock.pump_start`, `sock.pump_stop`,
-  `sock.pump_stats`) in `sfb/modules/socks/data_pump.py`.
+  `sock.pump_stats`) in `sfb/modules/relay_pump.py`.
 - Enabled verbose logging automatically when `--log-profile` is passed.
 - Used `channel_close_debug` and `dns_socks_stall_debug` profiles to capture
   tunnel, channel, SOCKS, and DNS events.

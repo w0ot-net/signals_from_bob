@@ -77,12 +77,78 @@ message type (`sock`) for target negotiation:
 ```json
 {"t":"ch","c":"open","ch":2}
 {"t":"ch","c":"open_ok","ch":2}
-{"t":"sock","c":"connect","ch":2,"atype":"ipv4","addr":"93.184.216.34","port":80}
-{"t":"sock","c":"connect_ok","ch":2}
-{"t":"sock","c":"connect_fail","ch":2,"err":"refused"}
+{"t":"sock","c":"connect","rid":1,"ch":2,"host":"93.184.216.34","port":80}
+{"t":"sock","c":"connect_ok","rid":1,"ch":2,"bhost":"0.0.0.0","bport":0}
+{"t":"sock","c":"err","rid":1,"ch":2,"code":"refused","reason":"connection refused"}
 {"t":"ch","c":"close","ch":2}
 {"t":"ch","c":"close_ok","ch":2}
 ```
+
+---
+
+## Port Forward Module
+
+**Message type**: `fwd`
+
+### Overview
+
+Bob listens on a local TCP port and forwards connections through Alice to a
+fixed remote host:port.
+
+```
+User App ──▶ Bob Port Fwd ═════▶ Alice Relay ──▶ Target
+            (local listen)       (tunnel)      (remote host:port)
+```
+
+### Components
+
+**Bob: Port Forward Server**
+- Listens on `--local HOST:PORT`
+- For each connection: opens a channel and sends `fwd/connect` with the
+  configured remote host/port
+- Relays data between the local socket and the channel
+
+**Alice: Port Forward Relay**
+- Receives `fwd/connect`
+- Connects to target, replies with `connect_ok` or `err`
+- Relays data between TCP socket and channel
+
+### Flow
+
+```
+Client              Bob                    Alice              Target
+ │                   │                       │                   │
+ │── TCP CONNECT ───▶│                       │                   │
+ │                   │── {t:ch,c:open} ─────▶│                   │
+ │                   │◀── {t:ch,c:open_ok} ──│                   │
+ │                   │── {t:fwd,c:connect} ▶│                   │
+ │                   │                       │── TCP CONNECT ───▶│
+ │                   │◀── {t:fwd,c:connect_ok}                  │
+ │                   │                       │                   │
+ │── data ──────────▶│══ ch data ═══════════▶│── data ──────────▶│
+ │◀── data ──────────│◀═ ch data ════════════│◀── data ──────────│
+ │                   │                       │                   │
+ │── close ─────────▶│── {t:ch,c:close} ────▶│── close ─────────▶│
+ │                   │◀── {t:ch,c:close_ok} ─│                   │
+```
+
+### Control Messages
+
+```json
+{"t":"ch","c":"open","ch":2}
+{"t":"ch","c":"open_ok","ch":2}
+{"t":"fwd","c":"connect","rid":1,"ch":2,"host":"example.com","port":443}
+{"t":"fwd","c":"connect_ok","rid":1,"ch":2}
+{"t":"fwd","c":"err","rid":1,"ch":2,"code":"refused","reason":"connection refused"}
+{"t":"ch","c":"close","ch":2}
+{"t":"ch","c":"close_ok","ch":2}
+```
+
+`connect_ok` may include `bhost`/`bport` for the bound address on Alice.
+
+Limitations:
+- TCP only
+- One remote host:port per module instance
 
 ---
 

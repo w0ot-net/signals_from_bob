@@ -5,7 +5,7 @@ Generic CLI for sfb tunnel.
 Provides a unified entry point supporting:
 - Roles: server (bob) or client (alice)
 - Transports: dns (extensible)
-- Modules: file_transfer, socks_server, socks_relay, etc.
+- Modules: file_transfer, socks_server, socks_relay, port_fwd_server, port_fwd_relay, etc.
 """
 
 from __future__ import absolute_import
@@ -374,8 +374,8 @@ def add_common_args(parser, config, require_domain=True, require_role=True):
         help=argparse.SUPPRESS
     )
     parser.add_argument(
-        '--socks-relay-buffer-size', type=int,
-        default=config.socks_relay_buffer_size,
+        '--relay-buffer-size', type=int,
+        default=config.relay_buffer_size,
         help=argparse.SUPPRESS
     )
     parser.add_argument(
@@ -384,8 +384,8 @@ def add_common_args(parser, config, require_domain=True, require_role=True):
         help=argparse.SUPPRESS
     )
     parser.add_argument(
-        '--socks-pump-backoff-max', type=float,
-        default=config.socks_pump_backoff_max,
+        '--relay-pump-backoff-max', type=float,
+        default=config.relay_pump_backoff_max,
         help=argparse.SUPPRESS
     )
     parser.add_argument(
@@ -986,12 +986,12 @@ def create_config(args):
     config_kwargs['db_log_flush'] = getattr(args, 'db_log_flush', None)
     config_kwargs['db_log_queue'] = getattr(args, 'db_log_queue', None)
     config_kwargs['log_profile'] = getattr(args, 'log_profile', None)
-    config_kwargs['socks_relay_buffer_size'] = getattr(
-        args, 'socks_relay_buffer_size', None)
+    config_kwargs['relay_buffer_size'] = getattr(
+        args, 'relay_buffer_size', None)
     config_kwargs['channel_max_send_buf'] = getattr(
         args, 'channel_max_send_buf', None)
-    config_kwargs['socks_pump_backoff_max'] = getattr(
-        args, 'socks_pump_backoff_max', None)
+    config_kwargs['relay_pump_backoff_max'] = getattr(
+        args, 'relay_pump_backoff_max', None)
     config_kwargs['non_blocking_poll_timeout'] = getattr(
         args, 'non_blocking_poll_timeout', None)
     if getattr(args, 'xor', None) is not None:
@@ -1462,7 +1462,7 @@ def main(args=None):
             'log_component_tunnel': config.log_component_tunnel,
             'log_component_channel': config.log_component_channel,
             'log_component_protocol': config.log_component_protocol,
-            'log_component_module_socks': config.log_component_module_socks,
+            'log_component_module_relay': config.log_component_module_relay,
             'log_component_module_file_transfer': (
                 config.log_component_module_file_transfer
             ),

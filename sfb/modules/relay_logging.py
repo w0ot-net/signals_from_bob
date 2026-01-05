@@ -1,11 +1,11 @@
 # -*- coding: ascii -*-
 """
-SOCKS logging helpers.
+Relay logging helpers.
 """
 
 from __future__ import absolute_import
 
-from ... import time_provider
+from .. import time_provider
 
 
 def add_field(fields, key, value):
@@ -28,7 +28,7 @@ def normalize_peer(label):
     return label.lower()
 
 
-def sock_fields(rid=None, ch=None, side=None, peer=None, direction=None, label=None):
+def relay_fields(rid=None, ch=None, side=None, peer=None, direction=None, label=None):
     fields = {}
     add_field(fields, 'rid', rid)
     add_field(fields, 'ch', ch)

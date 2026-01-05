@@ -8,7 +8,8 @@ ALICE (Inside DMZ)                              BOB (Outside)
 │                     │                        │                     │
 │   ┌─────────────┐   │      Covert Channel    │   ┌─────────────┐   │
 │   │   Modules   │   │   (DNS/ICMP/etc)       │   │   Modules   │   │
-│   │  - Relay    │   │                        │   │  - SOCKS    │   │
+│   │  - SOCKS    │   │                        │   │  - SOCKS    │   │
+│   │  - Port Fwd │   │                        │   │  - Port Fwd │   │
 │   │  - Files    │   │                        │   │  - Files    │   │
 │   └──────┬──────┘   │                        │   └──────┬──────┘   │
 │          │          │                        │          │          │
@@ -29,7 +30,7 @@ Alice initiates all transport-level connections. Bob cannot reach Alice directly
 ```
 ┌─────────────────────────────────────┐
 │         Application Modules         │
-│       (SOCKS, File Transfer)        │
+│   (SOCKS, Port Forward, File Transfer)   │
 └──────────────────┬──────────────────┘
                    │ channel read/write
 ┌──────────────────┴──────────────────┐
@@ -103,6 +104,7 @@ the PSK without connection-specific material.
 Built on top of channels. Examples:
 
 - **SOCKS proxy**: Bob runs SOCKS server, Alice relays connections
+- **Port forward**: Bob listens locally, Alice connects to fixed targets
 - **File transfer**: Upload/download files between Alice and Bob
 
 ### Platform Support
@@ -111,12 +113,12 @@ The project must run on both Windows and Linux.
 
 ---
 
-## Data Flow: Bob → Alice (SOCKS example)
+## Data Flow: Bob → Alice (SOCKS/Port Forward example)
 
-1. User connects to Bob's SOCKS port
-2. Bob's SOCKS module opens channel 2, sends OPEN to Alice via channel 0
+1. User connects to Bob's local listen port
+2. Bob's SOCKS/port_fwd module opens channel 2, sends OPEN to Alice via channel 0
 3. Alice connects to target, sends OPEN_OK
-4. SOCKS data flows on channel 2
+4. Data flows on channel 2
 5. Either side closes channel when done
 
 ---
@@ -193,10 +195,29 @@ sfb/
 │       └── dns_server.py      # Bob's DNS server
 ├── modules/
 │   ├── __init__.py
-│   └── file_transfer/
+│   ├── base_module.py
+│   ├── relay_connection.py
+│   ├── relay_control_messages.py
+│   ├── relay_logging.py
+│   ├── relay_pump.py
+│   ├── file_transfer/
+│   │   ├── __init__.py
+│   │   ├── file_transfer_control_messages.py
+│   │   └── file_transfer.py
+│   ├── port_fwd/
+│   │   ├── __init__.py
+│   │   ├── port_fwd_server.py
+│   │   └── port_fwd_relay.py
+│   ├── socks/
+│   │   ├── __init__.py
+│   │   ├── socks_control_messages.py
+│   │   ├── socks_server.py
+│   │   └── socks_relay.py
+│   └── nc_linux/
 │       ├── __init__.py
-│       ├── file_transfer_control_messages.py
-│       └── file_transfer.py
+│       ├── nc_linux.py
+│       ├── nc_linux_control_messages.py
+│       └── nc_linux_pump.py
 └── tunnel/
     ├── __init__.py            # Exports AliceTunnel, BobTunnel
     ├── base_tunnel.py         # BaseTunnel with shared functionality

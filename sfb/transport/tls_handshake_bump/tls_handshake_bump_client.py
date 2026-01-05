@@ -511,6 +511,7 @@ class TlsHandshakeBumpClient(Transport):
             self._close_pending(corr_id, state)
             raise TransportError('TLS bump handshake failed: %s' % e)
         state.handshake_complete = True
+        state.handshake_deadline = None
         state.ssl_want = None
         return None
 
@@ -647,7 +648,7 @@ class TlsHandshakeBumpClient(Transport):
                 deadline = state.connect_deadline
             elif not state.proxy_complete:
                 deadline = state.proxy_deadline
-            else:
+            elif not state.handshake_complete:
                 deadline = state.handshake_deadline
             if deadline is not None and now > deadline:
                 if not state.proxy_complete and not state.connecting:
@@ -693,7 +694,7 @@ class TlsHandshakeBumpClient(Transport):
                 if state.proxy_deadline is not None:
                     if earliest is None or state.proxy_deadline < earliest:
                         earliest = state.proxy_deadline
-            else:
+            elif not state.handshake_complete:
                 if state.handshake_deadline is not None:
                     if earliest is None or state.handshake_deadline < earliest:
                         earliest = state.handshake_deadline
@@ -833,9 +834,16 @@ def _build_https_request(sni_name, prefix, suffix):
 def _create_ssl_context():
     if not hasattr(ssl, 'SSLContext'):
         raise TransportError('SSLContext required for TLS bump transport')
+    has_tls12 = getattr(ssl, 'HAS_TLSv1_2', False)
+    proto_tls12 = getattr(ssl, 'PROTOCOL_TLSv1_2', None)
+    if not has_tls12 and proto_tls12 is None:
+        raise TransportError('TLS bump transport requires TLS 1.2 support')
     proto = getattr(ssl, 'PROTOCOL_TLS_CLIENT', None)
     if proto is None:
-        proto = getattr(ssl, 'PROTOCOL_TLSv1', ssl.PROTOCOL_SSLv23)
+        if proto_tls12 is None:
+            proto = getattr(ssl, 'PROTOCOL_TLSv1', ssl.PROTOCOL_SSLv23)
+        else:
+            proto = proto_tls12
     context = ssl.SSLContext(proto)
     if hasattr(context, 'check_hostname'):
         context.check_hostname = False

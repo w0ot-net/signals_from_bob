@@ -116,12 +116,17 @@ Server:
 - `tls_bump_base_domain` (default `example.com`, must match client)
 - `tls_bump_max_clienthello_bytes` (record size cap)
 
+Client pending timeout is computed as connect timeout plus handshake timeout,
+plus proxy timeout when an HTTP proxy is configured. It bounds the end-to-end
+time spent waiting for a response.
+
 ## Limitations
 
 - Very low throughput by design.
 - Requires a TLS-bumping proxy that exposes CN details in error pages.
 - No robustness if the proxy does not leak CN.
 - Not a full TLS implementation; it is a covert channel.
+- ClientHello must fit in a single TLS record; fragmentation is not handled.
 - Readiness polling uses `poll` when available; `select` fallback is limited by
   `FD_SETSIZE` (notably on Windows).
 

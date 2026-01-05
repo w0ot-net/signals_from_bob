@@ -32,3 +32,8 @@
 
 4. Documentation
    - Add a limitation to `doc/completed_plans/TLS_HANDSHAKE_BUMP_TRANSPORT.md` stating that the ClientHello must fit in a single TLS record (no fragmentation handling).
+
+## Execution Notes
+- Cleared TLS handshake deadlines after completion and ignored them once the handshake is done so pending timeouts govern response waits.
+- Enforced TLS 1.2 availability checks in the TLS bump client SSL context creation.
+- Documented the computed pending timeout semantics and the single-record ClientHello limitation.

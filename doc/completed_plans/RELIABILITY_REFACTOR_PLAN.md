@@ -86,3 +86,4 @@ Status: completed
 - Tests: `python3 -m unittest tests.test_send_window tests.test_reliability
   tests.test_pacing tests.test_alice_tunnel tests.test_bob_tunnel
   tests.test_tunnel`.
+- 2025-09-19: Moved to completed plans per request after confirming plan status.

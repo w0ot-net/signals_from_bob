@@ -494,11 +494,6 @@ def add_udp_ephemeral_server_args(parser, config):
     parser.add_argument(
         '--listen-addr',
         default=None,
-        help='UDP listen host:port for server (alias of --udp-ephemeral-listen-addr)'
-    )
-    parser.add_argument(
-        '--udp-ephemeral-listen-addr',
-        default=config.udp_ephemeral_listen_addr,
         help='UDP listen host:port for server'
     )
 
@@ -913,10 +908,6 @@ def create_config(args):
             listen_addr = getattr(args, 'listen_addr', None)
             if listen_addr:
                 config_kwargs['udp_ephemeral_listen_addr'] = listen_addr
-            else:
-                config_kwargs['udp_ephemeral_listen_addr'] = getattr(
-                    args, 'udp_ephemeral_listen_addr', None
-                )
     elif args.transport == 'tls_handshake':
         if args.role == 'client':
             config_kwargs['tls_target'] = getattr(args, 'target', None)

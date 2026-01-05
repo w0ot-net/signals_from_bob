@@ -54,7 +54,7 @@ Client settings:
 
 Server settings:
 
-- `udp_ephemeral_listen_addr` (`--listen-addr` or `--udp-ephemeral-listen-addr`)
+- `udp_ephemeral_listen_addr` (`--listen-addr`)
 - `udp_ephemeral_payload_mtu` (`--udp-ephemeral-mtu`)
 
 Defaults:

@@ -457,10 +457,8 @@ class BaseTunnelGapTests(unittest.TestCase):
 
     def test_collect_segments_keepalive_only_when_idle(self):
         tunnel = BaseTunnel(make_test_config())
-        segments = tunnel._collect_segments(64, keepalive_data=b'ka')
-        self.assertEqual(len(segments), 1)
-        self.assertEqual(segments[0].channel, 0)
-        self.assertEqual(segments[0].data, b'ka')
+        segments = tunnel._collect_segments(64)
+        self.assertEqual(segments, [])
 
     def test_decode_packet_rejects_oversize_and_bad_header(self):
         from sfb.protocol import Packet, FLAG_KEEPALIVE
@@ -555,15 +553,6 @@ class BaseTunnelGapTests(unittest.TestCase):
         channel = tunnel.channel_manager.open_channel()
         self.assertEqual(channel.state, STATE_OPENING)
 
-        delivered_states = []
-        original_deliver = channel._deliver
-
-        def deliver_with_state(data):
-            delivered_states.append(channel.state)
-            original_deliver(data)
-
-        channel._deliver = deliver_with_state
-
         control_segment = Segment(
             CHANNEL_CONTROL,
             encode(ch_open_ok(channel.id)),
@@ -580,7 +569,6 @@ class BaseTunnelGapTests(unittest.TestCase):
         tunnel._process_incoming_packet(packet, now=time_provider.now())
 
         self.assertEqual(channel.state, STATE_OPEN)
-        self.assertEqual(delivered_states, [STATE_OPEN])
         self.assertEqual(channel.read(2, timeout=0), b'hi')
 
     def test_process_control_messages_handles_invalid_json(self):

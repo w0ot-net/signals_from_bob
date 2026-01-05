@@ -16,7 +16,7 @@ validation and error messaging, then update all call sites to use it.
 - Remove duplicate helper functions and inline parsing.
 
 ## Affected Components
-- `sfb/addr_utils.py` (new shared parser)
+- `sfb/utils.py` (new shared parser)
 - `sfb/cli.py` (replace `_split_host_port`)
 - `sfb/transport/proxy_helpers.py` (proxy host:port validation)
 - `sfb/transport/udp_ephemeral/udp_ephemeral_config.py` (parse_host_port)
@@ -29,7 +29,7 @@ validation and error messaging, then update all call sites to use it.
 - Docs that mention IPv6 host:port in user-facing specs (scan and update)
 
 ## Plan
-1. Add `sfb/addr_utils.py` with a canonical `parse_host_port` function:
+1. Add `sfb/utils.py` with a canonical `parse_host_port` function:
    - Accept `text_type` only; enforce ASCII and non-empty host.
    - Require `host:port` by default, with an optional `default_port` for
      call sites that allow a missing port.
@@ -56,4 +56,4 @@ validation and error messaging, then update all call sites to use it.
 
 ## Validation
 - `python3 -m unittest tests.test_nc_linux`
-- Add a focused unit test for `sfb/addr_utils.py` once implemented.
+- Add a focused unit test for `sfb/utils.py` once implemented.

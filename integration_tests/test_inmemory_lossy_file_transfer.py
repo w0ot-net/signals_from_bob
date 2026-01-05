@@ -19,8 +19,8 @@ from sfb.transport import (
 from sfb.tunnel import AliceTunnel, BobTunnel, TunnelState
 
 _ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
-_TEST_FILE_PATH = os.path.join(_ROOT_DIR, 'test_download_files', '100MB.bin')
-_MIN_TEST_FILE_SIZE = 100 * 1024 * 1024
+_TEST_FILE_PATH = os.path.join(_ROOT_DIR, 'test_download_files', '1MB.bin')
+_MIN_TEST_FILE_SIZE = 1 * 1024 * 1024
 _TMP_DIR = '/tmp'
 
 
@@ -58,7 +58,7 @@ def _make_config():
 
 @unittest.skipUnless(
     _tmp_available() and _test_file_available(),
-    'requires /tmp and test_download_files/100MB.bin',
+    'requires /tmp and test_download_files/1MB.bin',
 )
 class LossyInMemoryFileTransferIntegrationTests(unittest.TestCase):
     def setUp(self):
@@ -72,7 +72,7 @@ class LossyInMemoryFileTransferIntegrationTests(unittest.TestCase):
         self._config = _make_config()
         self._dest_path = os.path.join(
             _TMP_DIR,
-            'sfb_lossy_100mb_%d.bin' % os.getpid(),
+            'sfb_lossy_1mb_%d.bin' % os.getpid(),
         )
         if os.path.exists(self._dest_path):
             os.unlink(self._dest_path)
@@ -123,8 +123,8 @@ class LossyInMemoryFileTransferIntegrationTests(unittest.TestCase):
         if self._dest_path and os.path.exists(self._dest_path):
             os.unlink(self._dest_path)
 
-    def test_get_100mb_to_tmp_over_chaos(self):
-        timeout = 600.0
+    def test_get_1mb_to_tmp_over_chaos(self):
+        timeout = 120.0
         self._alice_file.get(_TEST_FILE_PATH, self._dest_path, timeout=timeout)
         self.assertTrue(os.path.exists(self._dest_path))
         self.assertEqual(

@@ -72,3 +72,6 @@ while we wait for the retransmitted seq to be ACKed.
 - Reduction in `tunnel.send_window_distance` events following
   `tunnel.retransmit` in client logs.
 - Fewer window-distance stalls without increased timeouts or error rates.
+
+## Abandonment notes
+- 2025-09-19: Abandoned per request; no implementation work recorded.

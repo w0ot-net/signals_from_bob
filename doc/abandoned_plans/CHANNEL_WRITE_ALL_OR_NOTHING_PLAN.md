@@ -1,6 +1,6 @@
 # Channel Write All-or-Nothing Plan
 
-Status: draft
+Status: abandoned
 
 ## Summary
 
@@ -86,3 +86,7 @@ state machines. This is a breaking change to backpressure semantics.
 - Run `python3 -m unittest tests.test_channel`.
 - Run `python3 -m unittest tests.test_socks`.
 - Do not run tests under `tests/e2e/`.
+
+## Abandonment notes
+
+- 2026-01-05: Abandoned per request; no implementation work recorded.

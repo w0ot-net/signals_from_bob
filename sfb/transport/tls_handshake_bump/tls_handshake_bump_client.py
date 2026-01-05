@@ -15,7 +15,6 @@ from ..transport_base import (
     Transport,
     TransportError,
     PendingTracker,
-    prune_and_count,
 )
 from ..proxy_helpers import (
     parse_connect_response,
@@ -86,17 +85,15 @@ class _PendingConn(object):
         'ssl_want',
         'handshake_complete',
         'handshake_deadline',
-        'pending_deadline',
         'recv_buf',
         'scan_offset',
     )
 
-    def __init__(self, sock, connect_deadline, pending_deadline, proxy_send_buf,
-                 sni_name, request_buf):
+    def __init__(self, sock, connect_deadline, proxy_send_buf, sni_name,
+                 request_buf):
         self.sock = sock
         self.connecting = True
         self.connect_deadline = connect_deadline
-        self.pending_deadline = pending_deadline
         self.proxy_send_buf = proxy_send_buf
         self.proxy_send_off = 0
         self.proxy_recv_buf = bytearray()
@@ -219,12 +216,7 @@ class TlsHandshakeBumpClient(Transport):
         if now is None:
             now = time_provider.now()
         self._prune_deadlines(now=now)
-        pending_before = prune_and_count(
-            self._pending,
-            self._pending.prune,
-            now=now,
-            on_prune=self._on_prune,
-        )
+        pending_before = len(self._pending)
         self._ensure_reserved()
         reserved = len(self._reserved)
         pending_total = pending_before + reserved
@@ -279,7 +271,6 @@ class TlsHandshakeBumpClient(Transport):
         state = _PendingConn(
             sock=sock,
             connect_deadline=now + self._connect_timeout,
-            pending_deadline=now + self._pending_timeout,
             proxy_send_buf=self._proxy_request,
             sni_name=sni_name,
             request_buf=request_buf,
@@ -654,21 +645,24 @@ class TlsHandshakeBumpClient(Transport):
                 deadline = state.proxy_deadline
             elif not state.handshake_complete:
                 deadline = state.handshake_deadline
-            else:
-                deadline = state.pending_deadline
             if deadline is not None and now > deadline:
                 if not state.proxy_complete and not state.connecting:
                     self._log_proxy_error('timeout', corr_id)
                 stale.append((corr_id, state))
         for corr_id, state in stale:
             self._close_pending(corr_id, state)
-        if stale:
+        stale_count = len(stale)
+        pending_stale = self._pending.prune(now=now)
+        if pending_stale:
+            self._on_prune(pending_stale)
+            stale_count += len(pending_stale)
+        if stale_count:
             log_event(
                 _LOG,
                 logging.DEBUG,
                 'tls_bump.prune_stale',
                 'Pruned stale TLS bump connections',
-                lambda: {'count': len(stale)},
+                lambda: {'count': stale_count},
             )
         return stale
 
@@ -704,10 +698,10 @@ class TlsHandshakeBumpClient(Transport):
                 if state.handshake_deadline is not None:
                     if earliest is None or state.handshake_deadline < earliest:
                         earliest = state.handshake_deadline
-            else:
-                if state.pending_deadline is not None:
-                    if earliest is None or state.pending_deadline < earliest:
-                        earliest = state.pending_deadline
+        pending_deadline = self._pending.earliest_deadline()
+        if pending_deadline is not None:
+            if earliest is None or pending_deadline < earliest:
+                earliest = pending_deadline
         if timeout == 0:
             return 0
         if deadline is not None:

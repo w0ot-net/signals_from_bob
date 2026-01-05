@@ -492,5 +492,14 @@ class PendingTracker(object):
                 del self._entries[key]
         return stale
 
+    def earliest_deadline(self):
+        earliest_ts = None
+        for _key, (_value, ts) in self._entries.items():
+            if earliest_ts is None or ts < earliest_ts:
+                earliest_ts = ts
+        if earliest_ts is None:
+            return None
+        return earliest_ts + self._timeout
+
     def __len__(self):
         return len(self._entries)

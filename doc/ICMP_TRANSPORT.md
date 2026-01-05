@@ -1,6 +1,7 @@
 # ICMP Transport
 
-This document defines the plan and design for an ICMP Echo transport.
+This document describes the design and current implementation of the ICMP
+Echo transport.
 It targets Linux first. Windows support will be added later.
 All code must remain Python 2.7/3 compatible and use only the standard library.
 The transport is IPv4-only; IPv6 is unsupported.
@@ -88,11 +89,11 @@ send/recv MTUs per side. The ICMP transport should:
 - Default them to the same computed ICMP payload cap (symmetric in practice),
   while still allowing independent clamping during MTU negotiation.
 
-Proposed approach:
-- Add a config field (name TBD) for ICMP payload size limits, with a conservative
-  default (for example 1350 bytes of ICMP payload to avoid fragmentation on 1500 MTU links).
-- `send_mtu`/`recv_mtu` should reflect the SFB packet size carried in the ICMP
-  data payload, not including ICMP headers. The tunnel already subtracts
+Current approach:
+- `icmp_payload_mtu` controls the ICMP payload size limit, with a conservative
+  default (1350 bytes to avoid fragmentation on 1500 MTU links).
+- `send_mtu`/`recv_mtu` reflect the SFB packet size carried in the ICMP data
+  payload, not including ICMP headers. The tunnel already subtracts
   `PACKET_HEADER_SIZE`.
 
 If future path MTU discovery is added, it should update these independently.
@@ -141,11 +142,12 @@ Use `non_blocking_poll_timeout` in tight poll loops to avoid CPU spikes.
 
 ## Configuration and CLI
 
-Proposed config fields (final names TBD):
+Config fields:
 - `icmp_target`: Alice target host/IP
 - `icmp_payload_mtu`: max SFB packet size to send/receive (default conservative)
 - `max_in_flight`: max concurrent ICMP requests in flight
 - `icmp_pending_timeout`: timeout before pruning stale ICMP requests
+- `non_blocking_poll_timeout`: poll timeout used by the tunnel loop
 - `tunnel_send_rate` / `tunnel_send_burst`: transport-agnostic pacing for Alice polls
 - `tunnel_pace_target_inflight_ratio` / `tunnel_pace_min_inflight` /
   `tunnel_pace_max_inflight`: adaptive pacing bounds
@@ -156,50 +158,35 @@ Proposed config fields (final names TBD):
 CLI:
 - `--transport icmp`
 - Alice: `--target <host>`
+- `--icmp-mtu <bytes>` (both roles)
 - Alice pacing (all transports): `--send-rate`, `--send-burst`,
   `--pace-target-inflight-ratio`, `--pace-min-inflight`,
   `--pace-max-inflight`, `--pace-feedback-gain`,
   `--pace-ack-ewma-alpha`, `--pace-rtt-floor-ms`,
   `--pace-ack-idle-reset-sec`
-- Bob: likely no extra args beyond listen defaults
+- Bob: `--icmp-mtu <bytes>` only
 
 ---
 
-## Implementation Plan
+## Implementation
 
-1. Add `doc/ICMP_TRANSPORT.md` (this file).
-2. Add `sfb/transport/icmp/icmp_client.py`:
-   - raw ICMP socket
-   - privilege check
-   - checksum implementation
-   - pending tracker (similar to DNS client)
-   - `send()` constructs Echo Request with SFB payload (using a permit from
-     `reserve_send()`)
-   - `recv()` reads replies, validates type/framing, returns `(corr_id, data)`
-3. Add `sfb/transport/icmp/icmp_server.py`:
-   - raw ICMP socket
-   - `recv()` reads Echo Requests, validates ICMP header/type
-   - responder sends Echo Reply to request source address
-4. Wire into `sfb/transport/__init__.py` and CLI transport selection.
-5. Add config defaults and validation in `sfb/config.py`.
-6. Add unit tests:
-   - checksum correctness
-   - send/recv path with fake sockets
-   - non-blocking poll behavior (uses `non_blocking_poll_timeout`)
-7. Document Windows follow-up work (ctypes + IcmpSendEcho).
+- `sfb/transport/icmp/icmp_client.py`: raw ICMP socket, privilege check,
+  pending tracker, Echo Request send, Echo Reply recv; checksum validation is
+  disabled by default.
+- `sfb/transport/icmp/icmp_server.py`: raw ICMP socket, privilege check,
+  kernel echo suppression check, Echo Request recv, Echo Reply send.
+- `sfb/transport/icmp/icmp_packet.py`: Echo packet build/parse and checksum.
+- Wired into `sfb/transport/__init__.py`, CLI selection, and config validation.
 
 ---
 
-## Testing Plan
+## Tests
 
 Unit tests only. No e2e tests in `tests/e2e` will be run locally.
 
-Test cases:
-- ICMP checksum known vectors
-- Encode/decode echo request/reply
-- Pending tracker correlation
-- Polling behavior does not busy loop
-- Privilege check error path
+- `tests/test_icmp_packet.py` (checksum, encode/decode, parse errors)
+- `tests/test_icmp_client.py` (pending correlation, error paths)
+- `tests/test_icmp_server.py` (request parsing, responder errors)
 
 ---
 

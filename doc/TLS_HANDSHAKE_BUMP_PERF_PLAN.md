@@ -4,14 +4,14 @@ Status: draft
 
 ## Summary
 
-Reduce CPU and memory overhead in the TLS handshake bump transport by making
-response extraction incremental, trimming redundant parsing/copies, and
-improving socket readiness scaling while preserving wire format and Python
-2.7/3 compatibility.
+Reduce CPU and memory overhead in the TLS handshake bump transport by
+standardizing on scan-only response extraction, trimming redundant
+parsing/copies, and improving socket readiness scaling while preserving wire
+format and Python 2.7/3 compatibility.
 
 ## Goals
 
-- Avoid repeated full-buffer regex scans in response parsing.
+- Standardize on scan-only response extraction (remove regex mode).
 - Reduce worst-case work in scan mode when large base32-like runs appear.
 - Remove redundant record parsing/copying in the server hot path.
 - Avoid repeated proxy header scans on incremental CONNECT responses.
@@ -39,16 +39,11 @@ improving socket readiness scaling while preserving wire format and Python
 
 ## Plan
 
-1. Incremental regex response scanning (client)
-   - Add a regex scan offset to the pending connection state.
-   - Introduce a bounded lookback for regex mode:
-     - New config value (for example `tls_bump_response_regex_lookback`) or a
-       computed default based on `cn_max_len`.
-     - Document that regex matches must be found within the configured
-       lookback window (otherwise use scan mode).
-   - In regex mode, search from `scan_offset` and update the offset after each
-     unsuccessful read to the tail lookback window.
-   - Preserve current behavior for successful matches and error logging.
+1. Cut over to scan-only response extraction (client)
+   - Remove regex response mode handling in the client receive path.
+   - Reject or ignore `tls_bump_response_mode` and `tls_bump_response_regex`
+     in config validation; prefer explicit errors for non-scan settings.
+   - Drop regex-related state/log fields and update tests to match.
 
 2. Faster scan mode token detection (codec)
    - Add a fast path for decoding the fixed-size response header:
@@ -86,9 +81,9 @@ improving socket readiness scaling while preserving wire format and Python
    - Add a guard for select/poll limits and document expected scaling.
 
 6. Docs and config updates
-   - Document regex lookback behavior and any new config field.
-   - Note the new scan/token parsing behavior in the TLS bump transport docs.
-   - Update any transport overview docs that list config knobs.
+   - Document scan-only response extraction and remove regex config knobs.
+   - Note the updated scan/token parsing behavior in TLS bump transport docs.
+   - Update any transport overview docs that list TLS bump config knobs.
 
 ## Validation
 

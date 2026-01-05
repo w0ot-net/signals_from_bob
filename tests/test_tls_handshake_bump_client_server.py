@@ -50,10 +50,6 @@ class TlsHandshakeBumpClientServerTests(unittest.TestCase):
             transport='tls_handshake_bump',
             tls_bump_base_domain='example.com',
             tls_bump_target='127.0.0.1:443',
-            tls_bump_response_mode='regex',
-            tls_bump_response_regex=(
-                r'Self-signed SSL Certificate: /CN=([A-Za-z2-7]+)'
-            ),
         )
         client = TlsHandshakeBumpClient(client_cfg)
         payload = b'ping'
@@ -70,7 +66,12 @@ class TlsHandshakeBumpClientServerTests(unittest.TestCase):
             b'\r\n' +
             body
         )
-        extracted = client._extract_payload(response, 1)
+        class _State(object):
+            pass
+        state = _State()
+        state.recv_buf = bytearray(response)
+        state.scan_offset = 0
+        extracted = client._extract_payload(state, 1)
         self.assertEqual(extracted, payload)
         client.close()
 

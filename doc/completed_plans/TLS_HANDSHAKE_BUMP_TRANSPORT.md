@@ -69,13 +69,13 @@ MTU negotiation.
 2. Optional HTTP CONNECT proxy is supported (`tls_bump_http_proxy`).
 3. Start TLS with SNI set to the encoded request subdomain.
 4. Send a minimal HTTPS request (`GET <path>`) to trigger an error page.
-5. Extract the response token via scan or regex.
+5. Extract the response token via scan-only base32 token scanning.
 6. Decode the response token to bytes.
 
 TLS certificate verification is disabled for the proxy connection.
 
-Scan mode searches for base32 tokens and validates the response frame; regex
-mode uses `tls_bump_response_regex` to capture the token.
+Scan mode searches base32 runs, validates the response frame header, and only
+then decodes full tokens. Regex extraction is no longer supported.
 
 ## Server Flow (Bob)
 
@@ -110,8 +110,6 @@ Client:
 - `tls_bump_base_domain` (default `example.com`)
 - `tls_bump_http_proxy` / `tls_bump_http_proxy_auth` (optional)
 - `tls_bump_request_path` (default `/`)
-- `tls_bump_response_mode` (`scan` or `regex`, default `scan` if no regex)
-- `tls_bump_response_regex` (capture group for base32 token, optional)
 
 Server:
 - `tls_bump_listen_addr`
@@ -124,6 +122,8 @@ Server:
 - Requires a TLS-bumping proxy that exposes CN details in error pages.
 - No robustness if the proxy does not leak CN.
 - Not a full TLS implementation; it is a covert channel.
+- Readiness polling uses `poll` when available; `select` fallback is limited by
+  `FD_SETSIZE` (notably on Windows).
 
 ## Execution Notes
 

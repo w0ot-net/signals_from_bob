@@ -39,9 +39,11 @@ def build_connect_request(target_hostport, proxy_auth=None):
     return b'\r\n'.join(lines)
 
 
-def parse_connect_response(buffer):
+def parse_connect_response(buffer, start_offset=0):
     """
     Parse a CONNECT response buffer.
+
+    start_offset: optional index to begin scanning for header terminator.
 
     Returns:
         tuple: (status, header_end)
@@ -51,7 +53,11 @@ def parse_connect_response(buffer):
     """
     if len(buffer) > PROXY_HEADER_LIMIT:
         return None, PROXY_HEADER_TOO_LARGE
-    header_end = buffer.find(b'\r\n\r\n')
+    if start_offset is None or start_offset < 0:
+        start_offset = 0
+    if start_offset > len(buffer):
+        start_offset = len(buffer)
+    header_end = buffer.find(b'\r\n\r\n', start_offset)
     if header_end < 0:
         return None, None
     status_line = buffer[:header_end].split(b'\r\n', 1)[0]

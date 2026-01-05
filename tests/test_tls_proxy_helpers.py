@@ -42,6 +42,20 @@ class ProxyHelperTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(header_end, response.find(b'\r\n\r\n'))
 
+    def test_parse_connect_response_start_offset(self):
+        response = (
+            b'HTTP/1.1 200 Connection established\r\n'
+            b'Header: value\r\n'
+            b'\r\n'
+        )
+        header_end = response.find(b'\r\n\r\n')
+        status, parsed_end = proxy_helpers.parse_connect_response(
+            response,
+            start_offset=header_end - 1,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(parsed_end, header_end)
+
     def test_parse_connect_response_invalid_status(self):
         response = b'HTTP/1.1 OK\r\n\r\n'
         status, header_end = proxy_helpers.parse_connect_response(response)

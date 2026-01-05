@@ -1,6 +1,6 @@
 # TLS Handshake Bump Performance Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 
@@ -92,3 +92,11 @@ format and Python 2.7/3 compatibility.
   - tests.test_tls_handshake_bump_client_server
   - tests.test_tls_proxy_helpers
 - Do not run `tests/e2e/`.
+
+## Execution Notes
+
+- Removed regex response extraction; config now enforces scan-only.
+- Added fast base32 header scanning with sliding window detection.
+- Parsed ClientHello from buffered records without re-parsing headers.
+- Added incremental CONNECT scan offsets and poll-based selectors with select fallback.
+- Ran `python3 -m unittest tests.test_tls_handshake_bump_codec tests.test_tls_handshake_bump_client_server tests.test_tls_proxy_helpers`.

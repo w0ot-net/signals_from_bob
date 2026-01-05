@@ -17,7 +17,13 @@ import zlib
 from ..base32 import base32_decode as shared_base32_decode
 from ..base32 import base32_decode_bytes as shared_base32_decode_bytes
 from ..base32 import base32_encode as shared_base32_encode
-from ...compat import PY2, byte_at, text_type, to_bytes
+from ...compat import (
+    PY2,
+    byte_at,
+    require_bytes_like_or_bytearray,
+    text_type,
+    to_bytes,
+)
 
 
 TLS_CONTENT_TYPE_HANDSHAKE = 0x16
@@ -52,6 +58,14 @@ _DOMAIN_ALLOWED = re.compile(r'^[A-Za-z0-9.-]+$')
 _RESPONSE_TOKEN_RE = re.compile(
     b'[A-Za-z2-7]{%d,}' % SFB_BUMP_RESPONSE_TOKEN_MIN_LEN
 )
+
+_BASE32_ALPHABET = b'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+_BASE32_DECODE_TABLE = [-1] * 256
+for _index in range(len(_BASE32_ALPHABET)):
+    _code = byte_at(_BASE32_ALPHABET, _index)
+    _BASE32_DECODE_TABLE[_code] = _index
+    if 65 <= _code <= 90:
+        _BASE32_DECODE_TABLE[_code + 32] = _index
 
 
 def base32_encode(data):
@@ -171,21 +185,25 @@ def scan_response_payload(data, max_payload_len=None, max_token_len=None,
         if token_len < min_len:
             continue
         max_start = token_len - min_len
-        for start in range(0, max_start + 1):
-            payload_len = _try_decode_response_header(
-                token_bytes[start:start + min_len]
-            )
+        start = 0
+        while start <= max_start:
+            payload_len = _try_decode_response_header_at(token_bytes, start)
             if payload_len is None:
+                start += 1
                 continue
             if max_payload_len is not None and payload_len > max_payload_len:
+                start += 1
                 continue
             encoded_len = _base32_len(payload_len + SFB_BUMP_RESPONSE_HEADER_LEN)
             if encoded_len < min_len:
+                start += 1
                 continue
             if max_token_len is not None and encoded_len > max_token_len:
+                start += 1
                 continue
             end = start + encoded_len
             if end > token_len:
+                start += 1
                 continue
             payload = _try_decode_response_token(
                 token_bytes[start:end],
@@ -193,6 +211,7 @@ def scan_response_payload(data, max_payload_len=None, max_token_len=None,
             )
             if payload is not None:
                 return payload
+            start += 1
     return None
 
 
@@ -282,9 +301,48 @@ def parse_client_hello_sni(record, max_record_bytes=None):
     """
     Parse a TLS ClientHello record and return the SNI string.
     """
-    _hs_type, body = _parse_record(record, TLS_HANDSHAKE_CLIENT_HELLO,
-                                   max_record_bytes=max_record_bytes)
-    return _parse_client_hello_body_for_sni(body)
+    record = to_bytes(record)
+    if len(record) < TLS_RECORD_HEADER_LEN:
+        raise ValueError('Record too short')
+    length = parse_record_header(record[:TLS_RECORD_HEADER_LEN],
+                                 max_record_bytes=max_record_bytes)
+    return parse_client_hello_sni_from_buffer(
+        record,
+        length,
+        max_record_bytes=max_record_bytes,
+    )
+
+
+def parse_client_hello_sni_from_buffer(record, record_len, max_record_bytes=None):
+    """
+    Parse a TLS ClientHello record from an existing buffer.
+
+    record_len is the payload length from the already parsed record header.
+    """
+    record = require_bytes_like_or_bytearray(record)
+    if record_len is None or record_len < 0:
+        raise ValueError('TLS record length invalid')
+    if record_len > TLS_MAX_RECORD_PAYLOAD:
+        raise ValueError('TLS record too large')
+    total_len = TLS_RECORD_HEADER_LEN + record_len
+    if max_record_bytes is not None and total_len > max_record_bytes:
+        raise ValueError('TLS record exceeds configured max')
+    if len(record) < total_len:
+        raise ValueError('Record length mismatch')
+    offset = TLS_RECORD_HEADER_LEN
+    if offset + TLS_HANDSHAKE_HEADER_LEN > total_len:
+        raise ValueError('Handshake header truncated')
+    handshake_type = byte_at(record, offset)
+    if handshake_type != TLS_HANDSHAKE_CLIENT_HELLO:
+        raise ValueError('Handshake type invalid')
+    handshake_len = _unpack_u24(record[offset + 1:offset + 4])
+    if record_len != TLS_HANDSHAKE_HEADER_LEN + handshake_len:
+        raise ValueError('Handshake length mismatch')
+    body_start = offset + TLS_HANDSHAKE_HEADER_LEN
+    body_end = body_start + handshake_len
+    if body_end != total_len:
+        raise ValueError('Handshake body truncated')
+    return _parse_client_hello_body_for_sni_from_buffer(record, body_start, body_end)
 
 
 def build_server_handshake_record(cert_der, random_bytes=None,
@@ -461,16 +519,44 @@ def _try_decode_response_token(token_bytes, max_payload_len=None):
         return None
 
 
+def _try_decode_response_header_at(data, start):
+    end = start + SFB_BUMP_RESPONSE_TOKEN_MIN_LEN
+    if start < 0 or end > len(data):
+        return None
+    v0 = _BASE32_DECODE_TABLE[byte_at(data, start)]
+    if v0 < 0:
+        return None
+    v1 = _BASE32_DECODE_TABLE[byte_at(data, start + 1)]
+    if v1 < 0:
+        return None
+    v2 = _BASE32_DECODE_TABLE[byte_at(data, start + 2)]
+    if v2 < 0:
+        return None
+    v3 = _BASE32_DECODE_TABLE[byte_at(data, start + 3)]
+    if v3 < 0:
+        return None
+    v4 = _BASE32_DECODE_TABLE[byte_at(data, start + 4)]
+    if v4 < 0:
+        return None
+    v5 = _BASE32_DECODE_TABLE[byte_at(data, start + 5)]
+    if v5 < 0:
+        return None
+    v6 = _BASE32_DECODE_TABLE[byte_at(data, start + 6)]
+    if v6 < 0:
+        return None
+    v7 = _BASE32_DECODE_TABLE[byte_at(data, start + 7)]
+    if v7 < 0:
+        return None
+    b0 = (v0 << 3) | (v1 >> 2)
+    if b0 != SFB_BUMP_RESPONSE_VERSION:
+        return None
+    b1 = ((v1 & 0x03) << 6) | (v2 << 1) | (v3 >> 4)
+    b2 = ((v3 & 0x0F) << 4) | (v4 >> 1)
+    return (b1 << 8) | b2
+
+
 def _try_decode_response_header(token_bytes):
-    try:
-        decoded = _base32_decode_bytes(token_bytes)
-    except Exception:
-        return None
-    if len(decoded) < SFB_BUMP_RESPONSE_HEADER_LEN:
-        return None
-    if byte_at(decoded, 0) != SFB_BUMP_RESPONSE_VERSION:
-        return None
-    return struct.unpack('!H', decoded[1:3])[0]
+    return _try_decode_response_header_at(token_bytes, 0)
 
 
 def _response_checksum(payload):
@@ -509,29 +595,32 @@ def _parse_record(record, expected_handshake_type, max_record_bytes=None):
 
 def _parse_client_hello_body_for_sni(body):
     body = to_bytes(body)
-    offset = 0
-    legacy_version, offset = _read_u16(body, offset)
+    return _parse_client_hello_body_for_sni_from_buffer(body, 0, len(body))
+
+
+def _parse_client_hello_body_for_sni_from_buffer(data, offset, end):
+    legacy_version, offset = _read_u16(data, offset)
     if legacy_version < TLS_VERSION_1_0 or legacy_version > TLS_VERSION_1_2:
         raise ValueError('Invalid ClientHello version')
-    if offset + 32 > len(body):
+    if offset + 32 > end:
         raise ValueError('ClientHello random truncated')
     offset += 32
-    session_id_len, offset = _read_u8(body, offset)
-    if offset + session_id_len > len(body):
+    session_id_len, offset = _read_u8(data, offset)
+    if offset + session_id_len > end:
         raise ValueError('ClientHello session id truncated')
     offset += session_id_len
-    cipher_suites_len, offset = _read_u16(body, offset)
-    if offset + cipher_suites_len > len(body):
+    cipher_suites_len, offset = _read_u16(data, offset)
+    if offset + cipher_suites_len > end:
         raise ValueError('ClientHello cipher suite list truncated')
     offset += cipher_suites_len
-    compression_methods_len, offset = _read_u8(body, offset)
-    if offset + compression_methods_len > len(body):
+    compression_methods_len, offset = _read_u8(data, offset)
+    if offset + compression_methods_len > end:
         raise ValueError('ClientHello compression list truncated')
     offset += compression_methods_len
-    extensions_len, offset = _read_u16(body, offset)
-    if offset + extensions_len != len(body):
+    extensions_len, offset = _read_u16(data, offset)
+    if offset + extensions_len != end:
         raise ValueError('ClientHello extensions length invalid')
-    return _parse_extensions_for_sni(body, offset, len(body))
+    return _parse_extensions_for_sni(data, offset, end)
 
 
 def _parse_extensions_for_sni(data, offset, end):
@@ -569,7 +658,7 @@ def _parse_sni_extension(data):
         offset += name_len
         if name_type == 0:
             try:
-                return name_bytes.decode('ascii')
+                return to_bytes(name_bytes).decode('ascii')
             except UnicodeError:
                 raise ValueError('SNI name must be ASCII')
     raise ValueError('Missing SNI host name')

@@ -185,6 +185,7 @@ transport uses it internally to match responses:
 |-----------|---------------------|
 | DNS | Maps to DNS query ID (16-bit) |
 | ICMP | Maps to ICMP sequence number |
+| UDP Ephemeral | Incrementing integer per request |
 | TLS ClientHello | Maps to per-connection correlation ID |
 | TLS Handshake Bump | Maps to per-connection correlation ID |
 | HTTP | Maps to request context |
@@ -306,6 +307,25 @@ transport = DnsTransport(resolver, domain, config=config)
 
 ---
 
+## UDP Ephemeral Transport
+
+### Overview
+
+- Alice uses a fresh UDP socket per request and expects one response
+- After a response or timeout, the socket is closed and its source port
+  enters a cooldown window before reuse
+- Bob listens on a single UDP socket and replies once per request
+- `max_in_flight` controls concurrent requests
+
+### Considerations
+
+- Default payload MTU is 1200 bytes to avoid fragmentation
+- Source port reuse cooldown is configurable (minutes)
+- Request/response remains Alice-initiated; Bob only responds to polls
+- See `UDP_EPHEMERAL_TRANSPORT.md` for full details
+
+---
+
 ## TLS Transports
 
 See `TLS_TRANSPORT.md` for the ClientHello transport and
@@ -320,7 +340,7 @@ See `TLS_TRANSPORT.md` for the ClientHello transport and
 
 - Encodes Alice->Bob requests in SNI under a base domain
 - Encodes Bob->Alice responses in CN with checksum framing and fixed-length padding
-- Client extracts the response token via scan or regex
+- Client extracts the response token via scan-only base32 token scanning
 - Requires a TLS-bumping proxy that exposes CN in error pages
 
 ---

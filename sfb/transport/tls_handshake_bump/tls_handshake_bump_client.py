@@ -8,7 +8,6 @@ from __future__ import absolute_import
 import base64
 import errno
 import logging
-import select
 import socket
 import ssl
 
@@ -23,8 +22,9 @@ from ..proxy_helpers import (
     PROXY_HEADER_TOO_LARGE,
 )
 from . import tls_handshake_bump_codec as codec
+from . import tls_handshake_bump_selector as bump_selector
 from .tls_handshake_bump_config import validate_tls_bump_config, parse_host_port
-from ...compat import PY2, buffer_view, require_bytes_like, text_type, to_bytes
+from ...compat import buffer_view, require_bytes_like, text_type, to_bytes
 from ...config import Config
 from ...logging_util import get_logger, log_event
 from ... import time_provider
@@ -76,6 +76,7 @@ class _PendingConn(object):
         'proxy_send_buf',
         'proxy_send_off',
         'proxy_recv_buf',
+        'proxy_scan_offset',
         'proxy_deadline',
         'proxy_complete',
         'sni_name',
@@ -96,6 +97,7 @@ class _PendingConn(object):
         self.proxy_send_buf = proxy_send_buf
         self.proxy_send_off = 0
         self.proxy_recv_buf = bytearray()
+        self.proxy_scan_offset = 0
         self.proxy_deadline = None
         self.proxy_complete = proxy_send_buf is None
         self.sni_name = sni_name
@@ -129,9 +131,6 @@ class TlsHandshakeBumpClient(Transport):
         self._cn_max_len = validated['cn_max_len']
         self._base_domain = validated['base_domain']
         self._request_path = validated['request_path']
-        self._response_mode = validated['response_mode']
-        self._response_regex = validated['response_regex']
-        self._response_regex_text = validated['response_regex_text']
         self._base_domain_labels = self._base_domain.split('.')
         self._request_prefix, self._request_suffix = _build_https_request_parts(
             self._request_path
@@ -166,6 +165,7 @@ class TlsHandshakeBumpClient(Transport):
             self._connect_addr = self._target_addr
 
         self._ssl_context = _create_ssl_context()
+        self._selector = bump_selector.SocketSelector()
 
         if self._target_addr is not None:
             target_desc = '%s:%d' % (self._target_addr[0], self._target_addr[1])
@@ -188,8 +188,6 @@ class TlsHandshakeBumpClient(Transport):
                 'recv_mtu': self._recv_mtu,
                 'base_domain': self._base_domain,
                 'request_path': self._request_path,
-                'response_mode': self._response_mode,
-                'response_regex': self._response_regex_text,
             },
         )
 
@@ -341,10 +339,7 @@ class TlsHandshakeBumpClient(Transport):
 
             wait = self._select_timeout(now, deadline, timeout)
             read_list, write_list = self._build_select_lists()
-            try:
-                ready_r, ready_w, _ = select.select(read_list, write_list, [], wait)
-            except select.error as e:
-                raise TransportError('Select failed: %s' % e)
+            ready_r, ready_w = self._selector.wait(read_list, write_list, wait)
 
             if not ready_r and not ready_w:
                 if timeout == 0:
@@ -456,7 +451,10 @@ class TlsHandshakeBumpClient(Transport):
             self._close_pending(corr_id, state)
             return None
         state.proxy_recv_buf.extend(data)
-        status, header_end = parse_connect_response(state.proxy_recv_buf)
+        status, header_end = parse_connect_response(
+            state.proxy_recv_buf,
+            start_offset=state.proxy_scan_offset,
+        )
         if header_end == PROXY_HEADER_TOO_LARGE:
             self._log_proxy_error(
                 'response_too_large',
@@ -466,6 +464,7 @@ class TlsHandshakeBumpClient(Transport):
             self._close_pending(corr_id, state)
             return None
         if header_end is None:
+            state.proxy_scan_offset = max(0, len(state.proxy_recv_buf) - 3)
             return None
         if status != 200:
             if status is None:
@@ -483,6 +482,7 @@ class TlsHandshakeBumpClient(Transport):
         state.proxy_deadline = None
         state.proxy_send_buf = None
         state.proxy_recv_buf = bytearray()
+        state.proxy_scan_offset = 0
         self._start_handshake(corr_id, state, now)
         return None
 
@@ -622,41 +622,20 @@ class TlsHandshakeBumpClient(Transport):
 
     def _extract_payload(self, state, corr_id):
         buffer_bytes = state.recv_buf
-        if self._response_mode == 'regex':
-            search_bytes = buffer_bytes
-            if PY2 or not isinstance(search_bytes, (bytes, bytearray)):
-                search_bytes = to_bytes(search_bytes)
-            match = self._response_regex.search(search_bytes)
-            if match is None:
-                return None
-            token_bytes = match.group(1)
-            try:
-                token_text = _coerce_text(token_bytes)
-            except UnicodeError:
-                self._log_parse_error('tls_bump.response_non_ascii', corr_id)
-                return None
-            try:
-                payload = codec.decode_cn_value(token_text)
-            except Exception:
-                self._log_parse_error('tls_bump.response_decode', corr_id)
-                return None
-            return payload
-        if self._response_mode == 'scan':
-            payload = codec.scan_response_payload(
-                buffer_bytes,
-                max_payload_len=self._recv_mtu,
-                max_token_len=self._cn_max_len,
-                start_offset=state.scan_offset,
-            )
-            if payload is None:
-                lookback = self._cn_max_len if self._cn_max_len else 0
-                if lookback:
-                    state.scan_offset = max(0, len(buffer_bytes) - lookback + 1)
-                else:
-                    state.scan_offset = 0
-                return None
-            return payload
-        raise TransportError('Invalid TLS bump response mode: %s' % self._response_mode)
+        payload = codec.scan_response_payload(
+            buffer_bytes,
+            max_payload_len=self._recv_mtu,
+            max_token_len=self._cn_max_len,
+            start_offset=state.scan_offset,
+        )
+        if payload is None:
+            lookback = self._cn_max_len if self._cn_max_len else 0
+            if lookback:
+                state.scan_offset = max(0, len(buffer_bytes) - lookback + 1)
+            else:
+                state.scan_offset = 0
+            return None
+        return payload
 
     def _prune_deadlines(self, now=None):
         if now is None:
@@ -885,12 +864,6 @@ def _ssl_wants_write(exc):
     if _SSL_WANT_WRITE_ERROR is not None and isinstance(exc, _SSL_WANT_WRITE_ERROR):
         return True
     return getattr(exc, 'errno', None) == _SSL_WANT_WRITE
-
-
-def _coerce_text(value):
-    if isinstance(value, text_type):
-        return value
-    return value.decode('ascii')
 
 
 def _get_errno(exc):

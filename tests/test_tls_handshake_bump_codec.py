@@ -124,6 +124,13 @@ class TlsHandshakeBumpCodecTests(unittest.TestCase):
         parsed = codec.parse_client_hello_sni(record)
         self.assertEqual(parsed, sni)
 
+    def test_parse_client_hello_sni_from_buffer(self):
+        sni = 'test.example.com'
+        record = _build_clienthello_record_with_sni(sni)
+        record_len = codec.parse_record_header(record[:codec.TLS_RECORD_HEADER_LEN])
+        parsed = codec.parse_client_hello_sni_from_buffer(bytearray(record), record_len)
+        self.assertEqual(parsed, sni)
+
 
 if __name__ == '__main__':
     unittest.main()

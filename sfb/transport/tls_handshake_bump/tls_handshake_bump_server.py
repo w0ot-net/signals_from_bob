@@ -7,12 +7,12 @@ from __future__ import absolute_import
 
 import errno
 import logging
-import select
 import socket
 
 from ..transport_base import Server, TransportError, raise_bind_error
 from . import tls_handshake_bump_cert as bump_cert
 from . import tls_handshake_bump_codec as codec
+from . import tls_handshake_bump_selector as bump_selector
 from .tls_handshake_bump_config import validate_tls_bump_config, parse_host_port
 from ...compat import require_bytes_like, to_bytes
 from ...config import Config
@@ -113,6 +113,7 @@ class TlsHandshakeBumpServer(Server):
         )
 
         self._active = {}
+        self._selector = bump_selector.SocketSelector()
 
     @property
     def recv_mtu(self):
@@ -135,10 +136,7 @@ class TlsHandshakeBumpServer(Server):
             self._prune_stale(now)
             read_list, write_list = self._build_select_lists()
             wait = self._select_timeout(now, deadline, timeout)
-            try:
-                ready_r, ready_w, _ = select.select(read_list, write_list, [], wait)
-            except select.error as e:
-                raise TransportError('Select failed: %s' % e)
+            ready_r, ready_w = self._selector.wait(read_list, write_list, wait)
 
             for sock in ready_w:
                 self._flush_response(sock)
@@ -220,8 +218,9 @@ class TlsHandshakeBumpServer(Server):
         if len(state.recv_buf) < expected:
             return None
         try:
-            sni_name = codec.parse_client_hello_sni(
-                to_bytes(state.recv_buf),
+            sni_name = codec.parse_client_hello_sni_from_buffer(
+                state.recv_buf,
+                state.record_len,
                 max_record_bytes=self._max_record_recv,
             )
         except ValueError:

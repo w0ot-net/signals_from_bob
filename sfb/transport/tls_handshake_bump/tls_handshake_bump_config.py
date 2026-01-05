@@ -66,9 +66,6 @@ def validate_tls_bump_config(config, role):
     proxy_addr = None
     proxy_auth = None
     request_path = None
-    response_mode = None
-    response_regex = None
-    response_regex_text = None
     if role == 'client':
         _require_host_port(config.tls_bump_target, 'tls_bump_target')
         proxy_addr, proxy_auth, proxy_timeout = _validate_proxy_config(
@@ -78,15 +75,8 @@ def validate_tls_bump_config(config, role):
             connect_timeout,
         )
         request_path = _validate_request_path(config.tls_bump_request_path)
-        response_mode = _normalize_response_mode(
-            config.tls_bump_response_mode,
-            config.tls_bump_response_regex,
-        )
-        if response_mode == 'regex':
-            response_regex_text = _require_ascii_text(
-                config.tls_bump_response_regex, 'tls_bump_response_regex'
-            )
-            response_regex = _compile_response_regex(response_regex_text)
+        _require_scan_response_mode(config.tls_bump_response_mode)
+        _reject_response_regex(config.tls_bump_response_regex)
     else:
         _require_host_port(config.tls_bump_listen_addr, 'tls_bump_listen_addr')
 
@@ -103,9 +93,6 @@ def validate_tls_bump_config(config, role):
         'proxy_auth': proxy_auth,
         'proxy_timeout': proxy_timeout,
         'request_path': request_path,
-        'response_mode': response_mode,
-        'response_regex': response_regex,
-        'response_regex_text': response_regex_text,
     }
 
 
@@ -193,20 +180,8 @@ def _validate_request_path(value):
     return value
 
 
-def _compile_response_regex(value):
-    try:
-        compiled = re.compile(value.encode('ascii'), re.DOTALL | re.IGNORECASE)
-    except re.error as exc:
-        raise TransportError('tls_bump_response_regex invalid: %s' % exc)
-    if compiled.groups < 1:
-        raise TransportError('tls_bump_response_regex must include a capture group')
-    return compiled
-
-
-def _normalize_response_mode(value, response_regex):
+def _require_scan_response_mode(value):
     if value is None:
-        if response_regex:
-            return 'regex'
         return 'scan'
     if not isinstance(value, text_type):
         raise TransportError('tls_bump_response_mode must be text')
@@ -216,12 +191,18 @@ def _normalize_response_mode(value, response_regex):
         raise TransportError('tls_bump_response_mode must be ASCII')
     value = value.strip().lower()
     if not value:
-        if response_regex:
-            return 'regex'
         return 'scan'
-    if value not in ('regex', 'scan'):
-        raise TransportError('tls_bump_response_mode must be regex or scan')
-    return value
+    if value != 'scan':
+        raise TransportError('tls_bump_response_mode must be scan')
+    return 'scan'
+
+
+def _reject_response_regex(value):
+    if value is None:
+        return
+    if not isinstance(value, text_type):
+        raise TransportError('tls_bump_response_regex must be text')
+    raise TransportError('tls_bump_response_regex is not supported')
 
 
 def _validate_proxy_config(proxy, proxy_auth, proxy_timeout, connect_timeout):

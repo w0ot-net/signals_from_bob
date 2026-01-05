@@ -13,9 +13,11 @@ from sfb.modules.file_transfer import FileTransferModule
 from sfb.transport import (
     LossyServer,
     LossyTransport,
+    NetworkImpairment,
     chaos,
     create_inmemory_transport_pair,
 )
+from sfb.transport.lossy import _ImpairmentEngine
 from sfb.tunnel import AliceTunnel, BobTunnel, TunnelState
 
 _ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
@@ -56,6 +58,26 @@ def _make_config():
     return config
 
 
+def _apply_lossy_transport_impairment(lossy, send_impairment, recv_impairment):
+    lossy._send_imp = send_impairment
+    lossy._recv_imp = recv_impairment
+    lossy._send_engine = _ImpairmentEngine(send_impairment)
+    if recv_impairment is send_impairment:
+        lossy._recv_engine = lossy._send_engine
+    else:
+        lossy._recv_engine = _ImpairmentEngine(recv_impairment)
+
+
+def _apply_lossy_server_impairment(lossy, recv_impairment, send_impairment):
+    lossy._recv_imp = recv_impairment
+    lossy._send_imp = send_impairment
+    lossy._recv_engine = _ImpairmentEngine(recv_impairment)
+    if send_impairment is recv_impairment:
+        lossy._send_engine = lossy._recv_engine
+    else:
+        lossy._send_engine = _ImpairmentEngine(send_impairment)
+
+
 @unittest.skipUnless(
     _tmp_available() and _test_file_available(),
     'requires /tmp and test_download_files/1MB.bin',
@@ -83,18 +105,19 @@ class LossyInMemoryFileTransferIntegrationTests(unittest.TestCase):
             recv_mtu=4096,
         )
 
+        handshake_impairment = NetworkImpairment()
         send_impairment = chaos(seed=7)
         recv_impairment = chaos(seed=11)
 
         self._alice_transport = LossyTransport(
             client,
-            send_impairment=send_impairment,
-            recv_impairment=recv_impairment,
+            send_impairment=handshake_impairment,
+            recv_impairment=handshake_impairment,
         )
         self._bob_transport = LossyServer(
             server,
-            recv_impairment=send_impairment,
-            send_impairment=recv_impairment,
+            recv_impairment=handshake_impairment,
+            send_impairment=handshake_impairment,
         )
 
         self._alice = AliceTunnel(self._alice_transport, self._config, crypto=Plain())
@@ -106,6 +129,18 @@ class LossyInMemoryFileTransferIntegrationTests(unittest.TestCase):
         self._bob.start_background()
         self._alice.connect(timeout=self._config.tunnel_connect_timeout)
         self.assertEqual(self._alice.state, TunnelState.CONNECTED)
+        self._bob.stop_background()
+        _apply_lossy_transport_impairment(
+            self._alice_transport,
+            send_impairment,
+            recv_impairment,
+        )
+        _apply_lossy_server_impairment(
+            self._bob_transport,
+            send_impairment,
+            recv_impairment,
+        )
+        self._bob.start_background()
         self._alice.start_background()
         time_provider.sleep(0.05)
 

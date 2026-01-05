@@ -53,6 +53,8 @@ If the request fails:
 {"t":"file","c":"err","rid":1,"code":"not_found","reason":"not found"}
 ```
 
+`code` is typically `not_found` (missing or inaccessible path) or `io`.
+
 ### Download (get)
 
 Request to receive a file from the peer.
@@ -93,7 +95,7 @@ Response on success:
 Response on failure:
 
 ```json
-{"t":"file","c":"err","rid":3,"ch":4,"code":"perm","reason":"permission denied"}
+{"t":"file","c":"err","rid":3,"ch":4,"code":"io","reason":"permission denied"}
 ```
 
 After `put_ok`, the sender transmits exactly `size` bytes on channel `ch`.
@@ -110,6 +112,7 @@ After all file bytes are sent, the sender computes a SHA-256 digest and sends:
 The receiver computes its own SHA-256 over the received bytes, compares, and:
 - On match: responds with `hash_ok`
 - On mismatch: responds with `err` with `code="hash"`
+- Only `sha256` is supported; other algorithms return `err` with `code="hash"`
 
 ```json
 {"t":"file","c":"hash_ok","rid":2,"ch":4}
@@ -129,8 +132,9 @@ The sender treats `hash_ok` as transfer success and `err` as failure.
   and sends data on it.
 - The data channel carries raw file bytes, no framing.
 - The receiver relies on the announced `size` to know when the transfer ends.
-- The sender closes the channel after transmitting `size` bytes and sending
-  the hash. The receiver closes after hash validation or on error.
+- The sender closes the channel after sending the hash. For uploads initiated
+  by the sender, it waits for `hash_ok`/`err` before closing.
+- The receiver closes after hash validation or on error.
 
 By default only one file operation is active at a time (including list). The
 concurrency limit is configurable via `file_transfer_max_active`. If a new
@@ -199,8 +203,8 @@ Alice                               Bob
 - If the receiver gets fewer than `size` bytes before disconnect, treat the
   transfer as failed.
 - If the receiver times out waiting for a `hash`, treat the transfer as failed.
-- Implementations should write uploads to a temporary file and rename on
-  success. On failure, remove the partial file and send `err`.
+- Receivers write uploads directly to the destination path. Partial files may
+  remain on failure; callers should clean up as needed.
 
 ### Error Codes
 
@@ -209,10 +213,10 @@ Alice                               Bob
 | Code | Meaning |
 |------|---------|
 | `not_found` | File or directory does not exist |
-| `perm` | Permission denied |
 | `too_large` | File exceeds configured limit |
 | `busy` | Another transfer is in progress |
 | `io` | Generic I/O error |
+| `hash` | Hash mismatch or unsupported hash |
 
 ---
 
@@ -223,6 +227,7 @@ Alice                               Bob
 - Both absolute paths (e.g., `/etc/passwd`, `C:\Windows`) and relative paths are
   supported. Relative paths resolve from the current working directory.
 - Windows: accept `C:\\path` and `C:/path`, normalize to native separators.
+- No server-side path root enforcement is applied.
 
 ---
 

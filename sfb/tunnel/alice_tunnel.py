@@ -1567,6 +1567,9 @@ class AliceTunnel(BaseTunnel):
                         except (ValueError, TypeError):
                             has_real_data = True
                             break
+                        if not isinstance(msg, dict):
+                            has_real_data = True
+                            break
                         if msg.get('t') != 'tun' or msg.get('c') != 'pong':
                             has_real_data = True
                             break

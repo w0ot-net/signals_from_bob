@@ -4,10 +4,10 @@ Status: draft
 
 ## Summary
 
-Introduce a shared HTTP CONNECT proxy handshake helper that fully owns the
-proxy-phase state and I/O so transports only keep a single proxy field. This is
-an internal breaking refactor aimed at higher readability, lower duplication,
-and no performance regressions (including no added CONNECT latency).
+Introduce a minimal shared HTTP CONNECT proxy handshake helper that owns the
+proxy-phase buffers and I/O so transports keep a single proxy field. This is an
+internal breaking refactor aimed at higher readability, lower duplication, and
+no performance regressions (including no added CONNECT latency or copies).
 
 ## Goals
 
@@ -16,7 +16,9 @@ and no performance regressions (including no added CONNECT latency).
 - Preserve current proxy wire behavior, timeouts, and log event schemas.
 - Keep Python 2.7/3 compatibility and Windows/Linux support.
 - Limit helper API surface to standard library usage.
-- Avoid extra copies in proxy send/recv paths.
+- Avoid extra copies and extra syscalls in proxy send/recv paths.
+- Keep helper complexity low: a single call per readiness cycle handles both
+  read and write paths without duplicate state transitions.
 - Keep immediate CONNECT write-on-connect behavior to avoid latency regressions.
 
 ## Non-Goals
@@ -36,12 +38,12 @@ and no performance regressions (including no added CONNECT latency).
 
 ## Plan
 
-1. Define a shared proxy handshake helper
+1. Define a shared proxy handshake helper (minimal API, minimal state)
    - Add a helper class (for example, `ProxyConnect`) that owns proxy buffers,
      offsets, scan offset, deadline, and a reference to the socket.
-   - Expose `wants_read()`, `wants_write()`, `deadline()`, and
-     `drive(can_read, can_write, now)` returning explicit status values
-     (`in_progress`, `done`, `closed`).
+   - Expose `wants_read()`, `wants_write()`, `deadline()`, and a single
+     `drive(can_read, can_write, now)` used once per readiness cycle, returning
+     explicit status values (`in_progress`, `done`, `closed`).
    - Preserve behavior: socket errors raise `TransportError`, EOF/parse/oversize
      paths only log and return `closed`.
    - Preserve the `extra_bytes` validation and log reason when CONNECT returns
@@ -50,16 +52,18 @@ and no performance regressions (including no added CONNECT latency).
      a log callback so Windows/Linux handling and event schemas stay identical,
      including passing through `corr_id`, `error`, `status`, and `bytes`.
    - Preserve the bump-client scan offset rule (`len(buf) - 3`) inside the helper.
-   - Keep parse/limit logic in `proxy_helpers.py` and use `buffer_view` to avoid
-     extra copies.
-   - Release or invalidate the helper's socket reference once proxy is `done`
-     or `closed` so the bump client can safely wrap the socket for TLS.
+   - Keep parse/limit logic in `proxy_helpers.py` and use `buffer_view` for
+     sends to avoid extra copies.
+   - Helper never closes sockets or touches `_sock_to_corr`; it only returns
+     status and releases its socket reference on `done`/`closed` so callers can
+     wrap or close without races.
 
 2. Integrate with TLS handshake client (breaking internal refactor)
    - Replace per-connection proxy fields with a single `proxy_state` helper.
    - Use the helper for phase interests and deadline pruning.
-   - In `_drive_read/_drive_write`, call `proxy_state.drive(...)` and handle
-     status to transition to `_PHASE_REQUEST` or close pending sockets.
+   - In `_drive_socket`, when the phase is `_PHASE_PROXY`, call
+     `proxy_state.drive(can_read, can_write, now)` once and handle status to
+     transition to `_PHASE_REQUEST` or close pending sockets.
    - After connect success, trigger an immediate proxy `drive(...)` with
      `can_write=True` to preserve current CONNECT flush behavior.
    - Remove `_flush_proxy_send` and `_recv_proxy_response` in favor of the helper.
@@ -70,11 +74,11 @@ and no performance regressions (including no added CONNECT latency).
    - On `done`, transition into `_start_handshake`; on `closed`, close pending.
    - After connect success, trigger an immediate proxy `drive(...)` with
      `can_write=True` to preserve current CONNECT flush behavior.
-   - Ensure the helper is released before socket wrapping so it never holds the
-     pre-SSL socket after proxy completion.
+   - Ensure the helper releases its socket reference before socket wrapping so
+     it never holds the pre-SSL socket after proxy completion.
    - Remove `_flush_proxy_send` and `_recv_proxy_response` in favor of the helper.
 
-4. Consolidate CONNECT request building
+4. Consolidate CONNECT request building with zero behavior drift
    - Remove `_build_connect_request` from the bump client.
    - Extend `build_connect_request` in `proxy_helpers.py` to accept optional
      label strings for target and auth errors so bump-specific error messages

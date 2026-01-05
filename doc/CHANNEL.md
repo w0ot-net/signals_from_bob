@@ -48,9 +48,9 @@ may still receive OPEN_OK/OPEN_FAIL from the peer, which is ignored.
   OPEN or CLOSING state (e.g., INIT or OPENING).
 - `read(size, timeout=None)` blocks (or times out) until data is available,
   returning up to `size` bytes. On timeout it returns `None`. If the receive
-  side is closed and the buffer is empty, it returns `b''`.
-  If called on a channel in INIT or OPENING state, it blocks until the channel
-  opens or closes.
+  side is closed and the buffer is empty, it returns `b''`. If called before
+  the channel is open, it still blocks until data arrives or the channel
+  closes.
 
 ### ControlChannel
 
@@ -61,17 +61,18 @@ instance with helpers:
 - `send_message(obj)` encodes JSON and appends `\n`.
 - `recv_message(timeout=None)` returns a decoded object, or `None` on timeout
   or clean close. Raises `ChannelError` on invalid JSON or partial message at
-  close. Note: the timeout applies to each internal `read()` call, not the
-  entire message assembly—partial data may accumulate across timeout periods.
+  close. Note: the timeout applies to the full message assembly; partial data
+  is buffered across reads until a newline arrives or the deadline expires.
 
 The tunnel layer should catch `ChannelError` from `recv_message()`, log the
-error, and continue—invalid control messages are dropped, not fatal.
+error, and stop processing further control messages for that pass. Invalid
+messages are dropped and processing resumes on the next poll.
 
 ## Buffering
 
 - Send data is buffered in a FIFO deque up to `max_send_buf`.
-- Receive data is buffered in a FIFO deque up to `max_recv_buf` (default 64k,
-  per channel).
+- Receive data is buffered in a FIFO deque up to `max_recv_buf` (default 1 MiB
+  or 1048576, per channel).
 - If inbound data would exceed `max_recv_buf`, the channel aborts with error
   code `recv_overflow`, buffered data is discarded, and subsequent inbound
   data for that channel is dropped.

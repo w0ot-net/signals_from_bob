@@ -1118,7 +1118,7 @@ class BaseTunnel(object):
             self._logger,
             logging.INFO,
             'tunnel.window_ok',
-            'Window updated',
+            'Window updated (size=%d)' % agreed,
             lambda: {
                 'agreed': agreed,
                 'side': 'alice' if self._is_initiator else 'bob',

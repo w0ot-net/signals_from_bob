@@ -7,6 +7,8 @@ creates a fresh UDP socket for each send, waits for a single response, then
 closes the socket. Bob (server) listens on a single UDP socket and replies
 once per request.
 
+The transport is IPv4-only; IPv6 is unsupported.
+
 This transport preserves the Alice-initiated asymmetry: Alice polls, Bob only
 responds to incoming requests.
 

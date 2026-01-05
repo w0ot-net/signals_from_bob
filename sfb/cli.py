@@ -412,7 +412,7 @@ def add_dns_server_args(parser, config):
     parser.add_argument(
         '--listen-addr',
         default=config.dns_listen_addr,
-        help='DNS server listen host:port (default: %s)' %
+        help='DNS server listen host:port (IPv4 only, default: %s)' %
              config.dns_listen_addr
     )
     parser.add_argument(
@@ -426,7 +426,8 @@ def add_dns_client_args(parser, config):
     parser.add_argument(
         '--target',
         default=config.dns_resolver,
-        help='DNS resolver host:port (direct mode). Omit for system resolver (authoritative mode)'
+        help='DNS resolver host:port (IPv4 only, direct mode). Omit for system resolver '
+             '(authoritative mode)'
     )
 
 
@@ -445,7 +446,7 @@ def add_icmp_client_args(parser, config, require_target=True):
         '--target',
         default=config.icmp_target,
         required=require_target,
-        help='ICMP target host or IP for client'
+        help='ICMP target host or IPv4 for client'
     )
 
 
@@ -465,7 +466,7 @@ def add_udp_ephemeral_client_args(parser, config, require_target=True):
         '--target',
         default=config.udp_ephemeral_target,
         required=require_target,
-        help='UDP target host:port for client'
+        help='UDP target host:port for client (IPv4 only)'
     )
     parser.add_argument(
         '--udp-ephemeral-pending-timeout', type=float,
@@ -486,7 +487,7 @@ def add_udp_ephemeral_server_args(parser, config):
     parser.add_argument(
         '--listen-addr',
         default=None,
-        help='UDP listen host:port for server'
+        help='UDP listen host:port for server (IPv4 only)'
     )
 
 
@@ -495,12 +496,12 @@ def add_tls_client_args(parser, config):
     parser.add_argument(
         '--target',
         default=config.tls_target,
-        help='TLS target host:port for client'
+        help='TLS target host:port for client (IPv4 only)'
     )
     parser.add_argument(
         '--tls-http-proxy',
         default=config.tls_http_proxy,
-        help='HTTP CONNECT proxy host:port for TLS client'
+        help='HTTP CONNECT proxy host:port for TLS client (IPv4 only)'
     )
     parser.add_argument(
         '--tls-http-proxy-auth',
@@ -536,12 +537,12 @@ def add_tls_server_args(parser, config):
     parser.add_argument(
         '--listen-addr',
         default=None,
-        help='TLS server listen host:port (alias of --tls-listen-addr)'
+        help='TLS server listen host:port (IPv4 only, alias of --tls-listen-addr)'
     )
     parser.add_argument(
         '--tls-listen-addr',
         default=config.tls_listen_addr,
-        help='TLS server listen host:port'
+        help='TLS server listen host:port (IPv4 only)'
     )
     parser.add_argument(
         '--tls-sni',
@@ -567,7 +568,7 @@ def add_tls_bump_client_args(parser, config):
     parser.add_argument(
         '--target',
         default=config.tls_bump_target,
-        help='TLS bump proxy host:port for client'
+        help='TLS bump proxy host:port for client (IPv4 only)'
     )
     parser.add_argument(
         '--tls-bump-base-domain',
@@ -577,7 +578,7 @@ def add_tls_bump_client_args(parser, config):
     parser.add_argument(
         '--tls-http-proxy',
         default=config.tls_bump_http_proxy,
-        help='HTTP CONNECT proxy host:port for TLS bump client'
+        help='HTTP CONNECT proxy host:port for TLS bump client (IPv4 only)'
     )
     parser.add_argument(
         '--tls-http-proxy-auth',
@@ -602,12 +603,12 @@ def add_tls_bump_server_args(parser, config):
     parser.add_argument(
         '--listen-addr',
         default=None,
-        help='TLS bump server listen host:port (alias of --tls-bump-listen-addr)'
+        help='TLS bump server listen host:port (IPv4 only, alias of --tls-bump-listen-addr)'
     )
     parser.add_argument(
         '--tls-bump-listen-addr',
         default=config.tls_bump_listen_addr,
-        help='TLS bump server listen host:port'
+        help='TLS bump server listen host:port (IPv4 only)'
     )
     parser.add_argument(
         '--tls-bump-base-domain',

@@ -32,9 +32,10 @@ class Config:
     transport_default: str = "dns"
     # Active transport name (None = transport_default)
     transport: Optional[str] = None
-    # DNS resolver address for Alice (e.g., '1.1.1.1:53'), None = system default
+    # DNS resolver address for Alice (IPv4 only, e.g., '1.1.1.1:53'),
+    # None = system default
     dns_resolver: Optional[str] = None
-    # Listen address for Bob's DNS server
+    # Listen address for Bob's DNS server (IPv4 only)
     dns_listen_addr: str = "0.0.0.0:53"
     # EDNS0 buffer size (DNS_STANDARD_SIZE standard, 4096 for larger payloads)
     dns_edns_size: int = DNS_STANDARD_SIZE
@@ -54,7 +55,7 @@ class Config:
     dns_cname_a_addr: str = "0.0.0.0"
 
     # --- ICMP Transport ---
-    # Target host/IP for Alice
+    # Target host/IPv4 for Alice
     icmp_target: Optional[str] = None
     # Max SFB packet size to send/receive in ICMP payload
     icmp_payload_mtu: int = 1350
@@ -62,9 +63,9 @@ class Config:
     icmp_pending_timeout: float = 10.0
 
     # --- UDP Ephemeral Transport ---
-    # Target host:port for Alice
+    # Target host:port for Alice (IPv4 only)
     udp_ephemeral_target: Optional[str] = None
-    # Listen host:port for Bob
+    # Listen host:port for Bob (IPv4 only)
     udp_ephemeral_listen_addr: str = "0.0.0.0:53"
     # Max SFB packet size to send/receive in UDP payload
     udp_ephemeral_payload_mtu: int = 1350
@@ -74,13 +75,13 @@ class Config:
     udp_ephemeral_source_port_reuse_minutes: float = 1.0
 
     # --- TLS ClientHello Transport ---
-    # Alice target host:port
+    # Alice target host:port (IPv4 only)
     tls_target: str = "127.0.0.1:443"
-    # Optional HTTP CONNECT proxy host:port for Alice
+    # Optional HTTP CONNECT proxy host:port for Alice (IPv4 only)
     tls_http_proxy: Optional[str] = None
     # Optional HTTP proxy Basic auth (user:pass) for Alice
     tls_http_proxy_auth: Optional[str] = None
-    # Bob listen host:port
+    # Bob listen host:port (IPv4 only)
     tls_listen_addr: str = "0.0.0.0:443"
     # Timeout before considering a TLS request stale (seconds)
     tls_pending_timeout: float = 5.0
@@ -104,13 +105,13 @@ class Config:
     # --- TLS Handshake Bump Transport ---
     # Base domain for TLS bump SNI encoding
     tls_bump_base_domain: str = "example.com"
-    # TLS bump proxy host:port for Alice
+    # TLS bump proxy host:port for Alice (IPv4 only)
     tls_bump_target: str = "127.0.0.1:443"
-    # Optional HTTP CONNECT proxy host:port for Alice
+    # Optional HTTP CONNECT proxy host:port for Alice (IPv4 only)
     tls_bump_http_proxy: Optional[str] = None
     # Optional HTTP proxy Basic auth (user:pass) for Alice
     tls_bump_http_proxy_auth: Optional[str] = None
-    # Bob listen host:port
+    # Bob listen host:port (IPv4 only)
     tls_bump_listen_addr: str = "0.0.0.0:443"
     # TLS bump connect timeout (seconds)
     tls_bump_connect_timeout: float = 3.0

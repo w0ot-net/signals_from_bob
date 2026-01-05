@@ -3,6 +3,7 @@
 This document describes the DNS transport in depth, covering packet encoding,
 MTU calculations, and implementation details for both Alice (client) and Bob
 (server).
+The transport is IPv4-only; IPv6 is unsupported.
 
 ---
 

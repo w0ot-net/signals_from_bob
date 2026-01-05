@@ -62,7 +62,7 @@ User                Bob                    Alice              Target
 Supported:
 - Auth method: 0x00 (no auth)
 - Command: 0x01 (CONNECT)
-- Address types: IPv4, IPv6, domain
+- Address types: IPv4, domain
 
 Not supported (v1):
 - BIND
@@ -212,7 +212,7 @@ Linux-only and closes the bound fd when the channel closes.
 The bind request accepts one of:
 - Numeric fd (e.g., `3`)
 - Path (e.g., `/tmp/data.txt`)
-- TCP address (e.g., `1.1.1.1:443` or `[::1]:443`)
+- TCP address (e.g., `1.1.1.1:443`)
 
 ### Flow
 

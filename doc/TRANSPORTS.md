@@ -5,6 +5,7 @@
 All transports use a **request/response** pattern at the wire level. Alice
 (client) sends requests, Bob (server) responds. This reflects the fundamental
 asymmetry of covert channels: Alice initiates all communication.
+All transports are IPv4-only; IPv6 addresses and sockets are not supported.
 
 The transport interface separates reservation, `send()`, and `recv()` to
 support pipelining - multiple requests in flight simultaneously. For serial

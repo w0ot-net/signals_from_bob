@@ -1,6 +1,6 @@
 # IPv6 Unsupported Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -60,3 +60,10 @@ does not support IPv6 addresses or IPv6 sockets.
 ## Validation
 
 - No new tests required; skip tests/e2e/.
+
+## Execution Notes
+
+- Updated README and transport docs to state IPv4-only behavior and removed IPv6 examples.
+- Updated CLI help strings and Config comments to note IPv4-only host:port values.
+- Added IPv4-only notes in transport config helpers and ICMP packet parsing docs.
+- Tests not run (per plan).

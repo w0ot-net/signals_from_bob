@@ -3,6 +3,7 @@
 This document defines the plan and design for an ICMP Echo transport.
 It targets Linux first. Windows support will be added later.
 All code must remain Python 2.7/3 compatible and use only the standard library.
+The transport is IPv4-only; IPv6 is unsupported.
 
 ---
 

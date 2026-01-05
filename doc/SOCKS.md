@@ -65,6 +65,8 @@ The SOCKS module uses its own message type for connection negotiation:
 {"t":"sock","c":"connect_fail","ch":1,"err":"refused"}
 ```
 
+Only `ipv4` and `domain` address types are supported; `ipv6` is unsupported.
+
 ### Connection Flow
 
 1. Server opens channel: `{"t":"ch","c":"open","ch":1}`
@@ -106,6 +108,7 @@ Server → Client:  VER=5, REP, RSV, ATYPE, BND.ADDR, BND.PORT
 ```
 
 Only CMD=0x01 (CONNECT) is supported.
+Only ATYPE values for IPv4 and domain names are supported; IPv6 is unsupported.
 
 ### Phase 3: Data Relay
 
@@ -265,9 +268,9 @@ class SocksRelay:
         # Attempt TCP connection to target
         try:
             if atype == 'ipv6':
-                sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-            else:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self._send_connect_fail(channel_id, 'error')
+                return
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
             sock.settimeout(10.0)
 

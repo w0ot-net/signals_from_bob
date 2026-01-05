@@ -162,6 +162,9 @@ All messages use the format `{"t":"<type>","c":"<command>",...}`:
 
 Keepalive is a header flag with zero segments, not a channel 0 message.
 
+Address types labeled `ipv4` are the only supported address type in the
+protocol; IPv6 is unsupported.
+
 ### Message Types
 
 | Type | Description |

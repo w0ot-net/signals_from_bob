@@ -8,6 +8,8 @@ real TLS session is established; the tunnel already provides encryption.
 
 ## Overview
 
+This transport is IPv4-only; IPv6 is unsupported.
+
 Each poll uses a fresh TCP connection:
 
 ```

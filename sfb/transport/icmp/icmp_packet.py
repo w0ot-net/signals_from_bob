@@ -93,7 +93,7 @@ def build_echo_reply(ident, seq, payload):
 
 def _extract_icmp(data):
     """
-    Extract ICMP bytes from a raw IP packet if present.
+    Extract ICMP bytes from a raw IP packet if present (IPv4 only).
 
     Returns:
         tuple: (icmp_bytes, reason) where icmp_bytes is None on failure.

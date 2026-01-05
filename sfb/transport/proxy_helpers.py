@@ -135,6 +135,9 @@ def _validate_proxy_auth(value):
 
 
 def _parse_host_port(addr):
+    """
+    Parse host:port (IPv4 only; IPv6 literals are unsupported).
+    """
     if not isinstance(addr, text_type):
         raise TransportError('Address must be text')
     if ':' not in addr:

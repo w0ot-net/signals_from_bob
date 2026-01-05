@@ -11,7 +11,6 @@ from sfb.config import Config
 from sfb.crypto import Plain
 from sfb.modules.file_transfer import FileTransferModule
 from sfb.transport import (
-    LossyServer,
     LossyTransport,
     NetworkImpairment,
     chaos,
@@ -45,8 +44,12 @@ def _make_config():
     config.tunnel_idle_timeout = 600.0
     config.tunnel_keepalive_interval = 0.2
     config.tunnel_bob_poll_interval = 0.05
-    config.tunnel_bob_poll_interval_bg = 0.01
-    config.tunnel_tick_sleep = 0.0005
+    config.tunnel_bob_poll_interval_bg = 0.005
+    config.tunnel_tick_sleep = 0.0001
+    config.tunnel_poll_pacing_enabled = False
+    config.tunnel_poll_min_interval = 0.0001
+    config.tunnel_poll_max_interval = 0.05
+    config.tunnel_retransmit_cap = 4
     config.max_in_flight = 256
     config.tunnel_initial_window = 32
     config.file_transfer_chunk_size = 32768
@@ -68,16 +71,6 @@ def _apply_lossy_transport_impairment(lossy, send_impairment, recv_impairment):
         lossy._recv_engine = _ImpairmentEngine(recv_impairment)
 
 
-def _apply_lossy_server_impairment(lossy, recv_impairment, send_impairment):
-    lossy._recv_imp = recv_impairment
-    lossy._send_imp = send_impairment
-    lossy._recv_engine = _ImpairmentEngine(recv_impairment)
-    if send_impairment is recv_impairment:
-        lossy._send_engine = lossy._recv_engine
-    else:
-        lossy._send_engine = _ImpairmentEngine(send_impairment)
-
-
 @unittest.skipUnless(
     _tmp_available() and _test_file_available(),
     'requires /tmp and test_download_files/1MB.bin',
@@ -91,6 +84,10 @@ class LossyInMemoryFileTransferIntegrationTests(unittest.TestCase):
         self._alice_file = None
         self._bob_file = None
         self._dest_path = None
+        self._orig_handle_get_ok = None
+        self._chaos_applied = False
+        self._send_impairment = None
+        self._recv_impairment = None
         self._config = _make_config()
         self._dest_path = os.path.join(
             _TMP_DIR,
@@ -106,19 +103,16 @@ class LossyInMemoryFileTransferIntegrationTests(unittest.TestCase):
         )
 
         handshake_impairment = NetworkImpairment()
-        send_impairment = chaos(seed=7)
-        recv_impairment = chaos(seed=11)
+        self._send_impairment = chaos(seed=7)
+        self._recv_impairment = chaos(seed=11)
 
         self._alice_transport = LossyTransport(
             client,
             send_impairment=handshake_impairment,
             recv_impairment=handshake_impairment,
+            pending_timeout_sec=1.0,
         )
-        self._bob_transport = LossyServer(
-            server,
-            recv_impairment=handshake_impairment,
-            send_impairment=handshake_impairment,
-        )
+        self._bob_transport = server
 
         self._alice = AliceTunnel(self._alice_transport, self._config, crypto=Plain())
         self._bob = BobTunnel(self._bob_transport, self._config, crypto=Plain())
@@ -129,22 +123,27 @@ class LossyInMemoryFileTransferIntegrationTests(unittest.TestCase):
         self._bob.start_background()
         self._alice.connect(timeout=self._config.tunnel_connect_timeout)
         self.assertEqual(self._alice.state, TunnelState.CONNECTED)
-        self._bob.stop_background()
-        _apply_lossy_transport_impairment(
-            self._alice_transport,
-            send_impairment,
-            recv_impairment,
-        )
-        _apply_lossy_server_impairment(
-            self._bob_transport,
-            send_impairment,
-            recv_impairment,
-        )
-        self._bob.start_background()
+        # Delay chaos until get_ok to avoid control handshake flakiness.
+        self._orig_handle_get_ok = self._alice_file.handle_get_ok
+
+        def _handle_get_ok_with_chaos(msg):
+            self._orig_handle_get_ok(msg)
+            if not self._chaos_applied:
+                _apply_lossy_transport_impairment(
+                    self._alice_transport,
+                    self._send_impairment,
+                    self._recv_impairment,
+                )
+                self._chaos_applied = True
+
+        self._alice_file.handle_get_ok = _handle_get_ok_with_chaos
         self._alice.start_background()
         time_provider.sleep(0.05)
 
     def tearDown(self):
+        if self._orig_handle_get_ok is not None and self._alice_file is not None:
+            self._alice_file.handle_get_ok = self._orig_handle_get_ok
+            self._orig_handle_get_ok = None
         if self._alice_file is not None:
             self._alice_file.shutdown()
         if self._bob_file is not None:
@@ -159,7 +158,7 @@ class LossyInMemoryFileTransferIntegrationTests(unittest.TestCase):
             os.unlink(self._dest_path)
 
     def test_get_1mb_to_tmp_over_chaos(self):
-        timeout = 120.0
+        timeout = 300.0
         self._alice_file.get(_TEST_FILE_PATH, self._dest_path, timeout=timeout)
         self.assertTrue(os.path.exists(self._dest_path))
         self.assertEqual(

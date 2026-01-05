@@ -182,7 +182,6 @@ class BobTunnel(BaseTunnel):
             return
 
         self._bytes_received += len(data)
-        self._packets_received += 1
 
         # Handle based on state
         if self._state == TunnelState.DISCONNECTED:

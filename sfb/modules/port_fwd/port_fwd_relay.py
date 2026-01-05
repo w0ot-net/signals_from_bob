@@ -470,7 +470,7 @@ class PortForwardRelayModule(BaseModule):
         last_error = None
         try:
             addrinfos = socket.getaddrinfo(
-                host, port, socket.AF_UNSPEC, socket.SOCK_STREAM
+                host, port, socket.AF_INET, socket.SOCK_STREAM
             )
         except Exception as exc:
             raise exc

@@ -57,18 +57,9 @@ def _parse_host_port(spec):
     spec = _coerce_text(spec)
     if not spec:
         raise ModuleError('invalid_spec', 'address required')
-    if spec.startswith('['):
-        end = spec.find(']')
-        if end == -1:
-            raise ModuleError('invalid_spec', 'invalid bracketed address')
-        if len(spec) <= end + 2 or spec[end + 1] != ':':
-            raise ModuleError('invalid_spec', 'address must include port')
-        host = spec[1:end]
-        port_text = spec[end + 2:]
-    else:
-        if spec.count(':') != 1:
-            raise ModuleError('invalid_spec', 'address must be host:port')
-        host, port_text = spec.rsplit(':', 1)
+    if spec.startswith('[') or spec.count(':') != 1:
+        raise ModuleError('invalid_spec', 'address must be host:port (IPv6 unsupported)')
+    host, port_text = spec.rsplit(':', 1)
     if not host or not port_text:
         raise ModuleError('invalid_spec', 'address must be host:port')
     try:

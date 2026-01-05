@@ -80,4 +80,5 @@ Events use the `fwd.*` prefix and are controlled by
 ## Limitations
 
 - TCP only
+- IPv4 only (IPv6 unsupported)
 - One remote host:port per module instance

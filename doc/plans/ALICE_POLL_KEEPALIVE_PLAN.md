@@ -55,9 +55,10 @@ transport send fails.
 ### Empty poll when window is full
 
 - After change: when Alice is about to send an empty poll and the window is
-  full, drop the oldest keepalive regardless of whether the poll was triggered
-  by idle keepalive, grace, or ACK progress. This keeps polling moving when
-  only keepalives are in flight.
+  full, drop the oldest keepalive only if we are immediately sending a
+  replacement keepalive poll. This never drops data; it replaces an old
+  keepalive with a new keepalive so liveness probing continues when the window
+  is full.
 
 ### Pending-data ACK tracking
 
@@ -73,9 +74,11 @@ transport send fails.
 
 1. Enforce the rule "empty => FLAG_KEEPALIVE" in Alice's send path while
    preserving poll pacing, rate limiting, and window gating.
-2. When an empty poll is about to be sent and the send window is full, drop the
-   oldest keepalive regardless of the poll trigger (idle, grace, or ACK
-   progress) so the new keepalive poll can go out.
+2. When an empty keepalive poll is about to be sent and the send window is
+   full, drop the oldest keepalive only if the replacement keepalive poll will
+   be sent immediately. If the send cannot proceed, do not drop anything.
+   This never drops data segments; it only replaces a keepalive when the
+   window is full.
 3. Add a `data_unacked_count` or `has_data_unacked` helper on `SendWindow`, and
    use it in `AliceTunnel.tick()` to clear `_has_pending_data_acks` once no
    packets with segments remain unacked.

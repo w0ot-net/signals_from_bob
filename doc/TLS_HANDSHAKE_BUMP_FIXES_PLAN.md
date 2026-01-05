@@ -20,7 +20,7 @@
 
 2. TLS 1.2 requirement
    - Detect TLS 1.2 availability (`ssl.HAS_TLSv1_2` or `ssl.PROTOCOL_TLSv1_2`).
-   - Fail loudly with a `TransportError` if TLS 1.2 is not available.
+   - Fail loudly with a `TransportError` if TLS 1.2 is not available (enforce in `_create_ssl_context`).
    - Keep certificate verification disabled as before.
 
 3. Pending timeout semantics

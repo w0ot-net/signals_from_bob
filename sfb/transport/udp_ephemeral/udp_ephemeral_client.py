@@ -186,12 +186,7 @@ class UdpEphemeralClient(Transport):
             return (None, None)
 
         if timeout == 0:
-            try:
-                ready, _, _ = select.select(
-                    list(self._sock_to_corr.keys()), [], [], 0
-                )
-            except select.error as e:
-                raise TransportError('Select failed: %s' % e)
+            ready = self._select_ready(0)
             if ready:
                 return self._try_recv_ready(ready)
             return (None, None)
@@ -209,12 +204,7 @@ class UdpEphemeralClient(Transport):
                 if remaining <= 0:
                     return (None, None)
                 wait = remaining
-            try:
-                ready, _, _ = select.select(
-                    list(self._sock_to_corr.keys()), [], [], wait
-                )
-            except select.error as e:
-                raise TransportError('Select failed: %s' % e)
+            ready = self._select_ready(wait)
             if not ready:
                 if timeout is None:
                     continue
@@ -231,6 +221,28 @@ class UdpEphemeralClient(Transport):
             if result is not None:
                 return result
         return (None, None)
+
+    def _select_ready(self, wait):
+        self._prune_invalid_sockets()
+        if not self._sock_to_corr:
+            return []
+        try:
+            ready, _, _ = select.select(
+                list(self._sock_to_corr.keys()), [], [], wait
+            )
+            return ready
+        except select.error as e:
+            if self._prune_invalid_sockets() > 0:
+                if not self._sock_to_corr:
+                    return []
+                try:
+                    ready, _, _ = select.select(
+                        list(self._sock_to_corr.keys()), [], [], wait
+                    )
+                    return ready
+                except select.error as retry_exc:
+                    e = retry_exc
+            raise TransportError('Select failed: %s' % e)
 
     def _try_recv_socket(self, sock):
         corr_id = self._sock_to_corr.get(sock)
@@ -313,6 +325,34 @@ class UdpEphemeralClient(Transport):
                 lambda: {'count': len(stale)},
             )
         return stale
+
+    def _prune_invalid_sockets(self, now=None):
+        if not self._sock_to_corr:
+            return 0
+        if now is None:
+            now = time_provider.now()
+        invalid = []
+        for sock, corr_id in list(self._sock_to_corr.items()):
+            if not _socket_is_valid(sock):
+                invalid.append((sock, corr_id))
+        if not invalid:
+            return 0
+        for sock, corr_id in invalid:
+            state = self._pending.get(corr_id)
+            if state is None:
+                self._sock_to_corr.pop(sock, None)
+                local_port = self._safe_get_port(sock)
+                self._close_socket(sock, local_port, now)
+                continue
+            self._drop_pending(corr_id, state, now)
+        log_event(
+            _LOG,
+            logging.DEBUG,
+            'udp_ephemeral.prune_invalid',
+            'Pruned invalid UDP ephemeral sockets',
+            lambda: {'count': len(invalid)},
+        )
+        return len(invalid)
 
     def _on_prune(self, stale):
         if not stale:
@@ -418,3 +458,12 @@ class UdpEphemeralClient(Transport):
         self._pending.clear()
         self._sock_to_corr.clear()
         self._port_last_used.clear()
+
+
+def _socket_is_valid(sock):
+    if sock is None:
+        return False
+    try:
+        return sock.fileno() >= 0
+    except Exception:
+        return False

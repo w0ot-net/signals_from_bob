@@ -195,16 +195,23 @@ Keepalive is a header-only packet with:
 - `FLAG_KEEPALIVE` set
 - Zero segments
 
-Any poll-only packet (zero segments) uses the keepalive flag. Bob responds
-with a keepalive-flag packet when idle, or with queued data if available.
-If either side has actual data to send, the packet itself serves as
-keepalive—no channel 0 ping/pong messages are sent (legacy ping/pong are
-ignored if received).
+Idle poll-only packets use the keepalive flag. Ack-only responses that carry
+no segments may be sent without the keepalive flag (for example, when data is
+pending but no segment fits in the current response cap). Bob responds with a
+keepalive-flag packet when idle, or with queued data if available. If either
+side has actual data to send, the packet itself serves as keepalive—no channel
+0 ping/pong messages are sent (legacy ping/pong are ignored if received).
+
+For pacing decisions, "real data" is the presence of one or more segments
+(control or data). The keepalive flag is only an idle hint and should not be
+used as a data/no-data signal.
 
 Keepalive interval is configurable (default: 5 seconds).
 
-Keepalive responses are suppressed when any channel data is queued; real data
-replaces the keepalive.
+Keepalive responses are suppressed when any channel data is queued; queued data
+replaces the keepalive. If data is queued but no segment fits, Bob may send an
+ack-only response (no segments, no keepalive flag) to satisfy the
+request/response contract.
 
 ---
 

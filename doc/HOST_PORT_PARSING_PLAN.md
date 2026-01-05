@@ -2,7 +2,8 @@
 
 ## Summary
 Consolidate duplicated host:port parsing into a shared utility with consistent
-validation and error messaging, then update all call sites to use it.
+validation and centralized error classification/mapping, then update all call
+sites to use it without per-module string matching.
 
 ## Constraints and Non-Goals
 - Keep Python 2.7/3 compatibility and use only the Python standard library.
@@ -13,6 +14,7 @@ validation and error messaging, then update all call sites to use it.
 ## Goals
 - One shared parser for host:port with optional default port handling.
 - Consistent validation (text type, empty host, port range) across modules.
+- Centralize error classification so callers do not replicate mapping logic.
 - Remove duplicate helper functions and inline parsing.
 
 ## Affected Components
@@ -34,25 +36,28 @@ validation and error messaging, then update all call sites to use it.
    - Require `host:port` by default, with an optional `default_port` for
      call sites that allow a missing port.
    - Reject bracketed or multi-colon forms (IPv6 unsupported).
-   - Raise `ValueError` with stable, concise messages.
+   - Raise a dedicated `HostPortError` (subclass of `ValueError`) with a
+     stable `code` plus a concise default message.
 
-2. Introduce thin wrappers where callers need specific error types:
-   - Transport config modules wrap `ValueError` as `TransportError`.
-   - Module parsers wrap `ValueError` as `ModuleError`/`NcLinuxError`.
-   - Keep error messages consistent with existing user-facing errors.
+2. Introduce a shared mapper in `sfb/utils.py` (for example,
+   `parse_host_port_or_raise`) that converts `HostPortError` to a caller-
+   supplied exception via a small `code -> (err_type, message)` mapping.
+   This keeps all error classification in one place and avoids per-call-site
+   string matching.
 
 3. Replace duplicate helpers and inline parsing:
    - `sfb/cli.py` uses the shared parser with `default_port`.
    - `dns_client.py` and `dns_server.py` use the shared parser for resolver
      and listen addresses (default port 53).
+   - Modules/transports use the shared mapper with their local `code` map.
    - Remove or inline-replace `_parse_host_port` functions in module/transport
      files after updating call sites.
 
 4. Update docs that mention IPv6 host:port syntax to reflect IPv4-only
    parsing behavior (for example, nc_linux and other host:port specs).
 
-5. Add or adjust unit tests for the shared parser and any updated call sites.
-   Do not run E2E tests in `tests/e2e/`.
+5. Add or adjust unit tests for the shared parser and error codes, plus any
+   updated call sites. Do not run E2E tests in `tests/e2e/`.
 
 ## Validation
 - `python3 -m unittest tests.test_nc_linux`

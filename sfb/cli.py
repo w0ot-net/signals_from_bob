@@ -17,12 +17,13 @@ import logging
 import os
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
 
 from .config import Config
-from .compat import text_type
+from .compat import byte_at, text_type
 from .crypto import Plain, RC4, XOR
 from .logging_util import add_component_filters, add_sqlite_handler, get_logger, log_event
 from .log_profiles import LOG_PROFILES, apply_log_profile
@@ -66,10 +67,13 @@ def _handle_tls_bump_generate_cert(parsed):
         _print_error('CN length must be > 0')
         return 2
     try:
-        cert_der = _generate_tls_bump_cert_der(cn_len)
-        offsets = _find_tls_bump_cn_offsets(cert_der, cn_len)
+        base_len = cn_len
+        if base_len > 64:
+            base_len = 64
+        cert_der = _generate_tls_bump_cert_der(base_len)
+        patched_der, offsets = _patch_tls_bump_cert_der(cert_der, cn_len)
         template_path = _tls_bump_template_path()
-        _write_tls_bump_cert_template(template_path, cn_len, offsets, cert_der)
+        _write_tls_bump_cert_template(template_path, cn_len, offsets, patched_der)
     except (IOError, OSError, ValueError) as exc:
         _print_error(str(exc))
         return 2
@@ -134,24 +138,134 @@ def _run_openssl(args):
         raise ValueError('openssl failed: %s' % exc)
 
 
-def _find_tls_bump_cn_offsets(cert_der, cn_len):
-    placeholder = b'a' * cn_len
-    offsets = []
-    start = 0
-    while True:
-        found = cert_der.find(placeholder, start)
-        if found < 0:
-            break
-        offsets.append(found)
-        start = found + 1
-    if len(offsets) != 2:
-        raise ValueError(
-            'Expected 2 CN placeholders of length %d, found %d' % (
-                cn_len,
-                len(offsets),
-            )
-        )
-    return tuple(sorted(offsets))
+class _Asn1Node(object):
+    __slots__ = ('tag', 'value', 'children', 'is_cn_value')
+
+    def __init__(self, tag, value=None, children=None):
+        self.tag = tag
+        self.value = value
+        self.children = children
+        self.is_cn_value = False
+
+
+_OID_COMMON_NAME = b'\x55\x04\x03'
+
+
+def _patch_tls_bump_cert_der(cert_der, cn_len):
+    root = _parse_der(cert_der)
+    cn_nodes = []
+    _mark_cn_nodes(root, cn_nodes)
+    if len(cn_nodes) != 2:
+        raise ValueError('Expected 2 CN entries, found %d' % len(cn_nodes))
+    cn_bytes = b'a' * cn_len
+    for node in cn_nodes:
+        if node.children is not None:
+            raise ValueError('CN node must be primitive')
+        node.value = cn_bytes
+    patched_der, offsets = _encode_node(root)
+    if len(offsets) != len(cn_nodes):
+        raise ValueError('CN offset count mismatch')
+    return patched_der, tuple(sorted(offsets))
+
+
+def _mark_cn_nodes(node, found):
+    if node.children is not None:
+        if node.tag == 0x30 and len(node.children) >= 2:
+            first = node.children[0]
+            second = node.children[1]
+            if first.tag == 0x06 and first.value == _OID_COMMON_NAME:
+                second.is_cn_value = True
+                found.append(second)
+        for child in node.children:
+            _mark_cn_nodes(child, found)
+
+
+def _parse_der(data):
+    nodes, offset = _parse_der_sequence(data, 0, len(data))
+    if offset != len(data):
+        raise ValueError('DER parse trailing data')
+    if len(nodes) != 1:
+        raise ValueError('DER parse expected single root')
+    return nodes[0]
+
+
+def _parse_der_sequence(data, offset, end):
+    nodes = []
+    while offset < end:
+        node, offset = _parse_der_node(data, offset, end)
+        nodes.append(node)
+    if offset != end:
+        raise ValueError('DER parse length mismatch')
+    return nodes, offset
+
+
+def _parse_der_node(data, offset, end):
+    if offset >= end:
+        raise ValueError('DER tag truncated')
+    tag = byte_at(data, offset)
+    length, len_len = _read_der_length(data, offset + 1, end)
+    value_start = offset + 1 + len_len
+    value_end = value_start + length
+    if value_end > end:
+        raise ValueError('DER value truncated')
+    if tag & 0x20:
+        children, _ = _parse_der_sequence(data, value_start, value_end)
+        node = _Asn1Node(tag, children=children)
+    else:
+        node = _Asn1Node(tag, value=data[value_start:value_end])
+    return node, value_end
+
+
+def _read_der_length(data, offset, end):
+    if offset >= end:
+        raise ValueError('DER length truncated')
+    first = byte_at(data, offset)
+    if first & 0x80 == 0:
+        return first, 1
+    num = first & 0x7f
+    if num == 0:
+        raise ValueError('DER indefinite length unsupported')
+    if offset + 1 + num > end:
+        raise ValueError('DER length truncated')
+    length = 0
+    for i in range(num):
+        length = (length << 8) | byte_at(data, offset + 1 + i)
+    return length, 1 + num
+
+
+def _encode_node(node):
+    if node.children is not None:
+        parts = []
+        offsets = []
+        cursor = 0
+        for child in node.children:
+            child_bytes, child_offsets = _encode_node(child)
+            parts.append(child_bytes)
+            for off in child_offsets:
+                offsets.append(cursor + off)
+            cursor += len(child_bytes)
+        value_bytes = b''.join(parts)
+    else:
+        value_bytes = node.value or b''
+        offsets = [0] if node.is_cn_value else []
+    length_bytes = _encode_der_length(len(value_bytes))
+    header = struct.pack('!B', node.tag) + length_bytes
+    header_len = len(header)
+    offsets = [header_len + off for off in offsets]
+    return header + value_bytes, offsets
+
+
+def _encode_der_length(length):
+    if length < 0:
+        raise ValueError('DER length invalid')
+    if length < 128:
+        return struct.pack('!B', length)
+    buf = bytearray()
+    while length:
+        buf.append(length & 0xff)
+        length >>= 8
+    buf.reverse()
+    return struct.pack('!B', 0x80 | len(buf)) + bytes(buf)
 
 
 def _write_tls_bump_cert_template(path, cn_len, offsets, cert_der):

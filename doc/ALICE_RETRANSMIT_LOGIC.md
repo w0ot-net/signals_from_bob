@@ -268,7 +268,7 @@ Key retransmit-related events:
 - `tunnel.ack`: ACK/SACK processing details.
 - `tunnel.timeout_no_response`: no-response timeout triggered.
 
-If `tunnel_stats_enabled`:
+If stats are enabled (verbose logging, `-v`):
 - `ReliabilityStats.retransmit_packets` increments per retransmit.
 - `ReliabilityStats.rtt_samples` increments on valid RTT samples.
 - `ReliabilityStats.retransmit_skipped_rate_limit` and

@@ -64,11 +64,17 @@ def _make_config():
 def _apply_lossy_transport_impairment(lossy, send_impairment, recv_impairment):
     lossy._send_imp = send_impairment
     lossy._recv_imp = recv_impairment
-    lossy._send_engine = _ImpairmentEngine(send_impairment)
+    lossy._send_engine = _ImpairmentEngine(
+        send_impairment,
+        stats_enabled=lossy._stats_enabled,
+    )
     if recv_impairment is send_impairment:
         lossy._recv_engine = lossy._send_engine
     else:
-        lossy._recv_engine = _ImpairmentEngine(recv_impairment)
+        lossy._recv_engine = _ImpairmentEngine(
+            recv_impairment,
+            stats_enabled=lossy._stats_enabled,
+        )
 
 
 @unittest.skipUnless(

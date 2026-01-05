@@ -203,6 +203,7 @@ def _log_pump_stop(logger, rid, ch, side, direction, label, reason,
 def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                            rid, ch, side, recv_label, direction,
                            eof_callback=None, stop_callback=None,
+                           stats_enabled=True,
                            event_prefix='sock'):
     """
     Pump data from a socket to a tunnel channel.
@@ -210,6 +211,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
     Uses non-blocking writes with backpressure: stops reading from socket
     when channel buffer is full, which naturally backpressures TCP.
     """
+    stats_enabled = bool(stats_enabled)
     bytes_recv = 0
     bytes_written = 0
     total_bytes_recv = 0
@@ -228,7 +230,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
         pending_offset = 0
         base_backoff, max_backoff = _pump_poll_bounds(config)
         backoff = base_backoff
-        last_stats = time_provider.now()
+        last_stats = time_provider.now() if stats_enabled else None
         _log_pump_start(
             logger, rid, ch, side, direction, recv_label, event_prefix
         )
@@ -238,8 +240,9 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     written = channel.write(pending[pending_offset:])
                     if written:
                         pending_offset += written
-                        bytes_written += written
-                        total_bytes_written += written
+                        if stats_enabled:
+                            bytes_written += written
+                            total_bytes_written += written
                     if pending_offset >= len(pending):
                         pending = None
                         pending_offset = 0
@@ -247,8 +250,11 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         continue
                 except ChannelError as exc:
                     if exc.code == 'buffer_full':
-                        buffer_full_count += 1
-                        start = time_provider.now()
+                        if stats_enabled:
+                            buffer_full_count += 1
+                            start = time_provider.now()
+                        else:
+                            start = None
                         try:
                             ready = channel.wait_send_space(timeout=backoff)
                         except ChannelError as exc:
@@ -259,7 +265,8 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                                 exit_error = exc
                                 fatal_error = True
                             break
-                        wait_time += time_provider.now() - start
+                        if stats_enabled and start is not None:
+                            wait_time += time_provider.now() - start
                         if not ready:
                             backoff = min(backoff * 2.0, max_backoff)
                         else:
@@ -290,8 +297,11 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
 
             available = config.channel_max_send_buf - channel.send_buf_size
             if available <= 0:
-                buffer_full_count += 1
-                start = time_provider.now()
+                if stats_enabled:
+                    buffer_full_count += 1
+                    start = time_provider.now()
+                else:
+                    start = None
                 try:
                     ready = channel.wait_send_space(timeout=backoff)
                 except ChannelError as exc:
@@ -302,7 +312,8 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         exit_error = exc
                         fatal_error = True
                     break
-                wait_time += time_provider.now() - start
+                if stats_enabled and start is not None:
+                    wait_time += time_provider.now() - start
                 if not ready:
                     backoff = min(backoff * 2.0, max_backoff)
                 else:
@@ -310,9 +321,11 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 continue
 
             try:
-                select_start = time_provider.now()
+                if stats_enabled:
+                    select_start = time_provider.now()
                 rlist, _ = _select([sock], [], backoff)
-                select_wait_time += time_provider.now() - select_start
+                if stats_enabled:
+                    select_wait_time += time_provider.now() - select_start
             except Exception as exc:
                 fatal_error = True
                 exit_reason = 'socket_select_error'
@@ -324,7 +337,8 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     )
                 break
             if not rlist:
-                select_timeouts += 1
+                if stats_enabled:
+                    select_timeouts += 1
                 backoff = min(backoff * 2.0, max_backoff)
             else:
                 backoff = base_backoff
@@ -332,7 +346,8 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
             while rlist and not stop_event.is_set():
                 available = config.channel_max_send_buf - channel.send_buf_size
                 if available <= 0:
-                    buffer_full_count += 1
+                    if stats_enabled:
+                        buffer_full_count += 1
                     break
                 read_size = config.relay_buffer_size
                 if available < read_size:
@@ -420,12 +435,14 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                                 )
                     return
 
-                bytes_recv += len(data)
-                total_bytes_recv += len(data)
+                if stats_enabled:
+                    bytes_recv += len(data)
+                    total_bytes_recv += len(data)
                 try:
                     written = channel.write(data)
-                    bytes_written += written
-                    total_bytes_written += written
+                    if stats_enabled:
+                        bytes_written += written
+                        total_bytes_written += written
                     if written < len(data):
                         pending = data
                         pending_offset = written
@@ -434,7 +451,8 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     if exc.code == 'buffer_full':
                         pending = data
                         pending_offset = 0
-                        buffer_full_count += 1
+                        if stats_enabled:
+                            buffer_full_count += 1
                         break
                     if exc.code in ('not_open', 'closed', 'send_closed'):
                         exit_reason = 'channel_closed'
@@ -459,42 +477,43 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         )
                     break
 
-            now = time_provider.now()
-            if now - last_stats >= 1.0:
-                log_event(
-                    logger,
-                    logging.DEBUG,
-                    _event_name(event_prefix, 'pump_stats'),
-                    'Relay pump stats',
-                    lambda: add_fields(relay_fields(
-                        rid=rid,
-                        ch=ch,
-                        side=side,
-                        peer=normalize_peer(recv_label),
-                        direction=direction,
-                        label=recv_label,
-                    ), {
-                        'bytes_in': bytes_recv,
-                        'bytes_out': bytes_written,
-                        'bytes_recv': bytes_recv,
-                        'bytes_written': bytes_written,
-                        'buffer_full': buffer_full_count,
-                        'sleep_time': round(wait_time, 3),
-                        'wait_time': round(wait_time, 3),
-                        'select_wait_time': round(select_wait_time, 3),
-                        'select_timeouts': select_timeouts,
-                        'send_buf_size': channel.send_buf_size,
-                        'recv_buf_size': channel.recv_buf_size,
-                        'backoff': round(backoff, 3),
-                    }),
-                )
-                bytes_recv = 0
-                bytes_written = 0
-                buffer_full_count = 0
-                wait_time = 0.0
-                select_wait_time = 0.0
-                select_timeouts = 0
-                last_stats = now
+            if stats_enabled:
+                now = time_provider.now()
+                if now - last_stats >= 1.0:
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        _event_name(event_prefix, 'pump_stats'),
+                        'Relay pump stats',
+                        lambda: add_fields(relay_fields(
+                            rid=rid,
+                            ch=ch,
+                            side=side,
+                            peer=normalize_peer(recv_label),
+                            direction=direction,
+                            label=recv_label,
+                        ), {
+                            'bytes_in': bytes_recv,
+                            'bytes_out': bytes_written,
+                            'bytes_recv': bytes_recv,
+                            'bytes_written': bytes_written,
+                            'buffer_full': buffer_full_count,
+                            'sleep_time': round(wait_time, 3),
+                            'wait_time': round(wait_time, 3),
+                            'select_wait_time': round(select_wait_time, 3),
+                            'select_timeouts': select_timeouts,
+                            'send_buf_size': channel.send_buf_size,
+                            'recv_buf_size': channel.recv_buf_size,
+                            'backoff': round(backoff, 3),
+                        }),
+                    )
+                    bytes_recv = 0
+                    bytes_written = 0
+                    buffer_full_count = 0
+                    wait_time = 0.0
+                    select_wait_time = 0.0
+                    select_timeouts = 0
+                    last_stats = now
         if exit_reason is None:
             if stop_event.is_set():
                 exit_reason = 'stop_event'
@@ -518,13 +537,9 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                     label=recv_label,
                 ), {'duration': duration_secs(start_time), 'stop_event': True}),
             )
-        _log_pump_stop(
-            logger, rid, ch, side, direction, recv_label, exit_reason,
-            stop_event=stop_event.is_set(),
-            fatal=fatal_error,
-            duration=duration_secs(start_time),
-            error=exit_error,
-            stats={
+        stop_stats = None
+        if stats_enabled:
+            stop_stats = {
                 'bytes_in': bytes_recv,
                 'bytes_out': bytes_written,
                 'bytes_recv': bytes_recv,
@@ -541,7 +556,14 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 'send_buf_size': channel.send_buf_size,
                 'recv_buf_size': channel.recv_buf_size,
                 'backoff': round(backoff, 3),
-            },
+            }
+        _log_pump_stop(
+            logger, rid, ch, side, direction, recv_label, exit_reason,
+            stop_event=stop_event.is_set(),
+            fatal=fatal_error,
+            duration=duration_secs(start_time),
+            error=exit_error,
+            stats=stop_stats,
             stop_callback=stop_callback,
             event_prefix=event_prefix,
         )
@@ -549,12 +571,14 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
 
 def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                            rid, ch, side, send_label, direction,
-                           stop_callback=None, event_prefix='sock'):
+                           stop_callback=None, stats_enabled=True,
+                           event_prefix='sock'):
     """
     Pump data from a tunnel channel to a socket.
 
     Uses non-blocking sends with select-driven backpressure.
     """
+    stats_enabled = bool(stats_enabled)
     bytes_read = 0
     bytes_sent = 0
     total_bytes_read = 0
@@ -576,7 +600,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
         outbound = collections.deque()
         outbound_offset = 0
         outbound_limit = _outbound_cap(config)
-        last_stats = time_provider.now()
+        last_stats = time_provider.now() if stats_enabled else None
         base_backoff, max_backoff = _pump_poll_bounds(config)
         backoff = base_backoff
         write_timeout = config.relay_write_timeout
@@ -621,9 +645,11 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         )
                     break
                 try:
-                    select_start = time_provider.now()
+                    if stats_enabled:
+                        select_start = time_provider.now()
                     _, wlist = _select([], [sock], backoff)
-                    select_wait_time += time_provider.now() - select_start
+                    if stats_enabled:
+                        select_wait_time += time_provider.now() - select_start
                 except Exception as exc:
                     fatal_error = True
                     exit_reason = 'socket_select_error'
@@ -635,7 +661,8 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         )
                     break
                 if not wlist:
-                    select_timeouts += 1
+                    if stats_enabled:
+                        select_timeouts += 1
                 if wlist:
                     chunk = outbound[0]
                     try:
@@ -665,8 +692,9 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         break
 
                     if sent:
-                        bytes_sent += sent
-                        total_bytes_sent += sent
+                        if stats_enabled:
+                            bytes_sent += sent
+                            total_bytes_sent += sent
                         outbound_size -= sent
                         if outbound_size < 0:
                             outbound_size = 0
@@ -691,9 +719,11 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     else:
                         read_timeout = min(config.relay_channel_timeout, backoff)
                     try:
-                        read_start = time_provider.now()
+                        if stats_enabled:
+                            read_start = time_provider.now()
                         data = channel.read(read_size, timeout=read_timeout)
-                        read_wait_time += time_provider.now() - read_start
+                        if stats_enabled:
+                            read_wait_time += time_provider.now() - read_start
                     except Exception as exc:
                         if not stop_event.is_set():
                             _log_pump_error(
@@ -705,7 +735,8 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         exit_error = exc
                         break
                     if data is None:
-                        channel_timeouts += 1
+                        if stats_enabled:
+                            channel_timeouts += 1
                         pass
                     elif data == b'':
                         log_event(
@@ -748,8 +779,9 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     else:
                         outbound.append(data)
                         outbound_size += len(data)
-                        bytes_read += len(data)
-                        total_bytes_read += len(data)
+                        if stats_enabled:
+                            bytes_read += len(data)
+                            total_bytes_read += len(data)
                         progress = True
                         if last_send is None:
                             last_send = time_provider.now()
@@ -785,42 +817,43 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
             else:
                 backoff = min(backoff * 2.0, max_backoff)
 
-            now = time_provider.now()
-            if now - last_stats >= 1.0:
-                log_event(
-                    logger,
-                    logging.DEBUG,
-                    _event_name(event_prefix, 'pump_stats'),
-                    'Relay pump stats',
-                    lambda: add_fields(relay_fields(
-                        rid=rid,
-                        ch=ch,
-                        side=side,
-                        peer=normalize_peer(send_label),
-                        direction=direction,
-                        label=send_label,
-                    ), {
-                        'bytes_in': bytes_read,
-                        'bytes_out': bytes_sent,
-                        'bytes_read': bytes_read,
-                        'bytes_sent': bytes_sent,
-                        'outbound_size': outbound_size,
-                        'wait_time': round(read_wait_time, 3),
-                        'channel_timeouts': channel_timeouts,
-                        'select_wait_time': round(select_wait_time, 3),
-                        'select_timeouts': select_timeouts,
-                        'send_buf_size': channel.send_buf_size,
-                        'recv_buf_size': channel.recv_buf_size,
-                        'backoff': round(backoff, 3),
-                    }),
-                )
-                bytes_read = 0
-                bytes_sent = 0
-                read_wait_time = 0.0
-                channel_timeouts = 0
-                select_wait_time = 0.0
-                select_timeouts = 0
-                last_stats = now
+            if stats_enabled:
+                now = time_provider.now()
+                if now - last_stats >= 1.0:
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        _event_name(event_prefix, 'pump_stats'),
+                        'Relay pump stats',
+                        lambda: add_fields(relay_fields(
+                            rid=rid,
+                            ch=ch,
+                            side=side,
+                            peer=normalize_peer(send_label),
+                            direction=direction,
+                            label=send_label,
+                        ), {
+                            'bytes_in': bytes_read,
+                            'bytes_out': bytes_sent,
+                            'bytes_read': bytes_read,
+                            'bytes_sent': bytes_sent,
+                            'outbound_size': outbound_size,
+                            'wait_time': round(read_wait_time, 3),
+                            'channel_timeouts': channel_timeouts,
+                            'select_wait_time': round(select_wait_time, 3),
+                            'select_timeouts': select_timeouts,
+                            'send_buf_size': channel.send_buf_size,
+                            'recv_buf_size': channel.recv_buf_size,
+                            'backoff': round(backoff, 3),
+                        }),
+                    )
+                    bytes_read = 0
+                    bytes_sent = 0
+                    read_wait_time = 0.0
+                    channel_timeouts = 0
+                    select_wait_time = 0.0
+                    select_timeouts = 0
+                    last_stats = now
         if exit_reason is None:
             if stop_event.is_set():
                 exit_reason = 'stop_event'
@@ -846,13 +879,9 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     label=send_label,
                 ), {'duration': duration_secs(start_time), 'stop_event': True}),
             )
-        _log_pump_stop(
-            logger, rid, ch, side, direction, send_label, exit_reason,
-            stop_event=stop_event.is_set(),
-            fatal=fatal_error,
-            duration=duration_secs(start_time),
-            error=exit_error,
-            stats={
+        stop_stats = None
+        if stats_enabled:
+            stop_stats = {
                 'bytes_in': bytes_read,
                 'bytes_out': bytes_sent,
                 'bytes_read': bytes_read,
@@ -869,7 +898,14 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                 'send_buf_size': channel.send_buf_size,
                 'recv_buf_size': channel.recv_buf_size,
                 'backoff': round(backoff, 3),
-            },
+            }
+        _log_pump_stop(
+            logger, rid, ch, side, direction, send_label, exit_reason,
+            stop_event=stop_event.is_set(),
+            fatal=fatal_error,
+            duration=duration_secs(start_time),
+            error=exit_error,
+            stats=stop_stats,
             stop_callback=stop_callback,
             event_prefix=event_prefix,
         )

@@ -218,6 +218,7 @@ class RelayConnection(object):
             self._socket_to_channel_label,
             eof_callback=self.channel.close_write,
             stop_callback=self._on_pump_stop,
+            stats_enabled=self._config.stats_enabled,
             event_prefix=self._event_prefix,
         )
 
@@ -235,6 +236,7 @@ class RelayConnection(object):
             self._peer_label,
             self._channel_to_socket_label,
             stop_callback=self._on_pump_stop,
+            stats_enabled=self._config.stats_enabled,
             event_prefix=self._event_prefix,
         )
 

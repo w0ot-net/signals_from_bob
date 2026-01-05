@@ -108,6 +108,7 @@ class _NcConnection(object):
             kwargs={
                 'eof_callback': self._safe_close_write,
                 'stop_callback': self._on_pump_stop,
+                'stats_enabled': self._config.stats_enabled,
             },
             name='nc-fd-to-channel-%d' % self._ch,
         )
@@ -124,7 +125,10 @@ class _NcConnection(object):
                 self._side,
                 self._bound.label,
             ),
-            kwargs={'stop_callback': self._on_pump_stop},
+            kwargs={
+                'stop_callback': self._on_pump_stop,
+                'stats_enabled': self._config.stats_enabled,
+            },
             name='nc-channel-to-fd-%d' % self._ch,
         )
         t1.daemon = True

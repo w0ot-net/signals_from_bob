@@ -155,8 +155,8 @@ class Config:
     tunnel_fast_retransmit_min_age_ratio: float = 0.25
     # Alice: max fast retransmits per sequence number
     tunnel_fast_retransmit_max_per_seq: int = 2
-    # Enable reliability stats tracking
-    tunnel_stats_enabled: bool = False
+    # Enable runtime stats tracking (set by -v)
+    stats_enabled: bool = False
     # Enable dynamic window growth on Alice
     tunnel_window_growth_enabled: bool = True
     # Window growth mode: 'linear' or 'doubling'

@@ -110,6 +110,13 @@ class TransferStats(object):
         )
 
 
+def _build_transfer_fields(key, value, stats):
+    fields = {key: value}
+    if stats is not None:
+        fields['stats'] = stats.as_dict()
+    return fields
+
+
 class FileTransferModule(RequestResponseMixin, BaseModule):
     """
     File transfer module (single active transfer).
@@ -177,13 +184,12 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 )
                 module.get(args.remote, local_path, timeout=timeout)
                 stats = module.last_stats
-                stats_fields = stats.as_dict() if stats is not None else None
                 log_event(
                     logger,
                     logging.INFO,
                     'file.download_complete',
                     'Download complete',
-                    lambda: {'local': local_path, 'stats': stats_fields},
+                    lambda: _build_transfer_fields('local', local_path, stats),
                 )
                 if stats is not None:
                     sys.stdout.write('Download stats: %s\n' % stats.format_summary())
@@ -209,13 +215,12 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 )
                 module.put(args.local, args.remote, timeout=timeout)
                 stats = module.last_stats
-                stats_fields = stats.as_dict() if stats is not None else None
                 log_event(
                     logger,
                     logging.INFO,
                     'file.upload_complete',
                     'Upload complete',
-                    lambda: {'remote': args.remote, 'stats': stats_fields},
+                    lambda: _build_transfer_fields('remote', args.remote, stats),
                 )
                 if stats is not None:
                     sys.stdout.write('Upload stats: %s\n' % stats.format_summary())
@@ -243,6 +248,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         self._channel_open_timeout = config.channel_open_timeout
         self._hash_timeout = config.file_transfer_hash_timeout
         self._max_active = config.file_transfer_max_active
+        self._stats_enabled = bool(config.stats_enabled)
 
         # Active transfer tracking
         self._active_lock = threading.Lock()
@@ -322,8 +328,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             dest_path = os.path.abspath(dest_path)
             out_fp = open(dest_path, 'wb')
 
-            stats = TransferStats(size)
-            stats.start()
+            stats = self._maybe_create_stats(size)
             self._current_stats = stats
             hash_obj = hashlib.sha256()
             self._recv_to_file(channel, out_fp, size, timeout, hash_obj=hash_obj, stats=stats)
@@ -334,8 +339,9 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 )
                 raise FileTransferError('hash', 'hash mismatch')
             self.send_message(file_hash_ok(rid, channel.id))
-            stats.finish()
-            self._last_stats = stats
+            if stats is not None:
+                stats.finish()
+                self._last_stats = stats
             out_fp.close()
             out_fp = None
         finally:
@@ -373,8 +379,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                 )
 
             in_fp = open(src_path, 'rb')
-            stats = TransferStats(size)
-            stats.start()
+            stats = self._maybe_create_stats(size)
             self._current_stats = stats
             hash_obj = hashlib.sha256()
             self._send_from_file(channel, in_fp, size, hash_obj=hash_obj, stats=stats,
@@ -388,8 +393,9 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                     response.get('code', 'io'),
                     response.get('reason', 'error'),
                 )
-            stats.finish()
-            self._last_stats = stats
+            if stats is not None:
+                stats.finish()
+                self._last_stats = stats
         finally:
             if in_fp is not None:
                 in_fp.close()
@@ -584,6 +590,13 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
     # -------------------------------------------------------------------------
     # File I/O helpers
     # -------------------------------------------------------------------------
+
+    def _maybe_create_stats(self, size):
+        if not self._stats_enabled:
+            return None
+        stats = TransferStats(size)
+        stats.start()
+        return stats
 
     def _send_from_file(self, channel, fp, total_size, hash_obj=None, stats=None,
                         timeout=None):

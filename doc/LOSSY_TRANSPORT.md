@@ -115,8 +115,12 @@ reused for both directions, in which case RNG state and stats are shared.
 
 ## Stats
 
-`LossyTransport.stats()` and `LossyServer.stats()` report decision counts for
-send and receive impairment:
+`LossyTransport` and `LossyServer` accept `stats_enabled` (default false) to
+enable decision counters. When disabled, counters are not updated and
+`stats()` returns `{}`.
+
+When enabled, `LossyTransport.stats()` and `LossyServer.stats()` report
+decision counts for send and receive impairment:
 
 - `sent`
 - `dropped`

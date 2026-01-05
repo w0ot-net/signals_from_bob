@@ -119,6 +119,11 @@ If a channel has more data than fits:
 - The manager takes a slice that fits in the current packet.
 - Remaining data stays queued for later packets.
 
+## Drain Stats
+
+Per-channel drain stats (`channel.drain`) are collected only when verbose
+stats are enabled (`-v`) and debug logging is active.
+
 ---
 
 ## Concurrency

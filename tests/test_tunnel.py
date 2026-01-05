@@ -388,7 +388,7 @@ class BaseTunnelGapTests(unittest.TestCase):
             BaseTunnel(object())
 
     def test_reliability_stats_toggle(self):
-        tunnel = BaseTunnel(make_test_config(tunnel_stats_enabled=True))
+        tunnel = BaseTunnel(make_test_config(stats_enabled=True))
         self.assertIsNotNone(tunnel.reliability_stats)
         tunnel = BaseTunnel(make_test_config())
         self.assertIsNone(tunnel.reliability_stats)

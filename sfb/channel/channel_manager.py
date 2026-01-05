@@ -530,6 +530,8 @@ class ChannelManager(object):
 
     def _record_drain_stats(self, segments):
         """Record per-channel drain stats for debugging stalls."""
+        if not self._config.stats_enabled:
+            return
         if not logger.isEnabledFor(logging.DEBUG):
             return
         if not segments:

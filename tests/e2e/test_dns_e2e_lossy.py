@@ -135,7 +135,11 @@ class LossyE2ETest(unittest.TestCase):
         self.alice_transport = DnsClient(config)
 
         if impairment:
-            self.lossy_alice = LossyTransport(self.alice_transport, impairment)
+            self.lossy_alice = LossyTransport(
+                self.alice_transport,
+                impairment,
+                stats_enabled=True,
+            )
             transport = self.lossy_alice
         else:
             transport = self.alice_transport

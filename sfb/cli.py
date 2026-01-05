@@ -977,6 +977,7 @@ def create_config(args):
         config_kwargs['file_transfer_max_size'] = getattr(args, 'max_size', None)
 
     # Logging
+    config_kwargs['stats_enabled'] = bool(getattr(args, 'verbose', False))
     config_kwargs['db_log_path'] = getattr(args, 'db_log', None)
     config_kwargs['db_log_flush'] = getattr(args, 'db_log_flush', None)
     config_kwargs['db_log_queue'] = getattr(args, 'db_log_queue', None)

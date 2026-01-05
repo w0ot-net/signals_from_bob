@@ -9,6 +9,12 @@ python3 -m sfb.cli --role alice --domain example.com --db-log
 When `--db-log` is provided without a value, the default path is
 `./logs/<role>_log.db` (role is `client` or `server`).
 
+## Verbose Stats
+
+Runtime stats collection is gated by `-v` (`Config.stats_enabled`). When
+disabled, stats fields and periodic stats events (pump stats, channel drain,
+file transfer summaries, reliability snapshots) are suppressed.
+
 ## Component Logging (config-only)
 
 Fine-grained logging is controlled in `sfb/config.py` and applies to both

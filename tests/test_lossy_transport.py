@@ -172,7 +172,10 @@ class ImpairmentEngineTests(unittest.TestCase):
         self.assertGreater(max(delays) - min(delays), 0.01)
 
     def test_stats_tracking(self):
-        engine = _ImpairmentEngine(NetworkImpairment(loss_rate=0.5, dup_rate=0.5, seed=42))
+        engine = _ImpairmentEngine(
+            NetworkImpairment(loss_rate=0.5, dup_rate=0.5, seed=42),
+            stats_enabled=True,
+        )
         for _ in range(100):
             engine.decide()
         stats = engine.stats()
@@ -181,7 +184,10 @@ class ImpairmentEngineTests(unittest.TestCase):
         self.assertGreater(stats['duplicated'], 0)
 
     def test_stats_reset(self):
-        engine = _ImpairmentEngine(NetworkImpairment(loss_rate=1.0, seed=42))
+        engine = _ImpairmentEngine(
+            NetworkImpairment(loss_rate=1.0, seed=42),
+            stats_enabled=True,
+        )
         engine.decide()
         self.assertEqual(engine.stats()['dropped'], 1)
         engine.reset_stats()
@@ -243,15 +249,18 @@ class ImpairmentEngineTests(unittest.TestCase):
         self.assertEqual(engine.corrupt_bytes(data), data)
 
     def test_stats_track_delay_reorder_corrupt(self):
-        engine = _ImpairmentEngine(NetworkImpairment(
-            delay_ms=10,
-            jitter_ms=0,
-            dup_rate=1.0,
-            reorder_rate=1.0,
-            reorder_wait_ms=5,
-            corrupt_rate=1.0,
-            seed=11,
-        ))
+        engine = _ImpairmentEngine(
+            NetworkImpairment(
+                delay_ms=10,
+                jitter_ms=0,
+                dup_rate=1.0,
+                reorder_rate=1.0,
+                reorder_wait_ms=5,
+                corrupt_rate=1.0,
+                seed=11,
+            ),
+            stats_enabled=True,
+        )
         decision = engine.decide()
         stats = engine.stats()
         self.assertEqual(stats['sent'], 1)
@@ -302,7 +311,7 @@ class LossyTransportTests(unittest.TestCase):
     def test_full_loss_drops_all(self):
         inner = MockTransport()
         imp = NetworkImpairment(loss_rate=1.0, seed=42)
-        lossy = LossyTransport(inner, imp)
+        lossy = LossyTransport(inner, imp, stats_enabled=True)
 
         permit = lossy.reserve_send()
         self.assertIsNotNone(permit)
@@ -459,7 +468,7 @@ class LossyTransportTests(unittest.TestCase):
     def test_stats_accessible(self):
         inner = MockTransport()
         imp = NetworkImpairment(loss_rate=0.5, seed=42)
-        lossy = LossyTransport(inner, imp)
+        lossy = LossyTransport(inner, imp, stats_enabled=True)
 
         for _ in range(10):
             permit = lossy.reserve_send()
@@ -714,7 +723,7 @@ class LossyServerTests(unittest.TestCase):
     def test_stats_accessible(self):
         inner = MockServer()
         imp = NetworkImpairment(loss_rate=0.5, seed=42)
-        lossy = LossyServer(inner, imp)
+        lossy = LossyServer(inner, imp, stats_enabled=True)
 
         for _ in range(10):
             inner.inject_request(b'test')

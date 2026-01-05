@@ -86,8 +86,9 @@ class _ImpairmentDecision(object):
 
 
 class _ImpairmentEngine(object):
-    def __init__(self, config):
+    def __init__(self, config, stats_enabled=False):
         self._config = config
+        self._stats_enabled = bool(stats_enabled)
         self._rng = random.Random(config.seed)
         self._burst_remaining = 0
 
@@ -99,7 +100,8 @@ class _ImpairmentEngine(object):
         self._packets_corrupted = 0
 
     def decide(self):
-        self._packets_sent += 1
+        if self._stats_enabled:
+            self._packets_sent += 1
 
         drop = self._should_drop()
         if drop:
@@ -107,17 +109,20 @@ class _ImpairmentEngine(object):
 
         corrupt = self._roll(self._config.corrupt_rate)
         if corrupt:
-            self._packets_corrupted += 1
+            if self._stats_enabled:
+                self._packets_corrupted += 1
 
         delay_sec = self._calc_delay_sec()
         reorder = self._roll(self._config.reorder_rate)
         if reorder:
-            self._packets_reordered += 1
+            if self._stats_enabled:
+                self._packets_reordered += 1
             delay_sec += self._config.reorder_wait_ms / 1000.0
 
         duplicate_count = 1 if self._roll(self._config.dup_rate) else 0
         if duplicate_count:
-            self._packets_duplicated += 1
+            if self._stats_enabled:
+                self._packets_duplicated += 1
 
         return _ImpairmentDecision(drop, corrupt, delay_sec, duplicate_count, reorder)
 
@@ -153,6 +158,8 @@ class _ImpairmentEngine(object):
         self._packets_corrupted = 0
 
     def stats(self):
+        if not self._stats_enabled:
+            return {}
         return {
             'sent': self._packets_sent,
             'dropped': self._packets_dropped,
@@ -168,7 +175,8 @@ class _ImpairmentEngine(object):
     def _should_drop(self):
         if self._burst_remaining > 0:
             self._burst_remaining -= 1
-            self._packets_dropped += 1
+            if self._stats_enabled:
+                self._packets_dropped += 1
             return True
 
         if self._config.burst_loss_prob > 0:
@@ -178,11 +186,13 @@ class _ImpairmentEngine(object):
                     self._config.burst_loss_len[1],
                 )
                 self._burst_remaining = max(0, burst_len - 1)
-                self._packets_dropped += 1
+                if self._stats_enabled:
+                    self._packets_dropped += 1
                 return True
 
         if self._config.loss_rate > 0 and self._rng.random() < self._config.loss_rate:
-            self._packets_dropped += 1
+            if self._stats_enabled:
+                self._packets_dropped += 1
             return True
 
         return False
@@ -196,7 +206,8 @@ class _ImpairmentEngine(object):
         if jitter_ms > 0:
             delay += self._rng.uniform(-jitter_ms, jitter_ms)
         if delay > 0:
-            self._packets_delayed += 1
+            if self._stats_enabled:
+                self._packets_delayed += 1
         return max(0.0, delay / 1000.0)
 
 
@@ -270,7 +281,7 @@ class LossyTransport(Transport):
     """
 
     def __init__(self, transport, send_impairment=None, recv_impairment=None,
-                 pending_timeout_sec=5.0):
+                 pending_timeout_sec=5.0, stats_enabled=False):
         """
         Wrap a transport with network impairment.
 
@@ -280,17 +291,25 @@ class LossyTransport(Transport):
             recv_impairment: NetworkImpairment for incoming packets
                             (defaults to send_impairment if not provided)
             pending_timeout_sec: Timeout for synthetic drops and stale requests
+            stats_enabled: Enable impairment stats counters
         """
         super(LossyTransport, self).__init__()
         self._inner = transport
         self._send_imp = send_impairment or NetworkImpairment()
         self._recv_imp = recv_impairment or self._send_imp
 
-        self._send_engine = _ImpairmentEngine(self._send_imp)
+        self._stats_enabled = bool(stats_enabled)
+        self._send_engine = _ImpairmentEngine(
+            self._send_imp,
+            stats_enabled=self._stats_enabled,
+        )
         if self._recv_imp is self._send_imp:
             self._recv_engine = self._send_engine
         else:
-            self._recv_engine = _ImpairmentEngine(self._recv_imp)
+            self._recv_engine = _ImpairmentEngine(
+                self._recv_imp,
+                stats_enabled=self._stats_enabled,
+            )
 
         self._pending_timeout = pending_timeout_sec
         self._pending = PendingTracker(self._pending_timeout)
@@ -587,6 +606,8 @@ class LossyTransport(Transport):
         self._inner.close()
 
     def stats(self):
+        if not self._stats_enabled:
+            return {}
         return {
             'send': self._send_engine.stats(),
             'recv': self._recv_engine.stats(),
@@ -620,7 +641,8 @@ class LossyServer(Server):
     If only one impairment is provided, it's used for both directions.
     """
 
-    def __init__(self, server, recv_impairment=None, send_impairment=None):
+    def __init__(self, server, recv_impairment=None, send_impairment=None,
+                 stats_enabled=False):
         """
         Wrap a server with network impairment.
 
@@ -629,16 +651,24 @@ class LossyServer(Server):
             recv_impairment: NetworkImpairment for incoming requests
             send_impairment: NetworkImpairment for outgoing responses
                             (defaults to recv_impairment if not provided)
+            stats_enabled: Enable impairment stats counters
         """
         self._inner = server
         self._recv_imp = recv_impairment or NetworkImpairment()
         self._send_imp = send_impairment or self._recv_imp
 
-        self._recv_engine = _ImpairmentEngine(self._recv_imp)
+        self._stats_enabled = bool(stats_enabled)
+        self._recv_engine = _ImpairmentEngine(
+            self._recv_imp,
+            stats_enabled=self._stats_enabled,
+        )
         if self._send_imp is self._recv_imp:
             self._send_engine = self._recv_engine
         else:
-            self._send_engine = _ImpairmentEngine(self._send_imp)
+            self._send_engine = _ImpairmentEngine(
+                self._send_imp,
+                stats_enabled=self._stats_enabled,
+            )
 
         self._request_queue = _EventQueue()
         self._response_queue = _EventQueue()
@@ -776,6 +806,8 @@ class LossyServer(Server):
         self._inner.close()
 
     def stats(self):
+        if not self._stats_enabled:
+            return {}
         return {
             'recv': self._recv_engine.stats(),
             'send': self._send_engine.stats(),

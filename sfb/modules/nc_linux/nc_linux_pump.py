@@ -132,10 +132,11 @@ def _log_pump_stop(logger, rid, ch, side, direction, label, reason,
 
 def pump_fd_to_channel(fd, channel, config, logger, stop_event,
                        rid, ch, side, label, eof_callback=None,
-                       stop_callback=None):
+                       stop_callback=None, stats_enabled=True):
     """
     Pump data from a file descriptor to a tunnel channel.
     """
+    stats_enabled = bool(stats_enabled)
     bytes_read = 0
     bytes_written = 0
     total_read = 0
@@ -161,8 +162,9 @@ def pump_fd_to_channel(fd, channel, config, logger, stop_event,
                     written = channel.write(pending[pending_offset:])
                     if written:
                         pending_offset += written
-                        bytes_written += written
-                        total_written += written
+                        if stats_enabled:
+                            bytes_written += written
+                            total_written += written
                     if pending_offset >= len(pending):
                         pending = None
                         pending_offset = 0
@@ -170,8 +172,11 @@ def pump_fd_to_channel(fd, channel, config, logger, stop_event,
                     continue
                 except ChannelError as exc:
                     if exc.code == 'buffer_full':
-                        buffer_full_count += 1
-                        start = time_provider.now()
+                        if stats_enabled:
+                            buffer_full_count += 1
+                            start = time_provider.now()
+                        else:
+                            start = None
                         try:
                             ready = channel.wait_send_space(timeout=backoff)
                         except ChannelError as exc:
@@ -182,7 +187,8 @@ def pump_fd_to_channel(fd, channel, config, logger, stop_event,
                                 exit_error = exc
                                 fatal_error = True
                             break
-                        wait_time += time_provider.now() - start
+                        if stats_enabled and start is not None:
+                            wait_time += time_provider.now() - start
                         if not ready:
                             backoff = min(backoff * 2.0, max_backoff)
                         else:
@@ -218,14 +224,25 @@ def pump_fd_to_channel(fd, channel, config, logger, stop_event,
                 break
             pending = data
             pending_offset = 0
-            bytes_read += len(data)
-            total_read += len(data)
+            if stats_enabled:
+                bytes_read += len(data)
+                total_read += len(data)
 
         if exit_reason is None:
             exit_reason = 'stop_event' if stop_event.is_set() else 'loop_exit'
     finally:
         if fatal_error or exit_reason == 'channel_closed':
             stop_event.set()
+        stop_stats = None
+        if stats_enabled:
+            stop_stats = {
+                'bytes_in': bytes_read,
+                'bytes_out': bytes_written,
+                'bytes_in_total': total_read,
+                'bytes_out_total': total_written,
+                'buffer_full': buffer_full_count,
+                'wait_time': round(wait_time, 3),
+            }
         _log_pump_stop(
             logger,
             rid,
@@ -238,14 +255,7 @@ def pump_fd_to_channel(fd, channel, config, logger, stop_event,
             fatal=fatal_error,
             duration=round(time_provider.now() - start_time, 3),
             error=exit_error,
-            stats={
-                'bytes_in': bytes_read,
-                'bytes_out': bytes_written,
-                'bytes_in_total': total_read,
-                'bytes_out_total': total_written,
-                'buffer_full': buffer_full_count,
-                'wait_time': round(wait_time, 3),
-            },
+            stats=stop_stats,
         )
         if stop_callback is not None:
             stop_callback({
@@ -257,10 +267,12 @@ def pump_fd_to_channel(fd, channel, config, logger, stop_event,
 
 
 def pump_channel_to_fd(channel, fd, config, logger, stop_event,
-                       rid, ch, side, label, stop_callback=None):
+                       rid, ch, side, label, stop_callback=None,
+                       stats_enabled=True):
     """
     Pump data from a tunnel channel to a file descriptor.
     """
+    stats_enabled = bool(stats_enabled)
     bytes_read = 0
     bytes_written = 0
     total_read = 0
@@ -286,8 +298,9 @@ def pump_channel_to_fd(channel, fd, config, logger, stop_event,
                     written = os.write(fd, pending[pending_offset:])
                     if written:
                         pending_offset += written
-                        bytes_written += written
-                        total_written += written
+                        if stats_enabled:
+                            bytes_written += written
+                            total_written += written
                     if pending_offset >= len(pending):
                         pending = None
                         pending_offset = 0
@@ -297,7 +310,8 @@ def pump_channel_to_fd(channel, fd, config, logger, stop_event,
                     if _is_interrupted(exc) or _is_would_block(exc):
                         _, wlist = _select([], [fd], backoff)
                         if not wlist:
-                            select_timeouts += 1
+                            if stats_enabled:
+                                select_timeouts += 1
                             backoff = min(backoff * 2.0, max_backoff)
                         else:
                             backoff = base_backoff
@@ -316,7 +330,8 @@ def pump_channel_to_fd(channel, fd, config, logger, stop_event,
                 break
 
             if data is None:
-                wait_time += backoff
+                if stats_enabled:
+                    wait_time += backoff
                 continue
             if data == b'':
                 if channel.is_closed:
@@ -328,14 +343,25 @@ def pump_channel_to_fd(channel, fd, config, logger, stop_event,
 
             pending = data
             pending_offset = 0
-            bytes_read += len(data)
-            total_read += len(data)
+            if stats_enabled:
+                bytes_read += len(data)
+                total_read += len(data)
 
         if exit_reason is None:
             exit_reason = 'stop_event' if stop_event.is_set() else 'loop_exit'
     finally:
         if fatal_error or exit_reason == 'channel_closed':
             stop_event.set()
+        stop_stats = None
+        if stats_enabled:
+            stop_stats = {
+                'bytes_in': bytes_read,
+                'bytes_out': bytes_written,
+                'bytes_in_total': total_read,
+                'bytes_out_total': total_written,
+                'wait_time': round(wait_time, 3),
+                'select_timeouts': select_timeouts,
+            }
         _log_pump_stop(
             logger,
             rid,
@@ -348,14 +374,7 @@ def pump_channel_to_fd(channel, fd, config, logger, stop_event,
             fatal=fatal_error,
             duration=round(time_provider.now() - start_time, 3),
             error=exit_error,
-            stats={
-                'bytes_in': bytes_read,
-                'bytes_out': bytes_written,
-                'bytes_in_total': total_read,
-                'bytes_out_total': total_written,
-                'wait_time': round(wait_time, 3),
-                'select_timeouts': select_timeouts,
-            },
+            stats=stop_stats,
         )
         if stop_callback is not None:
             stop_callback({

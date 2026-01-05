@@ -138,3 +138,4 @@ with SYN/ACK flags, segments, or before connection are protocol violations.
 
 - This layer does not provide integrity; malformed packets are dropped.
 - Only one connection is active at a time, so no session identifiers are used.
+- Reliability stats counters are collected only when verbose logging (`-v`) is enabled.

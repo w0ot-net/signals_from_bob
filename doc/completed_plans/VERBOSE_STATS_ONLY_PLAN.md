@@ -64,3 +64,9 @@
 
 ## Validation
 - Run targeted unit tests for reliability, tunnel, and lossy stats (no tests/e2e).
+
+## Execution Notes
+- Wired config.stats_enabled to -v and removed tunnel_stats_enabled usage.
+- Gated drain stats, pump stats, file transfer stats, and lossy transport stats.
+- Updated docs and stats-related tests to require explicit stats enablement.
+- Validation: `python3 -m unittest tests.test_tunnel tests.test_reliability tests.test_lossy_transport` (fails: test_collect_segments_keepalive_only_when_idle unexpected keepalive_data arg; test_process_incoming_packet_orders_control_before_data Channel._deliver read-only).

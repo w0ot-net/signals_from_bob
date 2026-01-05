@@ -127,3 +127,6 @@ Plan:
 5. Update receive path to short-circuit keepalive-flag packets without
    skipping reliability bookkeeping.
 6. Update docs and tests.
+
+## Execution notes
+- 2025-09-19: Marked completed per request; plan already noted as implemented.

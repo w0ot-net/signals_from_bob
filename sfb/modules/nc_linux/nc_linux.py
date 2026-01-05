@@ -200,7 +200,7 @@ class NcLinuxModule(RequestResponseMixin, BaseModule):
         group = subparsers.add_argument_group(
             'nc_linux options',
             'Bind a tunnel channel between Bob and Alice using fd specs.\n'
-            'FD spec formats: fd number, /path, host:port, [::1]:port.\n'
+            'FD spec formats: fd number, /path, host:port.\n'
             'Examples: --local 3 --remote /tmp/data.txt',
         )
         group.add_argument(
@@ -480,17 +480,10 @@ def _coerce_spec(spec):
 
 def _parse_host_port(spec):
     if spec.startswith('['):
-        end = spec.find(']')
-        if end == -1:
-            return None
-        if len(spec) <= end + 2 or spec[end + 1] != ':':
-            return None
-        host = spec[1:end]
-        port_text = spec[end + 2:]
-    else:
-        if spec.count(':') != 1:
-            return None
-        host, port_text = spec.rsplit(':', 1)
+        return None
+    if spec.count(':') != 1:
+        return None
+    host, port_text = spec.rsplit(':', 1)
     if not host or not port_text:
         return None
     try:
@@ -513,9 +506,7 @@ def _parse_spec(spec):
     if hasattr(spec, 'isdigit') and spec.isdigit():
         return ('fd', int(spec))
     if spec.startswith('['):
-        host_port = _parse_host_port(spec)
-        if host_port:
-            return ('addr', host_port)
+        raise NcLinuxError('invalid_spec', 'address must be host:port (ipv6 unsupported)')
     if '/' in spec:
         return ('path', spec)
     host_port = _parse_host_port(spec)
@@ -583,7 +574,7 @@ def _open_spec(spec, config):
 def _connect_tcp(host, port, timeout):
     last_error = None
     try:
-        addrinfos = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        addrinfos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
     except Exception as exc:
         raise NcLinuxError('connect_failed', to_native_str(exc))
     for family, socktype, proto, _canon, sockaddr in addrinfos:

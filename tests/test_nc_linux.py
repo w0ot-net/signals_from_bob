@@ -9,7 +9,12 @@ import tempfile
 import unittest
 
 from sfb.config import Config
-from sfb.modules.nc_linux.nc_linux import _is_linux, _open_spec, _parse_spec
+from sfb.modules.nc_linux.nc_linux import (
+    NcLinuxError,
+    _is_linux,
+    _open_spec,
+    _parse_spec,
+)
 
 
 @unittest.skipUnless(_is_linux(), 'linux only')
@@ -30,9 +35,8 @@ class NcLinuxSpecTests(unittest.TestCase):
         self.assertEqual(value, ('1.1.1.1', 443))
 
     def test_parse_ipv6_host_port(self):
-        kind, value = _parse_spec('[::1]:443')
-        self.assertEqual(kind, 'addr')
-        self.assertEqual(value, ('::1', 443))
+        with self.assertRaises(NcLinuxError):
+            _parse_spec('[::1]:443')
 
     def test_open_path_creates(self):
         config = Config()

@@ -294,7 +294,8 @@ Until WINDOW_OK is received, both sides use max_in_flight = 1 (stop-and-wait).
 - Receiver sends ack = highest contiguous seq received + 1
 - Receiver sets sack bitmap for out-of-order packets beyond ack
 - Sender uses sack to skip retransmitting selectively-acked packets
-- Malformed packets are silently dropped; reliability handles retransmission
+- Decode errors are logged and dropped. Invalid keepalive packets are treated
+  as protocol violations and close the tunnel.
 
 ### Retransmission (Asymmetric)
 
@@ -311,7 +312,8 @@ because he can only transmit when Alice polls. This affects retransmission:
 
 **Bob:**
 - Cannot act on timers; can only transmit in response to polls
-- On each poll: if unacked packets exist, retransmit oldest unacked packet
+- On each poll: if unacked packets exist and cooldown allows, retransmit the
+  oldest unacked packet (skips after recent ack progress)
 - Retransmits reuse an in-flight sequence number and do not create new
   outstanding slots
 - Opportunity-driven: retransmits when polled, not when a timer fires
@@ -344,6 +346,8 @@ rto = clamp(rto, 500ms, 10s)
 
 **Initialization:** Before the first RTT sample, use rto = 1000ms (1 second).
 After the first sample, set srtt = sample (no smoothing on first measurement).
+Defaults are configurable via protocol_initial_rto_ms, protocol_min_rto_ms,
+and protocol_max_rto_ms (1000/500/10000ms).
 
 **Karn's Algorithm:** Do not use RTT samples from retransmitted packets. When
 a packet is retransmitted and later acknowledged, it is ambiguous whether the

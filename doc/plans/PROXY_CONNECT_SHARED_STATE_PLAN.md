@@ -7,7 +7,7 @@ Status: draft
 Introduce a shared HTTP CONNECT proxy handshake helper that fully owns the
 proxy-phase state and I/O so transports only keep a single proxy field. This is
 an internal breaking refactor aimed at higher readability, lower duplication,
-and no performance regressions.
+and no performance regressions (including no added CONNECT latency).
 
 ## Goals
 
@@ -17,6 +17,7 @@ and no performance regressions.
 - Keep Python 2.7/3 compatibility and Windows/Linux support.
 - Limit helper API surface to standard library usage.
 - Avoid extra copies in proxy send/recv paths.
+- Keep immediate CONNECT write-on-connect behavior to avoid latency regressions.
 
 ## Non-Goals
 
@@ -43,29 +44,41 @@ and no performance regressions.
      (`in_progress`, `done`, `closed`).
    - Preserve behavior: socket errors raise `TransportError`, EOF/parse/oversize
      paths only log and return `closed`.
+   - Preserve the `extra_bytes` validation and log reason when CONNECT returns
+     non-CRLF bytes after the header terminator.
    - Inject per-transport behavior: errno extraction, temporary error list, and
-     a log callback so Windows/Linux handling and event schemas stay identical.
+     a log callback so Windows/Linux handling and event schemas stay identical,
+     including passing through `corr_id`, `error`, `status`, and `bytes`.
    - Preserve the bump-client scan offset rule (`len(buf) - 3`) inside the helper.
    - Keep parse/limit logic in `proxy_helpers.py` and use `buffer_view` to avoid
      extra copies.
+   - Release or invalidate the helper's socket reference once proxy is `done`
+     or `closed` so the bump client can safely wrap the socket for TLS.
 
 2. Integrate with TLS handshake client (breaking internal refactor)
    - Replace per-connection proxy fields with a single `proxy_state` helper.
    - Use the helper for phase interests and deadline pruning.
    - In `_drive_read/_drive_write`, call `proxy_state.drive(...)` and handle
      status to transition to `_PHASE_REQUEST` or close pending sockets.
+   - After connect success, trigger an immediate proxy `drive(...)` with
+     `can_write=True` to preserve current CONNECT flush behavior.
    - Remove `_flush_proxy_send` and `_recv_proxy_response` in favor of the helper.
 
 3. Integrate with TLS handshake bump client (breaking internal refactor)
    - Replace per-connection proxy fields and scan handling with `proxy_state`.
    - Use the helper for proxy interests and deadlines.
    - On `done`, transition into `_start_handshake`; on `closed`, close pending.
+   - After connect success, trigger an immediate proxy `drive(...)` with
+     `can_write=True` to preserve current CONNECT flush behavior.
+   - Ensure the helper is released before socket wrapping so it never holds the
+     pre-SSL socket after proxy completion.
    - Remove `_flush_proxy_send` and `_recv_proxy_response` in favor of the helper.
 
 4. Consolidate CONNECT request building
    - Remove `_build_connect_request` from the bump client.
    - Extend `build_connect_request` in `proxy_helpers.py` to accept optional
-     label strings so bump-specific error messages remain clear.
+     label strings for target and auth errors so bump-specific error messages
+     remain clear.
 
 5. Update tests only if needed
    - Adjust any direct `_PendingConn` construction for the new proxy state field.

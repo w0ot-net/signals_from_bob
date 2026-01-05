@@ -31,17 +31,12 @@ def validate_tls_bump_config(config, role):
     if role not in ('client', 'server'):
         raise TransportError('Invalid TLS bump role: %s' % role)
 
-    pending_timeout = _require_positive_float(
-        config.tls_bump_pending_timeout, 'tls_bump_pending_timeout'
-    )
     connect_timeout = _require_positive_float(
         config.tls_bump_connect_timeout, 'tls_bump_connect_timeout'
     )
     handshake_timeout = _require_positive_float(
         config.tls_bump_handshake_timeout, 'tls_bump_handshake_timeout'
     )
-    if pending_timeout < connect_timeout or pending_timeout < handshake_timeout:
-        raise TransportError('tls_bump_pending_timeout must be >= connect/handshake')
 
     base_domain = _validate_base_domain(config.tls_bump_base_domain)
     cn_max_len = cert_template.CN_LEN
@@ -75,24 +70,12 @@ def validate_tls_bump_config(config, role):
             connect_timeout,
         )
         request_path = _validate_request_path(config.tls_bump_request_path)
+        pending_timeout = connect_timeout + handshake_timeout
+        if proxy_addr is not None and proxy_timeout is not None:
+            pending_timeout += proxy_timeout
     else:
         _require_host_port(config.tls_bump_listen_addr, 'tls_bump_listen_addr')
-
-    min_pending = max(connect_timeout, handshake_timeout)
-    if role == 'client':
-        min_pending = connect_timeout + handshake_timeout
-        if proxy_addr is not None and proxy_timeout is not None:
-            min_pending += proxy_timeout
-    if pending_timeout < min_pending:
-        if role == 'client':
-            if proxy_addr is not None:
-                raise TransportError(
-                    'tls_bump_pending_timeout must cover connect+proxy+handshake'
-                )
-            raise TransportError(
-                'tls_bump_pending_timeout must cover connect+handshake'
-            )
-        raise TransportError('tls_bump_pending_timeout must be >= connect/handshake')
+        pending_timeout = handshake_timeout
 
     return {
         'pending_timeout': pending_timeout,

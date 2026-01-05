@@ -112,8 +112,6 @@ class Config:
     tls_bump_http_proxy_auth: Optional[str] = None
     # Bob listen host:port
     tls_bump_listen_addr: str = "0.0.0.0:443"
-    # End-to-end timeout for a TLS bump request (seconds)
-    tls_bump_pending_timeout: float = 12.0
     # TLS bump connect timeout (seconds)
     tls_bump_connect_timeout: float = 3.0
     # TLS bump HTTP proxy handshake timeout (seconds, None = connect timeout)

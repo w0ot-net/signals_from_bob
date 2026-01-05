@@ -24,12 +24,11 @@
    - Keep certificate verification disabled as before.
 
 3. Pending timeout semantics
-   - Treat `tls_bump_pending_timeout` as an end-to-end upper bound.
-   - Update validation to require:
-     - `pending_timeout >= connect_timeout + handshake_timeout`.
-     - If an HTTP proxy is configured, include `proxy_timeout` (defaulting to `connect_timeout`) in the sum.
-   - Update defaults in `sfb/config.py` if needed to satisfy the new minimum.
-   - Add a short doc note describing the end-to-end meaning of `pending_timeout`.
+   - Remove `tls_bump_pending_timeout` as a config option.
+   - Compute `pending_timeout` internally as:
+     - `connect_timeout + handshake_timeout`.
+     - If an HTTP proxy is configured, add `proxy_timeout` (defaulting to `connect_timeout`).
+   - Add a short doc note describing the end-to-end meaning of the computed timeout.
 
 4. Documentation
    - Add a limitation to `doc/completed_plans/TLS_HANDSHAKE_BUMP_TRANSPORT.md` stating that the ClientHello must fit in a single TLS record (no fragmentation handling).

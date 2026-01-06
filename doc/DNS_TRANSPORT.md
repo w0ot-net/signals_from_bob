@@ -294,20 +294,12 @@ lookup bounds Alice's `recv_packet_mtu` and Bob's `send_packet_mtu`; init fails
 if the maximum response packet size is smaller than the minimum packet needed
 to carry one segment.
 
-Alice selects a per-send query cap based on adaptive clamp mode:
-- response_max while retransmits may be pending (poll hint seen or
-  recv_window_sack != 0), or when only Bob has real data
-- balanced when both sides have real data and no retransmit guard (accept lower
-  throughput)
-- alice_max when Alice has real data and Bob does not, or when neither has data
+Alice only clamps queries when Bob explicitly requests it:
+- response_max while POLL_HINT is present (Bob requests larger responses)
+- otherwise no per-send cap (Alice uses negotiated send_packet_mtu)
 
-"Real data" means:
-- Alice: pending non-control channel data (data channels only)
-- Bob: response header flags indicate HAS_SEGMENTS or POLL_HINT; Alice cannot
-  inspect encrypted segments, so any HAS_SEGMENTS is treated as data for clamp
-  decisions.
-Retransmit guard clears after a short run of responses without POLL_HINT and
-with recv_window_sack == 0.
+Bob should use POLL_HINT when he needs Alice to reduce query size, such as when
+retransmits are blocked by per-request response caps.
 The chosen packet cap is attached to the send permit and applied at packet
 build time, so segments are sized before encoding the DNS query. Bob still
 enforces the per-request response cap for each response and retransmit.

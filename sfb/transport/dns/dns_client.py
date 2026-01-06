@@ -88,9 +88,7 @@ class DnsClient(Transport):
         self._bob_has_data_polls = 2
         self._bob_has_data_remaining = 0
         self._retransmit_guard = False
-        self._retransmit_guard_keepalives = 0
         self._recv_window_sack = 0
-        self._last_poll_hint = False
 
         # Parse resolver address or use system resolver
         resolver = config.dns_resolver
@@ -133,18 +131,6 @@ class DnsClient(Transport):
             self._opt_record = b''
             self._opt_arcount = 0
         self._opt_record_len = len(self._opt_record)
-        rto_sec = float(config.protocol_initial_rto_ms) / 1000.0
-        keepalive_interval = float(config.tunnel_keepalive_interval)
-        if keepalive_interval <= 0:
-            keepalive_interval = 1.0
-        keepalive_target = int(rto_sec / keepalive_interval)
-        if keepalive_target < 1:
-            keepalive_target = 1
-        self._retransmit_guard_keepalive_target = max(
-            2,
-            keepalive_target + 1,
-        )
-
         # Calculate MTUs
         send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
             'dns', config, role='client'
@@ -262,20 +248,8 @@ class DnsClient(Transport):
     def notify_recv_window_sack(self, sack):
         if sack:
             self._recv_window_sack = sack
-            self._retransmit_guard = True
-            self._retransmit_guard_keepalives = 0
-            return
-        self._recv_window_sack = 0
-        if self._last_poll_hint:
-            self._retransmit_guard = True
-            self._retransmit_guard_keepalives = 0
-            return
-        if not self._retransmit_guard:
-            return
-        self._retransmit_guard_keepalives += 1
-        if (self._retransmit_guard_keepalives >=
-                self._retransmit_guard_keepalive_target):
-            self._retransmit_guard = False
+        else:
+            self._recv_window_sack = 0
 
     def _send_impl(self, data, permit):
         """
@@ -506,7 +480,7 @@ class DnsClient(Transport):
         return (corr_id, payload)
 
     def _update_bob_data_from_payload(self, payload):
-        self._last_poll_hint = False
+        self._retransmit_guard = False
         if not payload:
             return
         try:
@@ -539,7 +513,7 @@ class DnsClient(Transport):
             )
             return
         poll_hint = bool(flags & FLAG_POLL_HINT)
-        self._last_poll_hint = poll_hint
+        self._retransmit_guard = poll_hint
         if has_segments:
             self._update_bob_data_state(True)
             return
@@ -593,25 +567,18 @@ class DnsClient(Transport):
     def _select_payload_cap(self):
         if self._response_cap_lookup is None:
             return None
-        mode = self._select_clamp_mode()
-        if mode == 'balanced' and self._balanced_query_payload is None:
+        mode = 'disabled'
+        target = None
+        query_payload = None
+        if self._retransmit_guard:
             mode = 'response_max'
-        if mode == 'response_max':
             target = self._max_response_payload_cap
-        elif mode == 'balanced':
-            target = self._balanced_query_payload
-        else:
-            target = self._min_response_packet_mtu
-        query_payload = self._query_payload_for_target(target)
-        if query_payload is None:
-            return None
-        if mode == 'balanced' and self._balanced_query_payload is not None:
-            if query_payload > self._balanced_query_payload:
-                query_payload = self._balanced_query_payload
-        if query_payload > self._send_packet_mtu:
-            query_payload = self._send_packet_mtu
-        if query_payload < self._min_query_packet_mtu:
-            query_payload = self._min_query_packet_mtu
+            query_payload = self._query_payload_for_target(target)
+            if query_payload is not None:
+                if query_payload > self._send_packet_mtu:
+                    query_payload = self._send_packet_mtu
+                if query_payload < self._min_query_packet_mtu:
+                    query_payload = self._min_query_packet_mtu
         log_event(
             _LOG,
             logging.DEBUG,
@@ -628,16 +595,6 @@ class DnsClient(Transport):
             },
         )
         return query_payload
-
-    def _select_clamp_mode(self):
-        if self._retransmit_guard:
-            return 'response_max'
-        bob_has_data = self._bob_has_data_remaining > 0
-        if self._alice_has_data_pending and bob_has_data:
-            return 'balanced'
-        if bob_has_data:
-            return 'response_max'
-        return 'alice_max'
 
     def _query_payload_for_target(self, target_response_payload):
         if target_response_payload is None:

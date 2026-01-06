@@ -91,8 +91,8 @@
      response caps on DNS responders and rely on MTU/DNS sizing elsewhere.
 7) Update documentation:
    - DNS_TRANSPORT: describe adaptive clamp behavior and response-cap rules.
-   - PROTOCOL/TRANSPORTS: remove payload_cap references and clarify MTU-only
-     enforcement.
+   - PROTOCOL/TRANSPORTS: only update if new clamp behavior is documented or
+     payload_cap references are added elsewhere.
    - BOB_RETRANSMIT_LOGIC and UDP_EPHEMERAL_TRANSPORT: remove payload_cap
      references tied to the old interface.
 8) Update tests (non-e2e):

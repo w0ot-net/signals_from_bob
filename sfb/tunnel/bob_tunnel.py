@@ -80,6 +80,16 @@ class BobTunnel(BaseTunnel):
         self._handshake_complete = False
         self._serve_forever_active = False
 
+    def _recv_and_dispatch(self, timeout, check_idle):
+        result = self._transport.recv(timeout=timeout)
+        if result is None or result[0] is None:
+            if check_idle and self._check_idle_timeout():
+                return False
+            return True
+        data, responder = result
+        self.handle_request(data, responder)
+        return True
+
     def serve_forever(self):
         """
         Serve requests until closed or idle timeout.
@@ -104,15 +114,11 @@ class BobTunnel(BaseTunnel):
         try:
             while self._state != TunnelState.CLOSED:
                 try:
-                    result = self._transport.recv(timeout=self._config.tunnel_bob_poll_interval)
-                    if result is None or result[0] is None:
-                        # Timeout - check idle
-                        if self._check_idle_timeout():
-                            break
-                        continue
-
-                    data, responder = result
-                    self.handle_request(data, responder)
+                    if not self._recv_and_dispatch(
+                        self._config.tunnel_bob_poll_interval,
+                        check_idle=True,
+                    ):
+                        break
 
                 except Exception as e:
                     # Suppress socket errors during shutdown
@@ -148,11 +154,10 @@ class BobTunnel(BaseTunnel):
         """Background thread loop - processes requests until stopped."""
         while not self._bg_stop and self._state != TunnelState.CLOSED:
             try:
-                result = self._transport.recv(timeout=self._config.tunnel_bob_poll_interval_bg)
-                if result is None or result[0] is None:
-                    continue
-                data, responder = result
-                self.handle_request(data, responder)
+                self._recv_and_dispatch(
+                    self._config.tunnel_bob_poll_interval_bg,
+                    check_idle=False,
+                )
             except Exception as e:
                 if not self._bg_stop:
                     log_event(
@@ -187,9 +192,7 @@ class BobTunnel(BaseTunnel):
         self._bytes_received += len(data)
 
         # Handle based on state
-        if self._state == TunnelState.DISCONNECTED:
-            self._handle_handshake(packet, responder, now, packet_size=packet_size)
-        elif self._state == TunnelState.CONNECTING:
+        if self._state in (TunnelState.DISCONNECTED, TunnelState.CONNECTING):
             self._handle_handshake(packet, responder, now, packet_size=packet_size)
         elif self._state == TunnelState.CONNECTED:
             self._handle_data(packet, responder, now, packet_size=packet_size)
@@ -286,6 +289,39 @@ class BobTunnel(BaseTunnel):
         # Send response
         self._send_response(responder, now)
 
+    def _send_response_packet(self, responder, packet, response_data,
+                              response_context, packet_send_context,
+                              now=None, encrypted_body=None, segments=None,
+                              record_send=False,
+                              log_response_cap_first=False):
+        if record_send:
+            if segments is None:
+                segments = []
+            self._send_window.send(
+                segments,
+                flags=packet.flags,
+                encrypted_body=encrypted_body,
+                now=now,
+            )
+        if log_response_cap_first:
+            self._log_response_cap(responder, response_data)
+        self._packets_sent += 1
+        self._bytes_sent += len(response_data)
+        if not log_response_cap_first:
+            self._log_response_cap(responder, response_data)
+        self._respond(responder, response_data, response_context, packet)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.packet_send',
+            'Packet sent',
+            lambda: self._packet_send_fields(
+                packet,
+                len(response_data),
+                packet_send_context,
+            ),
+        )
+
     def _send_retransmit_response(self, responder, response_payload_cap, now,
                                   seq, segments, flags, encrypted_body,
                                   context='retransmit', reason=None):
@@ -362,21 +398,13 @@ class BobTunnel(BaseTunnel):
             'Retransmitting packet',
             build_fields,
         )
-        self._log_response_cap(responder, response_data)
-
-        self._packets_sent += 1
-        self._bytes_sent += len(response_data)
-        self._respond(responder, response_data, context, packet)
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.packet_send',
-            'Packet sent',
-            lambda: self._packet_send_fields(
-                packet,
-                len(response_data),
-                'retransmit',
-            ),
+        self._send_response_packet(
+            responder,
+            packet,
+            response_data,
+            context,
+            'retransmit',
+            log_response_cap_first=True,
         )
         self._log_reliability_state(
             logging.DEBUG,
@@ -397,26 +425,16 @@ class BobTunnel(BaseTunnel):
             segments=[],
         )
         encrypted_body, response_data = self._encode_packet_for_send(packet)
-        self._send_window.send(
-            [],
-            flags=packet.flags,
-            encrypted_body=encrypted_body,
+        self._send_response_packet(
+            responder,
+            packet,
+            response_data,
+            'keepalive',
+            'keepalive',
             now=now,
-        )
-        self._packets_sent += 1
-        self._bytes_sent += len(response_data)
-        self._log_response_cap(responder, response_data)
-        self._respond(responder, response_data, 'keepalive', packet)
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.packet_send',
-            'Packet sent',
-            lambda: self._packet_send_fields(
-                packet,
-                len(response_data),
-                'keepalive',
-            ),
+            encrypted_body=encrypted_body,
+            segments=[],
+            record_send=True,
         )
 
     def _send_segments_response(self, responder, now, segments):
@@ -425,26 +443,16 @@ class BobTunnel(BaseTunnel):
             segments=segments,
         )
         encrypted_body, response_data = self._encode_packet_for_send(packet)
-        self._send_window.send(
-            segments,
-            flags=packet.flags,
-            encrypted_body=encrypted_body,
+        self._send_response_packet(
+            responder,
+            packet,
+            response_data,
+            'segments',
+            'segments',
             now=now,
-        )
-        self._packets_sent += 1
-        self._bytes_sent += len(response_data)
-        self._log_response_cap(responder, response_data)
-        self._respond(responder, response_data, 'segments', packet)
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.packet_send',
-            'Packet sent',
-            lambda: self._packet_send_fields(
-                packet,
-                len(response_data),
-                'segments',
-            ),
+            encrypted_body=encrypted_body,
+            segments=segments,
+            record_send=True,
         )
 
     def _select_response_action(self, now, response_payload_cap):

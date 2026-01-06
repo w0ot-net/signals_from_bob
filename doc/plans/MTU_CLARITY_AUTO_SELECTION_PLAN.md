@@ -61,7 +61,9 @@
    - Provide a function that returns send_packet_mtu/recv_packet_mtu (packet
      bytes), min_packet_mtu, and a dict of constraint details for logging.
    - DNS/TLS/TLS bump use existing codec math; ICMP/UDP clamp to
-     min(protocol_max_packet_mtu, configured_cap).
+     configured_cap (safe default caps).
+   - protocol_max_packet_mtu remains a buffer-sizing setting only, not a
+     transport MTU cap.
    - TLS bump send_packet_mtu clamps to
      min(sni_payload_cap, clienthello_record_cap), where
      clienthello_record_cap is derived from tls_bump_max_clienthello_bytes.

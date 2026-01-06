@@ -51,12 +51,16 @@
    - ICMP/UDP: document the safe default cap (1350) and that larger values
      increase fragmentation risk on the public Internet.
    - TLS ClientHello: document record-size caps and computed payload sizes.
-   - TLS bump: document SNI/CN payload caps derived from base domain/CN length.
+   - TLS bump: document SNI/CN payload caps and the ClientHello record-size
+     cap (tls_bump_max_clienthello_bytes) that bounds Alice->Bob MTU.
 3) Implement shared MTU resolution in sfb/transport/mtu_limits.py:
    - Provide a function that returns send_packet_mtu/recv_packet_mtu (packet
      bytes), min_packet_mtu, and a dict of constraint details for logging.
    - DNS/TLS/TLS bump use existing codec math; ICMP/UDP clamp to
      min(protocol_max_packet_mtu, configured_cap).
+   - TLS bump send_packet_mtu clamps to
+     min(sni_payload_cap, clienthello_record_cap), where
+     clienthello_record_cap is derived from tls_bump_max_clienthello_bytes.
    - DNS helper returns base query/response packet MTUs; per-query CNAME
      payload caps remain request-specific.
    - Keep asymmetric results where the transport supports it (DNS, TLS, bump).
@@ -66,10 +70,11 @@
      responder.payload_cap to the per-query cap (optionally min'd with the
      base MTU).
    - Log a single transport.mtu_limits event at init with computed values and
-     constraint inputs (base_domain length, edns_size, caps).
+     constraint inputs (base_domain length, edns_size, caps, tls_bump_max_clienthello_bytes).
 5) Tighten validation and errors:
    - Fail fast if computed send_packet_mtu/recv_packet_mtu < PACKET_HEADER_SIZE + 1, with
-     transport-specific error messages (e.g., DNS base_domain too long).
+     transport-specific error messages (e.g., DNS base_domain too long, TLS bump
+     max ClientHello bytes too small).
    - Keep existing DNS/TLS validation and surface clearer MTU-related errors.
 6) Default-safe caps and override behavior:
    - Treat icmp_packet_mtu and udp_ephemeral_packet_mtu as caps; defaults

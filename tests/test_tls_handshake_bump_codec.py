@@ -186,11 +186,62 @@ class TlsHandshakeBumpCodecTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             codec.decode_sni_name(sni, 'other.com')
 
+    def test_sni_base_domain_non_text(self):
+        with self.assertRaises(ValueError):
+            codec.encode_sni_name(b'ping', b'example.com')
+
+    def test_sni_base_domain_non_ascii(self):
+        with self.assertRaises(ValueError):
+            codec.encode_sni_name(b'ping', u'exampl\u00e9.com')
+
+    def test_sni_base_domain_empty(self):
+        with self.assertRaises(ValueError):
+            codec.encode_sni_name(b'ping', '')
+
+    def test_sni_base_domain_invalid_label(self):
+        with self.assertRaises(ValueError):
+            codec.encode_sni_name(b'ping', 'example..com')
+
+    def test_sni_base_domain_label_too_long(self):
+        label = 'a' * (codec.MAX_LABEL_LEN + 1)
+        with self.assertRaises(ValueError):
+            codec.encode_sni_name(b'ping', label + '.com')
+
+    def test_sni_base_domain_name_too_long(self):
+        label = 'a' * codec.MAX_LABEL_LEN
+        base_domain = '.'.join([label] * 4)
+        with self.assertRaises(ValueError):
+            codec.encode_sni_name(b'ping', base_domain)
+
+    def test_sni_payload_missing_exact_domain(self):
+        with self.assertRaises(ValueError):
+            codec.decode_sni_name('example.com', 'example.com')
+
+    def test_sni_payload_missing_empty_prefix(self):
+        with self.assertRaises(ValueError):
+            codec.decode_sni_name('.example.com', 'example.com')
+
+    def test_sni_payload_missing_trailing_dot_prefix(self):
+        with self.assertRaises(ValueError):
+            codec.decode_sni_name('a..example.com', 'example.com')
+
+    def test_sni_name_non_text(self):
+        with self.assertRaises(TypeError):
+            codec.decode_sni_name(b'abc.example.com', 'example.com')
+
+    def test_sni_name_non_ascii(self):
+        with self.assertRaises(ValueError):
+            codec.decode_sni_name(u'exampl\u00e9.example.com', 'example.com')
+
     def test_cn_roundtrip(self):
         payload = b'pong'
         cn = codec.encode_cn_value(payload, max_len=128)
         decoded = codec.decode_cn_value(cn)
         self.assertEqual(decoded, payload)
+
+    def test_cn_decode_non_text(self):
+        with self.assertRaises(TypeError):
+            codec.decode_cn_value(b'abcd')
 
     def test_cn_padded_roundtrip(self):
         payload = b'pong'

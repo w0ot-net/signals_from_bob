@@ -35,6 +35,10 @@ serve as an implicit poll hint.
   - `FLAG_POLL` (bit 4 / 0x10): packet contains zero segments and indicates
     "poll again soon" (pending data or suppressed keepalive).
 - Keep `FLAG_KEEPALIVE` as the explicit idle keepalive indicator.
+- Alice response classification must be explicit:
+  - `HAS_SEGMENTS`: `_got_data = True`, `_last_was_pong_only = False`.
+  - `POLL`: `_got_data = False`, `_last_was_pong_only = False` (not idle, not data).
+  - `KEEPALIVE`: `_got_data = False`, `_last_was_pong_only = True`.
 - Content flag rules (non-handshake packets, any state):
   - Exactly one of `{HAS_SEGMENTS, POLL, KEEPALIVE}` must be set.
   - `HAS_SEGMENTS` requires at least one segment.
@@ -64,7 +68,8 @@ serve as an implicit poll hint.
      empty packets due to pending data, and `KEEPALIVE` when idle.
 5. Update receive paths:
    - Alice: treat `POLL` as a "not idle" response (immediate poll behavior),
-     and treat `KEEPALIVE` as idle.
+     treat `KEEPALIVE` as idle, and map `_got_data`/`_last_was_pong_only`
+     explicitly for `HAS_SEGMENTS`/`POLL`/`KEEPALIVE`.
    - Bob: continue to ignore keepalive segments as today, but validate content
      flags for protocol correctness.
 6. Update documentation to describe the new flags, the content-flag rules, and

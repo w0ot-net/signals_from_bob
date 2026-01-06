@@ -68,6 +68,9 @@
 3) Implement shared MTU resolution in sfb/transport/mtu_limits.py:
    - Provide a function that returns send_packet_mtu/recv_packet_mtu (packet
      bytes), min_packet_mtu, and a dict of constraint details for logging.
+   - Accept an explicit role (client/server) and map directional MTUs per
+     transport so DNS/TLS handshake return the correct send/recv values for
+     Alice vs Bob.
    - DNS/TLS/TLS bump use existing codec math; ICMP/UDP clamp to
      configured_cap (safe default caps).
    - protocol_max_packet_mtu remains a buffer-sizing setting only, not a

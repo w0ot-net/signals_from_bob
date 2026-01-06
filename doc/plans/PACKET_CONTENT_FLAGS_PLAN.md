@@ -55,6 +55,8 @@ serve as an implicit poll hint.
   the intent explicit.
 - Update log context strings and the protocol module example to emit
   `HAS_SEGMENTS`/`POLL`/`KEEPALIVE` explicitly instead of "ack_only".
+- Update `doc/ARCHITECTURE.md` and `doc/DNS_TRANSPORT.md` to remove the old
+  keepalive-only/ack-only split and describe `POLL`/`KEEPALIVE` explicitly.
 - Other possible flags considered (RESET/FIN, CONTROL_ONLY) are deferred to
   separate work to keep this change focused on empty-packet clarity.
 

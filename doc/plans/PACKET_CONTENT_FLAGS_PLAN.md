@@ -44,10 +44,13 @@ serve as an implicit poll hint.
     and `WANTS_POLL` must still trigger an immediate poll via a dedicated hint
     (do not rely on `_got_data`).
   - `KEEPALIVE`: `_got_data = False`, `_last_was_pong_only = True`.
-- Content flag rules (non-handshake packets, any state):
+- Content flag rules (non-handshake packets after handshake):
   - Exactly one of `{HAS_SEGMENTS, WANTS_POLL, KEEPALIVE}` must be set.
   - `HAS_SEGMENTS` requires at least one segment.
   - `WANTS_POLL` and `KEEPALIVE` require zero segments.
+  - Apply only in post-ACK states (HANDSHAKE_ACKED/CONNECTED); CONNECTING accepts
+    only SYN/SYN+ACK/ACK and rejects non-handshake packets before content flags
+    are validated.
 - RTT sampling treats `WANTS_POLL` like `KEEPALIVE` (no RTT samples or backoff
   reset for WANTS_POLL-only packets). Gate RTT sampling off the response flags
   by passing a `sample_rtt` hint into send-window ACK processing.
@@ -68,6 +71,8 @@ serve as an implicit poll hint.
   - Late SYN/SYN+ACK after handshake (HANDSHAKE_ACKED or CONNECTED) should be
     treated as stale/duplicate and ignored (or answered with a normal ACK),
     not as a protocol violation that closes the tunnel.
+  - Content-flag validation must allow handshake packets to pass through so
+    late SYN/SYN+ACK handling can apply without triggering a violation.
 - Replace "ack-only" terminology in docs/logs with "poll hint" (`WANTS_POLL`) to make
   the intent explicit.
 - Update log context strings and the protocol module example to emit
@@ -96,8 +101,10 @@ serve as an implicit poll hint.
    - Add `wants_poll_unacked` (and `oldest_wants_poll`) in `debug_state()` and
      `distance_details()` so `WANTS_POLL` is not lumped into `empty_unacked`.
 5. Replace `_validate_keepalive_packet()` in `sfb/tunnel/base_tunnel.py` with
-   content-flag validation that enforces the rules above (including CONNECTING
-   rejection of non-handshake packets).
+   state-aware content-flag validation: allow handshake packets to bypass
+   content-flag checks; reject non-handshake packets while CONNECTING; enforce
+   the content-flag rules in HANDSHAKE_ACKED/CONNECTED without treating late
+   SYN/SYN+ACK as a protocol violation.
 6. Update send paths:
    - Alice: set `HAS_SEGMENTS` when sending segments, `KEEPALIVE` on idle polls,
      and no content flags during handshake.

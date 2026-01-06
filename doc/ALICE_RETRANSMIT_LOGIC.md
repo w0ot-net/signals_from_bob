@@ -97,6 +97,9 @@ whose `now - send_time >= rto_sec`. Details:
 - Includes keepalive-only packets and control-only packets (no segment filter).
 - Retransmit scanning is skipped if responses arrived within the current RTO
   window (`ack_silence < rto_sec` based on the last cumulative ACK time).
+  - Exception: when the send window distance is exceeded and the missing
+    cumulative-ACK packet is older than `rto_sec`, Alice sends a targeted RTO
+    retransmit for that missing seq even if `ack_silence < rto_sec`.
 
 ### Sending
 

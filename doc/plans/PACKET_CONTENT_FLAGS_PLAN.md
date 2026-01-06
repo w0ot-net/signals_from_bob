@@ -26,6 +26,8 @@ serve as an implicit poll hint.
 - doc/RELIABILITY.md
 - doc/ALICE_RETRANSMIT_LOGIC.md
 - doc/BOB_RETRANSMIT_LOGIC.md
+- doc/ARCHITECTURE.md
+- doc/DNS_TRANSPORT.md
 - tests/test_tunnel.py
 
 ## Design Notes
@@ -58,8 +60,9 @@ serve as an implicit poll hint.
 
 ## Implementation Steps
 
-1. Define new flags in `sfb/protocol/constants.py` and update
-   `PacketHeader._VALID_FLAGS` in `sfb/protocol/packet.py`.
+1. Define new flags in `sfb/protocol/constants.py`, update
+   `PacketHeader._VALID_FLAGS` in `sfb/protocol/packet.py`, and re-export the
+   new flags in `sfb/protocol/__init__.py` (`imports` + `__all__`).
 2. Extend `PacketHeader`/`Packet` helpers and repr output to surface the new
    flags in logs and debugging.
 3. Replace `_validate_keepalive_packet()` in `sfb/tunnel/base_tunnel.py` with
@@ -82,7 +85,8 @@ serve as an implicit poll hint.
    - Bob: continue to ignore keepalive segments as today, but validate content
      flags for protocol correctness.
 7. Update documentation to describe the new flags, the content-flag rules, and
-   the explicit "poll hint" semantics.
+   the explicit "poll hint" semantics, including a sweep to replace ack-only
+   wording in `doc/ARCHITECTURE.md` and `doc/DNS_TRANSPORT.md`.
 8. Add unit tests that validate:
    - content-flag/segment mismatch is a protocol violation,
    - handshake packets reject content flags,

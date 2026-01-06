@@ -313,17 +313,22 @@ Constraints:
 
 ## MTU Handling
 
-The tunnel enforces a symmetric MTU by clamping to the minimum of
-`transport.send_mtu` and `transport.recv_mtu` on each side:
+The tunnel negotiates per-direction payload MTUs. Each side proposes its
+transport send and recv limits, and the negotiation clamps each direction
+independently. The result is two payload MTUs:
 
-| Direction | Property | DNS Typical Value |
-|-----------|----------|-------------------|
-| Alice → Bob | `min(send_mtu, recv_mtu)` | ~138 bytes |
-| Bob → Alice | `min(send_mtu, recv_mtu)` | ~138 bytes |
+- `send_mtu`: max payload bytes this side may send.
+- `recv_mtu`: max payload bytes this side will accept.
 
-The tunnel passes the resulting payload MTU to
-`channel_manager.collect_segments(max_payload)` to ensure segments fit within
-transport limits. The packet header (38 bytes) must also be accounted for.
+| Direction | Payload MTU Used |
+|-----------|------------------|
+| Alice -> Bob | Alice send_mtu (Bob recv_mtu) |
+| Bob -> Alice | Bob send_mtu (Alice recv_mtu) |
+
+The tunnel passes `send_mtu` to `channel_manager.collect_segments(max_payload)`
+for outbound packets. Inbound packets are validated against `recv_mtu`
+(`max_packet_size = recv_mtu + PACKET_HEADER_SIZE`). The packet header (38
+bytes) is added on the wire.
 
 ---
 

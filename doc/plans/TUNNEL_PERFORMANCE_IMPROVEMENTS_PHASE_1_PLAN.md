@@ -19,4 +19,4 @@
 2) Preserve _unacked insertion order (cumulative ACK scanning assumes send order with wrap-aware comparisons). Track oldest-by-send-time separately (min-heap or cached pointer) without reordering _unacked. Invalidate cached/heap entries on retransmit/ack/drop (including Bob's opportunistic retransmits), and use lazy validation; fall back to a scan only when the cache is stale.
 
 ## Performance/Complexity Proposals
-- Use a min-heap with lazy deletion to keep oldest-unacked selection near O(log n) without reordering _unacked (avoid wrap-related cumulative ACK regressions).
+- Use a min-heap with lazy deletion to keep oldest-unacked selection near O(log n) without reordering _unacked (avoid wrap-related cumulative ACK regressions). Prefer this over a cached pointer so we avoid repeated O(n) scans when retransmitting the oldest in tight poll loops.

@@ -295,9 +295,10 @@ if the maximum response packet size is smaller than the minimum packet needed
 to carry one segment.
 
 Alice selects a per-send query cap based on adaptive clamp mode:
-- response_max while retransmits may be pending (retransmit_guard or
-  recv_window_sack when Bob recently sent data), or when only Bob has real data
-- balanced when both sides have real data (accept lower throughput)
+- response_max while retransmits may be pending (poll hint seen or
+  recv_window_sack != 0), or when only Bob has real data
+- balanced when both sides have real data and no retransmit guard (accept lower
+  throughput)
 - alice_max when Alice has real data and Bob does not, or when neither has data
 
 "Real data" means:
@@ -305,6 +306,8 @@ Alice selects a per-send query cap based on adaptive clamp mode:
 - Bob: response header flags indicate HAS_SEGMENTS or POLL_HINT; Alice cannot
   inspect encrypted segments, so any HAS_SEGMENTS is treated as data for clamp
   decisions.
+Retransmit guard clears after a short run of responses without POLL_HINT and
+with recv_window_sack == 0.
 The chosen packet cap is attached to the send permit and applied at packet
 build time, so segments are sized before encoding the DNS query. Bob still
 enforces the per-request response cap for each response and retransmit.

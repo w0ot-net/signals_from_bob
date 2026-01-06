@@ -90,6 +90,7 @@ class DnsClient(Transport):
         self._retransmit_guard = False
         self._retransmit_guard_keepalives = 0
         self._recv_window_sack = 0
+        self._last_poll_hint = False
 
         # Parse resolver address or use system resolver
         resolver = config.dns_resolver
@@ -263,8 +264,18 @@ class DnsClient(Transport):
             self._recv_window_sack = sack
             self._retransmit_guard = True
             self._retransmit_guard_keepalives = 0
-        else:
-            self._recv_window_sack = 0
+            return
+        self._recv_window_sack = 0
+        if self._last_poll_hint:
+            self._retransmit_guard = True
+            self._retransmit_guard_keepalives = 0
+            return
+        if not self._retransmit_guard:
+            return
+        self._retransmit_guard_keepalives += 1
+        if (self._retransmit_guard_keepalives >=
+                self._retransmit_guard_keepalive_target):
+            self._retransmit_guard = False
 
     def _send_impl(self, data, permit):
         """
@@ -495,6 +506,7 @@ class DnsClient(Transport):
         return (corr_id, payload)
 
     def _update_bob_data_from_payload(self, payload):
+        self._last_poll_hint = False
         if not payload:
             return
         try:
@@ -510,25 +522,28 @@ class DnsClient(Transport):
                 flags=flags,
             )
             return
-        content_flags = flags & (FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS)
-        if content_flags == 0:
+        has_keepalive = bool(flags & FLAG_KEEPALIVE)
+        has_segments = bool(flags & FLAG_HAS_SEGMENTS)
+        if not has_keepalive and not has_segments:
             self._log_clamp_header_skip(
                 'missing_content_flags',
                 payload,
                 flags=flags,
             )
             return
-        if content_flags == (FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS):
+        if has_keepalive and has_segments:
             self._log_clamp_header_skip(
                 'multiple_content_flags',
                 payload,
                 flags=flags,
             )
             return
-        if content_flags == FLAG_HAS_SEGMENTS:
+        poll_hint = bool(flags & FLAG_POLL_HINT)
+        self._last_poll_hint = poll_hint
+        if has_segments:
             self._update_bob_data_state(True)
             return
-        if flags & FLAG_POLL_HINT:
+        if poll_hint:
             self._update_bob_data_state(True)
             return
         self._update_bob_data_state(False)
@@ -637,22 +652,9 @@ class DnsClient(Transport):
     def _update_bob_data_state(self, has_data):
         if has_data:
             self._bob_has_data_remaining = self._bob_has_data_polls
-            self._retransmit_guard = True
-            self._retransmit_guard_keepalives = 0
             return
-        bob_has_data_remaining = self._bob_has_data_remaining
-        if bob_has_data_remaining > 0:
+        if self._bob_has_data_remaining > 0:
             self._bob_has_data_remaining -= 1
-            self._retransmit_guard = True
-        if self._recv_window_sack and bob_has_data_remaining > 0:
-            self._retransmit_guard = True
-            self._retransmit_guard_keepalives = 0
-            return
-        self._retransmit_guard_keepalives += 1
-        if (self._bob_has_data_remaining <= 0 and
-                self._retransmit_guard_keepalives >=
-                self._retransmit_guard_keepalive_target):
-            self._retransmit_guard = False
 
     def _init_response_caps(self):
         if self._send_packet_mtu < self._min_query_packet_mtu:

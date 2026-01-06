@@ -217,12 +217,22 @@ class Transport(with_metaclass(TransportMeta, object)):
         """
         return None
 
-    def notify_send_pending(self, has_pending_data):
+    def notify_send_pending(self, has_data):
         """
         Optional hint about Alice's pending data state.
 
         Args:
-            has_pending_data: bool indicating queued data for this send attempt
+            has_data: bool indicating queued non-control data for this send
+                      attempt
+        """
+        return None
+
+    def notify_peer_data(self, has_data):
+        """
+        Optional hint about peer data state.
+
+        Args:
+            has_data: bool indicating peer sent non-control data
         """
         return None
 

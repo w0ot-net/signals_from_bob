@@ -288,9 +288,14 @@ if the maximum response packet size is smaller than the minimum packet needed
 to carry one segment.
 
 Alice selects a per-send query cap based on adaptive clamp mode:
-- response_max while retransmits may be pending (maximize Bob's response size)
-- balanced when both sides have data
-- idle when Bob has no data (keep response slots small)
+- response_max while retransmits may be pending (retransmit_guard or
+  recv_window_sack), or when only Bob has real data
+- balanced when both sides have real data (accept lower throughput)
+- alice_max when Alice has real data and Bob does not, or when neither has data
+
+"Real data" means:
+- Alice: pending non-control channel data (data channels only)
+- Bob: inbound packets that include at least one non-control segment
 The chosen packet cap is attached to the send permit and applied at packet
 build time, so segments are sized before encoding the DNS query. Bob still
 enforces the per-request response cap for each response and retransmit.

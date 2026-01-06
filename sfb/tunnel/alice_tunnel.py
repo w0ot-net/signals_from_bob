@@ -201,7 +201,7 @@ class AliceTunnel(BaseTunnel):
                 # Send SYN
                 permit = self._reserve_transport_permit(
                     time_provider.now(),
-                    has_pending_data=False,
+                    has_data_pending=False,
                 )
                 if permit is None:
                     time_provider.sleep(min(self._rtt.rto_sec, timeout / 10))
@@ -294,7 +294,7 @@ class AliceTunnel(BaseTunnel):
 
                 permit = self._reserve_transport_permit(
                     time_provider.now(),
-                    has_pending_data=False,
+                    has_data_pending=False,
                 )
                 if permit is None:
                     time_provider.sleep(min(self._rtt.rto_sec, remaining))
@@ -549,9 +549,12 @@ class AliceTunnel(BaseTunnel):
                 if not self._poll_pacing_allows_send(now):
                     pacing_blocked = True
                     break
+                has_data_pending = self._channel_manager.has_pending_data(
+                    mode='data'
+                )
                 permit = self._reserve_transport_permit(
                     now,
-                    has_pending_data=True,
+                    has_data_pending=has_data_pending,
                 )
                 if permit is None:
                     break
@@ -1194,8 +1197,12 @@ class AliceTunnel(BaseTunnel):
         self._rtt.backoff()
         self._backoff_epoch = self._tick_epoch
 
-    def _reserve_transport_permit(self, now, has_pending_data=False):
-        self._transport.notify_send_pending(has_pending_data)
+    def _reserve_transport_permit(self, now, has_data_pending=None):
+        if has_data_pending is None:
+            has_data_pending = self._channel_manager.has_pending_data(
+                mode='data'
+            )
+        self._transport.notify_send_pending(has_data_pending)
         permit = self._transport.reserve_send(now=now)
         if permit is None:
             self._log_transport_blocked()
@@ -1662,10 +1669,7 @@ class AliceTunnel(BaseTunnel):
             return
 
         if permit is None:
-            permit = self._reserve_transport_permit(
-                now,
-                has_pending_data=bool(segments),
-            )
+            permit = self._reserve_transport_permit(now)
             if permit is None:
                 return
 
@@ -1753,7 +1757,6 @@ class AliceTunnel(BaseTunnel):
 
         permit = self._reserve_transport_permit(
             now,
-            has_pending_data=True,
         )
         if permit is None:
             self._reliability_stats.on_retransmit_skip_transport()

@@ -56,3 +56,8 @@
      and the definition of real data.
    - Add a debug log event in dns_client for clamp decisions (mode and
      data flags) to aid troubleshooting.
+
+## Execution Notes
+- Added transport hooks for peer data and data-only send pending hints.
+- Wired Alice/Bob data signals into DNS clamp selection and logging.
+- Updated DNS transport docs; tests not modified per instructions.

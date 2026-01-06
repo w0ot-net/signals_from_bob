@@ -342,8 +342,11 @@ class LossyTransport(Transport):
             return None
         return self._inner.payload_cap_for_send(inner_permit)
 
-    def notify_send_pending(self, has_pending_data):
-        self._inner.notify_send_pending(has_pending_data)
+    def notify_send_pending(self, has_data):
+        self._inner.notify_send_pending(has_data)
+
+    def notify_peer_data(self, has_data):
+        self._inner.notify_peer_data(has_data)
 
     def notify_recv_window_sack(self, sack):
         self._inner.notify_recv_window_sack(sack)

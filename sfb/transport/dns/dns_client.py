@@ -28,12 +28,6 @@ from ...logging_util import get_logger, log_event
 from ...protocol import (
     PACKET_HEADER_SIZE,
     SEGMENT_HEADER_SIZE,
-    PacketHeader,
-    FLAG_ACK,
-    FLAG_HAS_SEGMENTS,
-    FLAG_KEEPALIVE,
-    FLAG_POLL_HINT,
-    FLAG_SYN,
 )
 from ...utils import parse_host_port
 from ... import time_provider
@@ -85,7 +79,7 @@ class DnsClient(Transport):
         )
         self._nonce = random.randint(0, 0xFFFF)
         self._query_id = random.randint(0, 0xFFFF)
-        self._alice_has_pending_data = False
+        self._alice_has_data_pending = False
         self._bob_has_data_polls = 2
         self._bob_has_data_remaining = 0
         self._retransmit_guard = False
@@ -243,8 +237,11 @@ class DnsClient(Transport):
             return data.get('sfb_payload_cap')
         return None
 
-    def notify_send_pending(self, has_pending_data):
-        self._alice_has_pending_data = bool(has_pending_data)
+    def notify_send_pending(self, has_data):
+        self._alice_has_data_pending = bool(has_data)
+
+    def notify_peer_data(self, has_data):
+        self._update_bob_data_state(bool(has_data))
 
     def notify_recv_window_sack(self, sack):
         if sack:
@@ -486,10 +483,6 @@ class DnsClient(Transport):
         self._pending.pop(corr_id)
         del self._dns_to_corr[dns_id]
 
-        bob_has_data = self._classify_bob_data_state(payload)
-        if bob_has_data is not None:
-            self._update_bob_data_state(bob_has_data)
-
         log_event(
             _LOG,
             logging.DEBUG,
@@ -549,15 +542,32 @@ class DnsClient(Transport):
             query_payload = self._send_packet_mtu
         if query_payload < self._min_query_packet_mtu:
             query_payload = self._min_query_packet_mtu
+        log_event(
+            _LOG,
+            logging.DEBUG,
+            'dns.clamp_select',
+            'DNS clamp selected',
+            lambda: {
+                'mode': mode,
+                'alice_has_data': self._alice_has_data_pending,
+                'bob_has_data_remaining': self._bob_has_data_remaining,
+                'retransmit_guard': self._retransmit_guard,
+                'recv_window_sack': self._recv_window_sack,
+                'target_response_payload': target,
+                'query_payload_cap': query_payload,
+            },
+        )
         return query_payload
 
     def _select_clamp_mode(self):
         if self._retransmit_guard:
             return 'response_max'
-        if (self._alice_has_pending_data and
-                self._bob_has_data_remaining > 0):
+        bob_has_data = self._bob_has_data_remaining > 0
+        if self._alice_has_data_pending and bob_has_data:
             return 'balanced'
-        return 'idle'
+        if bob_has_data:
+            return 'response_max'
+        return 'alice_max'
 
     def _query_payload_for_target(self, target_response_payload):
         if target_response_payload is None:
@@ -570,51 +580,6 @@ class DnsClient(Transport):
         if target_response_payload >= len(lookup):
             target_response_payload = len(lookup) - 1
         return lookup[target_response_payload]
-
-    def _classify_bob_data_state(self, payload):
-        if payload is None:
-            return None
-        try:
-            header = PacketHeader.decode(payload)
-        except ValueError as exc:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'dns.bob_data_state_decode_failed',
-                'DNS response header decode failed',
-                lambda: {
-                    'bytes': len(payload),
-                    'error': str(exc),
-                },
-            )
-            return None
-        flags = header.flags
-        if flags & (FLAG_SYN | FLAG_ACK):
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'dns.bob_data_state_skip',
-                'Skipping bob data state update for handshake packet',
-                lambda: {'flags': flags},
-            )
-            return None
-        content_flags = flags & (FLAG_HAS_SEGMENTS | FLAG_KEEPALIVE)
-        if content_flags == FLAG_HAS_SEGMENTS:
-            return True
-        if content_flags == FLAG_KEEPALIVE:
-            return bool(flags & FLAG_POLL_HINT)
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'dns.bob_data_state_skip',
-            'Skipping bob data state update for unusable flags',
-            lambda: {
-                'flags': flags,
-                'content_flags': content_flags,
-                'poll_hint': bool(flags & FLAG_POLL_HINT),
-            },
-        )
-        return None
 
     def _update_bob_data_state(self, has_data):
         if has_data:

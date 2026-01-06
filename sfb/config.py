@@ -188,7 +188,7 @@ class Config:
     # Alice: adaptive pacing enabled
     tunnel_adaptive_pacing_enabled: bool = True
     # Alice: adaptive pacing target inflight ratio
-    tunnel_pace_target_inflight_ratio: float = 2.0
+    tunnel_pace_target_inflight_ratio: float = 1.0
     # Alice: adaptive pacing minimum inflight target
     tunnel_pace_min_inflight: int = 1
     # Alice: adaptive pacing maximum inflight target (None = cap)

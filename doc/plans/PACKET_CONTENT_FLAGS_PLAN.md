@@ -62,7 +62,8 @@ serve as an implicit poll hint.
     - Accept non-handshake packets with valid content flags in this state, but
       still reject SYN/ACK flags.
     - Transition to CONNECTED on the first valid post-ACK response.
-    - Revert to CONNECTING on timeout/failure; do not start negotiation.
+    - On timeout/failure, set DISCONNECTED and raise a handshake timeout so
+      connect() restarts from scratch with a new ISN (no in-place retry).
 - Replace "ack-only" terminology in docs/logs with "poll hint" (`WANTS_POLL`) to make
   the intent explicit.
 - Update log context strings and the protocol module example to emit
@@ -101,8 +102,9 @@ serve as an implicit poll hint.
      `SendWindow.send()` so retransmits preserve `WANTS_POLL` vs `KEEPALIVE`.
 7. Add the post-ACK state for Alice (e.g., `HANDSHAKE_ACKED`) and update the
    handshake flow/validation to use it (enter after final ACK, accept content
-   flags, reject SYN/ACK, transition to CONNECTED on first response, revert to
-   CONNECTING on failure).
+   flags, reject SYN/ACK, transition to CONNECTED on first response, set
+   DISCONNECTED + raise handshake timeout on failure so connect() retries
+   from scratch).
 8. Enforce strict handshake completion:
    - Bob: remove implicit-ACK handling for non-handshake packets while
      CONNECTING.

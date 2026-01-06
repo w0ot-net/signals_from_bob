@@ -199,11 +199,13 @@ Keepalive is a header-only packet with:
 
 Idle poll-only packets use the keepalive flag. Empty responses that mean
 "poll again soon" are not distinct from keepalive. Bob responds with a
-keepalive-flag packet when idle and with queued data when available. The
-response cap is enforced so at least one segment always fits, so there is no
-separate poll-hint flag. If either side has actual data to send, the packet
-itself serves as keepalive—no channel 0 ping/pong messages are sent (legacy
-ping/pong are ignored if received).
+keepalive-flag packet when idle and with queued data when available. If a
+retransmit would exceed the per-request response cap, Bob responds with
+KEEPALIVE + POLL_HINT (no segments) to signal pending data while keeping the
+request/response contract. KEEPALIVE without POLL_HINT is a true idle
+keepalive. If either side has actual data to send, the packet itself serves as
+keepalive—no channel 0 ping/pong messages are sent (legacy ping/pong are
+ignored if received).
 
 For poll/keepalive decisions on Alice, `HAS_SEGMENTS` responses are treated as
 real data and `KEEPALIVE` responses are treated as idle. Keepalive packets
@@ -212,7 +214,8 @@ should not carry segments.
 Keepalive interval is configurable (default: 1.0 second).
 
 Keepalive responses are suppressed when any channel data is queued; queued data
-replaces the keepalive.
+replaces the keepalive unless a retransmit is blocked by the per-request
+response cap, in which case Bob uses KEEPALIVE + POLL_HINT.
 
 ---
 

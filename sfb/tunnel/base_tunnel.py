@@ -34,6 +34,7 @@ from ..protocol import (
     FLAG_ACK,
     FLAG_KEEPALIVE,
     FLAG_HAS_SEGMENTS,
+    FLAG_POLL_HINT,
     PACKET_HEADER_SIZE,
     log_control_segments,
 )
@@ -433,6 +434,7 @@ class BaseTunnel(object):
             'unacked': self._send_window.unacked_count,
             'max_in_flight': self._send_window._max_in_flight,
             'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
+            'poll_hint': bool(packet.flags & FLAG_POLL_HINT),
             'content_flag': content_flag,
             'has_data': bool(packet.segments),
             'side': 'alice' if self._is_initiator else 'bob',
@@ -480,7 +482,12 @@ class BaseTunnel(object):
         flags = packet.flags
         handshake_flags = flags & (FLAG_SYN | FLAG_ACK)
         content_flags = flags & (FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS)
+        poll_hint = bool(flags & FLAG_POLL_HINT)
         if handshake_flags:
+            if poll_hint:
+                return self._close_protocol_violation(
+                    'handshake_with_poll_hint', packet
+                )
             if packet.segments:
                 return self._close_protocol_violation(
                     'handshake_with_segments', packet
@@ -502,6 +509,10 @@ class BaseTunnel(object):
             )
 
         if self._state in (TunnelState.HANDSHAKE_ACKED, TunnelState.CONNECTED):
+            if poll_hint and content_flags == 0:
+                return self._close_protocol_violation(
+                    'poll_hint_without_content_flags', packet
+                )
             if content_flags == 0:
                 return self._close_protocol_violation(
                     'missing_content_flags', packet
@@ -618,6 +629,7 @@ class BaseTunnel(object):
                 'sack': packet.sack,
                 'flags': packet.flags,
                 'content_flag': self._content_flag_label(packet.flags),
+                'poll_hint': bool(packet.flags & FLAG_POLL_HINT),
                 'seg_count': len(packet.segments),
                 'bytes': packet_size
                 if packet_size is not None else packet.encoded_size(),

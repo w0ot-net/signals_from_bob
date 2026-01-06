@@ -19,6 +19,7 @@ from ..protocol import (
     FLAG_ACK,
     FLAG_KEEPALIVE,
     FLAG_HAS_SEGMENTS,
+    FLAG_POLL_HINT,
     PACKET_HEADER_SIZE,
 )
 
@@ -347,9 +348,9 @@ class BobTunnel(BaseTunnel):
             )
             log_event(
                 self._logger,
-                logging.ERROR,
-                'tunnel.retransmit_cap_fatal',
-                'Retransmit exceeds per-request cap; closing',
+                logging.WARNING,
+                'tunnel.retransmit_cap_blocked',
+                'Retransmit exceeds per-request cap; sending poll hint',
                 lambda: {
                     'seq': seq,
                     'bytes': len(response_data),
@@ -357,7 +358,23 @@ class BobTunnel(BaseTunnel):
                     'side': 'bob',
                 },
             )
-            self.close()
+            if not self._send_window.can_send:
+                dropped_seq = self._send_window.drop_oldest_keepalive(
+                    reason='poll_hint_window_full', now=now
+                )
+                if dropped_seq is not None:
+                    self._log_reliability_state(
+                        logging.DEBUG,
+                        'tunnel.reliability_state',
+                        'Reliability state after keepalive drop',
+                        now=now,
+                        extra_fields={
+                            'context': 'poll_hint_keepalive',
+                            'reason': 'window_full',
+                            'seq': dropped_seq,
+                        },
+                    )
+            self._send_keepalive_response(responder, now, poll_hint=True)
             return False
         prev_info = self._send_window.get_unacked_info(seq)
         prev_retransmit_count = None
@@ -419,23 +436,44 @@ class BobTunnel(BaseTunnel):
         )
         return True
 
-    def _send_keepalive_response(self, responder, now):
+    def _send_keepalive_response(self, responder, now, poll_hint=False):
+        flags = FLAG_KEEPALIVE
+        if poll_hint:
+            flags |= FLAG_POLL_HINT
         packet, _ = self._build_packet(
-            flags=FLAG_KEEPALIVE,
+            flags=flags,
             segments=[],
         )
         encrypted_body, response_data = self._encode_packet_for_send(packet)
-        self._send_response_packet(
-            responder,
-            packet,
-            response_data,
-            'keepalive',
-            'keepalive',
-            now=now,
-            encrypted_body=encrypted_body,
-            segments=[],
-            record_send=True,
-        )
+        try:
+            self._send_response_packet(
+                responder,
+                packet,
+                response_data,
+                'keepalive',
+                'keepalive',
+                now=now,
+                encrypted_body=encrypted_body,
+                segments=[],
+                record_send=True,
+            )
+        except ValueError as exc:
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.send_blocked',
+                'Keepalive send blocked',
+                lambda: {
+                    'reason': 'window_full',
+                    'error': str(exc),
+                    'side': 'bob',
+                    'poll_hint': poll_hint,
+                    'unacked': self._send_window.unacked_count,
+                    'max_in_flight': self._send_window._max_in_flight,
+                },
+            )
+            return False
+        return True
 
     def _send_segments_response(self, responder, now, segments):
         packet, _ = self._build_packet(

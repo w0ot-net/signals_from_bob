@@ -635,10 +635,13 @@ Bob queues outbound packets. When Alice polls:
 4. If data: encode and send
 5. If no channel data is queued: send `KEEPALIVE` (FLAG_KEEPALIVE, zero
    segments)
+6. If a retransmit cannot fit within the per-request response cap: send
+   `KEEPALIVE` + `POLL_HINT` (zero segments) and keep the retransmit queued
 
 The response always contains a valid tunnel packet (with seq/ack headers). When
 no data is queued, the packet carries no segments and sets FLAG_KEEPALIVE. When
-pending data exists, at least one segment fits in the response.
+pending data exists, Bob includes segments if they fit; otherwise he uses a
+KEEPALIVE + POLL_HINT response to keep Alice polling.
 
 ---
 

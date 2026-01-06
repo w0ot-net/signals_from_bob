@@ -1,6 +1,6 @@
 # Poll Hint Flag Plan
 
-Status: draft
+Status: completed
 
 ## Execution Scope (When Asked To Execute This Plan)
 
@@ -100,3 +100,13 @@ Status: draft
 ## Validation
 
 - Run unit tests with python3 (exclude tests/e2e/).
+
+## Execution Notes (20260106)
+
+- Implemented FLAG_POLL_HINT constants, validation, and packet logging fields.
+- Updated Bob retransmit-cap handling to send KEEPALIVE + POLL_HINT and emit
+  tunnel.retransmit_cap_blocked.
+- Updated protocol/tunnel/DNS docs for the new flag and retransmit-cap behavior.
+- Deferred Alice clamp behavior, DNS clamp-mode changes, and tests per the
+  execution scope and test restrictions.
+- Validation not run (tests not executed).

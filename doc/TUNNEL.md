@@ -171,8 +171,9 @@ skipped for that poll. After that, Bob adds new data from channels.
 
 Over multiple polls, the oldest unacked packet is retried once its cooldown
 expires and ACK progress stalls. This approach prioritizes the oldest data and
-avoids flooding responses with redundant retransmits. If faster recovery is
-needed, Bob can include more than one retransmit per response.
+avoids flooding responses with redundant retransmits. The current implementation
+sends at most one retransmit per response; additional retransmits wait for later
+polls.
 
 The total number of unacked packets remains capped at max_in_flight, so the
 SACK bitmap always covers all outstanding packets.
@@ -312,6 +313,13 @@ Constraints:
 - Duplicate registration raises `ValueError`
 - Module handler exceptions are caught and logged (don't crash tunnel)
 
+### Bob Message Filtering
+
+Bob only accepts control message types in its allowlist. By default this is
+`tun` and `ch`. When a module handler is registered on Bob, explicitly allow
+its type via `allow_message_type()` (or enable the module loader, which also
+allows the `mod` type).
+
 ## MTU Handling
 
 The tunnel negotiates per-direction payload MTUs. Each side proposes its
@@ -443,6 +451,8 @@ tunnel = BobTunnel(
 
 # Register module handlers
 tunnel.register_module('file', file_module.handle_message)
+# Allow file control messages from Alice
+tunnel.allow_message_type('file')
 
 # Set up channel handler (optional)
 def on_channel_request(channel_id):

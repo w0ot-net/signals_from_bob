@@ -299,7 +299,8 @@ Alice only clamps queries when Bob explicitly requests it:
 - otherwise no per-send cap (Alice uses negotiated send_packet_mtu)
 
 Bob should use POLL_HINT when he needs Alice to reduce query size, such as when
-retransmits are blocked by per-request response caps.
+retransmits are blocked by per-request response caps or when pending data
+cannot fit within the current per-request response cap.
 The chosen packet cap is attached to the send permit and applied at packet
 build time, so segments are sized before encoding the DNS query. Bob still
 enforces the per-request response cap for each response and retransmit.

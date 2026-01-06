@@ -622,13 +622,22 @@ class BobTunnel(BaseTunnel):
                 cap_payload = 0
             if cap_payload < max_payload:
                 max_payload = cap_payload
-        segments = self._collect_segments(max_payload)
+        segments, pending_data = self._collect_segments(
+            max_payload,
+            return_pending=True,
+        )
 
         if not segments:
-            decision.update({
-                'action': 'keepalive',
-                'context': 'keepalive',
-            })
+            if pending_data:
+                decision.update({
+                    'action': 'poll_hint',
+                    'context': 'poll_hint',
+                })
+            else:
+                decision.update({
+                    'action': 'keepalive',
+                    'context': 'keepalive',
+                })
             return decision
 
         decision.update({
@@ -788,6 +797,9 @@ class BobTunnel(BaseTunnel):
             return
         if action == 'keepalive':
             self._send_keepalive_response(responder, now)
+            return
+        if action == 'poll_hint':
+            self._send_poll_hint_segment(responder, now, response_payload_cap)
             return
         if action == 'segments':
             self._send_segments_response(

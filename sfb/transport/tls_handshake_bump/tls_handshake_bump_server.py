@@ -10,6 +10,7 @@ import socket
 
 from ..transport_base import Server, TransportError, _get_errno, raise_bind_error
 from ..socket_errors import TEMP_ERRORS
+from ..mtu_limits import resolve_mtu_limits
 from . import tls_handshake_bump_cert as bump_cert
 from . import tls_handshake_bump_codec as codec
 from . import tls_handshake_bump_selector as bump_selector
@@ -68,8 +69,11 @@ class TlsHandshakeBumpServer(Server):
         self._pending_timeout = validated['pending_timeout']
         self._handshake_timeout = validated['handshake_timeout']
         self._max_record_recv = validated['max_clienthello_bytes']
-        self._recv_packet_mtu = validated['sni_payload_cap']
-        self._send_packet_mtu = validated['cn_payload_cap']
+        send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
+            'tls_handshake_bump', config, role='server', validated=validated
+        )
+        self._recv_packet_mtu = recv_mtu
+        self._send_packet_mtu = send_mtu
         self._base_domain = validated['base_domain']
         self._cn_max_len = validated['cn_max_len']
         self._max_in_flight = config.max_in_flight
@@ -88,6 +92,21 @@ class TlsHandshakeBumpServer(Server):
             self._sock = None
             raise_bind_error(exc, self._listen_addr, 'TLS bump')
 
+        mtu_details = {
+            'transport': 'tls_handshake_bump',
+            'role': 'server',
+            'send_packet_mtu': self._send_packet_mtu,
+            'recv_packet_mtu': self._recv_packet_mtu,
+            'min_packet_mtu': min_packet_mtu,
+        }
+        mtu_details.update(mtu_constraints)
+        log_event(
+            _LOG,
+            logging.INFO,
+            'transport.mtu_limits',
+            'Transport MTU limits',
+            lambda: mtu_details,
+        )
         log_event(
             _LOG,
             logging.INFO,

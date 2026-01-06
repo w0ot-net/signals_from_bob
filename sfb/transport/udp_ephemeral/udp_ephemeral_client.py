@@ -16,6 +16,7 @@ from ..transport_base import (
     PendingTracker,
     prune_and_count,
 )
+from ..mtu_limits import resolve_mtu_limits
 from .udp_ephemeral_config import validate_udp_ephemeral_config
 from ...compat import require_bytes_like
 from ...config import Config
@@ -65,8 +66,11 @@ class UdpEphemeralClient(Transport):
 
         validated = validate_udp_ephemeral_config(config, role='client')
         self._config = config
-        self._send_packet_mtu = validated['packet_mtu']
-        self._recv_packet_mtu = validated['packet_mtu']
+        send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
+            'udp_ephemeral', config, role='client'
+        )
+        self._send_packet_mtu = send_mtu
+        self._recv_packet_mtu = recv_mtu
         self._max_in_flight = config.max_in_flight
         self._pending_timeout = validated['pending_timeout']
         self._reuse_minutes = validated['reuse_minutes']
@@ -82,6 +86,21 @@ class UdpEphemeralClient(Transport):
         self._max_port_bind_attempts = 100
         self._recv_bufsize = max(1, self._recv_packet_mtu + 1)
 
+        mtu_details = {
+            'transport': 'udp_ephemeral',
+            'role': 'client',
+            'send_packet_mtu': self._send_packet_mtu,
+            'recv_packet_mtu': self._recv_packet_mtu,
+            'min_packet_mtu': min_packet_mtu,
+        }
+        mtu_details.update(mtu_constraints)
+        log_event(
+            _LOG,
+            logging.INFO,
+            'transport.mtu_limits',
+            'Transport MTU limits',
+            lambda: mtu_details,
+        )
         log_event(
             _LOG,
             logging.INFO,

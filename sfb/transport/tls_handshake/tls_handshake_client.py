@@ -32,6 +32,7 @@ from ..socket_errors import (
     PHASE_REQUEST,
     PHASE_RESPONSE,
 )
+from ..mtu_limits import resolve_mtu_limits
 from . import tls_handshake_codec as codec
 from .tls_handshake_config import validate_tls_config
 from ...utils import parse_host_port
@@ -85,8 +86,11 @@ class TlsClient(Transport):
         self._handshake_timeout = validated['handshake_timeout']
         self._max_record_send = validated['max_clienthello_bytes']
         self._max_record_recv = validated['max_serverhello_bytes']
-        self._send_packet_mtu = validated['client_payload_cap']
-        self._recv_packet_mtu = validated['server_payload_cap']
+        send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
+            'tls_handshake', config, role='client', validated=validated
+        )
+        self._send_packet_mtu = send_mtu
+        self._recv_packet_mtu = recv_mtu
         self._sni = validated['sni']
         self._alpn_list = validated['alpn_list']
         self._clienthello_padding_target = validated['clienthello_padding_target']
@@ -124,6 +128,21 @@ class TlsClient(Transport):
             target_desc = '%s:%d' % (self._target_addr[0], self._target_addr[1])
         else:
             target_desc = '%s:%d' % (self._target_host, self._target_port)
+        mtu_details = {
+            'transport': 'tls_handshake',
+            'role': 'client',
+            'send_packet_mtu': self._send_packet_mtu,
+            'recv_packet_mtu': self._recv_packet_mtu,
+            'min_packet_mtu': min_packet_mtu,
+        }
+        mtu_details.update(mtu_constraints)
+        log_event(
+            _LOG,
+            logging.INFO,
+            'transport.mtu_limits',
+            'Transport MTU limits',
+            lambda: mtu_details,
+        )
         log_event(
             _LOG,
             logging.INFO,

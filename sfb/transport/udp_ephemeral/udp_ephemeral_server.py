@@ -10,6 +10,7 @@ import select
 import socket
 
 from ..transport_base import Server, TransportError, raise_bind_error
+from ..mtu_limits import resolve_mtu_limits
 from .udp_ephemeral_config import validate_udp_ephemeral_config
 from ...compat import require_bytes_like
 from ...config import Config
@@ -30,8 +31,11 @@ class UdpEphemeralServer(Server):
 
         validated = validate_udp_ephemeral_config(config, role='server')
         self._config = config
-        self._recv_packet_mtu = validated['packet_mtu']
-        self._send_packet_mtu = validated['packet_mtu']
+        send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
+            'udp_ephemeral', config, role='server'
+        )
+        self._recv_packet_mtu = recv_mtu
+        self._send_packet_mtu = send_mtu
         self._listen_addr = validated['listen_addr']
         self._recv_bufsize = max(1, self._recv_packet_mtu + 1)
 
@@ -45,6 +49,21 @@ class UdpEphemeralServer(Server):
             self._sock = None
             raise_bind_error(exc, self._listen_addr, 'UDP ephemeral')
 
+        mtu_details = {
+            'transport': 'udp_ephemeral',
+            'role': 'server',
+            'send_packet_mtu': self._send_packet_mtu,
+            'recv_packet_mtu': self._recv_packet_mtu,
+            'min_packet_mtu': min_packet_mtu,
+        }
+        mtu_details.update(mtu_constraints)
+        log_event(
+            _LOG,
+            logging.INFO,
+            'transport.mtu_limits',
+            'Transport MTU limits',
+            lambda: mtu_details,
+        )
         log_event(
             _LOG,
             logging.INFO,

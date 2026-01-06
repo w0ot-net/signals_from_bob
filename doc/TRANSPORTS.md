@@ -17,6 +17,27 @@ and the body may be encrypted depending on the configured cipher.
 
 ---
 
+## MTU Definitions
+
+Transport MTUs are expressed in **packet bytes** (SFB packet bytes before
+transport encoding). A packet is the header plus segments.
+
+- Packet MTU (`packet_mtu`) = max SFB packet bytes before transport encoding.
+- Payload bytes = `packet_mtu - PACKET_HEADER_SIZE` (segment bytes only).
+- Minimum packet MTU = `PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1`
+  (one segment header + 1 byte of payload).
+- Keepalive-only packets are smaller, but MTU definitions are segment-capable.
+
+Transport `send_packet_mtu`/`recv_packet_mtu` are packet bytes. The tunnel
+negotiates payload MTUs via `tun.mtu` control messages; `tun_mtu` values are
+payload bytes, not packet bytes. BaseTunnel converts packet MTUs to payload
+bytes by subtracting `PACKET_HEADER_SIZE`.
+
+Transport on-wire sizes can exceed `packet_mtu` due to protocol overhead
+(DNS, TLS, TLS bump). Each transport doc separates packet MTU from on-wire size.
+
+---
+
 ## Transport Interface
 
 ### Client Side (Alice)
@@ -190,6 +211,23 @@ def tick():
 The in-flight count is bounded by the negotiated tunnel window. Transports
 also cap their pending requests using the configured `max_in_flight`,
 so there is no separate transport-specific limit.
+
+---
+
+## MTU Selection Summary
+
+Auto selection chooses the largest safe MTU per transport and clamps it by
+any configured caps. ICMP/UDP MTU flags are advanced overrides; leave defaults
+in place unless you have a specific path requirement.
+
+| Transport | MTU Basis | Caps / Notes |
+|-----------|-----------|--------------|
+| DNS | Query MTU from `base_domain` and `label_max_len`; response MTU from `cname_suffix`, `label_max_len`, and `dns_edns_size`; per-query CNAME caps apply | `dns_edns_size` is validated to <= 512; larger sizes require config changes |
+| ICMP | IPv4 ICMP payload max, clamped by `icmp_packet_mtu` | Default cap 1350; higher values increase fragmentation risk |
+| UDP Ephemeral | IPv4 UDP payload max, clamped by `udp_ephemeral_packet_mtu` | Default cap 1350; higher values increase fragmentation risk |
+| TLS ClientHello | Payload caps derived from `tls_max_clienthello_bytes` / `tls_max_serverhello_bytes` plus SNI/ALPN/padding overhead | On-wire record includes 5-byte header |
+| TLS Handshake Bump | SNI payload cap from `tls_bump_base_domain`; CN payload cap from cert template CN length (CN_LEN); `tls_bump_max_clienthello_bytes` is receive cap only | Alice sends SNI, Bob responds with CN |
+| In-memory | Fixed `DEFAULT_MAX_PACKET_SIZE` unless overridden | Auto selection not applicable |
 
 ---
 

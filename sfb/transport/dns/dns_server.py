@@ -13,10 +13,11 @@ import socket
 import struct
 
 from ..transport_base import Server, TransportError, raise_bind_error
+from ..mtu_limits import resolve_mtu_limits
 from . import codec
 from ...config import Config
 from ...logging_util import get_logger, log_event
-from ...protocol import PACKET_HEADER_SIZE, SEGMENT_HEADER_SIZE
+from ...protocol.constants import MIN_PACKET_MTU
 from ...utils import parse_host_port
 from ... import time_provider
 
@@ -105,18 +106,12 @@ class DnsServer(Server):
         self._logger = get_logger(__name__)
 
         # Calculate MTUs
-        self._recv_packet_mtu = codec.calc_query_mtu(
-            self._base_domain, self._label_max_len
+        send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
+            'dns', config, role='server'
         )
-        calculated_send_mtu = codec.calc_response_mtu(
-            self._rtype,
-            config.dns_edns_size,
-            self._cname_suffix,
-            self._label_max_len,
-        )
-        self._min_response_packet_mtu = (
-            PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1
-        )
+        self._recv_packet_mtu = recv_mtu
+        calculated_send_mtu = send_mtu
+        self._min_response_packet_mtu = min_packet_mtu
         self._max_response_packet_mtu = None
         if self._rtype == codec.QTYPE_CNAME:
             self._max_response_packet_mtu = (
@@ -152,6 +147,21 @@ class DnsServer(Server):
             self._send_packet_mtu = effective_send_mtu
         else:
             self._send_packet_mtu = calculated_send_mtu
+        mtu_details = {
+            'transport': 'dns',
+            'role': 'server',
+            'send_packet_mtu': self._send_packet_mtu,
+            'recv_packet_mtu': self._recv_packet_mtu,
+            'min_packet_mtu': min_packet_mtu,
+        }
+        mtu_details.update(mtu_constraints)
+        log_event(
+            self._logger,
+            logging.INFO,
+            'transport.mtu_limits',
+            'Transport MTU limits',
+            lambda: mtu_details,
+        )
         log_event(
             self._logger,
             logging.INFO,
@@ -533,7 +543,7 @@ class DnsServer(Server):
 
     def _compute_max_response_packet_mtu(self):
         max_query_payload = self._recv_packet_mtu
-        min_query_payload = PACKET_HEADER_SIZE
+        min_query_payload = MIN_PACKET_MTU
         max_response_payload = 0
         for payload_len in range(min_query_payload, max_query_payload + 1):
             try:

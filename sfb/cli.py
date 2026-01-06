@@ -429,8 +429,8 @@ def add_icmp_common_args(parser, config):
     """Add ICMP arguments shared by client and server."""
     parser.add_argument(
         '--icmp-packet-mtu', type=int, default=config.icmp_packet_mtu,
-        help='Max ICMP packet size in bytes (default: %s)' %
-             config.icmp_packet_mtu
+        help='Max ICMP packet size in bytes (advanced override; leave default '
+             'for auto, default: %s)' % config.icmp_packet_mtu
     )
 
 
@@ -449,8 +449,8 @@ def add_udp_ephemeral_common_args(parser, config):
     parser.add_argument(
         '--udp-ephemeral-packet-mtu', type=int,
         default=config.udp_ephemeral_packet_mtu,
-        help='Max UDP packet size in bytes (default: %s)' %
-             config.udp_ephemeral_packet_mtu
+        help='Max UDP packet size in bytes (advanced override; leave default '
+             'for auto, default: %s)' % config.udp_ephemeral_packet_mtu
     )
 
 

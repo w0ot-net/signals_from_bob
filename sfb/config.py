@@ -57,7 +57,7 @@ class Config:
     # --- ICMP Transport ---
     # Target host/IPv4 for Alice
     icmp_target: Optional[str] = None
-    # Max SFB packet size to send/receive in ICMP payload
+    # ICMP packet MTU cap in packet bytes (advanced override)
     icmp_packet_mtu: int = 1350
     # Timeout before considering an ICMP request stale (seconds)
     icmp_pending_timeout: float = 10.0
@@ -67,7 +67,7 @@ class Config:
     udp_ephemeral_target: Optional[str] = None
     # Listen host:port for Bob (IPv4 only)
     udp_ephemeral_listen_addr: str = "0.0.0.0:53"
-    # Max SFB packet size to send/receive in UDP payload
+    # UDP packet MTU cap in packet bytes (advanced override)
     udp_ephemeral_packet_mtu: int = 1350
     # Timeout before considering a UDP request stale (seconds)
     udp_ephemeral_pending_timeout: float = 5.0
@@ -347,7 +347,7 @@ class Config:
     relay_thread_join_timeout: float = 2.0
 
     # --- Protocol (rarely need changing) ---
-    # Maximum packet size (bytes)
+    # Buffer-sizing maximum packet size (bytes), not a transport MTU cap
     protocol_max_packet_mtu: int = 1450
     # Initial packet MTU before negotiation (bytes)
     protocol_initial_packet_mtu: int = PACKET_HEADER_SIZE + 100

@@ -12,15 +12,19 @@
 └──────────────────────────────────────┘
 ```
 
-Protocol max packet MTU: 1450 bytes (header + segments; configurable per transport).
+Protocol max packet MTU: `protocol_max_packet_mtu` is a buffer-sizing guard
+(header + segments), not a transport MTU cap. Transports compute their own
+packet MTUs based on encoding overhead and configured caps.
+Minimum packet MTU is `PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1` (segment-
+capable). Keepalive-only packets are smaller.
 Pre-negotiation packet MTU defaults to `protocol_initial_packet_mtu`; payload
 bytes are limited to (packet_mtu - PACKET_HEADER_SIZE), which defaults to 100
 bytes, until MTU_OK.
 The header is always added on the wire.
 
 Packet encryption is optional. When enabled, the header is sent in cleartext
-and only the body (segments) is encrypted with the PSK. Transports may impose
-a smaller MTU than the protocol max packet MTU.
+and only the body (segments) is encrypted with the PSK. Transport MTUs are
+per-direction packet bytes; `tun.mtu` values carry payload bytes only.
 RC4 derives a per-packet key from (seq, direction); keystreams repeat if seq
 wraps under a static PSK.
 
@@ -214,7 +218,9 @@ Immediately after handshake, Alice and Bob negotiate payload size for the
    - Yb = min(Y, bob_send_max)
 
 The tun_mtu fields carry payload bytes. The on-wire packet MTU for each
-direction is payload bytes + PACKET_HEADER_SIZE.
+direction is payload bytes + PACKET_HEADER_SIZE. The bob_recv_max and
+bob_send_max values are derived from transport recv_packet_mtu/send_packet_mtu
+by subtracting PACKET_HEADER_SIZE.
 
 Until `mtu_ok` is received, both sides limit packets to
 `protocol_initial_packet_mtu` and payload bytes to
@@ -277,6 +283,8 @@ themselves are well under this limit (header added on the wire).
 
 The negotiated MTU applies to payload bytes (segments only). The on-wire packet
 MTU is payload bytes + PACKET_HEADER_SIZE.
+Transport send_packet_mtu/recv_packet_mtu are packet bytes; BaseTunnel converts
+them to payload bytes by subtracting PACKET_HEADER_SIZE for `tun.mtu`.
 Each transport computes its max based on encoding overhead (e.g., base32 for
 DNS queries, base64 for DNS responses).
 

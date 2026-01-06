@@ -11,6 +11,7 @@ import select
 import socket
 
 from ..transport_base import Server, TransportError
+from ..mtu_limits import resolve_mtu_limits
 from .icmp_packet import ICMP_ECHO_REQUEST, build_echo_reply, parse_icmp_echo
 from ...compat import require_bytes_like
 from ...config import Config
@@ -36,9 +37,27 @@ class IcmpServer(Server):
                                    socket.IPPROTO_ICMP)
         self._sock.setblocking(False)
 
-        self._recv_packet_mtu = config.icmp_packet_mtu
-        self._send_packet_mtu = config.icmp_packet_mtu
+        send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
+            'icmp', config, role='server'
+        )
+        self._recv_packet_mtu = recv_mtu
+        self._send_packet_mtu = send_mtu
         self._recv_bufsize = 65535
+        mtu_details = {
+            'transport': 'icmp',
+            'role': 'server',
+            'send_packet_mtu': self._send_packet_mtu,
+            'recv_packet_mtu': self._recv_packet_mtu,
+            'min_packet_mtu': min_packet_mtu,
+        }
+        mtu_details.update(mtu_constraints)
+        log_event(
+            _LOG,
+            logging.INFO,
+            'transport.mtu_limits',
+            'Transport MTU limits',
+            lambda: mtu_details,
+        )
         log_event(
             _LOG,
             logging.INFO,

@@ -17,6 +17,7 @@ from ..transport_base import (
     PendingTracker,
     prune_and_count,
 )
+from ..mtu_limits import resolve_mtu_limits
 from .icmp_packet import ICMP_ECHO_REPLY, build_echo_request, parse_icmp_echo
 from ...compat import require_bytes_like
 from ...config import Config
@@ -48,8 +49,11 @@ class IcmpClient(Transport):
                                    socket.IPPROTO_ICMP)
         self._sock.setblocking(False)
 
-        self._send_packet_mtu = config.icmp_packet_mtu
-        self._recv_packet_mtu = config.icmp_packet_mtu
+        send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
+            'icmp', config, role='client'
+        )
+        self._send_packet_mtu = send_mtu
+        self._recv_packet_mtu = recv_mtu
         self._max_in_flight = config.max_in_flight
         self._pending_timeout = config.icmp_pending_timeout
         self._recv_bufsize = 65535
@@ -57,6 +61,21 @@ class IcmpClient(Transport):
         self._pending = PendingTracker(self._pending_timeout)
         self._next_seq = random.randint(0, 0xFFFF)
         self._icmp_id = random.randint(0, 0xFFFF)
+        mtu_details = {
+            'transport': 'icmp',
+            'role': 'client',
+            'send_packet_mtu': self._send_packet_mtu,
+            'recv_packet_mtu': self._recv_packet_mtu,
+            'min_packet_mtu': min_packet_mtu,
+        }
+        mtu_details.update(mtu_constraints)
+        log_event(
+            _LOG,
+            logging.INFO,
+            'transport.mtu_limits',
+            'Transport MTU limits',
+            lambda: mtu_details,
+        )
         log_event(
             _LOG,
             logging.INFO,

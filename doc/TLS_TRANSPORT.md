@@ -317,9 +317,15 @@ Configuration uses on-wire record sizes:
 - `tls_max_serverhello_bytes`: maximum ServerHello record size on the wire
   (includes 5-byte record header).
 
-Derived transport MTUs:
-- `send_packet_mtu`: max SFB packet bytes Alice can send.
-- `recv_packet_mtu`: max SFB packet bytes Alice can receive.
+Derived transport MTUs (packet bytes before TLS encoding):
+- Alice: `send_packet_mtu` = ClientHello payload cap,
+  `recv_packet_mtu` = ServerHello payload cap.
+- Bob: `send_packet_mtu` = ServerHello payload cap,
+  `recv_packet_mtu` = ClientHello payload cap.
+
+Packet MTU is SFB packet bytes (header + segments). The on-wire TLS record
+adds the 5-byte record header plus handshake overhead and can exceed
+`packet_mtu`.
 
 MTU calculation:
 - Build a ClientHello/ServerHello with standard extensions, a random
@@ -329,7 +335,8 @@ MTU calculation:
   before payload bytes.
 - Clamp on-wire limits to 16389 bytes max.
 - Payload bytes are derived as `(packet_mtu - PACKET_HEADER_SIZE)`.
-- Reject configs where `send_packet_mtu < PACKET_HEADER_SIZE + 1`.
+- Reject configs where the computed packet MTU is below
+  `PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1`.
 
 ---
 

@@ -342,6 +342,14 @@ passes that payload size to
 packets are validated against `recv_packet_mtu` (max packet size). The packet
 header (38 bytes) is added on the wire.
 
+Minimum packet MTU is `PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1`
+(one segment header plus 1 byte of segment payload). Keepalive-only packets
+are smaller but MTU definitions are segment-capable.
+
+The `tun.mtu`/`tun.mtu_ok` control messages carry payload bytes, not packet
+bytes. BaseTunnel converts between payload and packet MTUs by adding or
+subtracting `PACKET_HEADER_SIZE`.
+
 ---
 
 ## Encryption

@@ -88,13 +88,18 @@ send/recv MTUs per side. The ICMP transport should:
 - Expose separate `send_packet_mtu` and `recv_packet_mtu` values.
 - Default them to the same computed ICMP payload cap (symmetric in practice),
   while still allowing independent clamping during MTU negotiation.
+- Treat MTUs as packet bytes (header + segments) before ICMP framing.
+- Enforce a minimum packet MTU of
+  `PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1`.
 
 Current approach:
-- `icmp_packet_mtu` controls the ICMP payload size limit, with a conservative
-  default (1350 bytes to avoid fragmentation on 1500 MTU links).
+- `icmp_packet_mtu` is a cap for auto-selected ICMP payload size, with a
+  conservative default (1350 bytes to avoid fragmentation on 1500 MTU links).
+- Auto selection clamps to the cap even if a larger payload is possible.
+  Increasing the cap raises fragmentation risk on public paths.
 - `send_packet_mtu`/`recv_packet_mtu` reflect the SFB packet size carried in
-  the ICMP data payload, not including ICMP headers. The tunnel derives
-  payload bytes by subtracting `PACKET_HEADER_SIZE`.
+  the ICMP data payload (ICMP + IPv4 headers are extra on the wire).
+  The tunnel derives payload bytes by subtracting `PACKET_HEADER_SIZE`.
 
 If future path MTU discovery is added, it should update these independently.
 

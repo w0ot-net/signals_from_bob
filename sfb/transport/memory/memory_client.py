@@ -7,9 +7,9 @@ import logging
 
 from .memory_link import _InMemoryLink
 from ..transport_base import Transport, TransportError
+from ..mtu_limits import resolve_mtu_limits
 from ...compat import queue, to_bytes
 from ...config import Config
-from ...protocol.constants import DEFAULT_MAX_PACKET_SIZE
 from ...logging_util import get_logger, log_event
 
 _LOG = get_logger(__name__)
@@ -23,14 +23,36 @@ class InMemoryTransport(Transport):
         if not isinstance(config, Config):
             raise TypeError('config must be a Config instance')
         super(InMemoryTransport, self).__init__()
-        self._send_packet_mtu = send_packet_mtu or DEFAULT_MAX_PACKET_SIZE
-        self._recv_packet_mtu = recv_packet_mtu or DEFAULT_MAX_PACKET_SIZE
+        send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
+            'memory',
+            config,
+            role='client',
+            send_packet_mtu=send_packet_mtu,
+            recv_packet_mtu=recv_packet_mtu,
+        )
+        self._send_packet_mtu = send_mtu
+        self._recv_packet_mtu = recv_mtu
         self._max_in_flight = getattr(config, 'max_in_flight', 128)
         self._link = link or _InMemoryLink(
             self._send_packet_mtu, self._recv_packet_mtu, config,
         )
         self._next_corr_id = 0
         self._pending = set()
+        mtu_details = {
+            'transport': 'memory',
+            'role': 'client',
+            'send_packet_mtu': self._send_packet_mtu,
+            'recv_packet_mtu': self._recv_packet_mtu,
+            'min_packet_mtu': min_packet_mtu,
+        }
+        mtu_details.update(mtu_constraints)
+        log_event(
+            _LOG,
+            logging.INFO,
+            'transport.mtu_limits',
+            'Transport MTU limits',
+            lambda: mtu_details,
+        )
 
     @property
     def send_packet_mtu(self):

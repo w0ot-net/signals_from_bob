@@ -70,6 +70,16 @@ Defaults:
 ## MTU and Timeouts
 
 The transport enforces `send_packet_mtu` and `recv_packet_mtu` on packet sizes.
+These are packet bytes (header + segments) before UDP framing; on-wire UDP and
+IPv4 headers add 28 bytes.
+
+MTU behavior:
+- `udp_ephemeral_packet_mtu` is a cap for auto-selected UDP payload size.
+- Defaults to 1350 (safe on typical 1500 MTU Internet paths).
+- Auto selection clamps to the cap even if a larger payload is possible.
+- Larger caps increase fragmentation risk.
+- Minimum packet MTU is `PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1`.
+
 Payload bytes are derived as `(packet_mtu - PACKET_HEADER_SIZE)`. The pending
-timeout controls how long Alice waits for a response before pruning
-the request and closing its socket.
+timeout controls how long Alice waits for a response before pruning the
+request and closing its socket.

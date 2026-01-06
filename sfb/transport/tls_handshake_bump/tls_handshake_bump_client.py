@@ -33,6 +33,7 @@ from ..socket_errors import (
     PHASE_REQUEST,
     PHASE_RESPONSE,
 )
+from ..mtu_limits import resolve_mtu_limits
 from . import tls_handshake_bump_codec as codec
 from . import tls_handshake_bump_selector as bump_selector
 from .tls_handshake_bump_config import validate_tls_bump_config
@@ -99,8 +100,11 @@ class TlsHandshakeBumpClient(Transport):
         self._pending_timeout = validated['pending_timeout']
         self._connect_timeout = validated['connect_timeout']
         self._handshake_timeout = validated['handshake_timeout']
-        self._send_packet_mtu = validated['sni_payload_cap']
-        self._recv_packet_mtu = validated['cn_payload_cap']
+        send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
+            'tls_handshake_bump', config, role='client', validated=validated
+        )
+        self._send_packet_mtu = send_mtu
+        self._recv_packet_mtu = recv_mtu
         self._cn_max_len = validated['cn_max_len']
         self._base_domain = validated['base_domain']
         self._request_path = validated['request_path']
@@ -147,6 +151,21 @@ class TlsHandshakeBumpClient(Transport):
             target_desc = '%s:%d' % (self._target_addr[0], self._target_addr[1])
         else:
             target_desc = '%s:%d' % (self._target_host, self._target_port)
+        mtu_details = {
+            'transport': 'tls_handshake_bump',
+            'role': 'client',
+            'send_packet_mtu': self._send_packet_mtu,
+            'recv_packet_mtu': self._recv_packet_mtu,
+            'min_packet_mtu': min_packet_mtu,
+        }
+        mtu_details.update(mtu_constraints)
+        log_event(
+            _LOG,
+            logging.INFO,
+            'transport.mtu_limits',
+            'Transport MTU limits',
+            lambda: mtu_details,
+        )
         log_event(
             _LOG,
             logging.INFO,

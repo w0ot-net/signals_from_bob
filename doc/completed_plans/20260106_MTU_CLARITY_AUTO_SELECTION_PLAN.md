@@ -114,3 +114,13 @@
    - TLS_TRANSPORT/PROTOCOL/TUNNEL explicitly distinguish transport packet MTU
      from tunnel payload MTU and align negotiation wording.
    - Do not add new runtime dependencies or change E2E test instructions.
+
+## Execution Notes
+- Added shared MTU resolution in `sfb/transport/mtu_limits.py` and wired it
+  into DNS, ICMP, UDP, TLS, TLS bump, and in-memory transports with a single
+  `transport.mtu_limits` log event at init.
+- Updated DNS min MTU handling to use `MIN_PACKET_MTU` for segment-capable
+  sizing; kept per-query CNAME caps and existing DNS/TLS validation paths.
+- Updated CLI help and documentation to clarify packet vs payload MTUs,
+  per-transport caps, defaults, and on-wire overhead.
+- Tests not run (per instructions).

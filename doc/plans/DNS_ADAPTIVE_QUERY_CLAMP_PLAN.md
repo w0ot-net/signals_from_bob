@@ -13,6 +13,9 @@
 - Introduce fixed framing or change the CNAME label format.
 - Change non-DNS transports beyond removing payload_cap plumbing.
 - Modify reliability semantics outside the clamp/MTU enforcement described.
+- Optimize or drain pipelined in-flight DNS queries when clamp state changes;
+  a short lag is acceptable as long as per-request caps prevent oversize
+  responses and Bob can still send at least one segment.
 - Run E2E tests under tests/e2e (user will run them).
 
 ## Affected Components
@@ -38,6 +41,10 @@
 - Keep a per-request response cap on Bob for DNS so responses never exceed the
   size derived from the specific query, even with pipelined requests or
   retransmits before Alice's clamp updates.
+- Do not add special handling for in-flight pipelined queries when bob_has_data
+  flips; the transient lag is acceptable because per-request caps guarantee
+  responses stay within the query budget and allow Bob to deliver at least one
+  segment, which is sufficient to inform Alice quickly.
 - Ensure Alice enforces the clamp at packet build time (not just at config
   validation). BaseTunnel._collect_segments must accept an explicit per-send
   payload cap or consult a transport callback so Alice can shrink queries

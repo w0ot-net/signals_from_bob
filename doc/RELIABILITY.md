@@ -95,6 +95,10 @@ could be for the original or the retransmit, making the sample ambiguous.
 RTT samples are only taken when the response carries `HAS_SEGMENTS`.
 `WANTS_POLL` and `KEEPALIVE` responses do not produce RTT samples or reset
 backoff.
+When sampling is enabled (`HAS_SEGMENTS` response), RTT samples are taken from
+newly acked first-transmission packets; `KEEPALIVE` packets are excluded, but
+`WANTS_POLL` packets can be sampled if they are acked by a `HAS_SEGMENTS`
+response.
 
 **RTO Backoff:** Double the RTO on each consecutive retransmit (up to 10s max).
 Reset after receiving a valid RTT sample.

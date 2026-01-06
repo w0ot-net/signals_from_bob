@@ -182,15 +182,19 @@ RTT sampling (`SendWindow._ack_seq`):
 - RTT sample is recorded only if `retransmit_count == 0` (Karn's rule).
 - Sample value: `(now - send_time) * 1000` milliseconds.
 - Samples are collected for both cumulative ACKs and SACK ACKs.
-  - `KEEPALIVE` and `WANTS_POLL` packets are excluded from RTT sampling.
+  - RTT samples are only taken when the response carries `HAS_SEGMENTS`.
+  - When sampling is enabled, any newly acked first-TX packet can contribute
+    except `KEEPALIVE`; `WANTS_POLL` packets can be sampled if they are acked
+    by a `HAS_SEGMENTS` response.
 
 Effects on retransmit logic:
 - RTT samples feed `RttEstimator.add_sample()` and reset backoff.
 - ACK progress updates `SendWindow.last_ack_progress_time` and sets
   `_ack_progressed` for window-growth gating.
 - `data_acked_count` (only packets with segments) drives pacing feedback.
-- `KEEPALIVE` and `WANTS_POLL` packets (no segments) do not contribute RTT
-  samples and do not drive pacing.
+- `KEEPALIVE` packets never contribute RTT samples. `WANTS_POLL` packets can
+  contribute only when acked by a `HAS_SEGMENTS` response; neither drives
+  pacing because pacing uses `data_acked_count`.
 
 ## Polling And Keepalive Effects On Retransmit Timing
 
@@ -213,8 +217,10 @@ Keepalive specifics:
 - Alice's empty polls carry `FLAG_KEEPALIVE`, including grace polls and
   ACK-progress polls. Bob's empty responses use `FLAG_KEEPALIVE` when idle or
   `FLAG_WANTS_POLL` when data is pending but nothing fits.
-- Empty packets still use sequence numbers and are tracked in the send window,
-  but do not contribute RTT samples.
+- Empty packets still use sequence numbers and are tracked in the send window.
+  RTT sampling is response-gated; `KEEPALIVE` packets are excluded, while
+  `WANTS_POLL` packets can be sampled if they are acked by a `HAS_SEGMENTS`
+  response.
 - If an empty keepalive poll is ready and the window is full, the oldest
   keepalive is dropped so a replacement keepalive poll can be sent.
 - Bob suppresses keepalive responses when any channel has pending data; he

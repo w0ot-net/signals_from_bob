@@ -33,3 +33,9 @@ consistent across wrapped transports.
   (exclude tests/e2e/).
 - Start an ICMP tunnel and confirm the serve loop proceeds without
   AttributeError logs.
+
+## Execution Notes
+
+- Added a no-op Server.notify_peer_data in sfb/transport/transport_base.py so
+  Bob-side transports ignore the hint unless overridden.
+- Tests not run (per instructions).

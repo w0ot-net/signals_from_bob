@@ -331,6 +331,15 @@ class Server(object):
         """
         pass
 
+    def notify_peer_data(self, has_data):
+        """
+        Optional hint about peer data state.
+
+        Args:
+            has_data: bool indicating peer sent non-control data
+        """
+        return None
+
     def close(self):
         """
         Close the transport and release resources.

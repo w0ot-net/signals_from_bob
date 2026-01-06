@@ -1400,7 +1400,7 @@ class AliceTunnel(BaseTunnel):
             return
         if feedback_target >= base_target:
             return
-        if baseline_target != feedback_target:
+        if baseline_target >= base_target:
             return
         self._log_pacer_adjust(prev_target, 'feedback')
 
@@ -1883,6 +1883,7 @@ class AliceTunnel(BaseTunnel):
                 data_acked_count,
                 now,
                 srtt_ms=self._rtt.srtt_ms,
+                sack=packet.sack,
             )
             self._maybe_log_pacer_target_change(self._pacer_cap(), reason='ack')
         if (self._pacer.enabled and self._pacer.feedback_frozen and

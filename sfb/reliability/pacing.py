@@ -35,6 +35,12 @@ class AdaptivePacer(object):
     # Cooldown window between stall reductions, measured in RTT multiples.
     # Increase to reduce repeated cuts; decrease to respond faster.
     _BLOCK_COOLDOWN_RTT_FACTOR = 1.0
+    # Floor fraction of cap when feedback would reduce inflight without loss.
+    _FEEDBACK_FLOOR_CAP_RATIO = 0.5
+    # Require this many RTTs of no loss before applying the feedback floor.
+    _FEEDBACK_FLOOR_RTT_FACTOR = 4.0
+    # Apply only a fraction of feedback reductions to dampen cuts.
+    _FEEDBACK_REDUCTION_GAIN = 0.75
 
     def __init__(self, enabled, target_inflight_ratio, min_inflight,
                  max_inflight, feedback_gain, ack_ewma_alpha, rtt_floor_ms,
@@ -59,6 +65,9 @@ class AdaptivePacer(object):
         self._feedback_frozen = False
         self._feedback_frozen_reason = None
         self._feedback_frozen_since = None
+        self._last_retransmit_time = None
+        self._last_window_distance_time = None
+        self._last_sack_time = None
 
     @property
     def enabled(self):
@@ -90,11 +99,13 @@ class AdaptivePacer(object):
             self._last_ack_time = now
         return True
 
-    def on_ack(self, acked_count, now, srtt_ms=None):
+    def on_ack(self, acked_count, now, srtt_ms=None, sack=None):
         if not self._enabled:
             return
         if acked_count <= 0:
             return
+        if sack:
+            self._last_sack_time = now
         if self._feedback_frozen:
             self._last_ack_time = now
             return
@@ -159,17 +170,20 @@ class AdaptivePacer(object):
     def on_retransmit(self, now):
         if not self._enabled:
             return
+        self._last_retransmit_time = now
         self._reset_probe(now)
 
     def on_blocked(self, reason, now, cap, srtt_ms=None, unacked_count=None):
         if not self._enabled:
             return False
         cap = self._normalize_cap(cap)
+        if reason == 'window_distance':
+            self._last_window_distance_time = now
         cooldown = self._block_cooldown(srtt_ms)
         if (self._last_block_time is not None and
                 now - self._last_block_time < cooldown):
             return False
-        _, _, baseline_target, _ = self._baseline_target(cap, srtt_ms)
+        _, _, baseline_target, _, _, _ = self._baseline_target(cap, srtt_ms)
         current_target = self.target_inflight(cap, srtt_ms=srtt_ms)
         reduction = self._blocked_reduction(
             reason, current_target, unacked_count
@@ -247,6 +261,36 @@ class AdaptivePacer(object):
             return 1
         return cap
 
+    def _resolve_now(self, now):
+        if now is not None:
+            return now
+        return self._last_ack_time
+
+    def _last_loss_time(self):
+        last = None
+        for ts in (self._last_retransmit_time,
+                   self._last_window_distance_time,
+                   self._last_sack_time):
+            if ts is None:
+                continue
+            if last is None or ts > last:
+                last = ts
+        return last
+
+    def _no_loss_recent(self, now, srtt_ms):
+        if now is None or srtt_ms is None:
+            return False
+        last_loss = self._last_loss_time()
+        if last_loss is None:
+            return True
+        rtt_ms = srtt_ms
+        if rtt_ms < self._rtt_floor_ms:
+            rtt_ms = self._rtt_floor_ms
+        rtt_sec = rtt_ms / 1000.0
+        if rtt_sec <= 0:
+            return False
+        return (now - last_loss) >= (rtt_sec * self._FEEDBACK_FLOOR_RTT_FACTOR)
+
     def _clamp_target(self, target, cap):
         if target < self._min_inflight:
             target = self._min_inflight
@@ -280,20 +324,70 @@ class AdaptivePacer(object):
         target = int(pipe * self._feedback_gain)
         return self._clamp_target(target, cap)
 
-    def _baseline_target(self, cap, srtt_ms):
+    def _apply_feedback_reduction(self, base_target, feedback_target):
+        if feedback_target >= base_target:
+            return feedback_target
+        gain = self._FEEDBACK_REDUCTION_GAIN
+        if gain >= 1.0:
+            return feedback_target
+        if gain <= 0.0:
+            return base_target
+        reduction = base_target - feedback_target
+        scaled = int(reduction * gain)
+        if scaled < 1:
+            scaled = 1
+        target = base_target - scaled
+        if target < feedback_target:
+            target = feedback_target
+        return target
+
+    def _feedback_floor(self, cap, base_target, srtt_ms, now):
+        ratio = self._FEEDBACK_FLOOR_CAP_RATIO
+        if ratio <= 0:
+            return None
+        now = self._resolve_now(now)
+        if not self._no_loss_recent(now, srtt_ms):
+            return None
+        floor = int(cap * ratio)
+        if floor < self._min_inflight:
+            floor = self._min_inflight
+        if floor > base_target:
+            floor = base_target
+        return floor
+
+    def _baseline_target(self, cap, srtt_ms, now=None):
         base_target = self._base_target(cap)
         feedback_target = self._feedback_target(cap, srtt_ms)
         baseline_target = base_target
         target_mode = 'base'
+        feedback_floor = None
+        feedback_floor_active = False
         if feedback_target is not None:
             if feedback_target > base_target:
                 baseline_target = feedback_target
                 target_mode = 'feedback'
             elif (feedback_target < base_target and
                   self._feedback_reduction_ready()):
-                baseline_target = feedback_target
+                baseline_target = self._apply_feedback_reduction(
+                    base_target,
+                    feedback_target,
+                )
                 target_mode = 'feedback'
-        return base_target, feedback_target, baseline_target, target_mode
+        feedback_floor = self._feedback_floor(
+            cap,
+            base_target,
+            srtt_ms,
+            now,
+        )
+        if feedback_floor is not None and baseline_target < feedback_floor:
+            baseline_target = feedback_floor
+            feedback_floor_active = True
+            if target_mode == 'feedback':
+                target_mode = 'feedback_floor'
+            else:
+                target_mode = 'floor'
+        return (base_target, feedback_target, baseline_target,
+                target_mode, feedback_floor, feedback_floor_active)
 
     def _apply_block_floor(self, blocked_target, feedback_target):
         if self._block_reason != 'window_distance':
@@ -306,7 +400,7 @@ class AdaptivePacer(object):
 
     def target_inflight(self, cap, srtt_ms=None):
         cap = self._normalize_cap(cap)
-        _, feedback_target, baseline_target, _ = self._baseline_target(
+        _, feedback_target, baseline_target, _, _, _ = self._baseline_target(
             cap, srtt_ms
         )
         blocked_target = baseline_target - self._block_penalty
@@ -322,8 +416,9 @@ class AdaptivePacer(object):
 
     def state_fields(self, unacked_count, cap, rate_limit=None, srtt_ms=None):
         cap = self._normalize_cap(cap)
-        base_target, feedback_target, baseline_target, target_mode = (
-            self._baseline_target(cap, srtt_ms)
+        (base_target, feedback_target, baseline_target, target_mode,
+         feedback_floor, feedback_floor_active) = self._baseline_target(
+            cap, srtt_ms
         )
         blocked_target = baseline_target - self._block_penalty
         blocked_target = self._apply_block_floor(blocked_target, feedback_target)
@@ -339,6 +434,9 @@ class AdaptivePacer(object):
             'base_target': base_target,
             'feedback_target': feedback_target,
             'baseline_target': baseline_target,
+            'feedback_floor': feedback_floor,
+            'feedback_floor_active': feedback_floor_active,
+            'feedback_reduction_gain': self._FEEDBACK_REDUCTION_GAIN,
             'block_penalty': self._block_penalty,
             'block_reason': self._block_reason,
             'block_target': block_target,

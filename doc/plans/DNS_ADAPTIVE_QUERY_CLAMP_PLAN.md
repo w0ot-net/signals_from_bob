@@ -40,6 +40,10 @@
   retransmits before Alice's clamp updates.
 - Ensure Alice enforces the clamp at packet build time (not just at config
   validation) by passing a per-send payload cap into _collect_segments.
+- Be explicit about units: tunnel MTUs are payload bytes (transport_mtu -
+  PACKET_HEADER_SIZE). When comparing against DNS response capacity (which is
+  a full packet size), add/subtract PACKET_HEADER_SIZE to avoid off-by-header
+  errors.
 
 ## Plan
 1) Precompute query->response caps for DNS:
@@ -54,8 +58,9 @@
    - When a response arrives, treat payload length > PACKET_HEADER_SIZE as
      "segments present" and reset the countdown; otherwise decay/clear it.
 3) Clamp query payloads based on Bob activity:
-   - Define min_response_payload =
-     PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1.
+   - Define min_response_payload (full packet bytes) as
+     PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1, and convert to payload
+     bytes when comparing against tunnel MTUs.
    - If bob_has_data is set, target_response_payload should allow Bob to send
      up to the current response MTU (bounded by what DNS can encode).
    - Otherwise target_response_payload = min_response_payload.

@@ -5,8 +5,9 @@ Status: draft
 ## Goal
 
 Make MTU naming consistent and unambiguous across config, CLI, code, and docs
-by separating on-wire packet sizes from tunnel payload sizes. This is a
-breaking change, including CLI/config renames, with all call sites updated.
+by using packet_mtu as the sole stored MTU unit and deriving payload bytes at
+boundaries. This is a breaking change, including CLI/config renames, with all
+call sites updated.
 
 ## Non-Goals
 
@@ -37,7 +38,8 @@ breaking change, including CLI/config renames, with all call sites updated.
 ## Naming Scheme
 
 - packet_mtu = on-wire packet bytes (packet header + segments).
-- payload_mtu = tunnel payload bytes (packet_mtu - PACKET_HEADER_SIZE).
+- payload bytes are derived as (packet_mtu - PACKET_HEADER_SIZE) when needed;
+  do not store payload_mtu as a variable or field.
 - Record-size settings keep "bytes" naming (TLS record size is not a tunnel MTU).
 
 ## Plan
@@ -46,7 +48,7 @@ breaking change, including CLI/config renames, with all call sites updated.
    - Config: icmp_payload_mtu -> icmp_packet_mtu
    - Config: udp_ephemeral_payload_mtu -> udp_ephemeral_packet_mtu
    - Config: protocol_max_packet_size -> protocol_max_packet_mtu
-   - Config: protocol_initial_mtu -> protocol_initial_payload_mtu
+   - Config: protocol_initial_mtu -> protocol_initial_packet_mtu
    - CLI: --icmp-mtu -> --icmp-packet-mtu
    - CLI: --udp-ephemeral-mtu -> --udp-ephemeral-packet-mtu
    - CLI: --tls-mtu -> --tls-max-record-bytes (keep TLS record terminology)
@@ -55,15 +57,19 @@ breaking change, including CLI/config renames, with all call sites updated.
    - Transport.send_mtu/recv_mtu -> send_packet_mtu/recv_packet_mtu.
    - Update all transports to expose packet MTUs with the new names.
    - Update call sites to use the new properties.
-3) Rename tunnel MTU state to payload units:
+3) Rename tunnel MTU state to packet units only:
    - BaseTunnel _send_mtu/_recv_mtu/_default_mtu ->
-     _send_payload_mtu/_recv_payload_mtu/_default_payload_mtu.
-   - Proposed/pending MTU fields get payload naming as well.
-   - negotiated_mtu -> negotiated_payload_mtu, and align related accessors.
-   - Update Alice/Bob tunnel code to use the new payload naming.
-4) Keep MTU control messages consistent with payload units:
-   - Keep on-wire tun_mtu fields as payload bytes but rename helpers/locals
-     to payload_mtu terminology to avoid unit confusion.
+     _send_packet_mtu/_recv_packet_mtu/_default_packet_mtu.
+   - Proposed/pending MTU fields use packet units as well.
+   - Accessors return packet_mtu; payload bytes are derived locally when
+     building segments or validating sizes.
+   - Update Alice/Bob tunnel code to compute payload bytes via
+     (packet_mtu - PACKET_HEADER_SIZE) on use.
+4) Keep MTU control messages consistent with payload bytes:
+   - Keep on-wire tun_mtu fields as payload bytes for protocol stability.
+   - Add explicit conversions at boundaries (add/subtract
+     PACKET_HEADER_SIZE) without storing payload_mtu fields.
+   - Rename locals/helpers to payload_bytes or packet_mtu to clarify units.
 5) Update docs to match the new naming:
    - Explicitly map transport packet MTU to tunnel payload MTU.
    - Align terminology in TLS_TRANSPORT, PROTOCOL, and TUNNEL.

@@ -68,13 +68,12 @@ Bit 0 (0x01): SYN - Handshake initiation
 Bit 1 (0x02): ACK - Handshake acknowledgment
 Bit 2 (0x04): KEEPALIVE - Idle keepalive packet (no segments)
 Bit 3 (0x08): HAS_SEGMENTS - Packet contains one or more segments
-Bit 4 (0x10): WANTS_POLL - Empty response requesting another poll
-Bits 5-7:     Reserved (must be 0)
+Bits 4-7:     Reserved (must be 0)
 ```
 
 SYN and ACK are only used during the handshake. After connection establishment,
 every non-handshake packet must set exactly one content flag:
-`HAS_SEGMENTS`, `WANTS_POLL`, or `KEEPALIVE`.
+`HAS_SEGMENTS` or `KEEPALIVE`.
 
 Handshake constraints:
 - SYN/SYN+ACK/ACK packets MUST contain zero segments
@@ -86,9 +85,8 @@ Handshake constraints:
   still send a normal response to satisfy the request/response contract.
 
 Content-flag constraints (post-ACK):
-- Exactly one of `HAS_SEGMENTS`, `WANTS_POLL`, or `KEEPALIVE` is set
+- Exactly one of `HAS_SEGMENTS` or `KEEPALIVE` is set
 - `HAS_SEGMENTS` requires at least one segment
-- `WANTS_POLL` requires zero segments
 - `KEEPALIVE` requires zero segments
 - Any violation is a fatal protocol error (log, drop, close)
 
@@ -243,7 +241,7 @@ is active at a time; Bob ignores any traffic he does not understand.
 For polling transports, the handshake completes in 2 round-trips:
 - Round 1: Alice sends SYN (query), Bob responds SYN+ACK (response)
 - Round 2: Alice sends ACK (query), Bob responds with `HAS_SEGMENTS`,
-  `WANTS_POLL`, or `KEEPALIVE` (no SYN/ACK flags)
+  or `KEEPALIVE` (no SYN/ACK flags)
 
 ---
 
@@ -378,12 +376,9 @@ RTT estimate. Only sample RTT from packets acknowledged on their first
 transmission.
 
 RTT samples are only taken when the response carries `HAS_SEGMENTS`.
-`WANTS_POLL` and `KEEPALIVE` responses do not produce RTT samples or reset
-backoff.
-When sampling is enabled (`HAS_SEGMENTS` response), RTT samples are taken from
-newly acked first-transmission packets; `KEEPALIVE` packets are excluded, but
-`WANTS_POLL` packets can be sampled if they are acked by a `HAS_SEGMENTS`
-response.
+`KEEPALIVE` responses do not produce RTT samples or reset backoff. When
+sampling is enabled (`HAS_SEGMENTS` response), RTT samples are taken from newly
+acked first-transmission packets; `KEEPALIVE` packets are excluded.
 
 **RTO Backoff:** On each consecutive retransmit of the same packet without
 receiving an ack, double the RTO (exponential backoff) up to the 10s maximum.

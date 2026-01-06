@@ -19,7 +19,6 @@ from ..protocol import (
     FLAG_ACK,
     FLAG_KEEPALIVE,
     FLAG_HAS_SEGMENTS,
-    FLAG_WANTS_POLL,
     PACKET_HEADER_SIZE,
 )
 
@@ -392,32 +391,6 @@ class BobTunnel(BaseTunnel):
         )
         return True
 
-    def _send_poll_hint_response(self, responder, now, context):
-        packet, _ = self._build_packet(
-            flags=FLAG_WANTS_POLL,
-            segments=[],
-        )
-        encrypted_body, response_data = self._encode_packet_for_send(packet)
-        self._send_window.send(
-            [],
-            flags=packet.flags,
-            encrypted_body=encrypted_body,
-            now=now,
-        )
-        self._packets_sent += 1
-        self._bytes_sent += len(response_data)
-        self._respond(responder, response_data, context, packet)
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.packet_send',
-            'Packet sent',
-            lambda: self._packet_send_fields(
-                packet,
-                len(response_data),
-                context,
-            ),
-        )
 
     def _send_keepalive_response(self, responder, now):
         packet, _ = self._build_packet(
@@ -554,19 +527,9 @@ class BobTunnel(BaseTunnel):
                 cap_payload = 0
             if cap_payload < max_payload:
                 max_payload = cap_payload
-        segments, pending_data = self._collect_segments(
-            max_payload,
-            return_pending=True,
-        )
+        segments = self._collect_segments(max_payload)
 
         if not segments:
-            if pending_data:
-                decision.update({
-                    'action': 'poll_hint',
-                    'context': 'poll_hint',
-                    'reason': 'pending_data',
-                })
-                return decision
             decision.update({
                 'action': 'keepalive',
                 'context': 'keepalive',
@@ -727,22 +690,6 @@ class BobTunnel(BaseTunnel):
                     context=decision.get('context'),
                     reason=decision.get('reason'),
                 )
-            return
-        if action == 'poll_hint':
-            self._log_reliability_state(
-                logging.DEBUG,
-                'tunnel.keepalive_suppressed',
-                'Keepalive suppressed by pending data',
-                now=now,
-                extra_fields={
-                    'reason': decision.get('reason'),
-                },
-            )
-            self._send_poll_hint_response(
-                responder,
-                now,
-                decision.get('context', 'poll_hint'),
-            )
             return
         if action == 'keepalive':
             self._send_keepalive_response(responder, now)

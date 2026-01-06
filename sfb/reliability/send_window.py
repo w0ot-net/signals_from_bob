@@ -16,7 +16,6 @@ from ..protocol import (
     SACK_BITS,
     MAX_IN_FLIGHT,
     FLAG_KEEPALIVE,
-    FLAG_WANTS_POLL,
 )
 from .stats import NoopReliabilityStats
 
@@ -512,13 +511,11 @@ class SendWindow(object):
             'missing_retransmit_count': None,
             'missing_flags': None,
             'missing_seg_count': None,
-            'missing_wants_poll': False,
             'oldest_unacked_seq': None,
             'oldest_unacked_age': None,
             'oldest_unacked_retransmit_count': None,
             'oldest_unacked_flags': None,
             'oldest_unacked_seg_count': None,
-            'oldest_wants_poll': False,
         }
         missing_info = self.get_unacked_info(last_cum_ack)
         if missing_info is not None:
@@ -530,7 +527,6 @@ class SendWindow(object):
             details['missing_seg_count'] = (
                 len(segments) if segments is not None else 0
             )
-            details['missing_wants_poll'] = bool(flags & FLAG_WANTS_POLL)
             if send_time is not None:
                 age = now - send_time
                 if age < 0:
@@ -546,7 +542,6 @@ class SendWindow(object):
             details['oldest_unacked_seg_count'] = (
                 len(segments) if segments is not None else 0
             )
-            details['oldest_wants_poll'] = bool(flags & FLAG_WANTS_POLL)
             if send_time is not None:
                 age = now - send_time
                 if age < 0:
@@ -578,21 +573,17 @@ class SendWindow(object):
             'retransmit_total': self._retransmit_count,
         }
         keepalive_unacked = 0
-        wants_poll_unacked = 0
         empty_unacked = 0
         data_unacked = 0
         for pkt in self._unacked.values():
             seg_count = len(pkt.segments) if pkt.segments is not None else 0
             if pkt.flags & FLAG_KEEPALIVE:
                 keepalive_unacked += 1
-            elif pkt.flags & FLAG_WANTS_POLL:
-                wants_poll_unacked += 1
             elif seg_count == 0:
                 empty_unacked += 1
             else:
                 data_unacked += 1
         state['keepalive_unacked'] = keepalive_unacked
-        state['wants_poll_unacked'] = wants_poll_unacked
         state['empty_unacked'] = empty_unacked
         state['data_unacked'] = data_unacked
         oldest_info = self.get_oldest_unacked_info()

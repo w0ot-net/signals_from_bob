@@ -54,3 +54,11 @@
 6) Update docs to remove `WANTS_POLL` references and describe the new invariant
    that responses always fit at least one segment, including any revised
    keepalive behavior descriptions.
+
+## Execution Notes
+- Removed `FLAG_WANTS_POLL` from protocol constants, validation, and packet
+  helpers, and deleted poll-hint handling in Alice/Bob.
+- Simplified content-flag validation and reliability debug fields to reflect
+  the two remaining content flags.
+- Updated protocol and transport docs to remove poll-hint references and note
+  the minimum response payload guarantee.

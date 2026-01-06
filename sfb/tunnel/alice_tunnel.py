@@ -22,7 +22,6 @@ from ..protocol import (
     FLAG_ACK,
     FLAG_KEEPALIVE,
     FLAG_HAS_SEGMENTS,
-    FLAG_WANTS_POLL,
 )
 from ..reliability import RttEstimator
 from ..transport.transport_base import RateLimiter
@@ -95,8 +94,6 @@ class AliceTunnel(BaseTunnel):
         self._pong_grace_remaining = self._pong_grace_polls
         # Track if we have real data packets awaiting ACKs (not just keepalives)
         self._has_pending_data_acks = False
-        # Track explicit poll hints from Bob (WANTS_POLL).
-        self._poll_hint = False
         # Window growth state (Alice only)
         self._window_growth_enabled = config.tunnel_window_growth_enabled
         self._window_growth_mode = config.tunnel_window_growth_mode
@@ -1196,7 +1193,6 @@ class AliceTunnel(BaseTunnel):
             if interval is not None:
                 self._next_poll_time = now + interval
         self._got_data = False
-        self._poll_hint = False
 
     def _sleep_for_poll_pacing(self, now):
         if not self._poll_pacing_enabled:
@@ -1485,7 +1481,7 @@ class AliceTunnel(BaseTunnel):
                 True,
                 False,
             )
-        if self._poll_hint or self._got_data or self._has_pending_data_acks:
+        if self._got_data or self._has_pending_data_acks:
             return True, False, False
         return (
             now - self._last_send_time >= self._keepalive_interval,
@@ -1495,7 +1491,7 @@ class AliceTunnel(BaseTunnel):
 
     def _send_new_packet(self, segments, now, flags=0, permit=None):
         """Send a new packet with given segments."""
-        flags &= ~(FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS | FLAG_WANTS_POLL)
+        flags &= ~(FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS)
         if segments:
             flags |= FLAG_HAS_SEGMENTS
         else:
@@ -1751,8 +1747,6 @@ class AliceTunnel(BaseTunnel):
         response_kind = self._content_flag_label(packet.flags)
         if response_kind == 'has_segments':
             self._got_data = True
-        elif response_kind == 'wants_poll':
-            self._poll_hint = True
         elif response_kind not in ('keepalive',):
             response_kind = None
 

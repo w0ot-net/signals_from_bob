@@ -36,7 +36,6 @@ from .constants import (
     FLAG_ACK,
     FLAG_KEEPALIVE,
     FLAG_HAS_SEGMENTS,
-    FLAG_WANTS_POLL,
     SEQ_MAX,
     SACK_BITS,
     MAX_IN_FLIGHT,
@@ -154,14 +153,6 @@ class Packet(object):
     def has_segments_flag(self, value):
         self.header.has_segments_flag = value
 
-    @property
-    def wants_poll_flag(self):
-        return self.header.wants_poll_flag
-
-    @wants_poll_flag.setter
-    def wants_poll_flag(self, value):
-        self.header.wants_poll_flag = value
-
     def add_segment(self, segment):
         """
         Add a segment to this packet.
@@ -237,7 +228,6 @@ __all__ = [
     'FLAG_ACK',
     'FLAG_KEEPALIVE',
     'FLAG_HAS_SEGMENTS',
-    'FLAG_WANTS_POLL',
     'SEQ_MAX',
     'SACK_BITS',
     'MAX_IN_FLIGHT',

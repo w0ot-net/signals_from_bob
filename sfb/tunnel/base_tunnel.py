@@ -34,7 +34,6 @@ from ..protocol import (
     FLAG_ACK,
     FLAG_KEEPALIVE,
     FLAG_HAS_SEGMENTS,
-    FLAG_WANTS_POLL,
     PACKET_HEADER_SIZE,
     log_control_segments,
 )
@@ -276,7 +275,7 @@ class BaseTunnel(object):
 
         Args:
             flags: Packet flags (FLAG_SYN, FLAG_ACK, FLAG_KEEPALIVE,
-                FLAG_HAS_SEGMENTS, FLAG_WANTS_POLL)
+                FLAG_HAS_SEGMENTS)
             segments: List of Segment instances
 
         Returns:
@@ -434,7 +433,6 @@ class BaseTunnel(object):
             'unacked': self._send_window.unacked_count,
             'max_in_flight': self._send_window._max_in_flight,
             'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
-            'wants_poll': bool(packet.flags & FLAG_WANTS_POLL),
             'content_flag': content_flag,
             'has_data': bool(packet.segments),
             'side': 'alice' if self._is_initiator else 'bob',
@@ -443,13 +441,9 @@ class BaseTunnel(object):
 
     @staticmethod
     def _content_flag_label(flags):
-        content_flags = flags & (
-            FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS | FLAG_WANTS_POLL
-        )
+        content_flags = flags & (FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS)
         if content_flags == FLAG_HAS_SEGMENTS:
             return 'has_segments'
-        if content_flags == FLAG_WANTS_POLL:
-            return 'wants_poll'
         if content_flags == FLAG_KEEPALIVE:
             return 'keepalive'
         if content_flags == 0:
@@ -485,9 +479,7 @@ class BaseTunnel(object):
     def _validate_content_flags(self, packet):
         flags = packet.flags
         handshake_flags = flags & (FLAG_SYN | FLAG_ACK)
-        content_flags = flags & (
-            FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS | FLAG_WANTS_POLL
-        )
+        content_flags = flags & (FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS)
         if handshake_flags:
             if packet.segments:
                 return self._close_protocol_violation(
@@ -525,10 +517,9 @@ class BaseTunnel(object):
                     )
             else:
                 if packet.segments:
-                    reason = 'wants_poll_with_segments'
-                    if content_flags == FLAG_KEEPALIVE:
-                        reason = 'keepalive_with_segments'
-                    return self._close_protocol_violation(reason, packet)
+                    return self._close_protocol_violation(
+                        'keepalive_with_segments', packet
+                    )
             return True
 
         return True
@@ -735,7 +726,7 @@ class BaseTunnel(object):
         # Deliver segments from in-order packets only
         delivered_segments = False
         for seq, ready_packet in ready_packets:
-            if ready_packet.flags & (FLAG_KEEPALIVE | FLAG_WANTS_POLL):
+            if ready_packet.flags & FLAG_KEEPALIVE:
                 continue
             if not ready_packet.segments:
                 continue

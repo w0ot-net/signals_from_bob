@@ -157,8 +157,8 @@ When idle (1-5s polling), Bob-initiated operations have significant latency.
 When Bob sends a response with segments (control or data), Alice polls again on
 the next paced slot. This spaces polls across the RTT while keeping keepalive as
 a hard upper bound, so added latency is bounded by the pacing interval. After a
-keepalive or `WANTS_POLL` response with no segments, Alice returns to the idle
-polling interval.
+keepalive response with no segments, Alice returns to the idle polling
+interval.
 
 ---
 

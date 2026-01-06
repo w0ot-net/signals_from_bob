@@ -189,13 +189,10 @@ Retransmit priority:
 New sends and keepalive packets are still tracked in the send window, which
 means they can later be retransmitted:
 - Keepalive packets (FLAG_KEEPALIVE, no segments) are stored and eligible.
-- `WANTS_POLL` packets (no segments) are stored and eligible.
 - Flags are preserved on retransmit because they are stored in the send window.
 
 Keepalive responses are suppressed when any channel has pending data:
-- If no segments fit but pending data exists, Bob sends a `WANTS_POLL` response
-  instead of keepalive.
-- This still consumes a send window slot and can later be retransmitted.
+- Pending data is sent as segments; keepalive is only sent when idle.
 
 ## Instrumentation Events (Bob)
 
@@ -204,7 +201,6 @@ Key structured events emitted during opportunistic retransmits:
   and poll EWMA context.
 - `tunnel.retransmit`: retransmit send details (seq, ack/sack, flags, bytes,
   previous send age/count).
-- `tunnel.keepalive_suppressed`: pending data forced a `WANTS_POLL` response.
 - `tunnel.ack_detail`: ACK/SACK processing detail and window snapshots.
 - `tunnel.reliability_state`: structured snapshot of send/recv window and
   counters when drops or gating occur.

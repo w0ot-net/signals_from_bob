@@ -49,7 +49,8 @@ serve as an implicit poll hint.
   - `HAS_SEGMENTS` requires at least one segment.
   - `WANTS_POLL` and `KEEPALIVE` require zero segments.
 - RTT sampling treats `WANTS_POLL` like `KEEPALIVE` (no RTT samples or backoff
-  reset for WANTS_POLL-only packets).
+  reset for WANTS_POLL-only packets). Gate RTT sampling off the response flags
+  by passing a `sample_rtt` hint into send-window ACK processing.
 - Keep `drop_keepalive`/`drop_oldest_keepalive` scoped to `FLAG_KEEPALIVE` only;
   `WANTS_POLL` is a non-idle hint and should not be eligible for keepalive
   drops. Track it separately in send-window debug state.
@@ -86,8 +87,10 @@ serve as an implicit poll hint.
    new flags in `sfb/protocol/__init__.py` (`imports` + `__all__`).
 2. Extend `PacketHeader`/`Packet` helpers and repr output to surface the new
    flags in logs and debugging.
-3. Update `sfb/reliability/send_window.py` RTT sampling to skip `FLAG_WANTS_POLL`
-   (same policy as `FLAG_KEEPALIVE`) and adjust imports.
+3. Update `sfb/reliability/send_window.py` RTT sampling to accept a `sample_rtt`
+   hint (from the receive path) and skip samples when `sample_rtt` is false or
+   `FLAG_KEEPALIVE` is set. Pass `sample_rtt` from
+   `sfb/tunnel/base_tunnel.py` based on `FLAG_WANTS_POLL` in the response.
 4. Update send-window debug accounting:
    - Keep `drop_keepalive`/`drop_oldest_keepalive` limited to `FLAG_KEEPALIVE`.
    - Add `wants_poll_unacked` (and `oldest_wants_poll`) in `debug_state()` and

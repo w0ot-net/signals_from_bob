@@ -46,61 +46,76 @@
   payload bytes are derived as (packet_mtu - PACKET_HEADER_SIZE). DNS response
   caps are packet bytes, so convert by adding/subtracting PACKET_HEADER_SIZE
   to avoid off-by-header errors.
+- Removing payload_cap requires a replacement that still supports per-send
+  clamping; otherwise Alice will always pack to its negotiated _send_packet_mtu
+  and DNS can only reject oversize requests, not resize them. Keep the clamp
+  at packet build time via a per-send cap sourced from the transport.
 
 ## Plan
-1) Precompute query->response caps for DNS:
-   - For each possible query payload length (0..max_query_payload),
-     compute qname wire length and the corresponding response payload cap
-     using base_domain, cname_suffix, label_max_len, and edns_size.
-   - Build a lookup that answers: "largest query payload that still yields
+1) Precompute query->response caps for DNS (DnsClient init):
+   - For each possible query payload length (0..max_query_payload), compute:
+     - QNAME wire length for the encoded payload and base_domain.
+     - Response payload cap (packet bytes) based on rtype, edns_size,
+       cname_suffix, label_max_len, and qname length.
+   - Store a lookup that answers: "largest query payload that still yields
      response_payload_cap >= target_response_payload".
-   - Keep this in DnsClient for fast per-query clamp decisions.
-2) Add adaptive clamp state in DnsClient:
-   - Track a short "bob_has_data" window (e.g., a small poll countdown).
-   - When a response arrives, treat payload length > PACKET_HEADER_SIZE as
-     "segments present" and reset the countdown; otherwise decay/clear it.
-3) Clamp query payloads based on Bob activity:
-   - Define min_response_packet_mtu as
-     PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1, and convert to payload
-     bytes (min_payload = SEGMENT_HEADER_SIZE + 1) when comparing against
-     tunnel MTUs.
+   - Keep the lookup in DnsClient so per-send clamp selection is O(1) and does
+     not depend on live socket state.
+2) Track adaptive clamp state in DnsClient:
+   - Maintain a "bob_has_data" countdown (poll budget) that decays on each
+     poll; reset to a small fixed number when any response contains segments.
+   - Define "segments present" as response_payload_len >
+     PACKET_HEADER_SIZE (consistent with tunnel segment presence semantics).
+   - Keep this state independent of MTU negotiation so it only controls the
+     clamp target, not the negotiated send/recv MTUs.
+3) Decide the target response size for each send:
+   - Compute min_response_packet_mtu as
+     PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1.
+   - Convert to payload bytes when comparing against per-send payload caps:
+     min_response_payload = SEGMENT_HEADER_SIZE + 1.
    - If bob_has_data is set, target_response_payload should allow Bob to send
      up to the current response packet MTU (bounded by what DNS can encode).
-   - Otherwise target_response_payload = min_response_packet_mtu.
-   - Clamp outgoing query payload to the precomputed maximum for that target,
-     while respecting the transport send_packet_mtu.
-   - Expose the chosen clamp to the tunnel via a per-send payload cap so
-     _collect_segments uses min(send_payload_limit, transport_cap) when
-     packing.
-   - Wire the clamp into Alice's send path (e.g., carry the cap on the
-     transport SendPermit or a transport callback) and have AliceTunnel pass
-     the per-send cap into _collect_segments instead of using
-     send_payload_limit alone.
-4) Preserve per-request response caps on Bob:
-   - Continue computing response_payload_cap from each query (qname length,
-     EDNS size) in DnsServer.
+   - Otherwise target_response_payload = min_response_packet_mtu to keep
+     response slots small while idle.
+4) Select and attach the per-send clamp (packet bytes):
+   - Use the precomputed lookup to pick the largest query payload length whose
+     response payload cap >= target_response_payload.
+   - Convert that query payload length into a packet cap by adding
+     PACKET_HEADER_SIZE, and clamp it to transport.send_packet_mtu.
+   - If no payload length satisfies min_response_payload, the DNS transport
+     must fail initialization with a clear configuration error.
+5) Plumb the per-send clamp into the tunnel send path:
+   - Introduce a transport hook for per-send caps, e.g.
+     Transport.payload_cap_for_send(permit) -> packet bytes or None.
+   - Default implementation returns None so non-DNS transports are unchanged.
+   - In AliceTunnel, after reserve_send(), call the transport hook and pass
+     the returned cap into BaseTunnel._collect_segments (new optional arg).
+   - Ensure BaseTunnel clamps max_payload as
+     min(max_payload, payload_cap - PACKET_HEADER_SIZE) when a cap is given.
+6) Implement the DNS side of the hook:
+   - In DnsClient.reserve_send(), compute the per-send cap from the adaptive
+     clamp rules and attach it to the SendPermit (e.g., permit.data).
+   - Implement DnsClient.payload_cap_for_send(permit) to read the attached
+     value and return it as packet bytes.
+   - If DnsClient is wrapped (lossy transport), forward the cap via the inner
+     permit so the wrapper can delegate to the inner transport.
+7) Preserve per-request response caps on Bob:
+   - Continue computing response_payload_cap from each query in DnsServer.
    - Attach the per-request cap to the responder and have BobTunnel enforce it
      for new responses and retransmits so packets never exceed the query's
      response size budget.
-5) Enforce minimum response capacity at init:
-   - If no query payload length yields response_payload_cap >=
-     min_response_payload for the configured base_domain/edns/label_max_len,
-     fail DNS init with a clear configuration error.
-6) Replace payload_cap with explicit clamp hooks:
-   - Keep BaseTunnel per-packet clamping but drive it from a new transport
-     callback/property that can vary per request (DNS uses adaptive clamp,
-     other transports return None).
-   - Keep BobTunnel per-response cap enforcement (rename the field if
-     payload_cap is removed from the transport interface) for both new sends
-     and retransmits.
-   - Stop attaching payload_cap as a transport attribute; keep per-request
-     response caps on DNS responders and rely on MTU/DNS sizing elsewhere.
-7) Update documentation:
-   - DNS_TRANSPORT: describe adaptive clamp behavior and response-cap rules.
-   - PROTOCOL/TRANSPORTS: only update if new clamp behavior is documented or
-     payload_cap references are added elsewhere.
+8) Remove payload_cap from the transport/tunnel interface:
+   - Delete payload_cap attributes and any BaseTunnel state that caches it.
+   - Keep per-send clamping exclusively through the new transport hook.
+   - Keep Bob-side per-response cap enforcement (rename fields as needed) so
+     retransmits still honor the original query budget.
+9) Update documentation:
+   - DNS_TRANSPORT: describe adaptive clamp behavior and the per-send cap hook.
+   - PROTOCOL/TRANSPORTS: update if payload_cap references exist or if the new
+     hook is part of the public transport contract.
    - BOB_RETRANSMIT_LOGIC and UDP_EPHEMERAL_TRANSPORT: remove payload_cap
      references tied to the old interface.
-8) Update tests (non-e2e):
-   - DNS client/server/codec tests for clamp lookup and min-cap enforcement.
+10) Update tests (non-e2e):
+   - DNS client/server/codec tests for clamp lookup, per-send caps, and
+     min-cap enforcement.
    - Tunnel/BobTunnel tests that reference payload_cap behavior.

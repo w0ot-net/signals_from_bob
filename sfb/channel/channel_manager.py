@@ -75,6 +75,7 @@ class ChannelManager(object):
         self._active_channels = collections.OrderedDict()
         self._send_state_seq = {}
         self._data_send_event = threading.Event()
+        self._pending_send_event = threading.Event()
         self._unknown_channel_last = {}
         self._id_reuse_cooldown = config.channel_id_reuse_cooldown
         self._id_reuse_until = {}
@@ -91,6 +92,7 @@ class ChannelManager(object):
             read_chunk_size=config.channel_control_read_chunk,
             write_backoff_initial=config.channel_write_backoff_initial,
             write_backoff_max=config.channel_write_backoff_max,
+            send_event_callback=self._on_control_send_event,
         )
         self._control._set_state(STATE_OPEN)
         self._register_channel(self._control)
@@ -105,6 +107,16 @@ class ChannelManager(object):
     def control(self):
         """The control channel (channel 0)."""
         return self._control
+
+    @property
+    def pending_send_event(self):
+        """Event set when control or data channels have queued send data."""
+        return self._pending_send_event
+
+    @property
+    def data_send_event(self):
+        """Event set when non-control channels have queued send data."""
+        return self._data_send_event
 
     def set_channel_request_handler(self, handler):
         """
@@ -123,9 +135,7 @@ class ChannelManager(object):
         if mode == 'data':
             return self._data_send_event.is_set()
         if mode == 'control_or_data':
-            if self._control.send_event.is_set():
-                return True
-            return self._data_send_event.is_set()
+            return self._pending_send_event.is_set()
         raise ValueError('mode must be control_or_data, control, or data')
 
     def has_data_channels_pending(self):
@@ -137,6 +147,22 @@ class ChannelManager(object):
             self._data_send_event.set()
         else:
             self._data_send_event.clear()
+        self._update_pending_send_event_locked()
+
+    def _update_pending_send_event_locked(self):
+        if (self._control.send_event.is_set() or
+                self._data_send_event.is_set()):
+            self._pending_send_event.set()
+        else:
+            self._pending_send_event.clear()
+
+    def _on_control_send_event(self, is_set):
+        if is_set:
+            self._pending_send_event.set()
+            return
+        if self._data_send_event.is_set():
+            return
+        self._pending_send_event.clear()
 
     def pending_send_bytes(self, include_control=True):
         """Return total queued send bytes across channels."""

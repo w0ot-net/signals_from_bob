@@ -412,6 +412,15 @@ class AliceTunnel(BaseTunnel):
         self._retransmit_budget = self._retransmit_cap
         packets_sent_before = self._packets_sent
         serial_window = self._serial_window_negotiation()
+        pending_event = self._channel_manager.pending_send_event
+        control_send_event = self._channel_manager.control.send_event
+        data_send_event = self._channel_manager.data_send_event
+        def pending_mode_set(mode):
+            if mode == 'control':
+                return control_send_event.is_set()
+            if mode == 'data':
+                return data_send_event.is_set()
+            return pending_event.is_set()
 
         # 1. Receive all available responses
         received_any = False
@@ -541,7 +550,7 @@ class AliceTunnel(BaseTunnel):
         control_only = serial_window
         break_on_empty = not serial_window
         while True:
-            if self._channel_manager.has_pending_data(mode=pending_mode):
+            if pending_mode_set(pending_mode):
                 if not self._can_send_new(
                         now=now,
                         keepalive_only=False):
@@ -549,9 +558,7 @@ class AliceTunnel(BaseTunnel):
                 if not self._poll_pacing_allows_send(now):
                     pacing_blocked = True
                     break
-                has_data_pending = self._channel_manager.has_pending_data(
-                    mode='data'
-                )
+                has_data_pending = data_send_event.is_set()
                 permit = self._reserve_transport_permit(
                     now,
                     has_data_pending=has_data_pending,
@@ -575,7 +582,7 @@ class AliceTunnel(BaseTunnel):
             should_poll, keepalive_due, consume_pong_grace = self._poll_decision(now)
             if not should_poll:
                 break
-            if self._channel_manager.has_pending_data(mode=pending_mode):
+            if pending_mode_set(pending_mode):
                 continue
             window_full = not self._send_window.can_send
             if window_full:
@@ -631,8 +638,7 @@ class AliceTunnel(BaseTunnel):
             if segments:
                 self._send_new_packet(segments, now, permit=permit)
                 continue
-            if (break_on_empty and
-                    self._channel_manager.has_pending_data(mode=pending_mode)):
+            if break_on_empty and pending_mode_set(pending_mode):
                 self._transport.release_send(permit)
                 break
             self._send_new_packet([], now, flags=FLAG_KEEPALIVE, permit=permit)
@@ -651,8 +657,7 @@ class AliceTunnel(BaseTunnel):
 
         if (not paced_sleep and not received_any and
                 self._packets_sent == packets_sent_before and
-                not self._channel_manager.has_pending_data(
-                    mode='control_or_data') and
+                not pending_mode_set('control_or_data') and
                 not self._got_data and not self._has_pending_data_acks):
             idle_sleep = max(self._config.tunnel_tick_sleep, 0.01)
             time_provider.sleep(idle_sleep)

@@ -576,8 +576,11 @@ class BaseTunnel(object):
                 seq=header.seq,
                 direction=self._direction_inbound(),
             )
-            segments = Segment.decode_all(decrypted_body)
-            log_control_segments(segments)
+            if decrypted_body:
+                segments = Segment.decode_all(decrypted_body)
+                log_control_segments(segments)
+            else:
+                segments = []
             packet = Packet()
             packet.header = header
             packet.segments = segments
@@ -753,7 +756,6 @@ class BaseTunnel(object):
             )
 
         # Deliver segments from in-order packets only
-        delivered_segments = False
         for seq, ready_packet in ready_packets:
             if ready_packet.flags & FLAG_KEEPALIVE:
                 continue
@@ -776,18 +778,12 @@ class BaseTunnel(object):
 
             for segment in control_segments:
                 self._channel_manager.deliver_segment(segment)
-                delivered_segments = True
 
             if control_segments:
                 self._process_control_messages()
 
             for segment in data_segments:
                 self._channel_manager.deliver_segment(segment)
-                delivered_segments = True
-
-        # Process any remaining control messages
-        if delivered_segments:
-            self._process_control_messages()
 
         self._packets_received += 1
 

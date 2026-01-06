@@ -21,12 +21,17 @@ class ControlChannel(Channel):
     Control messages are JSON, one per line, ASCII encoded.
     """
 
-    __slots__ = ('_line_buf', '_read_chunk_size', '_send_event')
+    __slots__ = (
+        '_line_buf',
+        '_read_chunk_size',
+        '_send_event',
+        '_send_event_callback',
+    )
 
     def __init__(self, channel_id=CHANNEL_CONTROL, max_send_buf=1048576,
                  max_recv_buf=1048576, read_chunk_size=4096,
                  write_backoff_initial=0.01, write_backoff_max=1.0,
-                 send_event=None):
+                 send_event=None, send_event_callback=None):
         if channel_id != CHANNEL_CONTROL:
             raise ValueError('ControlChannel must use channel 0')
         Channel.__init__(self, channel_id, max_send_buf=max_send_buf,
@@ -36,10 +41,19 @@ class ControlChannel(Channel):
         self._line_buf = bytearray()
         self._read_chunk_size = read_chunk_size
         self._send_event = send_event or threading.Event()
+        self._send_event_callback = send_event_callback
 
     @property
     def send_event(self):
         return self._send_event
+
+    def _set_send_event(self, is_set):
+        if is_set:
+            self._send_event.set()
+        else:
+            self._send_event.clear()
+        if self._send_event_callback is not None:
+            self._send_event_callback(is_set)
 
     def send_message(self, obj):
         from ..tunnel.tunnel_control_messages import encode as encode_message
@@ -61,7 +75,7 @@ class ControlChannel(Channel):
     def write(self, data):
         written = Channel.write(self, data)
         if written:
-            self._send_event.set()
+            self._set_send_event(True)
         return written
 
     def _take_send_data(self, max_size):
@@ -75,7 +89,7 @@ class ControlChannel(Channel):
         data = Channel._take_send_data(self, max_size)
         with self._lock:
             if self._send_buf_size == 0:
-                self._send_event.clear()
+                self._set_send_event(False)
         return data
 
     def recv_message(self, timeout=None):

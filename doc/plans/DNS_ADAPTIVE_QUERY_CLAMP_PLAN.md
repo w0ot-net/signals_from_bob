@@ -153,6 +153,10 @@
      PACKET_HEADER_SIZE, and clamp it to transport.send_packet_mtu.
    - If no payload length satisfies min_response_payload, the DNS transport
      must fail initialization with a clear configuration error.
+   - Store the chosen cap on the SendPermit for that specific send (e.g.,
+     permit.data['payload_cap']). Do not store it on the transport object;
+     DnsClient pipelines multiple in-flight queries and a mutable transport
+     attribute would race and apply the wrong cap.
 6) Plumb the per-send clamp into the tunnel send path:
    - Introduce a transport hook for per-send caps, e.g.
      Transport.payload_cap_for_send(permit) -> packet bytes or None.

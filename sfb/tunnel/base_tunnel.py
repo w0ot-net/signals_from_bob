@@ -33,6 +33,8 @@ from ..protocol import (
     FLAG_SYN,
     FLAG_ACK,
     FLAG_KEEPALIVE,
+    FLAG_HAS_SEGMENTS,
+    FLAG_WANTS_POLL,
     PACKET_HEADER_SIZE,
     log_control_segments,
 )
@@ -44,6 +46,7 @@ class TunnelState(object):
     """Tunnel connection states."""
     DISCONNECTED = 'disconnected'
     CONNECTING = 'connecting'
+    HANDSHAKE_ACKED = 'handshake_acked'
     CONNECTED = 'connected'
     CLOSING = 'closing'
     CLOSED = 'closed'
@@ -272,7 +275,8 @@ class BaseTunnel(object):
         Build a packet with current seq/ack state.
 
         Args:
-            flags: Packet flags (FLAG_SYN, FLAG_ACK, FLAG_KEEPALIVE)
+            flags: Packet flags (FLAG_SYN, FLAG_ACK, FLAG_KEEPALIVE,
+                FLAG_HAS_SEGMENTS, FLAG_WANTS_POLL)
             segments: List of Segment instances
 
         Returns:
@@ -415,6 +419,7 @@ class BaseTunnel(object):
 
     def _packet_send_fields(self, packet, data_len, context):
         """Build common tunnel.packet_send log fields."""
+        content_flag = self._content_flag_label(packet.flags)
         return {
             'seq': packet.seq,
             'ack': packet.ack,
@@ -429,10 +434,27 @@ class BaseTunnel(object):
             'unacked': self._send_window.unacked_count,
             'max_in_flight': self._send_window._max_in_flight,
             'keepalive': bool(packet.flags & FLAG_KEEPALIVE),
+            'wants_poll': bool(packet.flags & FLAG_WANTS_POLL),
+            'content_flag': content_flag,
             'has_data': bool(packet.segments),
             'side': 'alice' if self._is_initiator else 'bob',
             'state': self._state,
         }
+
+    @staticmethod
+    def _content_flag_label(flags):
+        content_flags = flags & (
+            FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS | FLAG_WANTS_POLL
+        )
+        if content_flags == FLAG_HAS_SEGMENTS:
+            return 'has_segments'
+        if content_flags == FLAG_WANTS_POLL:
+            return 'wants_poll'
+        if content_flags == FLAG_KEEPALIVE:
+            return 'keepalive'
+        if content_flags == 0:
+            return 'none'
+        return 'invalid'
 
     def _close_protocol_violation(self, reason, packet=None):
         def build_fields():
@@ -460,21 +482,55 @@ class BaseTunnel(object):
         self.close()
         return False
 
-    def _validate_keepalive_packet(self, packet):
-        if not (packet.flags & FLAG_KEEPALIVE):
+    def _validate_content_flags(self, packet):
+        flags = packet.flags
+        handshake_flags = flags & (FLAG_SYN | FLAG_ACK)
+        content_flags = flags & (
+            FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS | FLAG_WANTS_POLL
+        )
+        if handshake_flags:
+            if packet.segments:
+                return self._close_protocol_violation(
+                    'handshake_with_segments', packet
+                )
+            if content_flags:
+                return self._close_protocol_violation(
+                    'handshake_with_content_flags', packet
+                )
             return True
-        if packet.flags & (FLAG_SYN | FLAG_ACK):
+
+        if self._state == TunnelState.CONNECTING:
             return self._close_protocol_violation(
-                'keepalive_with_syn_ack', packet
+                'non_handshake_while_connecting', packet
             )
-        if self._state != TunnelState.CONNECTED:
+
+        if self._state == TunnelState.DISCONNECTED:
             return self._close_protocol_violation(
-                'keepalive_before_connected', packet
+                'non_handshake_while_disconnected', packet
             )
-        if packet.segments:
-            return self._close_protocol_violation(
-                'keepalive_with_segments', packet
-            )
+
+        if self._state in (TunnelState.HANDSHAKE_ACKED, TunnelState.CONNECTED):
+            if content_flags == 0:
+                return self._close_protocol_violation(
+                    'missing_content_flags', packet
+                )
+            if content_flags & (content_flags - 1):
+                return self._close_protocol_violation(
+                    'multiple_content_flags', packet
+                )
+            if content_flags == FLAG_HAS_SEGMENTS:
+                if not packet.segments:
+                    return self._close_protocol_violation(
+                        'has_segments_without_segments', packet
+                    )
+            else:
+                if packet.segments:
+                    reason = 'wants_poll_with_segments'
+                    if content_flags == FLAG_KEEPALIVE:
+                        reason = 'keepalive_with_segments'
+                    return self._close_protocol_violation(reason, packet)
+            return True
+
         return True
 
     def _decode_packet(self, data, max_size=None, return_size=False):
@@ -508,7 +564,7 @@ class BaseTunnel(object):
             packet = Packet()
             packet.header = header
             packet.segments = segments
-            if not self._validate_keepalive_packet(packet):
+            if not self._validate_content_flags(packet):
                 if return_size:
                     return (None, None)
                 return None
@@ -570,6 +626,7 @@ class BaseTunnel(object):
                 'ack': packet.ack,
                 'sack': packet.sack,
                 'flags': packet.flags,
+                'content_flag': self._content_flag_label(packet.flags),
                 'seg_count': len(packet.segments),
                 'bytes': packet_size
                 if packet_size is not None else packet.encoded_size(),
@@ -581,10 +638,11 @@ class BaseTunnel(object):
                 'state': self._state,
             },
         )
+        sample_rtt = bool(packet.flags & FLAG_HAS_SEGMENTS)
         (rtt_samples, acked_count, data_acked_count, unacked_before,
          unacked_after, prev_cum_ack, prev_cum_ack_time, _ack_advanced,
          _ack_progressed) = self._send_window.process_ack_with_progress(
-             packet.ack, packet.sack, now=now
+             packet.ack, packet.sack, now=now, sample_rtt=sample_rtt
          )
         def build_ack_fields():
             fields = {
@@ -677,7 +735,9 @@ class BaseTunnel(object):
         # Deliver segments from in-order packets only
         delivered_segments = False
         for seq, ready_packet in ready_packets:
-            if ready_packet.flags & FLAG_KEEPALIVE:
+            if ready_packet.flags & (FLAG_KEEPALIVE | FLAG_WANTS_POLL):
+                continue
+            if not ready_packet.segments:
                 continue
             log_event(
                 self._logger,

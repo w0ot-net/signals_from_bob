@@ -182,15 +182,15 @@ RTT sampling (`SendWindow._ack_seq`):
 - RTT sample is recorded only if `retransmit_count == 0` (Karn's rule).
 - Sample value: `(now - send_time) * 1000` milliseconds.
 - Samples are collected for both cumulative ACKs and SACK ACKs.
-  - Keepalive-only packets are excluded from RTT sampling.
+  - `KEEPALIVE` and `WANTS_POLL` packets are excluded from RTT sampling.
 
 Effects on retransmit logic:
 - RTT samples feed `RttEstimator.add_sample()` and reset backoff.
 - ACK progress updates `SendWindow.last_ack_progress_time` and sets
   `_ack_progressed` for window-growth gating.
 - `data_acked_count` (only packets with segments) drives pacing feedback.
-- Keepalive packets (no segments) do not contribute RTT samples and do not
-  drive pacing.
+- `KEEPALIVE` and `WANTS_POLL` packets (no segments) do not contribute RTT
+  samples and do not drive pacing.
 
 ## Polling And Keepalive Effects On Retransmit Timing
 
@@ -202,20 +202,23 @@ arrive, which in turn drives RTT samples and retransmit timing.
   - Poll immediately, decrement grace.
 - If grace expired:
   - Poll only when `now - last_send_time >= keepalive_interval`.
+- If Bob sends a `WANTS_POLL` response:
+  - Poll immediately.
 - If Alice saw real data or has pending data acks:
   - Poll immediately.
 - Otherwise:
   - Poll at `keepalive_interval`.
 
 Keepalive specifics:
-- Any packet with zero segments always carries FLAG_KEEPALIVE, including grace
-  polls and ACK-progress polls.
-- They still use sequence numbers and are tracked in the send window, but do
-  not contribute RTT samples.
+- Alice's empty polls carry `FLAG_KEEPALIVE`, including grace polls and
+  ACK-progress polls. Bob's empty responses use `FLAG_KEEPALIVE` when idle or
+  `FLAG_WANTS_POLL` when data is pending but nothing fits.
+- Empty packets still use sequence numbers and are tracked in the send window,
+  but do not contribute RTT samples.
 - If an empty keepalive poll is ready and the window is full, the oldest
   keepalive is dropped so a replacement keepalive poll can be sent.
 - Bob suppresses keepalive responses when any channel has pending data; he
-  responds with ACK-only or data instead.
+  responds with `WANTS_POLL` or data instead.
 
 ## Instrumentation Events (Alice)
 
@@ -263,7 +266,7 @@ update).
 Alice tracks time since the last valid response:
 - `_last_recv_time` updates on any valid decoded response.
 - Invalid or undecodable responses do not reset the timer.
-  - Keepalive-only and ack-only responses still count as valid responses.
+  - Keepalive-only and `WANTS_POLL` responses still count as valid responses.
 
 If `now - _last_recv_time >= tunnel_no_response_timeout`, Alice closes the
 connection and logs `tunnel.timeout_no_response`. Retransmissions stop once closed.

@@ -129,13 +129,14 @@ Alice continuously polls Bob. Her polling strategy maximizes throughput when
 Bob has data while minimizing overhead when idle.
 
 **Polling behavior:**
-- After receiving real data (not keepalive-only): poll immediately (no delay)
-- After receiving keepalive-only: wait for idle interval (e.g., 1-5s)
+- After receiving `HAS_SEGMENTS`: poll immediately (no delay)
+- After receiving `WANTS_POLL`: poll immediately (no delay)
+- After receiving `KEEPALIVE`: wait for idle interval (e.g., 1-5s)
 
 This ensures maximum throughput: if Bob has 10 packets queued, Alice drains
 them as fast as the network allows. When Bob has nothing to send, he responds
-with a keepalive-only packet (FLAG_KEEPALIVE, zero segments) and Alice slows
-down.
+with `KEEPALIVE` (zero segments) and Alice slows down. When Bob has pending
+data but nothing fits, he responds with `WANTS_POLL` instead.
 
 ---
 

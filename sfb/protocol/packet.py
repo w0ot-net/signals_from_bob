@@ -28,6 +28,8 @@ from .constants import (
     FLAG_SYN,
     FLAG_ACK,
     FLAG_KEEPALIVE,
+    FLAG_HAS_SEGMENTS,
+    FLAG_WANTS_POLL,
     SEQ_MAX,
     SEQ_HALF,
     SACK_MAX,
@@ -43,14 +45,16 @@ class PacketHeader(object):
         seq: Sequence number of this packet (0-65535)
         ack: Next expected sequence number from peer (0-65535)
         sack: Bitmap of 256 packets received beyond ack (bit 0 = ack + 1)
-        flags: Packet flags (SYN, ACK, KEEPALIVE)
+        flags: Packet flags (SYN, ACK, KEEPALIVE, HAS_SEGMENTS, WANTS_POLL)
     """
 
     __slots__ = ('seq', 'ack', 'sack', 'flags')
 
     # Struct format: big-endian, 2 unsigned shorts, 4 unsigned 64-bit, 2 unsigned bytes
     _STRUCT = struct.Struct('>HHQQQQBB')
-    _VALID_FLAGS = FLAG_SYN | FLAG_ACK | FLAG_KEEPALIVE
+    _VALID_FLAGS = (
+        FLAG_SYN | FLAG_ACK | FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS | FLAG_WANTS_POLL
+    )
     _WORD_MASK = 0xFFFFFFFFFFFFFFFF
 
     def __init__(self, seq=0, ack=0, sack=0, flags=0):
@@ -94,6 +98,30 @@ class PacketHeader(object):
             self.flags |= FLAG_KEEPALIVE
         else:
             self.flags &= ~FLAG_KEEPALIVE
+
+    @property
+    def has_segments_flag(self):
+        """True if HAS_SEGMENTS flag is set."""
+        return bool(self.flags & FLAG_HAS_SEGMENTS)
+
+    @has_segments_flag.setter
+    def has_segments_flag(self, value):
+        if value:
+            self.flags |= FLAG_HAS_SEGMENTS
+        else:
+            self.flags &= ~FLAG_HAS_SEGMENTS
+
+    @property
+    def wants_poll_flag(self):
+        """True if WANTS_POLL flag is set."""
+        return bool(self.flags & FLAG_WANTS_POLL)
+
+    @wants_poll_flag.setter
+    def wants_poll_flag(self, value):
+        if value:
+            self.flags |= FLAG_WANTS_POLL
+        else:
+            self.flags &= ~FLAG_WANTS_POLL
 
     def encode(self):
         """
@@ -175,6 +203,10 @@ class PacketHeader(object):
             flags_str.append('SYN')
         if self.ack_flag:
             flags_str.append('ACK')
+        if self.has_segments_flag:
+            flags_str.append('HAS_SEGMENTS')
+        if self.wants_poll_flag:
+            flags_str.append('WANTS_POLL')
         if self.keepalive_flag:
             flags_str.append('KEEPALIVE')
         flags_repr = '|'.join(flags_str) if flags_str else '0'

@@ -18,6 +18,8 @@ from ..protocol import (
     FLAG_SYN,
     FLAG_ACK,
     FLAG_KEEPALIVE,
+    FLAG_HAS_SEGMENTS,
+    FLAG_WANTS_POLL,
     PACKET_HEADER_SIZE,
 )
 
@@ -269,27 +271,13 @@ class BobTunnel(BaseTunnel):
                 self._send_response(responder, now)
 
         elif self._state == TunnelState.CONNECTING:
-            # Data packet while connecting - treat as implicit ACK
-            self._send_window._next_seq = (self._local_isn + 1) & 0xFFFF
-            self._set_state(TunnelState.CONNECTED)
-            self._handshake_complete = True
             log_event(
                 self._logger,
-                logging.INFO,
-                'tunnel.connected',
-                'Connected',
-                lambda: {
-                    'local_isn': self._local_isn,
-                    'remote_isn': self._remote_isn,
-                    'mode': 'implicit_ack',
-                    'side': 'bob',
-                },
+                logging.WARNING,
+                'tunnel.handshake_invalid',
+                'Non-handshake packet while connecting',
+                lambda: {'side': 'bob', 'flags': packet.flags},
             )
-
-            self._process_incoming_packet(
-                packet, now=now, packet_size=packet_size
-            )
-            self._send_response(responder, now)
 
     def _handle_data(self, packet, responder, now, packet_size=None):
         """Handle data packets."""
@@ -404,8 +392,11 @@ class BobTunnel(BaseTunnel):
         )
         return True
 
-    def _send_ack_only_response(self, responder, now, context):
-        packet, _ = self._build_packet(segments=[])
+    def _send_poll_hint_response(self, responder, now, context):
+        packet, _ = self._build_packet(
+            flags=FLAG_WANTS_POLL,
+            segments=[],
+        )
         encrypted_body, response_data = self._encode_packet_for_send(packet)
         self._send_window.send(
             [],
@@ -424,7 +415,7 @@ class BobTunnel(BaseTunnel):
             lambda: self._packet_send_fields(
                 packet,
                 len(response_data),
-                'ack_only',
+                context,
             ),
         )
 
@@ -487,8 +478,8 @@ class BobTunnel(BaseTunnel):
 
         # No retransmits needed - check window before sending new data
         if not self._send_window.can_send:
-            # Window full but no unacked? Shouldn't happen - log and send ACK-only
-            # to maintain request/response contract
+            # Window full but no unacked? Shouldn't happen - log and send a
+            # poll hint to maintain request/response contract.
             unacked = self._send_window.unacked_count
             if unacked == 0:
                 log_event(
@@ -644,10 +635,10 @@ class BobTunnel(BaseTunnel):
                         'reason': 'pending_data',
                     },
                 )
-                self._send_ack_only_response(
+                self._send_poll_hint_response(
                     responder,
                     now,
-                    'pending_no_segments',
+                    'poll_hint',
                 )
                 return
             packet, seq = self._build_packet(
@@ -657,7 +648,7 @@ class BobTunnel(BaseTunnel):
             encrypted_body, response_data = self._encode_packet_for_send(packet)
             self._send_window.send(
                 [],
-                flags=FLAG_KEEPALIVE,
+                flags=packet.flags,
                 encrypted_body=encrypted_body,
                 now=now,
             )
@@ -679,7 +670,10 @@ class BobTunnel(BaseTunnel):
             return
 
         # Build packet
-        packet, seq = self._build_packet(segments=segments)
+        packet, seq = self._build_packet(
+            flags=FLAG_HAS_SEGMENTS,
+            segments=segments,
+        )
         encrypted_body, response_data = self._encode_packet_for_send(packet)
 
         # Record send (store segments for retransmit with fresh ack/sack)

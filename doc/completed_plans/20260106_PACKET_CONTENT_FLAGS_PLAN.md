@@ -1,6 +1,6 @@
 # Packet Content Flags Plan
 
-Status: draft
+Status: implemented
 
 ## Goal
 
@@ -147,3 +147,12 @@ serve as an implicit poll hint.
 
 - Run unit tests for packet validation and tunnel polling behavior.
 - Do not run tests in `tests/e2e/`.
+
+## Execution Notes
+
+- Implemented `HAS_SEGMENTS`/`WANTS_POLL`/`KEEPALIVE` flags and content-flag
+  validation, including post-ACK handshake state handling.
+- Updated Alice/Bob send/receive paths, RTT sampling gating, and logging to
+  surface explicit content intent.
+- Documentation updated to reflect poll-hint semantics and handshake rules.
+- Tests not run (per instructions; e2e tests are user-run only).

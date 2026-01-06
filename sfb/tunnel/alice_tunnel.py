@@ -21,6 +21,8 @@ from ..protocol import (
     FLAG_SYN,
     FLAG_ACK,
     FLAG_KEEPALIVE,
+    FLAG_HAS_SEGMENTS,
+    FLAG_WANTS_POLL,
 )
 from ..reliability import RttEstimator
 from ..transport.transport_base import RateLimiter
@@ -93,6 +95,8 @@ class AliceTunnel(BaseTunnel):
         self._pong_grace_remaining = self._pong_grace_polls
         # Track if we have real data packets awaiting ACKs (not just keepalives)
         self._has_pending_data_acks = False
+        # Track explicit poll hints from Bob (WANTS_POLL).
+        self._poll_hint = False
         # Window growth state (Alice only)
         self._window_growth_enabled = config.tunnel_window_growth_enabled
         self._window_growth_mode = config.tunnel_window_growth_mode
@@ -164,10 +168,6 @@ class AliceTunnel(BaseTunnel):
         if self._state != TunnelState.DISCONNECTED:
             raise TunnelError('Already connected or connecting')
 
-        self._set_state(TunnelState.CONNECTING)
-        self._local_isn = self._generate_isn()
-        self._send_window._next_seq = self._local_isn
-
         start_time = time_provider.now()
         attempt = 0
 
@@ -175,6 +175,12 @@ class AliceTunnel(BaseTunnel):
             # Check if tunnel was closed (e.g., by signal handler)
             if self._state == TunnelState.CLOSED:
                 raise TunnelError('Tunnel closed during handshake')
+            if self._state != TunnelState.CONNECTING or self._local_isn is None:
+                self._set_state(TunnelState.CONNECTING)
+                self._local_isn = self._generate_isn()
+                self._remote_isn = None
+                self._send_window._next_seq = self._local_isn
+                self._recv_window.set_initial_seq(0)
 
             attempt += 1
             log_event(
@@ -276,14 +282,15 @@ class AliceTunnel(BaseTunnel):
         ack_data = self._encode_packet(ack_packet)
 
         try:
-            self._set_state(TunnelState.CONNECTED)
+            self._set_state(TunnelState.HANDSHAKE_ACKED)
             self._last_recv_time = time_provider.now()
 
-            # Retransmit final ACK until we see any response from Bob.
+            # Retransmit final ACK until we see the first post-ACK response.
             start = time_provider.now()
             while True:
                 remaining = remaining_timeout - (time_provider.now() - start)
                 if remaining <= 0:
+                    self._set_state(TunnelState.DISCONNECTED)
                     raise TunnelError('Handshake timeout')
 
                 permit = self._transport.reserve_send(now=time_provider.now())
@@ -300,7 +307,20 @@ class AliceTunnel(BaseTunnel):
                 if response_data:
                     response = self._decode_packet(response_data)
                     if response:
+                        if response.flags & (FLAG_SYN | FLAG_ACK):
+                            log_event(
+                                self._logger,
+                                logging.DEBUG,
+                                'tunnel.handshake_late_packet',
+                                'Ignored stale handshake packet',
+                                lambda: {
+                                    'flags': response.flags,
+                                    'side': 'alice',
+                                },
+                            )
+                            continue
                         self._process_incoming_packet(response)
+                        self._set_state(TunnelState.CONNECTED)
                         break
 
                 self._rtt.backoff()
@@ -330,11 +350,8 @@ class AliceTunnel(BaseTunnel):
                 'Failed to send ACK',
                 lambda: {'error': str(e), 'side': 'alice'},
             )
-            # Still mark as connected - Bob will accept data as implicit ACK
-            self._set_state(TunnelState.CONNECTED)
-            self._rtt.reset()
-            # Still try to negotiate
-            self._send_negotiation()
+            self._set_state(TunnelState.DISCONNECTED)
+            raise
 
     def _send_negotiation(self):
         """Queue MTU and window negotiation messages."""
@@ -398,15 +415,16 @@ class AliceTunnel(BaseTunnel):
         # 1. Receive all available responses
         received_any = False
         received_valid = False
-        last_resp_has_data = None
+        last_resp_kind = None
         while True:
             corr_id, data = self._transport.recv(timeout=self._config.non_blocking_poll_timeout)
             if corr_id is None:
                 break
-            valid, has_data = self._handle_response(data, now)
+            valid, resp_kind = self._handle_response(data, now)
             if valid:
                 received_valid = True
-                last_resp_has_data = has_data
+                if resp_kind is not None:
+                    last_resp_kind = resp_kind
             received_any = True
 
         # If pending is high and we didn't receive anything, wait briefly for responses
@@ -420,19 +438,20 @@ class AliceTunnel(BaseTunnel):
             if pending >= threshold:
                 corr_id, data = self._transport.recv(timeout=0.05)
                 if corr_id is not None:
-                    valid, has_data = self._handle_response(data, now)
+                    valid, resp_kind = self._handle_response(data, now)
                     if valid:
                         received_valid = True
-                        last_resp_has_data = has_data
+                        if resp_kind is not None:
+                            last_resp_kind = resp_kind
                     received_any = True
 
         if received_valid:
             # Clear pending data flag if all data has been acked
             if self._send_window.data_unacked_count() == 0:
                 self._has_pending_data_acks = False
-            if last_resp_has_data is not None:
-                self._last_was_pong_only = not last_resp_has_data
-                if last_resp_has_data:
+            if last_resp_kind is not None:
+                self._last_was_pong_only = (last_resp_kind == 'keepalive')
+                if last_resp_kind == 'has_segments':
                     self._pong_grace_remaining = self._pong_grace_polls
 
         # Check connection timeout (no response from Bob)
@@ -1079,6 +1098,7 @@ class AliceTunnel(BaseTunnel):
             if interval is not None:
                 self._next_poll_time = now + interval
         self._got_data = False
+        self._poll_hint = False
 
     def _sleep_for_poll_pacing(self, now):
         if not self._poll_pacing_enabled:
@@ -1367,7 +1387,7 @@ class AliceTunnel(BaseTunnel):
                 True,
                 False,
             )
-        if self._got_data or self._has_pending_data_acks:
+        if self._poll_hint or self._got_data or self._has_pending_data_acks:
             return True, False, False
         return (
             now - self._last_send_time >= self._keepalive_interval,
@@ -1377,7 +1397,10 @@ class AliceTunnel(BaseTunnel):
 
     def _send_new_packet(self, segments, now, flags=0, permit=None):
         """Send a new packet with given segments."""
-        if not segments:
+        flags &= ~(FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS | FLAG_WANTS_POLL)
+        if segments:
+            flags |= FLAG_HAS_SEGMENTS
+        else:
             flags |= FLAG_KEEPALIVE
         packet, seq = self._build_packet(flags=flags, segments=segments)
         encrypted_body, packet_data = self._encode_packet_for_send(packet)
@@ -1438,7 +1461,7 @@ class AliceTunnel(BaseTunnel):
             return
         self._send_window.send(
             segments,
-            flags=flags,
+            flags=packet.flags,
             encrypted_body=encrypted_body,
             now=now,
         )
@@ -1464,8 +1487,6 @@ class AliceTunnel(BaseTunnel):
 
     def _send_retransmit(self, seq, segments, flags, encrypted_body, now, reason=None):
         """Retransmit a packet."""
-        if not segments:
-            flags |= FLAG_KEEPALIVE
         packet = self._rebuild_packet(seq, segments, flags=flags)
         encrypted_body, packet_data = self._encode_packet_for_send(
             packet,
@@ -1611,16 +1632,31 @@ class AliceTunnel(BaseTunnel):
         """Handle a transport response."""
         packet, packet_size = self._decode_packet(data, return_size=True)
         if packet is None:
-            return (False, False)
+            return (False, None)
 
         self._bytes_received += len(data)
         self._last_recv_time = now
 
-        # Check if packet contains real data.
-        # Keepalive-flag packets carry no segments and are treated as no data.
-        has_real_data = not (packet.flags & FLAG_KEEPALIVE)
-        if has_real_data:
+        if packet.flags & (FLAG_SYN | FLAG_ACK):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.handshake_late_packet',
+                'Ignored stale handshake packet',
+                lambda: {
+                    'flags': packet.flags,
+                    'side': 'alice',
+                },
+            )
+            return (True, None)
+
+        response_kind = self._content_flag_label(packet.flags)
+        if response_kind == 'has_segments':
             self._got_data = True
+        elif response_kind == 'wants_poll':
+            self._poll_hint = True
+        elif response_kind not in ('keepalive',):
+            response_kind = None
 
         prev_unacked = self._send_window.unacked_count
         rtt_samples, acked_count, data_acked_count = self._process_incoming_packet(
@@ -1638,7 +1674,7 @@ class AliceTunnel(BaseTunnel):
                 srtt_ms=self._rtt.srtt_ms,
             )
             self._maybe_log_pacer_target_change(self._pacer_cap(), reason='ack')
-        return (True, has_real_data)
+        return (True, response_kind)
 
     def _maybe_request_window(self, now):
         """Request a larger window if conditions allow."""

@@ -35,7 +35,7 @@ ACK behavior:
 
 1. Parse the header, then decrypt the body (if crypto is enabled).
 2. Decode segments and validate flags. Decode failures are logged and dropped.
-   Invalid keepalive packets are treated as protocol violations and close the tunnel.
+   Invalid content-flag packets are treated as protocol violations and close the tunnel.
 3. If the packet is a duplicate or outside the SACK window, drop it.
 4. If in order, deliver to the next layer and advance `ack`.
 5. If out of order, buffer it and set the SACK bit.
@@ -92,6 +92,10 @@ protocol_min_rto_ms, and protocol_max_rto_ms (defaults 1000/500/10000ms).
 **Karn's Algorithm:** Do not sample RTT from retransmitted packets. The ack
 could be for the original or the retransmit, making the sample ambiguous.
 
+RTT samples are only taken when the response carries `HAS_SEGMENTS`.
+`WANTS_POLL` and `KEEPALIVE` responses do not produce RTT samples or reset
+backoff.
+
 **RTO Backoff:** Double the RTO on each consecutive retransmit (up to 10s max).
 Reset after receiving a valid RTT sample.
 
@@ -124,13 +128,19 @@ and the sender naturally pauses.
 
 ---
 
-## Keepalives
+## Keepalives and Poll Hints
 
-Keepalives are header-only packets marked with `FLAG_KEEPALIVE` and zero
-segments. They are normal packets that participate in seq/ack like any other.
-Alice sends keepalive polls only when no channel has data to transmit; Bob
-responds with keepalive only when no channel has data to transmit. Keepalives
-with SYN/ACK flags, segments, or before connection are protocol violations.
+`HAS_SEGMENTS` packets carry data segments. `WANTS_POLL` packets are empty
+responses that request another poll soon. `KEEPALIVE` packets are empty,
+idle responses. All three participate in seq/ack like any other packet.
+
+Alice sends keepalive polls only when no channel has data to transmit. Bob
+responds with `KEEPALIVE` only when no channel has data to transmit; if data
+is queued but nothing fits, he responds with `WANTS_POLL` instead.
+
+Handshake packets must not set content flags. `WANTS_POLL` and `KEEPALIVE`
+must contain zero segments; `HAS_SEGMENTS` must contain at least one segment.
+Violations are protocol errors.
 
 ---
 

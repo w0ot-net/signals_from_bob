@@ -6,10 +6,10 @@ This module provides packet and segment structures for the tunnel protocol.
 
 Example usage:
 
-    from sfb.protocol import Packet, Segment
+    from sfb.protocol import Packet, Segment, FLAG_HAS_SEGMENTS
 
     # Create a packet with segments
-    packet = Packet(seq=1, ack=0)
+    packet = Packet(seq=1, ack=0, flags=FLAG_HAS_SEGMENTS)
     packet.add_segment(Segment(0, b'{"cmd":"hello"}\\n'))
 
     # Encode to bytes
@@ -35,6 +35,8 @@ from .constants import (
     FLAG_SYN,
     FLAG_ACK,
     FLAG_KEEPALIVE,
+    FLAG_HAS_SEGMENTS,
+    FLAG_WANTS_POLL,
     SEQ_MAX,
     SACK_BITS,
     MAX_IN_FLIGHT,
@@ -144,6 +146,22 @@ class Packet(object):
     def keepalive_flag(self, value):
         self.header.keepalive_flag = value
 
+    @property
+    def has_segments_flag(self):
+        return self.header.has_segments_flag
+
+    @has_segments_flag.setter
+    def has_segments_flag(self, value):
+        self.header.has_segments_flag = value
+
+    @property
+    def wants_poll_flag(self):
+        return self.header.wants_poll_flag
+
+    @wants_poll_flag.setter
+    def wants_poll_flag(self, value):
+        self.header.wants_poll_flag = value
+
     def add_segment(self, segment):
         """
         Add a segment to this packet.
@@ -218,6 +236,8 @@ __all__ = [
     'FLAG_SYN',
     'FLAG_ACK',
     'FLAG_KEEPALIVE',
+    'FLAG_HAS_SEGMENTS',
+    'FLAG_WANTS_POLL',
     'SEQ_MAX',
     'SACK_BITS',
     'MAX_IN_FLIGHT',

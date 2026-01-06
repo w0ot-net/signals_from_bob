@@ -66,17 +66,25 @@ Both sides must be upgraded together.
 ```
 Bit 0 (0x01): SYN - Handshake initiation
 Bit 1 (0x02): ACK - Handshake acknowledgment
-Bit 2 (0x04): KEEPALIVE - Header-only keepalive packet (no segments)
-Bits 3-7:     Reserved (must be 0)
+Bit 2 (0x04): KEEPALIVE - Idle keepalive packet (no segments)
+Bit 3 (0x08): HAS_SEGMENTS - Packet contains one or more segments
+Bit 4 (0x10): WANTS_POLL - Empty response requesting another poll
+Bits 5-7:     Reserved (must be 0)
 ```
 
 SYN and ACK are only used during the handshake. After connection establishment,
-flags is 0 for all data packets except KEEPALIVE.
+every non-handshake packet must set exactly one content flag:
+`HAS_SEGMENTS`, `WANTS_POLL`, or `KEEPALIVE`.
 
-KEEPALIVE constraints:
-- Only valid after the tunnel reaches CONNECTED state
-- MUST NOT be combined with SYN or ACK
-- MUST contain zero segments
+Handshake constraints:
+- SYN/SYN+ACK/ACK packets MUST contain zero segments
+- SYN/SYN+ACK/ACK packets MUST NOT set any content flags
+
+Content-flag constraints (post-ACK):
+- Exactly one of `HAS_SEGMENTS`, `WANTS_POLL`, or `KEEPALIVE` is set
+- `HAS_SEGMENTS` requires at least one segment
+- `WANTS_POLL` requires zero segments
+- `KEEPALIVE` requires zero segments
 - Any violation is a fatal protocol error (log, drop, close)
 
 ---
@@ -229,8 +237,8 @@ is active at a time; Bob ignores any traffic he does not understand.
 
 For polling transports, the handshake completes in 2 round-trips:
 - Round 1: Alice sends SYN (query), Bob responds SYN+ACK (response)
-- Round 2: Alice sends ACK (query), Bob responds with data or keepalive-only
-  (KEEPALIVE flag, no segments)
+- Round 2: Alice sends ACK (query), Bob responds with `HAS_SEGMENTS`,
+  `WANTS_POLL`, or `KEEPALIVE` (no SYN/ACK flags)
 
 ---
 
@@ -303,8 +311,8 @@ Until WINDOW_OK is received, both sides use max_in_flight = 1 (stop-and-wait).
 - Receiver sends ack = highest contiguous seq received + 1
 - Receiver sets sack bitmap for out-of-order packets beyond ack
 - Sender uses sack to skip retransmitting selectively-acked packets
-- Decode errors are logged and dropped. Invalid keepalive packets are treated
-  as protocol violations and close the tunnel.
+- Decode errors are logged and dropped. Invalid content-flag packets are
+  treated as protocol violations and close the tunnel.
 
 ### Retransmission (Asymmetric)
 
@@ -363,6 +371,10 @@ a packet is retransmitted and later acknowledged, it is ambiguous whether the
 ack is for the original or the retransmit. Using such samples can corrupt the
 RTT estimate. Only sample RTT from packets acknowledged on their first
 transmission.
+
+RTT samples are only taken when the response carries `HAS_SEGMENTS`.
+`WANTS_POLL` and `KEEPALIVE` responses do not produce RTT samples or reset
+backoff.
 
 **RTO Backoff:** On each consecutive retransmit of the same packet without
 receiving an ack, double the RTO (exponential backoff) up to the 10s maximum.

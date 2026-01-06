@@ -16,6 +16,7 @@ from ..protocol import (
     SACK_BITS,
     MAX_IN_FLIGHT,
     FLAG_KEEPALIVE,
+    FLAG_WANTS_POLL,
 )
 from .stats import NoopReliabilityStats
 
@@ -154,7 +155,7 @@ class SendWindow(object):
 
         return seq
 
-    def process_ack_with_progress(self, ack, sack, now=None):
+    def process_ack_with_progress(self, ack, sack, now=None, sample_rtt=True):
         """
         Update ACK tracking, SACK progress, and process ACK/SACK.
 
@@ -191,7 +192,7 @@ class SendWindow(object):
 
         unacked_before = len(self._unacked)
         rtt_samples, acked_count, data_acked_count = self.process_ack(
-            ack, sack, now=now
+            ack, sack, now=now, sample_rtt=sample_rtt
         )
         unacked_after = len(self._unacked)
         ack_progressed = acked_count > 0
@@ -210,7 +211,7 @@ class SendWindow(object):
             ack_progressed,
         )
 
-    def process_ack(self, ack, sack, now=None):
+    def process_ack(self, ack, sack, now=None, sample_rtt=True):
         """
         Process incoming ACK and SACK.
 
@@ -230,12 +231,12 @@ class SendWindow(object):
         acked_count = 0
         data_acked_count = 0
         acked_delta, data_acked_delta = self._ack_cumulative(
-            ack, now, rtt_samples
+            ack, now, rtt_samples, sample_rtt
         )
         acked_count += acked_delta
         data_acked_count += data_acked_delta
         acked_delta, data_acked_delta = self._ack_sack(
-            ack, sack, now, rtt_samples
+            ack, sack, now, rtt_samples, sample_rtt
         )
         acked_count += acked_delta
         data_acked_count += data_acked_delta
@@ -511,11 +512,13 @@ class SendWindow(object):
             'missing_retransmit_count': None,
             'missing_flags': None,
             'missing_seg_count': None,
+            'missing_wants_poll': False,
             'oldest_unacked_seq': None,
             'oldest_unacked_age': None,
             'oldest_unacked_retransmit_count': None,
             'oldest_unacked_flags': None,
             'oldest_unacked_seg_count': None,
+            'oldest_wants_poll': False,
         }
         missing_info = self.get_unacked_info(last_cum_ack)
         if missing_info is not None:
@@ -527,6 +530,7 @@ class SendWindow(object):
             details['missing_seg_count'] = (
                 len(segments) if segments is not None else 0
             )
+            details['missing_wants_poll'] = bool(flags & FLAG_WANTS_POLL)
             if send_time is not None:
                 age = now - send_time
                 if age < 0:
@@ -542,6 +546,7 @@ class SendWindow(object):
             details['oldest_unacked_seg_count'] = (
                 len(segments) if segments is not None else 0
             )
+            details['oldest_wants_poll'] = bool(flags & FLAG_WANTS_POLL)
             if send_time is not None:
                 age = now - send_time
                 if age < 0:
@@ -573,17 +578,21 @@ class SendWindow(object):
             'retransmit_total': self._retransmit_count,
         }
         keepalive_unacked = 0
+        wants_poll_unacked = 0
         empty_unacked = 0
         data_unacked = 0
         for pkt in self._unacked.values():
             seg_count = len(pkt.segments) if pkt.segments is not None else 0
             if pkt.flags & FLAG_KEEPALIVE:
                 keepalive_unacked += 1
+            elif pkt.flags & FLAG_WANTS_POLL:
+                wants_poll_unacked += 1
             elif seg_count == 0:
                 empty_unacked += 1
             else:
                 data_unacked += 1
         state['keepalive_unacked'] = keepalive_unacked
+        state['wants_poll_unacked'] = wants_poll_unacked
         state['empty_unacked'] = empty_unacked
         state['data_unacked'] = data_unacked
         oldest_info = self.get_oldest_unacked_info()
@@ -618,7 +627,7 @@ class SendWindow(object):
         self._last_keepalive_drop_unacked_after = count_after
         self._keepalive_drop_count += 1
 
-    def _ack_cumulative(self, ack, now, rtt_samples):
+    def _ack_cumulative(self, ack, now, rtt_samples, sample_rtt):
         acked_count = 0
         data_acked_count = 0
         while self._unacked:
@@ -626,13 +635,19 @@ class SendWindow(object):
             if not seq_lt(seq, ack):
                 break
             acked_delta, data_acked_delta = self._ack_seq(
-                seq, now, rtt_samples, is_sack=False, ack=ack, sack=None
+                seq,
+                now,
+                rtt_samples,
+                is_sack=False,
+                ack=ack,
+                sack=None,
+                sample_rtt=sample_rtt,
             )
             acked_count += acked_delta
             data_acked_count += data_acked_delta
         return (acked_count, data_acked_count)
 
-    def _ack_sack(self, ack, sack, now, rtt_samples):
+    def _ack_sack(self, ack, sack, now, rtt_samples, sample_rtt):
         if sack == 0:
             return (0, 0)
         acked_count = 0
@@ -641,13 +656,20 @@ class SendWindow(object):
             if sack & (1 << (offset - 1)):
                 seq = (ack + offset) & SEQ_MAX
                 acked_delta, data_acked_delta = self._ack_seq(
-                    seq, now, rtt_samples, is_sack=True, ack=ack, sack=sack
+                    seq,
+                    now,
+                    rtt_samples,
+                    is_sack=True,
+                    ack=ack,
+                    sack=sack,
+                    sample_rtt=sample_rtt,
                 )
                 acked_count += acked_delta
                 data_acked_count += data_acked_delta
         return (acked_count, data_acked_count)
 
-    def _ack_seq(self, seq, now, rtt_samples, is_sack, ack=None, sack=None):
+    def _ack_seq(self, seq, now, rtt_samples, is_sack, ack=None, sack=None,
+                 sample_rtt=True):
         pkt = self._unacked.pop(seq, None)
         if pkt is None:
             self._record_ack_miss(seq, is_sack, now, ack, sack)
@@ -656,7 +678,7 @@ class SendWindow(object):
         self._stats.on_ack(is_sack)
         if pkt.retransmit_count == 0:
             self._stats.on_ack_first_tx()
-            if not (pkt.flags & FLAG_KEEPALIVE):
+            if sample_rtt and not (pkt.flags & FLAG_KEEPALIVE):
                 rtt_ms = (now - pkt.send_time) * 1000
                 rtt_samples.append(rtt_ms)
                 self._stats.on_rtt_sample()

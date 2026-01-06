@@ -633,15 +633,15 @@ Bob queues outbound packets. When Alice polls:
 2. Pass to reliability/muxer layers
 3. Check outbound queue for response data
 4. If data: encode and send
-5. If no channel data is queued: send keepalive-only packet (FLAG_KEEPALIVE,
-   zero segments)
-6. If there is pending data but nothing fits, send an ack-only response
+5. If no channel data is queued: send `KEEPALIVE` (FLAG_KEEPALIVE, zero
+   segments)
+6. If there is pending data but nothing fits, send a `WANTS_POLL` response
    (keepalive suppressed)
 
 The response always contains a valid tunnel packet (with seq/ack headers). When
 no data is queued, the packet carries no segments and sets FLAG_KEEPALIVE. When
-pending data exists but no segments fit, Bob sends an ack-only response without
-the keepalive flag.
+pending data exists but no segments fit, Bob sends a `WANTS_POLL` response
+without the keepalive flag.
 
 ---
 

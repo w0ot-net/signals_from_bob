@@ -7,11 +7,6 @@ from __future__ import absolute_import
 
 from .transport_base import TransportError
 from ..protocol.constants import DEFAULT_MAX_PACKET_SIZE, MIN_PACKET_MTU
-from .tls_handshake_bump import (
-    tls_handshake_bump_cert_template as bump_cert_template,
-)
-
-
 _IPV4_MAX_TOTAL_LEN = 65535
 _IPV4_HEADER_LEN = 20
 _UDP_HEADER_LEN = 8
@@ -177,6 +172,10 @@ def _resolve_tls_handshake_limits(config, role, validated):
 
 
 def _resolve_tls_bump_limits(config, role, validated):
+    from .tls_handshake_bump import (
+        tls_handshake_bump_cert_template as bump_cert_template,
+    )
+
     if validated is None:
         from .tls_handshake_bump.tls_handshake_bump_config import (
             validate_tls_bump_config,

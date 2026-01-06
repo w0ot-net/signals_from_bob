@@ -76,6 +76,7 @@ class BobTunnel(BaseTunnel):
         # Timing
         self._last_request_time = None
         self._poll_interval_ewma = None
+        self._last_retransmit_cap_blocked_log = None
 
         # Handshake state
         self._handshake_complete = False
@@ -346,21 +347,29 @@ class BobTunnel(BaseTunnel):
                     'side': 'bob',
                 },
             )
-            log_event(
-                self._logger,
-                logging.WARNING,
-                'tunnel.retransmit_cap_blocked',
-                'Retransmit exceeds per-request cap; sending poll-hint keepalive',
-                lambda: {
-                    'seq': seq,
-                    'bytes': len(response_data),
-                    'cap': response_payload_cap,
-                    'poll_hint': True,
-                    'segments': 0,
-                    'response': 'keepalive',
-                    'side': 'bob',
-                },
-            )
+            log_now = now
+            if log_now is None:
+                log_now = time_provider.now()
+            last_log = self._last_retransmit_cap_blocked_log
+            if last_log is None or (log_now - last_log) >= 2.0:
+                self._last_retransmit_cap_blocked_log = log_now
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.retransmit_cap_blocked',
+                    'Retransmit exceeds per-request cap; sending poll-hint keepalive',
+                    lambda: {
+                        'seq': seq,
+                        'bytes': len(response_data),
+                        'cap': response_payload_cap,
+                        'poll_hint': True,
+                        'segments': 0,
+                        'response': 'keepalive',
+                        'side': 'bob',
+                    },
+                )
+            if now is None:
+                now = log_now
             if not self._send_window.can_send:
                 dropped_seq = self._send_window.drop_oldest_keepalive(
                     reason='poll_hint_window_full', now=now

@@ -373,11 +373,11 @@ deterministic. Keystreams repeat if seq wraps under a static PSK.
 ### Connection Loss
 
 Alice detects connection loss when:
-- No successful response after N consecutive timeouts (configurable)
+- No successful response within `tunnel_no_response_timeout` seconds
 - State transitions to CLOSED
 
 Bob detects connection loss when:
-- No request received within timeout period (configurable)
+- No request received within `tunnel_idle_timeout` seconds
 - State transitions to CLOSED
 
 ---
@@ -387,14 +387,20 @@ Bob detects connection loss when:
 ### AliceTunnel
 
 ```python
-from sfb.tunnel import AliceTunnel
-from sfb.transport.dns import DnsClient
+from sfb.config import Config
 from sfb.crypto import RC4
+from sfb.transport.dns import DnsClient
+from sfb.tunnel import AliceTunnel
 
+config = Config()
+config.dns_base_domain = 'tunnel.example.com'
+config.tunnel_keepalive_interval = 5.0
+
+transport = DnsClient(config)
 tunnel = AliceTunnel(
-    transport=DnsClient(base_domain='tunnel.example.com'),
+    transport=transport,
+    config=config,
     crypto=RC4(key),
-    keepalive_interval=5.0,
 )
 
 # Register module handlers (optional)
@@ -419,14 +425,20 @@ tunnel.close()
 ### BobTunnel
 
 ```python
-from sfb.tunnel import BobTunnel
-from sfb.transport.dns import DnsServer
+from sfb.config import Config
 from sfb.crypto import RC4
+from sfb.transport.dns import DnsServer
+from sfb.tunnel import BobTunnel
 
+config = Config()
+config.dns_base_domain = 'tunnel.example.com'
+config.tunnel_idle_timeout = 60.0
+
+transport = DnsServer(config)
 tunnel = BobTunnel(
-    transport=DnsServer(base_domain='tunnel.example.com'),
+    transport=transport,
+    config=config,
     crypto=RC4(key),
-    idle_timeout=60.0,
 )
 
 # Register module handlers

@@ -193,6 +193,9 @@ means they can later be retransmitted:
 
 Keepalive responses are suppressed when any channel has pending data:
 - Pending data is sent as segments; keepalive is only sent when idle.
+- If a retransmit exceeds the per-request response cap, Bob responds with a
+  KEEPALIVE + POLL_HINT header-only packet and leaves the packet pending for
+  a larger-cap poll.
 
 ## Instrumentation Events (Bob)
 

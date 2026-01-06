@@ -11,7 +11,6 @@ from __future__ import absolute_import
 import logging
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
-from .tunnel_control_messages import tun_ping
 from ..logging_util import log_event
 from .. import time_provider
 from ..protocol import (
@@ -351,11 +350,14 @@ class BobTunnel(BaseTunnel):
                 self._logger,
                 logging.WARNING,
                 'tunnel.retransmit_cap_blocked',
-                'Retransmit exceeds per-request cap; sending control segment',
+                'Retransmit exceeds per-request cap; sending poll-hint keepalive',
                 lambda: {
                     'seq': seq,
                     'bytes': len(response_data),
                     'cap': response_payload_cap,
+                    'poll_hint': True,
+                    'segments': 0,
+                    'response': 'keepalive',
                     'side': 'bob',
                 },
             )
@@ -375,7 +377,7 @@ class BobTunnel(BaseTunnel):
                             'seq': dropped_seq,
                         },
                     )
-            self._send_poll_hint_segment(responder, now, response_payload_cap)
+            self._send_keepalive_response(responder, now, poll_hint=True)
             return False
         prev_info = self._send_window.get_unacked_info(seq)
         prev_retransmit_count = None
@@ -477,7 +479,6 @@ class BobTunnel(BaseTunnel):
         return True
 
     def _send_poll_hint_segment(self, responder, now, response_payload_cap):
-        self.control.send_message(tun_ping())
         max_payload = self._payload_mtu_from_packet(self._send_packet_mtu)
         if response_payload_cap is not None:
             cap_payload = response_payload_cap - PACKET_HEADER_SIZE

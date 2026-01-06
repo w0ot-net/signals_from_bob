@@ -39,3 +39,9 @@
 ## Validation
 - Run existing non-e2e unit tests with `python3` if desired; do not run tests
   under `tests/e2e/`.
+
+## Execution Notes (20260106)
+- Replaced cap-blocked retransmit responses with KEEPALIVE + POLL_HINT.
+- Removed synthetic tun_ping injection for poll-hint responses.
+- Documented the cap-blocked behavior in Bob retransmit notes.
+- Validation not run (tests not executed).

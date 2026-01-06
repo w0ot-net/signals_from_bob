@@ -57,9 +57,14 @@
      bytes), min_packet_mtu, and a dict of constraint details for logging.
    - DNS/TLS/TLS bump use existing codec math; ICMP/UDP clamp to
      min(protocol_max_packet_mtu, configured_cap).
+   - DNS helper returns base query/response packet MTUs; per-query CNAME
+     payload caps remain request-specific.
    - Keep asymmetric results where the transport supports it (DNS, TLS, bump).
 4) Update transports to use the shared MTU resolver:
    - Replace per-transport MTU calculations with the helper where possible.
+   - DNS server keeps _response_payload_cap and continues to set
+     responder.payload_cap to the per-query cap (optionally min'd with the
+     base MTU).
    - Log a single transport.mtu_limits event at init with computed values and
      constraint inputs (base_domain length, edns_size, caps).
 5) Tighten validation and errors:

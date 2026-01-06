@@ -64,7 +64,9 @@
      and that auto selection is not applicable.
    - TLS ClientHello: document record-size caps and computed payload sizes.
    - TLS bump: document SNI/CN payload caps and the ClientHello record-size
-     cap (tls_bump_max_clienthello_bytes) that bounds Alice->Bob MTU.
+     cap (tls_bump_max_clienthello_bytes) as a server-side enforcement limit;
+     MTU selection for Alice->Bob uses SNI payload caps until a sizing helper
+     exists for OpenSSL client hellos.
 3) Implement shared MTU resolution in sfb/transport/mtu_limits.py:
    - Provide a function that returns send_packet_mtu/recv_packet_mtu (packet
      bytes), min_packet_mtu, and a dict of constraint details for logging.
@@ -75,9 +77,12 @@
      configured_cap (safe default caps).
    - protocol_max_packet_mtu remains a buffer-sizing setting only, not a
      transport MTU cap.
-   - TLS bump send_packet_mtu clamps to
-     min(sni_payload_cap, clienthello_record_cap), where
-     clienthello_record_cap is derived from tls_bump_max_clienthello_bytes.
+   - TLS bump send_packet_mtu clamps to sni_payload_cap. Do not clamp by
+     tls_bump_max_clienthello_bytes unless we add a sizing helper for the
+     OpenSSL ClientHello; treat tls_bump_max_clienthello_bytes as a server-side
+     receive cap only.
+   - Keep CN length metadata in the cert template (CN_LEN) as the source of
+     truth for cn_payload_cap calculations and MTU logging.
    - DNS helper returns base query/response packet MTUs; per-query CNAME
      payload caps remain request-specific.
    - Keep asymmetric results where the transport supports it (DNS, TLS, bump).

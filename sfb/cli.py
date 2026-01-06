@@ -28,7 +28,7 @@ from .crypto import Plain, RC4, XOR
 from .logging_util import add_component_filters, add_sqlite_handler, get_logger, log_event
 from .log_profiles import LOG_PROFILES, apply_log_profile
 from .transport import TRANSPORTS, TransportError, get_transport_class
-from .tunnel import AliceTunnel, BobTunnel, TunnelState
+from .tunnel import AliceTunnel, BobTunnel, TunnelError, TunnelState
 from .modules import AVAILABLE_MODULES
 from .modules.base_module import ModuleError
 from .utils import parse_host_port
@@ -1076,7 +1076,7 @@ def run_server(args, config, crypto, logger):
         transport_cls = get_transport_class(args.transport, 'server')
         transport = transport_cls(config)
         tunnel = BobTunnel(transport, config, crypto=crypto)
-    except TransportError as e:
+    except (TransportError, TunnelError) as e:
         _print_error(str(e))
         return 1
 
@@ -1286,7 +1286,7 @@ def run_client(args, config, crypto, logger):
         transport_cls = get_transport_class(args.transport, 'client')
         transport = transport_cls(config)
         tunnel = AliceTunnel(transport, config, crypto=crypto)
-    except TransportError as e:
+    except (TransportError, TunnelError) as e:
         _print_error(str(e))
         return 1
 

@@ -37,15 +37,13 @@
 
 ## Plan
 1) Define MTU terminology in docs:
-   - Transport MTU = max packet bytes on the wire (header + segments).
-   - Payload MTU = transport MTU - PACKET_HEADER_SIZE (segment bytes).
+   - Packet MTU (packet_mtu) = max packet bytes on the wire (header + segments).
+   - Payload bytes = packet_mtu - PACKET_HEADER_SIZE (segment bytes).
    - Minimum packet MTU = PACKET_HEADER_SIZE + 1 (at least 1 byte of payload).
    - Reaffirm per-direction (asymmetric) negotiation.
    - Explicitly map transport.send_packet_mtu/recv_packet_mtu (packet bytes)
      to tunnel payload bytes in BaseTunnel and call out that tun_mtu values
      are payload bytes, not full packet bytes.
-     payload MTU in BaseTunnel and call out that tun_mtu values are payload
-     bytes, not full packet bytes.
 2) Add per-transport MTU limit tables:
    - DNS: show query/response max packet sizes as functions of base_domain,
      label_max_len, cname_label, and edns_size; explain that CNAME+512 has a
@@ -56,8 +54,7 @@
    - TLS bump: document SNI/CN payload caps derived from base domain/CN length.
 3) Implement shared MTU resolution in sfb/transport/mtu_limits.py:
    - Provide a function that returns send_packet_mtu/recv_packet_mtu (packet
-     bytes),
-     min_mtu, and a dict of constraint details for logging.
+     bytes), min_packet_mtu, and a dict of constraint details for logging.
    - DNS/TLS/TLS bump use existing codec math; ICMP/UDP clamp to
      min(protocol_max_packet_mtu, configured_cap).
    - Keep asymmetric results where the transport supports it (DNS, TLS, bump).
@@ -66,7 +63,7 @@
    - Log a single transport.mtu_limits event at init with computed values and
      constraint inputs (base_domain length, edns_size, caps).
 5) Tighten validation and errors:
-   - Fail fast if computed send/recv MTU < PACKET_HEADER_SIZE + 1, with
+   - Fail fast if computed send_packet_mtu/recv_packet_mtu < PACKET_HEADER_SIZE + 1, with
      transport-specific error messages (e.g., DNS base_domain too long).
    - Keep existing DNS/TLS validation and surface clearer MTU-related errors.
 6) Default-safe caps and override behavior:

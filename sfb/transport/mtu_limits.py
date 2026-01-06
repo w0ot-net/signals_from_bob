@@ -7,7 +7,6 @@ from __future__ import absolute_import
 
 from .transport_base import TransportError
 from ..protocol.constants import DEFAULT_MAX_PACKET_SIZE, MIN_PACKET_MTU
-from .dns import codec as dns_codec
 from .tls_handshake_bump import (
     tls_handshake_bump_cert_template as bump_cert_template,
 )
@@ -57,6 +56,8 @@ def resolve_mtu_limits(transport, config, role, send_packet_mtu=None,
 
 
 def _resolve_dns_limits(config, role):
+    from .dns import codec as dns_codec
+
     base_domain = config.dns_base_domain.lower().rstrip('.')
     label_max_len = config.dns_label_max_len
     cname_label = config.dns_cname_label.strip('.')

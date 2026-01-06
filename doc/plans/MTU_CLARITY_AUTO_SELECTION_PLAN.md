@@ -21,6 +21,8 @@
 - sfb/transport/udp_ephemeral/udp_ephemeral_server.py
 - sfb/transport/dns/dns_client.py
 - sfb/transport/dns/dns_server.py
+- sfb/transport/memory/memory_client.py
+- sfb/transport/memory/memory_server.py
 - sfb/transport/tls_handshake/tls_handshake_config.py
 - sfb/transport/tls_handshake/tls_handshake_client.py
 - sfb/transport/tls_handshake/tls_handshake_server.py
@@ -50,6 +52,8 @@
      per-query payload cap based on QNAME length.
    - ICMP/UDP: document the safe default cap (1350) and that larger values
      increase fragmentation risk on the public Internet.
+   - In-memory: document fixed default packet_mtu (DEFAULT_MAX_PACKET_SIZE)
+     and that auto selection is not applicable.
    - TLS ClientHello: document record-size caps and computed payload sizes.
    - TLS bump: document SNI/CN payload caps and the ClientHello record-size
      cap (tls_bump_max_clienthello_bytes) that bounds Alice->Bob MTU.

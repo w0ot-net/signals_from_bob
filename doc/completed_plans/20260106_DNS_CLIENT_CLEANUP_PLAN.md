@@ -23,3 +23,10 @@
    check with a direct comparison to `pending.qname`.
 3) Remove the negative target clamp in `_query_payload_for_target`, keeping
    the existing lookup bounds handling intact.
+
+## Execution Notes
+- Merged error handling into a single `error_response` branch while keeping
+  the mismatched-qname early return intact.
+- Dropped the redundant guard in the qname mismatch check.
+- Removed the unreachable negative target clamp in `_query_payload_for_target`.
+- Tests not run (per instructions).

@@ -422,27 +422,10 @@ class DnsClient(Transport):
                 },
             )
             return (None, None)
+        error_response = False
         if qname is None:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'dns.error_response',
-                'DNS error response',
-                lambda: {
-                    'corr_id': corr_id,
-                    'dns_id': dns_id,
-                    'expected_qname': pending.qname,
-                    'actual_qname': qname,
-                    'rcode': rcode,
-                    'reason': reason,
-                    'addr': '%s:%d' % (addr[0], addr[1]),
-                },
-            )
-            # Clean up tracking to avoid pending exhaustion
-            self._pending.pop(corr_id)
-            del self._dns_to_corr[dns_id]
-            return (None, None)
-        if pending is not None and pending.qname != qname:
+            error_response = True
+        elif pending.qname != qname:
             log_event(
                 _LOG,
                 logging.DEBUG,
@@ -459,6 +442,9 @@ class DnsClient(Transport):
             return (None, None)
 
         if payload is None:
+            error_response = True
+
+        if error_response:
             log_event(
                 _LOG,
                 logging.DEBUG,
@@ -572,8 +558,6 @@ class DnsClient(Transport):
     def _query_payload_for_target(self, target_response_payload):
         if target_response_payload is None:
             return None
-        if target_response_payload < 0:
-            target_response_payload = 0
         lookup = self._response_cap_lookup
         if not lookup:
             return None

@@ -41,6 +41,9 @@
    - Payload MTU = transport MTU - PACKET_HEADER_SIZE (segment bytes).
    - Minimum packet MTU = PACKET_HEADER_SIZE + 1 (at least 1 byte of payload).
    - Reaffirm per-direction (asymmetric) negotiation.
+   - Explicitly map transport.send_mtu/recv_mtu (packet bytes) to tunnel
+     payload MTU in BaseTunnel and call out that tun_mtu values are payload
+     bytes, not full packet bytes.
 2) Add per-transport MTU limit tables:
    - DNS: show query/response max packet sizes as functions of base_domain,
      label_max_len, cname_label, and edns_size; explain that CNAME+512 has a
@@ -75,4 +78,6 @@
 7) Update CLI help and summary docs:
    - CLI help should say "advanced override; leave default for auto".
    - TRANSPORTS/README summarize per-transport MTU selection and defaults.
+   - TLS_TRANSPORT/PROTOCOL/TUNNEL explicitly distinguish transport packet MTU
+     from tunnel payload MTU and align negotiation wording.
    - Do not add new runtime dependencies or change E2E test instructions.

@@ -354,3 +354,13 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Takeaways:
   - Short but visible ~0.75s stalls occur on both sides despite pacer activity; the largest gap coincides with heavy `ack_silence` skips.
   - `action=blocked` without a `block_reason` plus `ack_rate_ewma` collapsing to ~2 pps suggests the pacer is stalling without logging why; add logging or capture longer windows if we need to quantify how often these stalls recur.
+
+## Log Review: Adaptive Pacer Follow-up (Jan 6, 2026, latest)
+- Logs: `logs/client_log.db`, `logs/server_log.db`.
+- Alice (last ~58s, 50k events each): max inter-arrival gaps ~1.01s on `tunnel.packet_send`/`icmp.send`/`tunnel.packet_recv`; gaps >=0.5s occurred 11 times and >=1.0s occurred 6-10 times depending on event.
+- Pacer gating (Alice, last 5k `tunnel.pacer_state`): `action=blocked` 986; `ack_rate_ewma` min ~104.9 (p50 ~274, p95 ~349); `target_inflight` min 12 (p50 49, p95 104); `target_mode` split `feedback` 1901 / `probe` 3099. `ack_rate_ewma` was never None (no idle reset).
+- Send blocking (Alice, last 5k `tunnel.send_blocked`): `pacer` 3258, `window_distance` 1742; `tunnel.send_window_distance` appears 2693 times in the same window.
+- Bob (last ~80.8s, 20k events each): max gaps ~0.348s on send/recv; `tunnel.send_window_distance` 37 and `tunnel.send_blocked` reason `window_distance` 37 in the last 5k entries.
+- Takeaways:
+  - The pacer change did not remove the stalls; Alice still sees ~1s gaps while Bob stays under ~0.35s.
+  - Pacer gating dominates Alice send blocks and drives `target_inflight` down to the low teens; the idle-reset path is not firing in this window, so feedback remains active.

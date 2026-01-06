@@ -391,7 +391,6 @@ class BobTunnel(BaseTunnel):
         )
         return True
 
-
     def _send_keepalive_response(self, responder, now):
         packet, _ = self._build_packet(
             flags=FLAG_KEEPALIVE,

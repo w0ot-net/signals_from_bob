@@ -202,7 +202,8 @@ def _log_pump_stop(logger, rid, ch, side, direction, label, reason,
 
 def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                            rid, ch, side, recv_label, direction,
-                           eof_callback=None, stop_callback=None,
+                           eof_callback=None, close_on_error=False,
+                           stop_callback=None,
                            stats_enabled=True,
                            event_prefix='sock'):
     """
@@ -224,6 +225,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
     exit_error = None
     fatal_error = False
     start_time = time_provider.now()
+    callback_called = [False]
     try:
         sock.setblocking(False)
         pending = None
@@ -234,6 +236,21 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
         _log_pump_start(
             logger, rid, ch, side, direction, recv_label, event_prefix
         )
+
+        def invoke_close_callback():
+            if callback_called[0]:
+                return
+            callback_called[0] = True
+            if eof_callback is None:
+                return
+            try:
+                eof_callback()
+            except Exception as exc:
+                _log_pump_error(
+                    logger, rid, ch, side, direction, recv_label,
+                    'Close callback error', exc, event_prefix
+                )
+
         while not stop_event.is_set():
             if pending is not None:
                 try:
@@ -335,6 +352,8 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         logger, rid, ch, side, direction, recv_label,
                         '%s select error' % recv_label, exc, event_prefix
                     )
+                if close_on_error:
+                    invoke_close_callback()
                 break
             if not rlist:
                 if stats_enabled:
@@ -365,6 +384,8 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                             logger, rid, ch, side, direction, recv_label,
                             '%s recv error' % recv_label, exc, event_prefix
                         )
+                    if close_on_error:
+                        invoke_close_callback()
                     break
                 except Exception as exc:
                     fatal_error = True
@@ -375,6 +396,8 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                             logger, rid, ch, side, direction, recv_label,
                             '%s recv error' % recv_label, exc, event_prefix
                         )
+                    if close_on_error:
+                        invoke_close_callback()
                     break
 
                 if not data:
@@ -426,13 +449,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                                     label=recv_label,
                                 ), {'channel_state': _channel_state_snapshot(channel)}),
                             )
-                            try:
-                                eof_callback()
-                            except Exception as exc:
-                                _log_pump_error(
-                                    logger, rid, ch, side, direction, recv_label,
-                                    'Half-close callback error', exc, event_prefix
-                                )
+                            invoke_close_callback()
                     return
 
                 if stats_enabled:

@@ -31,12 +31,13 @@ class RelayConnection(object):
         '_stop_event', '_threads', '_thread_names', '_side', '_peer_label',
         '_socket_to_channel_label', '_channel_to_socket_label',
         '_start_time', '_stop_logged', '_pump_info', '_pump_lock',
-        '_event_prefix',
+        '_event_prefix', '_socket_eof_callback', '_close_on_socket_error',
     )
 
     def __init__(self, rid, ch, channel, sock, logger, config, side, peer_label,
                  socket_to_channel_label, channel_to_socket_label,
-                 thread_names=None, event_prefix='sock'):
+                 thread_names=None, event_prefix='sock',
+                 socket_eof_callback=None, close_on_socket_error=False):
         self.rid = rid
         self.ch = ch
         self.channel = channel
@@ -51,6 +52,8 @@ class RelayConnection(object):
         self._threads = []
         self._thread_names = thread_names or (None, None)
         self._event_prefix = event_prefix
+        self._socket_eof_callback = socket_eof_callback
+        self._close_on_socket_error = bool(close_on_socket_error)
         self._start_time = None
         self._stop_logged = False
         self._pump_info = {}
@@ -205,6 +208,9 @@ class RelayConnection(object):
 
     def _relay_socket_to_channel(self):
         """Relay data from socket to channel."""
+        eof_callback = self._socket_eof_callback
+        if eof_callback is None:
+            eof_callback = self.channel.close_write
         pump_socket_to_channel(
             self.sock,
             self.channel,
@@ -216,7 +222,8 @@ class RelayConnection(object):
             self._side,
             self._peer_label,
             self._socket_to_channel_label,
-            eof_callback=self.channel.close_write,
+            eof_callback=eof_callback,
+            close_on_error=self._close_on_socket_error,
             stop_callback=self._on_pump_stop,
             stats_enabled=self._config.stats_enabled,
             event_prefix=self._event_prefix,

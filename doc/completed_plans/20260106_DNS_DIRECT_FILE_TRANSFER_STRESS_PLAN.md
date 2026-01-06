@@ -48,3 +48,8 @@
 ## Validation
 - python3 -m unittest integration_tests.test_dns_direct_file_transfer_stress
 - Do not run tests/e2e/.
+
+## Execution Notes (20260106)
+- Implemented integration_tests/test_dns_direct_file_transfer_stress.py with
+  DNS direct mode, bidirectional puts, and port-availability skip logic.
+- Tests not run (per instructions).

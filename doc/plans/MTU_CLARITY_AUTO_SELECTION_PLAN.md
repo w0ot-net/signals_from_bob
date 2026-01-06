@@ -66,8 +66,12 @@
 6) Default-safe caps and override behavior:
    - Treat icmp_payload_mtu and udp_ephemeral_payload_mtu as caps; defaults
      remain 1350 (safe on typical 1500 MTU links).
+   - Auto selection always clamps to these caps, even if a larger size is
+     otherwise possible.
    - Document these as advanced overrides; defaults should be "optimal" for
      Internet paths without user tuning.
+   - CLI help text should label MTU flags as advanced overrides and discourage
+     routine tuning.
 7) Update CLI help and summary docs:
    - CLI help should say "advanced override; leave default for auto".
    - TRANSPORTS/README summarize per-transport MTU selection and defaults.

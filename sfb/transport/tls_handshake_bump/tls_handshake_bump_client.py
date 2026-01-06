@@ -5,7 +5,6 @@ TLS handshake bump transport for Alice.
 
 from __future__ import absolute_import
 
-import base64
 import errno
 import logging
 import socket
@@ -19,8 +18,10 @@ from ..transport_base import (
     prune_and_count,
 )
 from ..proxy_helpers import (
-    parse_connect_response,
-    PROXY_HEADER_TOO_LARGE,
+    build_connect_request,
+    ProxyConnect,
+    PROXY_CLOSED,
+    PROXY_DONE,
 )
 from . import tls_handshake_bump_codec as codec
 from . import tls_handshake_bump_selector as bump_selector
@@ -81,11 +82,7 @@ class _PendingConn(object):
         'sock',
         'phase',
         'connect_deadline',
-        'proxy_send_buf',
-        'proxy_send_off',
-        'proxy_recv_buf',
-        'proxy_scan_offset',
-        'proxy_deadline',
+        'proxy_state',
         'sni_name',
         'request_buf',
         'request_off',
@@ -96,17 +93,13 @@ class _PendingConn(object):
         'scan_offset',
     )
 
-    def __init__(self, sock, connect_deadline, pending_deadline, proxy_send_buf,
+    def __init__(self, sock, connect_deadline, pending_deadline, proxy_state,
                  sni_name, request_buf):
         self.sock = sock
         self.phase = _PHASE_CONNECT
         self.connect_deadline = connect_deadline
         self.pending_deadline = pending_deadline
-        self.proxy_send_buf = proxy_send_buf
-        self.proxy_send_off = 0
-        self.proxy_recv_buf = bytearray()
-        self.proxy_scan_offset = 0
-        self.proxy_deadline = None
+        self.proxy_state = proxy_state
         self.sni_name = sni_name
         self.request_buf = request_buf
         self.request_off = 0
@@ -158,9 +151,12 @@ class TlsHandshakeBumpClient(Transport):
             self._proxy_label = '%s:%d' % (proxy_host, proxy_port)
             self._proxy_auth = config.tls_bump_http_proxy_auth
             target_hostport = '%s:%d' % (self._target_host, self._target_port)
-            self._proxy_request = _build_connect_request(
+            self._proxy_request = build_connect_request(
                 target_hostport,
                 proxy_auth=self._proxy_auth,
+                target_label='tls_bump_target',
+                proxy_label='tls_bump_http_proxy',
+                proxy_auth_label='tls_bump_http_proxy_auth',
             )
             self._connect_addr = self._proxy_addr
         else:
@@ -278,11 +274,22 @@ class TlsHandshakeBumpClient(Transport):
 
         sock = self._create_socket()
         now = permit.now
+        proxy_state = None
+        if self._proxy_request is not None:
+            proxy_state = ProxyConnect(
+                sock,
+                self._proxy_request,
+                _get_errno,
+                _TEMP_ERRORS,
+                lambda reason, **extra: self._log_proxy_error(
+                    reason, corr_id, **extra
+                ),
+            )
         state = _PendingConn(
             sock=sock,
             connect_deadline=now + self._connect_timeout,
             pending_deadline=now + self._pending_timeout,
-            proxy_send_buf=self._proxy_request,
+            proxy_state=proxy_state,
             sni_name=sni_name,
             request_buf=request_buf,
         )
@@ -368,6 +375,14 @@ class TlsHandshakeBumpClient(Transport):
         corr_id, state = self._lookup_state(sock)
         if state is None:
             return None
+        if state.phase == _PHASE_PROXY:
+            status = state.proxy_state.drive(can_read, can_write, now)
+            if status == PROXY_DONE:
+                state.proxy_state = None
+                self._start_handshake(corr_id, state, now)
+            elif status == PROXY_CLOSED:
+                self._close_pending(corr_id, state)
+            return None
         if can_write:
             result = self._drive_write(corr_id, state, now)
             if result is not None:
@@ -382,9 +397,6 @@ class TlsHandshakeBumpClient(Transport):
         phase = state.phase
         if phase == _PHASE_CONNECT:
             return self._finish_connect(corr_id, state, now)
-        if phase == _PHASE_PROXY:
-            self._flush_proxy_send(corr_id, state)
-            return None
         if phase == _PHASE_HANDSHAKE:
             if state.handshake_deadline is None:
                 state.handshake_deadline = now + self._handshake_timeout
@@ -402,9 +414,6 @@ class TlsHandshakeBumpClient(Transport):
 
     def _drive_read(self, corr_id, state, now):
         phase = state.phase
-        if phase == _PHASE_PROXY:
-            self._recv_proxy_response(corr_id, state, now)
-            return None
         if phase == _PHASE_HANDSHAKE:
             if state.handshake_deadline is None:
                 state.handshake_deadline = now + self._handshake_timeout
@@ -448,12 +457,12 @@ class TlsHandshakeBumpClient(Transport):
         return corr_id, state
 
     def _handle_connect_success(self, corr_id, state, now):
-        if state.proxy_send_buf is not None:
+        if state.proxy_state is not None:
             state.phase = _PHASE_PROXY
             state.connect_deadline = None
             if self._proxy_timeout is not None:
-                state.proxy_deadline = now + self._proxy_timeout
-            self._flush_proxy_send(corr_id, state)
+                state.proxy_state.set_deadline(now + self._proxy_timeout)
+            state.proxy_state.drive(False, True, now)
         else:
             self._start_handshake(corr_id, state, now)
 
@@ -462,7 +471,7 @@ class TlsHandshakeBumpClient(Transport):
         if phase == _PHASE_CONNECT:
             return state.connect_deadline
         if phase == _PHASE_PROXY:
-            return state.proxy_deadline
+            return state.proxy_state.deadline()
         if phase == _PHASE_HANDSHAKE:
             return state.handshake_deadline
         return state.pending_deadline
@@ -472,10 +481,10 @@ class TlsHandshakeBumpClient(Transport):
         if phase == _PHASE_CONNECT:
             return False, True
         if phase == _PHASE_PROXY:
-            if (state.proxy_send_buf is not None and
-                    state.proxy_send_off < len(state.proxy_send_buf)):
-                return False, True
-            return True, False
+            if state.proxy_state is None:
+                return False, False
+            return (state.proxy_state.wants_read(),
+                    state.proxy_state.wants_write())
         if phase == _PHASE_HANDSHAKE:
             if state.ssl_want == 'write':
                 return False, True
@@ -491,55 +500,6 @@ class TlsHandshakeBumpClient(Transport):
                 return False, True
             return True, False
         return False, False
-
-    def _recv_proxy_response(self, corr_id, state, now):
-        try:
-            data = state.sock.recv(4096)
-        except socket.error as e:
-            err = _get_errno(e)
-            if err in _TEMP_ERRORS:
-                return None
-            self._log_proxy_error('recv_error', corr_id, error=err)
-            self._close_pending(corr_id, state)
-            raise TransportError('Proxy receive failed: %s' % e)
-        if not data:
-            self._log_proxy_error('eof', corr_id)
-            self._close_pending(corr_id, state)
-            return None
-        state.proxy_recv_buf.extend(data)
-        status, header_end = parse_connect_response(
-            state.proxy_recv_buf,
-            start_offset=state.proxy_scan_offset,
-        )
-        if header_end == PROXY_HEADER_TOO_LARGE:
-            self._log_proxy_error(
-                'response_too_large',
-                corr_id,
-                bytes=len(state.proxy_recv_buf),
-            )
-            self._close_pending(corr_id, state)
-            return None
-        if header_end is None:
-            state.proxy_scan_offset = max(0, len(state.proxy_recv_buf) - 3)
-            return None
-        if status != 200:
-            if status is None:
-                self._log_proxy_error('invalid_status', corr_id)
-            else:
-                self._log_proxy_error('bad_status', corr_id, status=status)
-            self._close_pending(corr_id, state)
-            return None
-        extra = state.proxy_recv_buf[header_end + 4:]
-        if extra and any(byte not in (13, 10) for byte in bytearray(extra)):
-            self._log_proxy_error('extra_bytes', corr_id, bytes=len(extra))
-            self._close_pending(corr_id, state)
-            return None
-        state.proxy_deadline = None
-        state.proxy_send_buf = None
-        state.proxy_recv_buf = bytearray()
-        state.proxy_scan_offset = 0
-        self._start_handshake(corr_id, state, now)
-        return None
 
     def _start_handshake(self, corr_id, state, now):
         ssl_sock = _wrap_socket(self._ssl_context, state.sock, state.sni_name)
@@ -569,27 +529,6 @@ class TlsHandshakeBumpClient(Transport):
         state.ssl_want = None
         return None
 
-    def _flush_proxy_send(self, corr_id, state):
-        if state.proxy_send_buf is None:
-            return True
-        if state.proxy_send_off >= len(state.proxy_send_buf):
-            return True
-        view = buffer_view(state.proxy_send_buf)
-        try:
-            sent = state.sock.send(view[state.proxy_send_off:])
-        except socket.error as e:
-            err = _get_errno(e)
-            if err in _TEMP_ERRORS:
-                return False
-            self._log_proxy_error('send_error', corr_id, error=err)
-            self._close_pending(corr_id, state)
-            raise TransportError('Proxy send failed: %s' % e)
-        if sent <= 0:
-            self._log_proxy_error('send_error', corr_id, error='closed')
-            self._close_pending(corr_id, state)
-            raise TransportError('Proxy send failed: connection closed')
-        state.proxy_send_off += sent
-        return state.proxy_send_off >= len(state.proxy_send_buf)
 
     def _flush_request(self, corr_id, state):
         if state.request_off >= len(state.request_buf):
@@ -804,27 +743,6 @@ class TlsHandshakeBumpClient(Transport):
         self._pending.clear()
 
 
-def _build_connect_request(target_hostport, proxy_auth=None):
-    try:
-        target_bytes = target_hostport.encode('ascii')
-    except UnicodeError:
-        raise TransportError('tls_bump_target must be ASCII when using tls_bump_http_proxy')
-    lines = [
-        b'CONNECT ' + target_bytes + b' HTTP/1.1',
-        b'Host: ' + target_bytes,
-    ]
-    if proxy_auth is not None:
-        try:
-            auth_bytes = proxy_auth.encode('ascii')
-        except UnicodeError:
-            raise TransportError('tls_bump_http_proxy_auth must be ASCII')
-        token = base64.b64encode(auth_bytes)
-        lines.append(b'Proxy-Authorization: Basic ' + token)
-    lines.append(b'')
-    lines.append(b'')
-    return b'\r\n'.join(lines)
-
-
 def _build_https_request_parts(path):
     if not isinstance(path, text_type):
         raise ValueError('Path must be text')
@@ -888,4 +806,3 @@ def _ssl_wants_write(exc):
     if _SSL_WANT_WRITE_ERROR is not None and isinstance(exc, _SSL_WANT_WRITE_ERROR):
         return True
     return getattr(exc, 'errno', None) == _SSL_WANT_WRITE
-

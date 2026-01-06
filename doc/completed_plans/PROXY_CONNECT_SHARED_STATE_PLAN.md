@@ -1,6 +1,6 @@
 # Proxy Connect Shared State Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 
@@ -94,3 +94,12 @@ no performance regressions (including no added CONNECT latency or copies).
 - Run `python3 -m unittest tests.test_tls_client_server`.
 - Run `python3 -m unittest tests.test_tls_handshake_bump_client_server`.
 - Do not run tests in `tests/e2e/`.
+
+## Execution Notes
+
+- Added `ProxyConnect` in `sfb/transport/proxy_helpers.py` and wired it into
+  both TLS client transports to replace per-connection proxy fields and I/O.
+- Consolidated CONNECT request building for bump client via
+  `build_connect_request` labels.
+- Removed legacy proxy send/recv helpers and bump-specific CONNECT builder.
+- Tests not run.

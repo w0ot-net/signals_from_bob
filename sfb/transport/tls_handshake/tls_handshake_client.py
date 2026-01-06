@@ -19,8 +19,9 @@ from ..transport_base import (
 )
 from ..proxy_helpers import (
     build_connect_request,
-    parse_connect_response,
-    PROXY_HEADER_TOO_LARGE,
+    ProxyConnect,
+    PROXY_CLOSED,
+    PROXY_DONE,
 )
 from . import tls_handshake_codec as codec
 from .tls_handshake_config import validate_tls_config
@@ -77,13 +78,10 @@ class _PendingConn(object):
         'record_len',
         'connect_deadline',
         'handshake_deadline',
-        'proxy_send_buf',
-        'proxy_send_off',
-        'proxy_recv_buf',
-        'proxy_deadline',
+        'proxy_state',
     )
 
-    def __init__(self, sock, send_buf, connect_deadline, proxy_send_buf=None):
+    def __init__(self, sock, send_buf, connect_deadline, proxy_state=None):
         self.sock = sock
         self.phase = _PHASE_CONNECT
         self.send_buf = send_buf
@@ -92,10 +90,7 @@ class _PendingConn(object):
         self.record_len = None
         self.connect_deadline = connect_deadline
         self.handshake_deadline = None
-        self.proxy_send_buf = proxy_send_buf
-        self.proxy_send_off = 0
-        self.proxy_recv_buf = bytearray()
-        self.proxy_deadline = None
+        self.proxy_state = proxy_state
 
 
 class TlsClient(Transport):
@@ -254,11 +249,22 @@ class TlsClient(Transport):
 
         sock = self._create_socket()
         now = permit.now
+        proxy_state = None
+        if self._proxy_request is not None:
+            proxy_state = ProxyConnect(
+                sock,
+                self._proxy_request,
+                _get_errno,
+                _TEMP_ERRORS,
+                lambda reason, **extra: self._log_proxy_error(
+                    reason, corr_id, **extra
+                ),
+            )
         state = _PendingConn(
             sock=sock,
             send_buf=record,
             connect_deadline=now + self._connect_timeout,
-            proxy_send_buf=self._proxy_request,
+            proxy_state=proxy_state,
         )
         self._pending_state[corr_id] = state
         self._pending.add(corr_id, True, now=now)
@@ -346,6 +352,14 @@ class TlsClient(Transport):
         corr_id, state = self._lookup_state(sock)
         if state is None:
             return None
+        if state.phase == _PHASE_PROXY:
+            status = state.proxy_state.drive(can_read, can_write, now)
+            if status == PROXY_DONE:
+                state.proxy_state = None
+                state.phase = _PHASE_REQUEST
+            elif status == PROXY_CLOSED:
+                self._close_pending(corr_id, state)
+            return None
         if can_write:
             result = self._drive_write(corr_id, state, now)
             if result is not None:
@@ -360,9 +374,6 @@ class TlsClient(Transport):
         phase = state.phase
         if phase == _PHASE_CONNECT:
             return self._finish_connect(corr_id, state, now)
-        if phase == _PHASE_PROXY:
-            self._flush_proxy_send(corr_id, state)
-            return None
         if phase == _PHASE_REQUEST:
             if state.connect_deadline is None:
                 state.connect_deadline = now + self._connect_timeout
@@ -375,9 +386,6 @@ class TlsClient(Transport):
 
     def _drive_read(self, corr_id, state):
         phase = state.phase
-        if phase == _PHASE_PROXY:
-            self._recv_proxy_response(corr_id, state)
-            return None
         if phase == _PHASE_RESPONSE:
             return self._recv_record(corr_id, state)
         return None
@@ -409,12 +417,12 @@ class TlsClient(Transport):
         return corr_id, state
 
     def _handle_connect_success(self, corr_id, state, now):
-        if state.proxy_send_buf is not None:
+        if state.proxy_state is not None:
             state.phase = _PHASE_PROXY
             state.connect_deadline = None
             if self._proxy_timeout is not None:
-                state.proxy_deadline = now + self._proxy_timeout
-            self._flush_proxy_send(corr_id, state)
+                state.proxy_state.set_deadline(now + self._proxy_timeout)
+            state.proxy_state.drive(False, True, now)
         else:
             state.phase = _PHASE_REQUEST
             if self._flush_send(corr_id, state, now):
@@ -427,7 +435,7 @@ class TlsClient(Transport):
         if phase == _PHASE_CONNECT:
             return state.connect_deadline
         if phase == _PHASE_PROXY:
-            return state.proxy_deadline
+            return state.proxy_state.deadline()
         if phase == _PHASE_REQUEST:
             return state.connect_deadline
         if phase == _PHASE_RESPONSE:
@@ -439,59 +447,15 @@ class TlsClient(Transport):
         if phase == _PHASE_CONNECT:
             return False, True
         if phase == _PHASE_PROXY:
-            if (state.proxy_send_buf is not None and
-                    state.proxy_send_off < len(state.proxy_send_buf)):
-                return False, True
-            return True, False
+            if state.proxy_state is None:
+                return False, False
+            return (state.proxy_state.wants_read(),
+                    state.proxy_state.wants_write())
         if phase == _PHASE_REQUEST:
             return False, True
         if phase == _PHASE_RESPONSE:
             return True, False
         return False, False
-
-    def _recv_proxy_response(self, corr_id, state):
-        try:
-            data = state.sock.recv(4096)
-        except socket.error as e:
-            err = _get_errno(e)
-            if err in _TEMP_ERRORS:
-                return None
-            self._log_proxy_error('recv_error', corr_id, error=err)
-            self._close_pending(corr_id, state)
-            raise TransportError('Proxy receive failed: %s' % e)
-        if not data:
-            self._log_proxy_error('eof', corr_id)
-            self._close_pending(corr_id, state)
-            return None
-        state.proxy_recv_buf.extend(data)
-        status, header_end = parse_connect_response(state.proxy_recv_buf)
-        if header_end == PROXY_HEADER_TOO_LARGE:
-            self._log_proxy_error(
-                'response_too_large',
-                corr_id,
-                bytes=len(state.proxy_recv_buf),
-            )
-            self._close_pending(corr_id, state)
-            return None
-        if header_end is None:
-            return None
-        if status != 200:
-            if status is None:
-                self._log_proxy_error('invalid_status', corr_id)
-            else:
-                self._log_proxy_error('bad_status', corr_id, status=status)
-            self._close_pending(corr_id, state)
-            return None
-        extra = state.proxy_recv_buf[header_end + 4:]
-        if extra and any(byte not in (13, 10) for byte in bytearray(extra)):
-            self._log_proxy_error('extra_bytes', corr_id, bytes=len(extra))
-            self._close_pending(corr_id, state)
-            return None
-        state.phase = _PHASE_REQUEST
-        state.proxy_deadline = None
-        state.proxy_send_buf = None
-        state.proxy_recv_buf = bytearray()
-        return None
 
     def _recv_record(self, corr_id, state):
         bufsize = 4096
@@ -590,27 +554,6 @@ class TlsClient(Transport):
             if state is not None:
                 self._close_pending(corr_id, state)
 
-    def _flush_proxy_send(self, corr_id, state):
-        if state.proxy_send_buf is None:
-            return True
-        if state.proxy_send_off >= len(state.proxy_send_buf):
-            return True
-        view = buffer_view(state.proxy_send_buf)
-        try:
-            sent = state.sock.send(view[state.proxy_send_off:])
-        except socket.error as e:
-            err = _get_errno(e)
-            if err in _TEMP_ERRORS:
-                return False
-            self._log_proxy_error('send_error', corr_id, error=err)
-            self._close_pending(corr_id, state)
-            raise TransportError('Proxy send failed: %s' % e)
-        if sent <= 0:
-            self._log_proxy_error('send_error', corr_id, error='closed')
-            self._close_pending(corr_id, state)
-            raise TransportError('Proxy send failed: connection closed')
-        state.proxy_send_off += sent
-        return state.proxy_send_off >= len(state.proxy_send_buf)
 
     def _flush_send(self, corr_id, state, now):
         if state.send_off >= len(state.send_buf):
@@ -712,4 +655,3 @@ class TlsClient(Transport):
         for corr_id, state in list(self._pending_state.items()):
             self._close_pending(corr_id, state)
         self._pending.clear()
-

@@ -35,3 +35,9 @@
    in the existing order, and funnel all blocking through _log_send_blocked.
 5) Review the diff to confirm Python 2.7/3 compatibility, preserved log fields,
    and unchanged gating outcomes for each reason.
+
+## Execution Notes
+- Added gate helper methods returning decision dictionaries and centralized
+  send-blocked logging to reduce repeated log/reliability blocks.
+- Kept gate order and fields intact, including pacer cap logging and
+  keepalive_only handling.

@@ -643,54 +643,129 @@ class AliceTunnel(BaseTunnel):
 
         return True
 
-    def _can_send_new(self, now=None, keepalive_only=False, allow_window_full=False):
-        """Check if we can send a new packet."""
-        if now is None:
-            now = time_provider.now()
+    def _check_serial_window_block(self):
         if self._serial_window_negotiation():
             if self._send_window.unacked_count > 0:
-                return False
-        if not self._send_window.can_send:
-            if not allow_window_full:
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.send_blocked',
-                    'Send window full',
-                    lambda: {
-                        'unacked': self._send_window.unacked_count,
-                        'max_in_flight': self._send_window._max_in_flight,
-                        'side': 'alice',
-                    },
-                )
-                self._log_reliability_state(
-                    logging.DEBUG,
-                    'tunnel.reliability_state',
-                    'Reliability state after send blocked',
-                    now=now,
-                    extra_fields={
-                        'context': 'send_blocked',
-                        'reason': 'window_full',
-                        'keepalive_only': keepalive_only,
-                    },
-                )
-                self._note_pacer_blocked(
-                    'window_full',
-                    now,
-                    unacked=self._send_window.unacked_count,
-                )
-                return False
-        pacer_cap = None
-        if self._pacer.enabled:
-            cap = self._pacer_cap()
-            pacer_cap = min(
-                self._send_window._max_in_flight,
-                self._pacer.target_inflight(cap, srtt_ms=self._rtt.srtt_ms),
-            )
+                return {'reason': 'serial_window', 'silent': True}
+        return None
+
+    def _check_send_window_full(self, allow_window_full, keepalive_only):
+        if self._send_window.can_send:
+            return None
+        if allow_window_full:
+            return None
+        return {
+            'reason': 'window_full',
+            'keepalive_only': keepalive_only,
+            'unacked': self._send_window.unacked_count,
+            'max_in_flight': self._send_window._max_in_flight,
+        }
+
+    def _check_send_window_distance(self, now, pacer_cap, keepalive_only):
         exceeded, distance_info = self._send_window.distance_exceeded(
             max_window=self.MAX_WINDOW
         )
-        if exceeded:
+        if not exceeded:
+            return None
+        return {
+            'reason': 'window_distance',
+            'keepalive_only': keepalive_only,
+            'distance_info': distance_info,
+            'pacer_cap': pacer_cap,
+        }
+
+    def _check_send_rate_limit(self, now, keepalive_only):
+        if self._send_limiter is None:
+            return None
+        if self._send_limiter.can_send(now=now):
+            return None
+        return {
+            'reason': 'rate_limit',
+            'keepalive_only': keepalive_only,
+            'rate': self._config.tunnel_send_rate,
+            'burst': self._config.tunnel_send_burst,
+        }
+
+    def _check_send_pacer(self, keepalive_only, cap):
+        if not self._pacer.enabled:
+            return None
+        if cap is None:
+            cap = self._pacer_cap()
+        self._maybe_log_pacer_target_change(cap, reason='gate_check')
+        if keepalive_only:
+            return None
+        unacked = self._send_window.unacked_count
+        if self._pacer.can_send(unacked, cap, srtt_ms=self._rtt.srtt_ms):
+            return None
+        return {
+            'reason': 'pacer',
+            'keepalive_only': keepalive_only,
+            'unacked': unacked,
+            'cap': cap,
+        }
+
+    def _log_send_blocked(self, decision, now):
+        reason = decision.get('reason')
+        keepalive_only = decision.get('keepalive_only')
+        if reason == 'window_full':
+            unacked = decision.get('unacked', 0)
+            max_in_flight = decision.get('max_in_flight')
+            if unacked == 0:
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'tunnel.send_window_inconsistent',
+                    'Send window full but no unacked packets',
+                    lambda: {
+                        'unacked': unacked,
+                        'max_in_flight': max_in_flight,
+                        'side': 'alice',
+                    },
+                )
+            else:
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.send_window_full',
+                    'Send window full',
+                    lambda: {
+                        'unacked': unacked,
+                        'max_in_flight': max_in_flight,
+                        'side': 'alice',
+                    },
+                )
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Send window full',
+                lambda: {
+                    'unacked': unacked,
+                    'max_in_flight': max_in_flight,
+                    'side': 'alice',
+                },
+            )
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.reliability_state',
+                'Reliability state after send blocked',
+                now=now,
+                extra_fields={
+                    'context': 'send_blocked',
+                    'reason': 'window_full',
+                    'keepalive_only': keepalive_only,
+                },
+            )
+            self._note_pacer_blocked(
+                'window_full',
+                now,
+                unacked=unacked,
+            )
+            return
+
+        if reason == 'window_distance':
+            distance_info = decision.get('distance_info')
+            pacer_cap = decision.get('pacer_cap')
             (distance, max_in_flight, effective_cap, unacked,
              distance_limit, last_cum_ack, next_seq) = distance_info
             buffered = distance - unacked
@@ -717,26 +792,28 @@ class AliceTunnel(BaseTunnel):
                 'Send window distance exceeded',
                 build_distance_fields,
             )
+            def build_blocked_fields():
+                fields = {
+                    'distance': distance,
+                    'distance_limit': distance_limit,
+                    'buffered': buffered,
+                    'unacked': unacked,
+                    'max_in_flight': max_in_flight,
+                    'effective_cap': effective_cap,
+                    'last_cum_ack': last_cum_ack,
+                    'next_seq': next_seq,
+                    'side': 'alice',
+                    'reason': 'window_distance',
+                }
+                if pacer_cap is not None:
+                    fields['pacer_cap'] = pacer_cap
+                return fields
             log_event(
                 self._logger,
                 logging.DEBUG,
                 'tunnel.send_blocked',
                 'Send window distance exceeded',
-                lambda: (
-                    dict({
-                        'distance': distance,
-                        'distance_limit': distance_limit,
-                        'buffered': buffered,
-                        'unacked': unacked,
-                        'max_in_flight': max_in_flight,
-                        'effective_cap': effective_cap,
-                        'last_cum_ack': last_cum_ack,
-                        'next_seq': next_seq,
-                        'side': 'alice',
-                        'reason': 'window_distance',
-                    }, **({'pacer_cap': pacer_cap}
-                          if pacer_cap is not None else {}))
-                ),
+                build_blocked_fields,
             )
             self._log_reliability_state(
                 logging.DEBUG,
@@ -756,8 +833,9 @@ class AliceTunnel(BaseTunnel):
                 now,
                 unacked=unacked,
             )
-            return False
-        if self._send_limiter is not None and not self._send_limiter.can_send(now=now):
+            return
+
+        if reason == 'rate_limit':
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -765,8 +843,8 @@ class AliceTunnel(BaseTunnel):
                 'Send rate limited',
                 lambda: {
                     'side': 'alice',
-                    'rate': self._config.tunnel_send_rate,
-                    'burst': self._config.tunnel_send_burst,
+                    'rate': decision.get('rate'),
+                    'burst': decision.get('burst'),
                 },
             )
             self._log_reliability_state(
@@ -780,40 +858,77 @@ class AliceTunnel(BaseTunnel):
                     'keepalive_only': keepalive_only,
                 },
             )
+            return
+
+        if reason == 'pacer':
+            unacked = decision.get('unacked')
+            cap = decision.get('cap')
+            self._log_pacer_state(cap, unacked, action='blocked')
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Send pacing blocked',
+                lambda: {
+                    'side': 'alice',
+                    'reason': 'pacer',
+                    'unacked': unacked,
+                    'cap': cap,
+                },
+            )
+            self._log_reliability_state(
+                logging.DEBUG,
+                'tunnel.reliability_state',
+                'Reliability state after send blocked',
+                now=now,
+                extra_fields={
+                    'context': 'send_blocked',
+                    'reason': 'pacer',
+                    'keepalive_only': keepalive_only,
+                    'unacked': unacked,
+                    'cap': cap,
+                },
+            )
+            return
+
+    def _can_send_new(self, now=None, keepalive_only=False, allow_window_full=False):
+        """Check if we can send a new packet."""
+        if now is None:
+            now = time_provider.now()
+        decision = self._check_serial_window_block()
+        if decision is not None:
             return False
+        decision = self._check_send_window_full(allow_window_full, keepalive_only)
+        if decision is not None:
+            self._log_send_blocked(decision, now)
+            return False
+        pacer_cap = None
+        pacer_gate_cap = None
         if self._pacer.enabled:
-            cap = self._pacer_cap()
-            self._maybe_log_pacer_target_change(cap, reason='gate_check')
-            if not keepalive_only:
-                unacked = self._send_window.unacked_count
-                if not self._pacer.can_send(unacked, cap, srtt_ms=self._rtt.srtt_ms):
-                    self._log_pacer_state(cap, unacked, action='blocked')
-                    log_event(
-                        self._logger,
-                        logging.DEBUG,
-                        'tunnel.send_blocked',
-                        'Send pacing blocked',
-                        lambda: {
-                            'side': 'alice',
-                            'reason': 'pacer',
-                            'unacked': unacked,
-                            'cap': cap,
-                        },
-                    )
-                    self._log_reliability_state(
-                        logging.DEBUG,
-                        'tunnel.reliability_state',
-                        'Reliability state after send blocked',
-                        now=now,
-                        extra_fields={
-                            'context': 'send_blocked',
-                            'reason': 'pacer',
-                            'keepalive_only': keepalive_only,
-                            'unacked': unacked,
-                            'cap': cap,
-                        },
-                    )
-                    return False
+            pacer_gate_cap = self._pacer_cap()
+            pacer_cap = min(
+                self._send_window._max_in_flight,
+                self._pacer.target_inflight(
+                    pacer_gate_cap,
+                    srtt_ms=self._rtt.srtt_ms,
+                ),
+            )
+        decision = self._check_send_window_distance(
+            now,
+            pacer_cap,
+            keepalive_only,
+        )
+        if decision is not None:
+            self._log_send_blocked(decision, now)
+            return False
+        decision = self._check_send_rate_limit(now, keepalive_only)
+        if decision is not None:
+            self._log_send_blocked(decision, now)
+            return False
+        decision = self._check_send_pacer(keepalive_only, pacer_gate_cap)
+        if decision is not None:
+            self._log_send_blocked(decision, now)
+            return False
         return True
 
     def _can_send_retransmit(self, now=None):

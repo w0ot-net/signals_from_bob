@@ -62,6 +62,10 @@
   EDNS size and qname length; use the lookup to derive an actual cap and either
   clamp recv/send MTUs to it or fail init when it falls below the minimum
   response packet size.
+- Prevent retransmit-cap deadlocks when payload_cap is removed: do not
+  hard-close if a retransmit exceeds the current request cap, and keep the
+  clamp hot across loss so Alice continues issuing small queries until Bob
+  successfully retransmits.
 
 ## Plan
 1) Precompute query->response caps for DNS (DnsClient init):
@@ -98,9 +102,13 @@
      can see when DNS sizing constraints reduce tunnel MTU.
 3) Track adaptive clamp state in DnsClient:
    - Maintain a "bob_has_data" countdown (poll budget) that decays on each
-     poll; reset to a small fixed number when any response contains segments.
+     keepalive-only response; reset to a small fixed number when any response
+     contains segments.
    - Define "segments present" as response_payload_len >
      PACKET_HEADER_SIZE (consistent with tunnel segment presence semantics).
+   - Do not decay bob_has_data on timeouts or missing responses; only decay on
+     explicit keepalive-only responses so loss cannot prematurely relax the
+     clamp while Bob may still need to retransmit.
    - Keep this state independent of MTU negotiation so it only controls the
      clamp target, not the negotiated send/recv MTUs.
 4) Decide the target response size for each send:
@@ -139,18 +147,30 @@
    - Attach the per-request cap to the responder and have BobTunnel enforce it
      for new responses and retransmits so packets never exceed the query's
      response size budget.
-9) Remove payload_cap from the transport/tunnel interface:
+9) Add a retransmit-cap guard before removing payload_cap:
+   - In BobTunnel._send_retransmit_response, if response_data exceeds the
+     current request's response_payload_cap:
+     - Log a distinct event (e.g., tunnel.retransmit_cap_blocked) with
+       seq/bytes/cap so operators can diagnose cap mismatches.
+     - Do not close the tunnel; leave the unacked entry intact so it can be
+       retransmitted when a larger-cap request arrives.
+     - Send a small control-only response (poll hint) instead of a keepalive
+       to ensure Alice sees a segment and keeps bob_has_data hot.
+   - Ensure Alice treats any response with segments (including poll hints) as
+     bob_has_data so the clamp stays in the "small query" mode until Bob
+     retransmits successfully.
+10) Remove payload_cap from the transport/tunnel interface:
    - Delete payload_cap attributes and any BaseTunnel state that caches it.
    - Keep per-send clamping exclusively through the new transport hook.
    - Keep Bob-side per-response cap enforcement (rename fields as needed) so
      retransmits still honor the original query budget.
-10) Update documentation:
+11) Update documentation:
    - DNS_TRANSPORT: describe adaptive clamp behavior and the per-send cap hook.
    - PROTOCOL/TRANSPORTS: update if payload_cap references exist or if the new
      hook is part of the public transport contract.
    - BOB_RETRANSMIT_LOGIC and UDP_EPHEMERAL_TRANSPORT: remove payload_cap
      references tied to the old interface.
-11) Update tests (non-e2e):
+12) Update tests (non-e2e):
    - DNS client/server/codec tests for clamp lookup, per-send caps, and
      min-cap enforcement.
    - Tunnel/BobTunnel tests that reference payload_cap behavior.

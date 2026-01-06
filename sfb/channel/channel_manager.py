@@ -74,6 +74,7 @@ class ChannelManager(object):
         self._lock = threading.Lock()
         self._active_channels = collections.OrderedDict()
         self._send_state_seq = {}
+        self._data_send_event = threading.Event()
         self._unknown_channel_last = {}
         self._id_reuse_cooldown = config.channel_id_reuse_cooldown
         self._id_reuse_until = {}
@@ -120,19 +121,22 @@ class ChannelManager(object):
         if mode == 'control':
             return self._control.send_event.is_set()
         if mode == 'data':
-            with self._lock:
-                return bool(self._active_channels)
+            return self._data_send_event.is_set()
         if mode == 'control_or_data':
             if self._control.send_event.is_set():
                 return True
-            with self._lock:
-                return bool(self._active_channels)
+            return self._data_send_event.is_set()
         raise ValueError('mode must be control_or_data, control, or data')
 
     def has_data_channels_pending(self):
         """Return True if any non-control channel has queued send data."""
-        with self._lock:
-            return bool(self._active_channels)
+        return self._data_send_event.is_set()
+
+    def _update_data_send_event_locked(self):
+        if self._active_channels:
+            self._data_send_event.set()
+        else:
+            self._data_send_event.clear()
 
     def pending_send_bytes(self, include_control=True):
         """Return total queued send bytes across channels."""
@@ -170,6 +174,7 @@ class ChannelManager(object):
         self._send_state_seq[channel.id] = seq
         if has_data and channel.id not in self._active_channels:
             self._active_channels[channel.id] = None
+            self._update_data_send_event_locked()
 
     def _unregister_channel_locked(self, channel_id):
         channel = self._channels.pop(channel_id, None)
@@ -184,6 +189,7 @@ class ChannelManager(object):
             )
         if channel_id in self._active_channels:
             del self._active_channels[channel_id]
+            self._update_data_send_event_locked()
         return channel
 
     def _on_channel_send_state(self, channel, channel_id, has_data, seq):
@@ -202,6 +208,7 @@ class ChannelManager(object):
             else:
                 if channel_id in self._active_channels:
                     del self._active_channels[channel_id]
+            self._update_data_send_event_locked()
 
     def open_channel(self):
         """
@@ -470,6 +477,7 @@ class ChannelManager(object):
                 for cid in inactive_ids:
                     if cid in self._active_channels:
                         del self._active_channels[cid]
+                self._update_data_send_event_locked()
 
         if not control_only:
             # Step 3: Primary channel fill (round-robin selection)

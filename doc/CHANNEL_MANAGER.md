@@ -38,6 +38,12 @@ Channel 0 handling is special in segment packing:
 - Control data is always prioritized.
 - Keepalive traffic is handled at the packet header level.
 
+The control channel exposes its own `send_event` for queued control data.
+ChannelManager tracks non-control pending data separately using an internal
+data-pending event. `has_pending_data()` derives combined state by OR-ing the
+control `send_event` with the data-pending event, so control drain does not
+clear pending data-channel state.
+
 ---
 
 ## Lifecycle
@@ -133,3 +139,6 @@ reads the active-channel list under the lock and then accesses channel queues
 outside the lock, matching the current implementation. Channels notify the
 manager when their send buffers transition between empty and non-empty to
 avoid scanning all channels on every tick.
+
+The data-pending event is updated under the same lock whenever the active set
+changes so pending-data checks can avoid lock acquisition in hot loops.

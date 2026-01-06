@@ -51,3 +51,10 @@
 
 ## Testing
 - Do not run tests here. The user will run E2E tests as needed.
+
+## Execution Notes
+- Added a ChannelManager data-pending event and switched pending checks to
+  use it alongside the control `send_event`.
+- Updated active-channel mutation paths (send-state updates and pruning) to
+  keep the data-pending event accurate.
+- Documented pending event semantics in `doc/CHANNEL_MANAGER.md`.

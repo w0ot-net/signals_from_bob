@@ -12,6 +12,7 @@ DEFAULT_MTU = 100  # Until MTU negotiation completes
 # Header sizes
 PACKET_HEADER_SIZE = 38
 SEGMENT_HEADER_SIZE = 3
+MIN_PACKET_MTU = PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1
 
 # Header field offsets (big-endian)
 SEQ_OFFSET = 0

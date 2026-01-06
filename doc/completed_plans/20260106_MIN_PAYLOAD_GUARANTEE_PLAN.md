@@ -44,3 +44,9 @@ negotiation.
 - Run unit-level tests that cover tunnel init and TLS handshake validation
   using python3.
 - Do not run tests in tests/e2e/.
+
+## Execution Notes
+
+- Added MIN_PACKET_MTU and enforced it in TLS handshake config validation.
+- Added BaseTunnel transport MTU validation against the minimum packet size.
+- Tests not run (per instructions).

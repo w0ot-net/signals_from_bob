@@ -6,7 +6,7 @@ TLS transport configuration validation helpers.
 from __future__ import absolute_import
 
 from ...compat import text_type
-from ...protocol.constants import PACKET_HEADER_SIZE
+from ...protocol.constants import MIN_PACKET_MTU
 from ..transport_base import TransportError
 from ..proxy_helpers import validate_proxy_config
 from . import tls_handshake_codec as codec
@@ -85,7 +85,7 @@ def validate_tls_config(config, role):
         )
     except ValueError as exc:
         raise TransportError('TLS handshake overhead invalid: %s' % exc)
-    min_packet = PACKET_HEADER_SIZE + 1
+    min_packet = MIN_PACKET_MTU
     if client_payload_cap < min_packet:
         raise TransportError(
             'ClientHello max too small for packet MTU '

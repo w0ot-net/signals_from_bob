@@ -6,7 +6,7 @@ TLS handshake bump transport configuration validation.
 from __future__ import absolute_import
 
 from ...compat import text_type
-from ...protocol.constants import PACKET_HEADER_SIZE
+from ...protocol.constants import MIN_PACKET_MTU
 from ..transport_base import TransportError
 from ..proxy_helpers import validate_proxy_config
 from . import tls_handshake_bump_cert_template as cert_template
@@ -59,7 +59,7 @@ def validate_tls_bump_config(config, role):
 
     sni_payload_cap = codec.calc_sni_payload_cap(base_domain)
     cn_payload_cap = codec.calc_cn_payload_cap(cn_max_len)
-    min_packet = PACKET_HEADER_SIZE + 1
+    min_packet = MIN_PACKET_MTU
     if sni_payload_cap < min_packet:
         raise TransportError(
             'SNI max too small for packet MTU '

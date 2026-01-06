@@ -39,6 +39,7 @@ from ..protocol import (
     SEGMENT_HEADER_SIZE,
     log_control_segments,
 )
+from ..protocol.constants import MIN_PACKET_MTU
 from ..reliability import SendWindow, RecvWindow, ReliabilityStats, NoopReliabilityStats
 from ..logging_util import get_logger, log_event
 from .. import time_provider
@@ -155,6 +156,21 @@ class BaseTunnel(object):
         """
         send_packet_mtu = transport.send_packet_mtu
         recv_packet_mtu = transport.recv_packet_mtu
+        min_packet_mtu = MIN_PACKET_MTU
+        if (not isinstance(send_packet_mtu, integer_types) or
+                send_packet_mtu < min_packet_mtu):
+            raise TunnelError(
+                'Transport send_packet_mtu %r below minimum %d' % (
+                    send_packet_mtu, min_packet_mtu
+                )
+            )
+        if (not isinstance(recv_packet_mtu, integer_types) or
+                recv_packet_mtu < min_packet_mtu):
+            raise TunnelError(
+                'Transport recv_packet_mtu %r below minimum %d' % (
+                    recv_packet_mtu, min_packet_mtu
+                )
+            )
         self._proposed_send_packet_mtu = send_packet_mtu
         self._proposed_recv_packet_mtu = recv_packet_mtu
         self._send_packet_mtu = send_packet_mtu

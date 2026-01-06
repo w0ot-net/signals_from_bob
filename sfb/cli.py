@@ -1418,10 +1418,10 @@ def main(args=None):
     level = logging.DEBUG if parsed.verbose else logging.INFO
     logging.basicConfig(
         level=level,
-        format='%(name)s %(levelname)s %(message)s'
+        format='%(levelname)s %(message)s'
     )
     stdout_formatter = StructuredLogFormatter(
-        '%(name)s %(levelname)s %(message)s',
+        '%(levelname)s %(message)s',
         max_line_length=100,
     )
     for handler in logging.getLogger().handlers:

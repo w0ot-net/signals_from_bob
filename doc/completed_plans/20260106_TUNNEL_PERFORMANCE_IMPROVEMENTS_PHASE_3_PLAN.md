@@ -28,3 +28,6 @@
 1) Define a protocol requirement: when Bob sends POLL_HINT, the response must have capacity for at least 1 byte of segment payload. Enforce this per transport by ensuring the response payload cap is never less than PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1 when POLL_HINT is emitted. Transports with per-request caps (DNS) may produce smaller responses, but must not set POLL_HINT unless the cap meets this floor. If a transport can never reach this floor for the configured settings, fail fast during initialization (config error). With this guarantee, remove ack-only responses: Bob must never emit empty packets without KEEPALIVE, and receivers treat any empty/non-KEEPALIVE packet as a protocol violation.
 2) Treat "real data" as the presence of segments (control or data), not the KEEPALIVE flag. Empty responses are idle keepalives only.
 3) Update doc/TUNNEL.md, doc/ASYMMETRY.md, doc/PROTOCOL.md, and doc/DNS_TRANSPORT.md to document the "real data" definition, the minimum payload guarantee, and the removal of ack-only responses.
+
+## Execution Notes
+- 2026-01-06: Enforced poll-hint minimum payload in Bob responses and updated protocol/transport docs. Tests not run (per instructions).

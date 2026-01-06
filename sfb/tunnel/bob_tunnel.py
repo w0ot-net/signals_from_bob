@@ -22,6 +22,7 @@ from ..protocol import (
     FLAG_POLL_HINT,
     PACKET_HEADER_SIZE,
 )
+from ..protocol.constants import MIN_PACKET_MTU
 
 
 class BobTunnel(BaseTunnel):
@@ -334,6 +335,7 @@ class BobTunnel(BaseTunnel):
         )
         if (response_payload_cap is not None and
                 len(response_data) > response_payload_cap):
+            poll_hint = self._poll_hint_allowed(response_payload_cap)
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -357,12 +359,12 @@ class BobTunnel(BaseTunnel):
                     self._logger,
                     logging.WARNING,
                     'tunnel.retransmit_cap_blocked',
-                    'Retransmit exceeds per-request cap; sending poll-hint keepalive',
+                    'Retransmit exceeds per-request cap; sending keepalive',
                     lambda: {
                         'seq': seq,
                         'bytes': len(response_data),
                         'cap': response_payload_cap,
-                        'poll_hint': True,
+                        'poll_hint': poll_hint,
                         'segments': 0,
                         'response': 'keepalive',
                         'side': 'bob',
@@ -386,7 +388,12 @@ class BobTunnel(BaseTunnel):
                             'seq': dropped_seq,
                         },
                     )
-            self._send_keepalive_response(responder, now, poll_hint=True)
+            self._send_keepalive_response(
+                responder,
+                now,
+                poll_hint=poll_hint,
+                response_payload_cap=response_payload_cap,
+            )
             return False
         prev_info = self._send_window.get_unacked_info(seq)
         prev_retransmit_count = None
@@ -448,7 +455,16 @@ class BobTunnel(BaseTunnel):
         )
         return True
 
-    def _send_keepalive_response(self, responder, now, poll_hint=False):
+    @staticmethod
+    def _poll_hint_allowed(response_payload_cap):
+        if response_payload_cap is None:
+            return True
+        return response_payload_cap >= MIN_PACKET_MTU
+
+    def _send_keepalive_response(self, responder, now, poll_hint=False,
+                                 response_payload_cap=None):
+        if poll_hint and not self._poll_hint_allowed(response_payload_cap):
+            poll_hint = False
         flags = FLAG_KEEPALIVE
         if poll_hint:
             flags |= FLAG_POLL_HINT
@@ -488,6 +504,12 @@ class BobTunnel(BaseTunnel):
         return True
 
     def _send_poll_hint_segment(self, responder, now, response_payload_cap):
+        if not self._poll_hint_allowed(response_payload_cap):
+            return self._send_keepalive_response(
+                responder,
+                now,
+                response_payload_cap=response_payload_cap,
+            )
         max_payload = self._payload_mtu_from_packet(self._send_packet_mtu)
         if response_payload_cap is not None:
             cap_payload = response_payload_cap - PACKET_HEADER_SIZE
@@ -500,7 +522,12 @@ class BobTunnel(BaseTunnel):
             control_only=True,
         )
         if not segments:
-            return self._send_keepalive_response(responder, now, poll_hint=True)
+            return self._send_keepalive_response(
+                responder,
+                now,
+                poll_hint=True,
+                response_payload_cap=response_payload_cap,
+            )
         packet, _ = self._build_packet(
             flags=FLAG_HAS_SEGMENTS | FLAG_POLL_HINT,
             segments=segments,
@@ -555,6 +582,7 @@ class BobTunnel(BaseTunnel):
 
     def _select_response_action(self, now, response_payload_cap):
         decision = {'action': None}
+        poll_hint_allowed = self._poll_hint_allowed(response_payload_cap)
         oldest_info = self._send_window.get_oldest_unacked_info()
         if oldest_info is not None:
             (seq, segments, flags, encrypted_body,
@@ -639,10 +667,16 @@ class BobTunnel(BaseTunnel):
 
         if not segments:
             if pending_data:
-                decision.update({
-                    'action': 'poll_hint',
-                    'context': 'poll_hint',
-                })
+                if poll_hint_allowed:
+                    decision.update({
+                        'action': 'poll_hint',
+                        'context': 'poll_hint',
+                    })
+                else:
+                    decision.update({
+                        'action': 'keepalive',
+                        'context': 'keepalive',
+                    })
             else:
                 decision.update({
                     'action': 'keepalive',

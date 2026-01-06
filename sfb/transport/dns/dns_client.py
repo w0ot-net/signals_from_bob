@@ -87,6 +87,7 @@ class DnsClient(Transport):
         self._alice_has_data_pending = False
         self._bob_has_data_polls = 2
         self._bob_has_data_remaining = 0
+        self._poll_hint_budget = 0
         self._retransmit_guard = False
         self._recv_window_sack = 0
 
@@ -228,6 +229,7 @@ class DnsClient(Transport):
         permit = self._reserve_permit(now=now, pending_before=pending_before)
         payload_cap = self._select_payload_cap()
         self._attach_payload_cap(permit, payload_cap)
+        self._consume_poll_hint_budget()
         return permit
 
     def payload_cap_for_send(self, permit):
@@ -480,7 +482,6 @@ class DnsClient(Transport):
         return (corr_id, payload)
 
     def _update_bob_data_from_payload(self, payload):
-        self._retransmit_guard = False
         if not payload:
             return
         try:
@@ -513,7 +514,8 @@ class DnsClient(Transport):
             )
             return
         poll_hint = bool(flags & FLAG_POLL_HINT)
-        self._retransmit_guard = poll_hint
+        if poll_hint:
+            self._reset_poll_hint_budget()
         if has_segments:
             self._update_bob_data_state(True)
             return
@@ -570,7 +572,7 @@ class DnsClient(Transport):
         mode = 'disabled'
         target = None
         query_payload = None
-        if self._retransmit_guard:
+        if self._poll_hint_budget > 0:
             mode = 'response_max'
             target = self._max_response_payload_cap
             query_payload = self._query_payload_for_target(target)
@@ -592,6 +594,7 @@ class DnsClient(Transport):
                 'recv_window_sack': self._recv_window_sack,
                 'target_response_payload': target,
                 'query_payload_cap': query_payload,
+                'poll_hint_budget': self._poll_hint_budget,
             },
         )
         return query_payload
@@ -612,6 +615,25 @@ class DnsClient(Transport):
             return
         if self._bob_has_data_remaining > 0:
             self._bob_has_data_remaining -= 1
+
+    def _reset_poll_hint_budget(self):
+        target = self._max_in_flight
+        try:
+            target = int(target)
+        except (TypeError, ValueError):
+            target = 0
+        if target < 1:
+            target = 1
+        self._poll_hint_budget = target
+        self._retransmit_guard = True
+
+    def _consume_poll_hint_budget(self):
+        if self._poll_hint_budget <= 0:
+            return
+        self._poll_hint_budget -= 1
+        if self._poll_hint_budget <= 0:
+            self._poll_hint_budget = 0
+            self._retransmit_guard = False
 
     def _init_response_caps(self):
         if self._send_packet_mtu < self._min_query_packet_mtu:

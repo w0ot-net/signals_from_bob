@@ -295,8 +295,10 @@ if the maximum response packet size is smaller than the minimum packet needed
 to carry one segment.
 
 Alice only clamps queries when Bob explicitly requests it:
-- response_max while POLL_HINT is present (Bob requests larger responses)
+- response_max for the next max_in_flight polls after POLL_HINT (Bob requests
+  larger responses)
 - otherwise no per-send cap (Alice uses negotiated send_packet_mtu)
+Each poll consumes the clamp budget; another POLL_HINT refreshes it.
 
 Bob should use POLL_HINT when he needs Alice to reduce query size, such as when
 retransmits are blocked by per-request response caps or when pending data

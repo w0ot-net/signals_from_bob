@@ -1421,7 +1421,8 @@ def main(args=None):
         format='%(name)s %(levelname)s %(message)s'
     )
     stdout_formatter = StructuredLogFormatter(
-        '%(name)s %(levelname)s %(message)s'
+        '%(name)s %(levelname)s %(message)s',
+        max_line_length=100,
     )
     for handler in logging.getLogger().handlers:
         if isinstance(handler, logging.StreamHandler):

@@ -26,8 +26,9 @@ class StructuredLogFormatter(logging.Formatter):
     Formatter that appends event fields when present.
     """
 
-    def __init__(self, fmt=None, datefmt=None):
+    def __init__(self, fmt=None, datefmt=None, max_line_length=None):
         logging.Formatter.__init__(self, fmt=fmt, datefmt=datefmt)
+        self._max_line_length = max_line_length
 
     def format(self, record):
         message = logging.Formatter.format(self, record)
@@ -39,7 +40,9 @@ class StructuredLogFormatter(logging.Formatter):
         if fields:
             extras.append('fields=%s' % _encode_fields(fields))
         if extras:
-            return '%s | %s' % (message, ' '.join(extras))
+            message = '%s | %s' % (message, ' '.join(extras))
+        if self._max_line_length:
+            return _truncate_lines(message, self._max_line_length)
         return message
 
 
@@ -461,3 +464,31 @@ def _ensure_handler(logger, handler_cls, formatter, *args):
     handler = handler_cls(*args)
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+
+
+def _truncate_lines(text, max_len):
+    if max_len is None or max_len <= 0:
+        return text
+    lines = text.splitlines(True)
+    if not lines:
+        return text
+    out = []
+    for line in lines:
+        body, ending = _split_line_ending(line)
+        if len(body) > max_len:
+            if max_len > 3:
+                body = body[:max_len - 3] + '...'
+            else:
+                body = body[:max_len]
+        out.append(body + ending)
+    return ''.join(out)
+
+
+def _split_line_ending(line):
+    if line.endswith('\r\n'):
+        return line[:-2], '\r\n'
+    if line.endswith('\n'):
+        return line[:-1], '\n'
+    if line.endswith('\r'):
+        return line[:-1], '\r'
+    return line, ''

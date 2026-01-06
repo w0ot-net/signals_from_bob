@@ -40,8 +40,6 @@ Alice                                              Bob
 - A single UDP socket is bound to `udp_ephemeral_listen_addr`.
 - Each request returns `(payload, responder)`.
 - The responder enforces `send_packet_mtu` on responses.
-- The responder exposes `response_payload_cap = send_packet_mtu` (packet bytes)
-  so Bob can cap responses before send.
 
 ---
 

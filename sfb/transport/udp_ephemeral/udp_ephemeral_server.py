@@ -180,7 +180,6 @@ class UdpEphemeralServer(Server):
                     'bytes': len(data),
                 },
             )
-        responder.response_payload_cap = self._send_packet_mtu
         return responder
 
     def close(self):

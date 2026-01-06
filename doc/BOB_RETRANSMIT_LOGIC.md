@@ -128,7 +128,7 @@ Retransmits are sent via `_send_retransmit_response()`:
 
 ### Response Payload Cap (Retransmit Blocked)
 
-If the responder exposes `response_payload_cap` (packet bytes), retransmit checks:
+If the responder exposes `response_payload_cap`, retransmit checks:
 - If `len(response_data) > response_payload_cap`, Bob logs:
   - `tunnel.retransmit_skip` with reason `cap`
   - `tunnel.retransmit_cap_blocked`

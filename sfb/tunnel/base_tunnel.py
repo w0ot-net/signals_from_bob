@@ -36,6 +36,7 @@ from ..protocol import (
     FLAG_HAS_SEGMENTS,
     FLAG_POLL_HINT,
     PACKET_HEADER_SIZE,
+    SEGMENT_HEADER_SIZE,
     log_control_segments,
 )
 from ..reliability import SendWindow, RecvWindow, ReliabilityStats, NoopReliabilityStats
@@ -1003,6 +1004,11 @@ class BaseTunnel(object):
                 },
             )
             return
+        min_payload = SEGMENT_HEADER_SIZE + 1
+        if peer_send_payload < min_payload:
+            peer_send_payload = min_payload
+        if peer_recv_payload < min_payload:
+            peer_recv_payload = min_payload
         peer_send_packet_mtu = self._packet_mtu_from_payload(peer_send_payload)
         peer_recv_packet_mtu = self._packet_mtu_from_payload(peer_recv_payload)
         log_event(
@@ -1105,6 +1111,11 @@ class BaseTunnel(object):
                 },
             )
             return
+        min_payload = SEGMENT_HEADER_SIZE + 1
+        if peer_send_payload < min_payload:
+            peer_send_payload = min_payload
+        if peer_recv_payload < min_payload:
+            peer_recv_payload = min_payload
         peer_send_packet_mtu = self._packet_mtu_from_payload(peer_send_payload)
         peer_recv_packet_mtu = self._packet_mtu_from_payload(peer_recv_payload)
 

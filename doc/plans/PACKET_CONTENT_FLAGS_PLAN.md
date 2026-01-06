@@ -64,6 +64,9 @@ serve as an implicit poll hint.
     - Transition to CONNECTED on the first valid post-ACK response.
     - On timeout/failure, set DISCONNECTED and raise a handshake timeout so
       connect() restarts from scratch with a new ISN (no in-place retry).
+  - Late SYN/SYN+ACK after handshake (HANDSHAKE_ACKED or CONNECTED) should be
+    treated as stale/duplicate and ignored (or answered with a normal ACK),
+    not as a protocol violation that closes the tunnel.
 - Replace "ack-only" terminology in docs/logs with "poll hint" (`WANTS_POLL`) to make
   the intent explicit.
 - Update log context strings and the protocol module example to emit
@@ -105,10 +108,12 @@ serve as an implicit poll hint.
    flags, reject SYN/ACK, transition to CONNECTED on first response, set
    DISCONNECTED + raise handshake timeout on failure so connect() retries
    from scratch).
-8. Enforce strict handshake completion:
+8. Update handshake validation to ignore (or ACK) late SYN/SYN+ACK packets
+   after handshake completion rather than treating them as protocol violations.
+9. Enforce strict handshake completion:
    - Bob: remove implicit-ACK handling for non-handshake packets while
      CONNECTING.
-9. Update receive paths:
+10. Update receive paths:
    - Alice: add explicit `WANTS_POLL` handling in `_handle_response()` and
      `_poll_decision()` (or a new poll-hint state) so `WANTS_POLL` triggers immediate
      polling without marking `_got_data` or `KEEPALIVE`.
@@ -116,10 +121,10 @@ serve as an implicit poll hint.
      explicitly for `HAS_SEGMENTS`/`WANTS_POLL`/`KEEPALIVE`.
    - Bob: continue to ignore keepalive segments as today, but validate content
      flags for protocol correctness.
-10. Update documentation to describe the new flags, the content-flag rules, and
+11. Update documentation to describe the new flags, the content-flag rules, and
   the explicit "poll hint" semantics, including a sweep to replace ack-only
   wording in `doc/ARCHITECTURE.md` and `doc/DNS_TRANSPORT.md`.
-11. Add unit tests that validate:
+12. Add unit tests that validate:
    - content-flag/segment mismatch is a protocol violation,
    - handshake packets reject content flags,
    - Alice polling behavior distinguishes `WANTS_POLL` vs `KEEPALIVE`,

@@ -79,6 +79,11 @@ every non-handshake packet must set exactly one content flag:
 Handshake constraints:
 - SYN/SYN+ACK/ACK packets MUST contain zero segments
 - SYN/SYN+ACK/ACK packets MUST NOT set any content flags
+- Once CONNECTED, any packet with SYN or ACK flags is treated as a stale
+  handshake packet. Receivers MUST NOT reset connection state on these packets.
+  They MAY ignore them for reliability processing; if processed, they are
+  treated as ack-only (no segments). For polling transports, responders should
+  still send a normal response to satisfy the request/response contract.
 
 Content-flag constraints (post-ACK):
 - Exactly one of `HAS_SEGMENTS`, `WANTS_POLL`, or `KEEPALIVE` is set

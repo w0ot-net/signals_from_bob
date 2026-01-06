@@ -23,14 +23,14 @@ from ..proxy_helpers import (
     PROXY_DONE,
 )
 from ..socket_errors import (
-    IN_PROGRESS_ERRNOS as _IN_PROGRESS,
-    TEMP_ERRORS as _TEMP_ERRORS,
-    SOFT_CONNECT_ERRORS as _SOFT_CONNECT_ERRORS,
-    RESET_ERRORS as _RESET_ERRORS,
-    PHASE_CONNECT as _PHASE_CONNECT,
-    PHASE_PROXY as _PHASE_PROXY,
-    PHASE_REQUEST as _PHASE_REQUEST,
-    PHASE_RESPONSE as _PHASE_RESPONSE,
+    IN_PROGRESS_ERRNOS,
+    TEMP_ERRORS,
+    SOFT_CONNECT_ERRORS,
+    RESET_ERRORS,
+    PHASE_CONNECT,
+    PHASE_PROXY,
+    PHASE_REQUEST,
+    PHASE_RESPONSE,
 )
 from . import tls_handshake_codec as codec
 from .tls_handshake_config import validate_tls_config
@@ -58,7 +58,7 @@ class _PendingConn(object):
 
     def __init__(self, sock, send_buf, connect_deadline, proxy_state=None):
         self.sock = sock
-        self.phase = _PHASE_CONNECT
+        self.phase = PHASE_CONNECT
         self.send_buf = send_buf
         self.send_off = 0
         self.recv_buf = bytearray()
@@ -230,7 +230,7 @@ class TlsClient(Transport):
                 sock,
                 self._proxy_request,
                 _get_errno,
-                _TEMP_ERRORS,
+                TEMP_ERRORS,
                 lambda reason, **extra: self._log_proxy_error(
                     reason, corr_id, **extra
                 ),
@@ -248,8 +248,8 @@ class TlsClient(Transport):
         err = sock.connect_ex(self._connect_addr)
         if err == 0:
             self._handle_connect_success(corr_id, state, now)
-        elif err in _IN_PROGRESS:
-            state.phase = _PHASE_CONNECT
+        elif err in IN_PROGRESS_ERRNOS:
+            state.phase = PHASE_CONNECT
         else:
             self._close_pending(corr_id, state)
             log_event(
@@ -259,7 +259,7 @@ class TlsClient(Transport):
                 'TLS connect error',
                 lambda: {'error': err},
             )
-            if err in _SOFT_CONNECT_ERRORS:
+            if err in SOFT_CONNECT_ERRORS:
                 return corr_id
             raise TransportError('TLS connect failed: %s' % err)
 
@@ -327,11 +327,11 @@ class TlsClient(Transport):
         corr_id, state = self._lookup_state(sock)
         if state is None:
             return None
-        if state.phase == _PHASE_PROXY:
+        if state.phase == PHASE_PROXY:
             status = state.proxy_state.drive(can_read, can_write, now)
             if status == PROXY_DONE:
                 state.proxy_state = None
-                state.phase = _PHASE_REQUEST
+                state.phase = PHASE_REQUEST
             elif status == PROXY_CLOSED:
                 self._close_pending(corr_id, state)
             return None
@@ -347,13 +347,13 @@ class TlsClient(Transport):
 
     def _drive_write(self, corr_id, state, now):
         phase = state.phase
-        if phase == _PHASE_CONNECT:
+        if phase == PHASE_CONNECT:
             return self._finish_connect(corr_id, state, now)
-        if phase == _PHASE_REQUEST:
+        if phase == PHASE_REQUEST:
             if state.connect_deadline is None:
                 state.connect_deadline = now + self._connect_timeout
             if self._flush_send(corr_id, state, now):
-                state.phase = _PHASE_RESPONSE
+                state.phase = PHASE_RESPONSE
                 state.connect_deadline = None
                 state.handshake_deadline = now + self._handshake_timeout
             return None
@@ -361,7 +361,7 @@ class TlsClient(Transport):
 
     def _drive_read(self, corr_id, state):
         phase = state.phase
-        if phase == _PHASE_RESPONSE:
+        if phase == PHASE_RESPONSE:
             return self._recv_record(corr_id, state)
         return None
 
@@ -376,7 +376,7 @@ class TlsClient(Transport):
                 'TLS connect error',
                 lambda: {'error': err},
             )
-            if err in _SOFT_CONNECT_ERRORS:
+            if err in SOFT_CONNECT_ERRORS:
                 return None
             raise TransportError('TLS connect failed: %s' % err)
         self._handle_connect_success(corr_id, state, now)
@@ -393,42 +393,42 @@ class TlsClient(Transport):
 
     def _handle_connect_success(self, corr_id, state, now):
         if state.proxy_state is not None:
-            state.phase = _PHASE_PROXY
+            state.phase = PHASE_PROXY
             state.connect_deadline = None
             if self._proxy_timeout is not None:
                 state.proxy_state.set_deadline(now + self._proxy_timeout)
             state.proxy_state.drive(False, True, now)
         else:
-            state.phase = _PHASE_REQUEST
+            state.phase = PHASE_REQUEST
             if self._flush_send(corr_id, state, now):
-                state.phase = _PHASE_RESPONSE
+                state.phase = PHASE_RESPONSE
                 state.connect_deadline = None
                 state.handshake_deadline = now + self._handshake_timeout
 
     def _phase_deadline(self, state):
         phase = state.phase
-        if phase == _PHASE_CONNECT:
+        if phase == PHASE_CONNECT:
             return state.connect_deadline
-        if phase == _PHASE_PROXY:
+        if phase == PHASE_PROXY:
             return state.proxy_state.deadline()
-        if phase == _PHASE_REQUEST:
+        if phase == PHASE_REQUEST:
             return state.connect_deadline
-        if phase == _PHASE_RESPONSE:
+        if phase == PHASE_RESPONSE:
             return state.handshake_deadline
         return None
 
     def _phase_interests(self, state):
         phase = state.phase
-        if phase == _PHASE_CONNECT:
+        if phase == PHASE_CONNECT:
             return False, True
-        if phase == _PHASE_PROXY:
+        if phase == PHASE_PROXY:
             if state.proxy_state is None:
                 return False, False
             return (state.proxy_state.wants_read(),
                     state.proxy_state.wants_write())
-        if phase == _PHASE_REQUEST:
+        if phase == PHASE_REQUEST:
             return False, True
-        if phase == _PHASE_RESPONSE:
+        if phase == PHASE_RESPONSE:
             return True, False
         return False, False
 
@@ -444,9 +444,9 @@ class TlsClient(Transport):
             data = state.sock.recv(bufsize)
         except socket.error as e:
             err = _get_errno(e)
-            if err in _TEMP_ERRORS:
+            if err in TEMP_ERRORS:
                 return None
-            if err in _RESET_ERRORS:
+            if err in RESET_ERRORS:
                 self._close_pending(corr_id, state)
                 return None
             self._close_pending(corr_id, state)
@@ -508,7 +508,7 @@ class TlsClient(Transport):
         for corr_id, state in list(self._pending_state.items()):
             deadline = self._phase_deadline(state)
             if deadline is not None and now > deadline:
-                if state.phase == _PHASE_PROXY:
+                if state.phase == PHASE_PROXY:
                     self._log_proxy_error('timeout', corr_id)
                 stale.append((corr_id, state))
         for corr_id, state in stale:
@@ -537,7 +537,7 @@ class TlsClient(Transport):
         try:
             sent = state.sock.send(view[state.send_off:])
         except socket.error as e:
-            if _get_errno(e) in _TEMP_ERRORS:
+            if _get_errno(e) in TEMP_ERRORS:
                 return False
             self._close_pending(corr_id, state)
             raise TransportError('Send failed: %s' % e)

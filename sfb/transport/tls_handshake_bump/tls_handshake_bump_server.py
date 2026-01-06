@@ -9,7 +9,7 @@ import logging
 import socket
 
 from ..transport_base import Server, TransportError, _get_errno, raise_bind_error
-from ..socket_errors import TEMP_ERRORS as _TEMP_ERRORS
+from ..socket_errors import TEMP_ERRORS
 from . import tls_handshake_bump_cert as bump_cert
 from . import tls_handshake_bump_codec as codec
 from . import tls_handshake_bump_selector as bump_selector
@@ -153,7 +153,7 @@ class TlsHandshakeBumpServer(Server):
             try:
                 client_sock, _addr = self._sock.accept()
             except socket.error as e:
-                if _get_errno(e) in _TEMP_ERRORS:
+                if _get_errno(e) in TEMP_ERRORS:
                     return
                 raise TransportError('Accept failed: %s' % e)
             client_sock.setblocking(False)
@@ -183,7 +183,7 @@ class TlsHandshakeBumpServer(Server):
         try:
             data = sock.recv(bufsize)
         except socket.error as e:
-            if _get_errno(e) in _TEMP_ERRORS:
+            if _get_errno(e) in TEMP_ERRORS:
                 return None
             self._close_conn(sock)
             raise TransportError('Receive failed: %s' % e)
@@ -289,7 +289,7 @@ class TlsHandshakeBumpServer(Server):
         try:
             sent = sock.send(state.response_buf[state.response_off:])
         except socket.error as e:
-            if _get_errno(e) in _TEMP_ERRORS:
+            if _get_errno(e) in TEMP_ERRORS:
                 return
             self._close_conn(sock)
             raise TransportError('Send failed: %s' % e)

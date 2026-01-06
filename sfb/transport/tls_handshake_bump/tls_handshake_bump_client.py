@@ -23,15 +23,15 @@ from ..proxy_helpers import (
     PROXY_DONE,
 )
 from ..socket_errors import (
-    IN_PROGRESS_ERRNOS as _IN_PROGRESS,
-    TEMP_ERRORS as _TEMP_ERRORS,
-    SOFT_CONNECT_ERRORS as _SOFT_CONNECT_ERRORS,
-    RESET_ERRORS as _RESET_ERRORS,
-    PHASE_CONNECT as _PHASE_CONNECT,
-    PHASE_PROXY as _PHASE_PROXY,
-    PHASE_HANDSHAKE as _PHASE_HANDSHAKE,
-    PHASE_REQUEST as _PHASE_REQUEST,
-    PHASE_RESPONSE as _PHASE_RESPONSE,
+    IN_PROGRESS_ERRNOS,
+    TEMP_ERRORS,
+    SOFT_CONNECT_ERRORS,
+    RESET_ERRORS,
+    PHASE_CONNECT,
+    PHASE_PROXY,
+    PHASE_HANDSHAKE,
+    PHASE_REQUEST,
+    PHASE_RESPONSE,
 )
 from . import tls_handshake_bump_codec as codec
 from . import tls_handshake_bump_selector as bump_selector
@@ -71,7 +71,7 @@ class _PendingConn(object):
     def __init__(self, sock, connect_deadline, pending_deadline, proxy_state,
                  sni_name, request_buf):
         self.sock = sock
-        self.phase = _PHASE_CONNECT
+        self.phase = PHASE_CONNECT
         self.connect_deadline = connect_deadline
         self.pending_deadline = pending_deadline
         self.proxy_state = proxy_state
@@ -255,7 +255,7 @@ class TlsHandshakeBumpClient(Transport):
                 sock,
                 self._proxy_request,
                 _get_errno,
-                _TEMP_ERRORS,
+                TEMP_ERRORS,
                 lambda reason, **extra: self._log_proxy_error(
                     reason, corr_id, **extra
                 ),
@@ -275,8 +275,8 @@ class TlsHandshakeBumpClient(Transport):
         err = sock.connect_ex(self._connect_addr)
         if err == 0:
             self._handle_connect_success(corr_id, state, now)
-        elif err in _IN_PROGRESS:
-            state.phase = _PHASE_CONNECT
+        elif err in IN_PROGRESS_ERRNOS:
+            state.phase = PHASE_CONNECT
         else:
             self._close_pending(corr_id, state)
             log_event(
@@ -286,7 +286,7 @@ class TlsHandshakeBumpClient(Transport):
                 'TLS bump connect error',
                 lambda: {'error': err},
             )
-            if err in _SOFT_CONNECT_ERRORS:
+            if err in SOFT_CONNECT_ERRORS:
                 return corr_id
             raise TransportError('TLS bump connect failed: %s' % err)
 
@@ -350,7 +350,7 @@ class TlsHandshakeBumpClient(Transport):
         corr_id, state = self._lookup_state(sock)
         if state is None:
             return None
-        if state.phase == _PHASE_PROXY:
+        if state.phase == PHASE_PROXY:
             status = state.proxy_state.drive(can_read, can_write, now)
             if status == PROXY_DONE:
                 state.proxy_state = None
@@ -370,36 +370,36 @@ class TlsHandshakeBumpClient(Transport):
 
     def _drive_write(self, corr_id, state, now):
         phase = state.phase
-        if phase == _PHASE_CONNECT:
+        if phase == PHASE_CONNECT:
             return self._finish_connect(corr_id, state, now)
-        if phase == _PHASE_HANDSHAKE:
+        if phase == PHASE_HANDSHAKE:
             if state.handshake_deadline is None:
                 state.handshake_deadline = now + self._handshake_timeout
             if state.ssl_want in (None, 'write'):
                 self._do_handshake(corr_id, state)
             return None
-        if phase == _PHASE_REQUEST:
+        if phase == PHASE_REQUEST:
             if state.ssl_want in (None, 'write'):
                 self._flush_request(corr_id, state)
             return None
-        if phase == _PHASE_RESPONSE:
+        if phase == PHASE_RESPONSE:
             if state.ssl_want == 'write':
                 return self._recv_response(corr_id, state)
         return None
 
     def _drive_read(self, corr_id, state, now):
         phase = state.phase
-        if phase == _PHASE_HANDSHAKE:
+        if phase == PHASE_HANDSHAKE:
             if state.handshake_deadline is None:
                 state.handshake_deadline = now + self._handshake_timeout
             if state.ssl_want in (None, 'read'):
                 self._do_handshake(corr_id, state)
             return None
-        if phase == _PHASE_REQUEST:
+        if phase == PHASE_REQUEST:
             if state.ssl_want in (None, 'read'):
                 self._flush_request(corr_id, state)
             return None
-        if phase == _PHASE_RESPONSE:
+        if phase == PHASE_RESPONSE:
             if state.ssl_want in (None, 'read'):
                 return self._recv_response(corr_id, state)
             return None
@@ -416,7 +416,7 @@ class TlsHandshakeBumpClient(Transport):
                 'TLS bump connect error',
                 lambda: {'error': err},
             )
-            if err in _SOFT_CONNECT_ERRORS:
+            if err in SOFT_CONNECT_ERRORS:
                 return None
             raise TransportError('TLS bump connect failed: %s' % err)
         self._handle_connect_success(corr_id, state, now)
@@ -433,7 +433,7 @@ class TlsHandshakeBumpClient(Transport):
 
     def _handle_connect_success(self, corr_id, state, now):
         if state.proxy_state is not None:
-            state.phase = _PHASE_PROXY
+            state.phase = PHASE_PROXY
             state.connect_deadline = None
             if self._proxy_timeout is not None:
                 state.proxy_state.set_deadline(now + self._proxy_timeout)
@@ -443,34 +443,34 @@ class TlsHandshakeBumpClient(Transport):
 
     def _phase_deadline(self, state):
         phase = state.phase
-        if phase == _PHASE_CONNECT:
+        if phase == PHASE_CONNECT:
             return state.connect_deadline
-        if phase == _PHASE_PROXY:
+        if phase == PHASE_PROXY:
             return state.proxy_state.deadline()
-        if phase == _PHASE_HANDSHAKE:
+        if phase == PHASE_HANDSHAKE:
             return state.handshake_deadline
         return state.pending_deadline
 
     def _phase_interests(self, state):
         phase = state.phase
-        if phase == _PHASE_CONNECT:
+        if phase == PHASE_CONNECT:
             return False, True
-        if phase == _PHASE_PROXY:
+        if phase == PHASE_PROXY:
             if state.proxy_state is None:
                 return False, False
             return (state.proxy_state.wants_read(),
                     state.proxy_state.wants_write())
-        if phase == _PHASE_HANDSHAKE:
+        if phase == PHASE_HANDSHAKE:
             if state.ssl_want == 'write':
                 return False, True
             if state.ssl_want == 'read':
                 return True, False
             return True, True
-        if phase == _PHASE_REQUEST:
+        if phase == PHASE_REQUEST:
             if state.ssl_want == 'read':
                 return True, False
             return False, True
-        if phase == _PHASE_RESPONSE:
+        if phase == PHASE_RESPONSE:
             if state.ssl_want == 'write':
                 return False, True
             return True, False
@@ -481,7 +481,7 @@ class TlsHandshakeBumpClient(Transport):
         self._sock_to_corr.pop(state.sock, None)
         state.sock = ssl_sock
         self._sock_to_corr[ssl_sock] = corr_id
-        state.phase = _PHASE_HANDSHAKE
+        state.phase = PHASE_HANDSHAKE
         state.handshake_deadline = now + self._handshake_timeout
         state.ssl_want = None
         state.request_off = 0
@@ -499,7 +499,7 @@ class TlsHandshakeBumpClient(Transport):
                 return None
             self._close_pending(corr_id, state)
             raise TransportError('TLS bump handshake failed: %s' % e)
-        state.phase = _PHASE_REQUEST
+        state.phase = PHASE_REQUEST
         state.handshake_deadline = None
         state.ssl_want = None
         return None
@@ -507,7 +507,7 @@ class TlsHandshakeBumpClient(Transport):
 
     def _flush_request(self, corr_id, state):
         if state.request_off >= len(state.request_buf):
-            state.phase = _PHASE_RESPONSE
+            state.phase = PHASE_RESPONSE
             state.ssl_want = None
             return True
         view = buffer_view(state.request_buf)
@@ -523,7 +523,7 @@ class TlsHandshakeBumpClient(Transport):
             self._close_pending(corr_id, state)
             raise TransportError('TLS bump send failed: %s' % e)
         except socket.error as e:
-            if _get_errno(e) in _TEMP_ERRORS:
+            if _get_errno(e) in TEMP_ERRORS:
                 return False
             self._close_pending(corr_id, state)
             raise TransportError('TLS bump send failed: %s' % e)
@@ -532,7 +532,7 @@ class TlsHandshakeBumpClient(Transport):
             raise TransportError('TLS bump send failed: connection closed')
         state.request_off += sent
         if state.request_off >= len(state.request_buf):
-            state.phase = _PHASE_RESPONSE
+            state.phase = PHASE_RESPONSE
             state.ssl_want = None
             return True
         return False
@@ -551,9 +551,9 @@ class TlsHandshakeBumpClient(Transport):
             raise TransportError('TLS bump receive failed: %s' % e)
         except socket.error as e:
             err = _get_errno(e)
-            if err in _TEMP_ERRORS:
+            if err in TEMP_ERRORS:
                 return None
-            if err in _RESET_ERRORS:
+            if err in RESET_ERRORS:
                 self._close_pending(corr_id, state)
                 return None
             self._close_pending(corr_id, state)
@@ -611,7 +611,7 @@ class TlsHandshakeBumpClient(Transport):
         for corr_id, state in list(self._pending_state.items()):
             deadline = self._phase_deadline(state)
             if deadline is not None and now > deadline:
-                if state.phase == _PHASE_PROXY:
+                if state.phase == PHASE_PROXY:
                     self._log_proxy_error('timeout', corr_id)
                 stale.append((corr_id, state))
         for corr_id, state in stale:

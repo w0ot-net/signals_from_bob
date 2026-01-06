@@ -4,8 +4,8 @@
 - Keep per-query DNS sizing while guaranteeing minimum response capacity.
 - Dynamically clamp Alice query payloads when Bob has data to send, without
   forcing fixed framing.
-- Remove payload_cap from the transport/tunnel interface and rely on MTU +
-  DNS sizing rules to ensure Bob can always send data.
+- Remove payload_cap from the transport/tunnel interface while preserving a
+  per-packet clamp hook so Alice can still shrink requests when DNS needs it.
 
 ## Non-Goals
 - Introduce fixed framing or change the CNAME label format.
@@ -17,6 +17,7 @@
 - sfb/transport/dns/codec.py
 - sfb/transport/dns/dns_client.py
 - sfb/transport/dns/dns_server.py
+- sfb/transport/transport_base.py
 - sfb/tunnel/base_tunnel.py
 - sfb/tunnel/bob_tunnel.py
 - sfb/transport/udp_ephemeral/udp_ephemeral_server.py
@@ -51,12 +52,16 @@
    - Otherwise target_response_payload = min_response_payload.
    - Clamp outgoing query payload to the precomputed maximum for that target,
      while respecting the transport send_mtu.
+   - Expose the chosen clamp to the tunnel via a per-packet cap so
+     _collect_segments uses min(_send_mtu, transport_cap) when packing.
 4) Enforce minimum response capacity at init:
    - If no query payload length yields response_payload_cap >=
      min_response_payload for the configured base_domain/edns/label_max_len,
      fail DNS init with a clear configuration error.
-5) Remove payload_cap from the transport/tunnel interface:
-   - Delete BaseTunnel payload_cap clamping.
+5) Replace payload_cap with a per-packet clamp hook:
+   - Keep BaseTunnel per-packet clamping but drive it from a new transport
+     callback/property that can vary per request (DNS uses adaptive clamp,
+     other transports return None).
    - Remove BobTunnel responder payload_cap checks and logging.
    - Stop attaching payload_cap in DNS and other transports (for example UDP
      ephemeral), relying on MTU and DNS sizing rules instead.

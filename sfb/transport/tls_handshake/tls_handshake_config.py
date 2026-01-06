@@ -87,9 +87,15 @@ def validate_tls_config(config, role):
         raise TransportError('TLS handshake overhead invalid: %s' % exc)
     min_packet = PACKET_HEADER_SIZE + 1
     if client_payload_cap < min_packet:
-        raise TransportError('ClientHello max too small for packet MTU')
+        raise TransportError(
+            'ClientHello max too small for packet MTU '
+            '(min_packet=%d cap=%d)' % (min_packet, client_payload_cap)
+        )
     if server_payload_cap < min_packet:
-        raise TransportError('ServerHello max too small for packet MTU')
+        raise TransportError(
+            'ServerHello max too small for packet MTU '
+            '(min_packet=%d cap=%d)' % (min_packet, server_payload_cap)
+        )
 
     if role == 'client':
         _require_host_port(config.tls_target, 'tls_target')

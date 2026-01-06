@@ -61,9 +61,15 @@ def validate_tls_bump_config(config, role):
     cn_payload_cap = codec.calc_cn_payload_cap(cn_max_len)
     min_packet = PACKET_HEADER_SIZE + 1
     if sni_payload_cap < min_packet:
-        raise TransportError('SNI max too small for packet MTU')
+        raise TransportError(
+            'SNI max too small for packet MTU '
+            '(min_packet=%d cap=%d)' % (min_packet, sni_payload_cap)
+        )
     if cn_payload_cap < min_packet:
-        raise TransportError('CN max too small for packet MTU')
+        raise TransportError(
+            'CN max too small for packet MTU '
+            '(min_packet=%d cap=%d)' % (min_packet, cn_payload_cap)
+        )
 
     max_clienthello_bytes = _require_positive_int(
         config.tls_bump_max_clienthello_bytes, 'tls_bump_max_clienthello_bytes'

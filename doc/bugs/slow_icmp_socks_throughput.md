@@ -341,3 +341,16 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Takeaways:
   - The oscillation likely comes from a single missing packet (SACK hole) that blocks cumulative ACK and stalls the window while later packets are already acked via SACK.
   - Candidate fix: add a fast retransmit path for the missing seq when SACK shows a hole (e.g., after N ack_miss hits or missing_age > rto/2), or relax the ack_silence gate when the missing seq is old and still unacked.
+
+## Log Review: Adaptive Pacer Stalls (Jan 6, 2026, latest)
+- Logs: `logs/client_log.db`, `logs/server_log.db` (ICMP; `module_loader.loaded` shows `socks_relay`).
+- Log spans: Alice ~10.95s (09:52:09.910-09:52:20.861 UTC); Bob ~35.75s (09:52:02.973-09:52:38.726 UTC).
+- Stall evidence:
+  - Alice `tunnel.packet_send` and `icmp.send` show a max inter-arrival gap ~0.751s (09:52:10.115-09:52:10.866 UTC); `tunnel.packet_recv` max gap ~0.756s.
+  - Bob shows the same ~0.755s gap in `tunnel.packet_send`/`icmp.send`/`tunnel.packet_recv` (09:52:09.512-09:52:10.267 UTC).
+  - Only one gap >=0.25s in this window; p99 gaps are still sub-12ms, so stalls are rare but sharp in this slice.
+- Pacer behavior (Alice): 3,453 `tunnel.pacer_state` rows; 142 `action=blocked` with `block_reason=None` and `rate_limit=0.0`. `ack_rate_ewma` min ~1.32 (p50 ~242, p95 ~314); `srtt_ms` ~91.7-94.7; `unacked_count` 1-46; `target_mode` mostly `probe` (3170) with 283 `base`. Non-send actions cluster around 09:52:11.818 with `ack_rate_ewma` ~2.09 and falling `unacked_count`.
+- Retransmit gating: Alice `tunnel.retransmit_skip` 3,487 events (all `ack_silence`); Bob `tunnel.retransmit_skip` 8,069 events (no reason string). During the ~0.75s stall window there are many `retransmit_skip` events plus control/poll/ack traffic, so the stall is not total silence.
+- Takeaways:
+  - Short but visible ~0.75s stalls occur on both sides despite pacer activity; the largest gap coincides with heavy `ack_silence` skips.
+  - `action=blocked` without a `block_reason` plus `ack_rate_ewma` collapsing to ~2 pps suggests the pacer is stalling without logging why; add logging or capture longer windows if we need to quantify how often these stalls recur.

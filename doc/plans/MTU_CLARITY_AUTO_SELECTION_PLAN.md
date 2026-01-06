@@ -53,6 +53,8 @@
    - DNS: show query/response max packet sizes as functions of base_domain,
      label_max_len, cname_label, and edns_size; explain that CNAME+512 has a
      per-query payload cap based on QNAME length.
+   - DNS: document current validation (dns_edns_size <= 512) and call out
+     that larger EDNS sizes require loosening config validation.
    - ICMP/UDP: document the safe default cap (1350) and that larger values
      increase fragmentation risk on the public Internet.
    - In-memory: document fixed default packet_mtu (DEFAULT_MAX_PACKET_SIZE)

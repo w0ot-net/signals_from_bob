@@ -27,20 +27,26 @@ Both sides buffer unacked packets, but retransmission triggers differ:
 
 | Aspect | Alice | Bob |
 |--------|-------|-----|
-| Trigger | Timer (RTO expires) | Opportunity (poll arrives) |
-| Decision | Can choose *when* to retransmit | Retransmits when polled |
+| Trigger | Timer (RTO expires) | Opportunity (poll arrives; cooldown allows) |
+| Decision | Can choose *when* to retransmit | Retransmits when polled if gates allow |
 | RTT tracking | Yes | No |
 
 **Alice (timer-driven):**
 - Tracks round-trip time (RTT) using exponential moving average
 - Computes retransmission timeout: `RTO = SRTT * 2`
-- When RTO expires, retransmits oldest unacked packet
+- When cumulative ACKs are silent for >= RTO, scans unacked packets whose
+  age >= RTO and retransmits oldest-first
+- May send multiple retransmits in one tick, subject to per-tick budget and
+  rate limiting
 - Retransmits reuse existing sequence numbers; outstanding count stays capped
 - Can act proactively based on time
 
 **Bob (opportunity-driven):**
 - Cannot act on timers; only transmits in response to polls
-- On each poll: if unacked packets exist, retransmit oldest unacked packet
+- On each poll: if unacked packets exist and the retransmit cooldown has
+  elapsed (including recent ACK progress), retransmit the oldest unacked packet
+- If a retransmit would exceed the per-request response cap, Bob closes
+  the tunnel
 - Retransmits reuse existing sequence numbers; outstanding count stays capped
 - Retransmits when the opportunity arises, not when a timer fires
 - Does not track RTT (Alice's polling interval dominates latency)
@@ -72,15 +78,15 @@ If the connection dies, each side detects it differently:
 
 | Aspect | Alice | Bob |
 |--------|-------|-----|
-| Metric | Monotonic silence since last response | Monotonic silence |
-| Threshold | 60 seconds without response | 60 seconds without poll |
+| Metric | Monotonic silence since last response | Monotonic silence since last poll |
+| Threshold | `tunnel_no_response_timeout` (default 60s) | `tunnel_idle_timeout` (default 60s) |
 | Rationale | Avoids poll-rate dependence | Cannot send, so counts time |
 
 **Alice:**
 - Uses monotonic time since last response from Bob
 - "Response" means any packet from Bob (which carries an ack field), not
   specifically cumulative ack advancement
-- If no response for 60 seconds, connection is dead
+- If no response for `tunnel_no_response_timeout` seconds, connection is dead
 - A stuck cumulative ack with active responses indicates packet loss (handled
   by retransmission), not a dead connection
 - Time-based to avoid dependence on polling rate
@@ -88,7 +94,8 @@ If the connection dies, each side detects it differently:
 **Bob:**
 - Cannot send packets unless Alice polls
 - If Alice disappears, Bob has nothing to count
-- Uses monotonic time: 60 seconds of silence = dead connection
+- Uses monotonic time since last poll: `tunnel_idle_timeout` seconds of silence
+  = dead connection
 
 ---
 

@@ -1,6 +1,6 @@
 # DNS Adaptive Query Clamp Flags Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -44,3 +44,9 @@ bob_has_data window.
 
 - Run existing non-e2e DNS transport tests with python3 if available.
 - Do not run tests in tests/e2e/ (user-only).
+
+## Execution Notes
+
+- 20260106: updated DNS clamp to classify bob_has_data via PacketHeader flags
+  (HAS_SEGMENTS or POLL_HINT) and added debug logs for unusable headers/flags.
+- Tests not run (plan-only change).

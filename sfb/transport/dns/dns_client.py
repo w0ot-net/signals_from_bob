@@ -25,7 +25,16 @@ from .dns_utils import load_system_resolvers
 from ...compat import require_bytes_like
 from ...config import Config
 from ...logging_util import get_logger, log_event
-from ...protocol import PACKET_HEADER_SIZE, SEGMENT_HEADER_SIZE
+from ...protocol import (
+    PACKET_HEADER_SIZE,
+    SEGMENT_HEADER_SIZE,
+    PacketHeader,
+    FLAG_ACK,
+    FLAG_HAS_SEGMENTS,
+    FLAG_KEEPALIVE,
+    FLAG_POLL_HINT,
+    FLAG_SYN,
+)
 from ...utils import parse_host_port
 from ... import time_provider
 
@@ -477,7 +486,9 @@ class DnsClient(Transport):
         self._pending.pop(corr_id)
         del self._dns_to_corr[dns_id]
 
-        self._update_bob_data_state(len(payload) > PACKET_HEADER_SIZE)
+        bob_has_data = self._classify_bob_data_state(payload)
+        if bob_has_data is not None:
+            self._update_bob_data_state(bob_has_data)
 
         log_event(
             _LOG,
@@ -560,8 +571,53 @@ class DnsClient(Transport):
             target_response_payload = len(lookup) - 1
         return lookup[target_response_payload]
 
-    def _update_bob_data_state(self, has_segments):
-        if has_segments:
+    def _classify_bob_data_state(self, payload):
+        if payload is None:
+            return None
+        try:
+            header = PacketHeader.decode(payload)
+        except ValueError as exc:
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'dns.bob_data_state_decode_failed',
+                'DNS response header decode failed',
+                lambda: {
+                    'bytes': len(payload),
+                    'error': str(exc),
+                },
+            )
+            return None
+        flags = header.flags
+        if flags & (FLAG_SYN | FLAG_ACK):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'dns.bob_data_state_skip',
+                'Skipping bob data state update for handshake packet',
+                lambda: {'flags': flags},
+            )
+            return None
+        content_flags = flags & (FLAG_HAS_SEGMENTS | FLAG_KEEPALIVE)
+        if content_flags == FLAG_HAS_SEGMENTS:
+            return True
+        if content_flags == FLAG_KEEPALIVE:
+            return bool(flags & FLAG_POLL_HINT)
+        log_event(
+            _LOG,
+            logging.DEBUG,
+            'dns.bob_data_state_skip',
+            'Skipping bob data state update for unusable flags',
+            lambda: {
+                'flags': flags,
+                'content_flags': content_flags,
+                'poll_hint': bool(flags & FLAG_POLL_HINT),
+            },
+        )
+        return None
+
+    def _update_bob_data_state(self, has_data):
+        if has_data:
             self._bob_has_data_remaining = self._bob_has_data_polls
             self._retransmit_guard = True
             self._retransmit_guard_keepalives = 0

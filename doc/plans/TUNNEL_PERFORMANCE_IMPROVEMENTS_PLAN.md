@@ -31,7 +31,7 @@
 
 ## Plan
 1) Add a data-unacked counter to SendWindow and update it in send/ack paths so Alice can query it in O(1).
-2) Keep _unacked ordered by sequence (for cumulative ACK), but track oldest-by-send-time separately (min-heap or cached pointer). Use lazy validation on retransmit/ack updates; fall back to a scan only when the cache is stale.
+2) Preserve _unacked insertion order (cumulative ACK scanning assumes send order with wrap-aware comparisons). Track oldest-by-send-time separately (min-heap or cached pointer) without reordering _unacked. Use lazy validation on retransmit/ack updates; fall back to a scan only when the cache is stale.
 3) In BaseTunnel packet processing, deliver control segments for each ready packet, then process control messages once per packet; keep control-before-data ordering and remove the redundant post-loop control polling.
 4) Define a protocol requirement: Bob responses must always have capacity for
    at least 1 byte of segment payload. Enforce this per transport by ensuring
@@ -54,7 +54,7 @@
    payload guarantee, and the removal of ack-only responses.
 
 ## Performance/Complexity Proposals
-- Use a min-heap with lazy deletion to keep oldest-unacked selection near O(log n) without reordering _unacked.
+- Use a min-heap with lazy deletion to keep oldest-unacked selection near O(log n) without reordering _unacked (avoid wrap-related cumulative ACK regressions).
 - Prefer segment-presence checks over keepalive flags for pacing decisions to reduce false "data received" signals.
 - Enforce a transport-level minimum response payload so Bob can always send at
   least 1 byte of data when pending.

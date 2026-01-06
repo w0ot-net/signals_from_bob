@@ -5,7 +5,6 @@ TLS handshake bump transport for Alice.
 
 from __future__ import absolute_import
 
-import errno
 import logging
 import socket
 import ssl
@@ -23,6 +22,17 @@ from ..proxy_helpers import (
     PROXY_CLOSED,
     PROXY_DONE,
 )
+from ..socket_errors import (
+    IN_PROGRESS_ERRNOS as _IN_PROGRESS,
+    TEMP_ERRORS as _TEMP_ERRORS,
+    SOFT_CONNECT_ERRORS as _SOFT_CONNECT_ERRORS,
+    RESET_ERRORS as _RESET_ERRORS,
+    PHASE_CONNECT as _PHASE_CONNECT,
+    PHASE_PROXY as _PHASE_PROXY,
+    PHASE_HANDSHAKE as _PHASE_HANDSHAKE,
+    PHASE_REQUEST as _PHASE_REQUEST,
+    PHASE_RESPONSE as _PHASE_RESPONSE,
+)
 from . import tls_handshake_bump_codec as codec
 from . import tls_handshake_bump_selector as bump_selector
 from .tls_handshake_bump_config import validate_tls_bump_config
@@ -35,47 +45,12 @@ from ... import time_provider
 _LOG = get_logger(__name__)
 
 
-_IN_PROGRESS = set([
-    errno.EINPROGRESS,
-    errno.EWOULDBLOCK,
-    errno.EALREADY,
-])
-for name in ('WSAEINPROGRESS', 'WSAEWOULDBLOCK', 'WSAEALREADY'):
-    value = getattr(errno, name, None)
-    if value is not None:
-        _IN_PROGRESS.add(value)
-
-_TEMP_ERRORS = set([errno.EWOULDBLOCK, errno.EAGAIN])
-for name in ('WSAEWOULDBLOCK', 'WSAEINTR'):
-    value = getattr(errno, name, None)
-    if value is not None:
-        _TEMP_ERRORS.add(value)
-
-_SOFT_CONNECT_ERRORS = set([errno.ECONNREFUSED])
-for name in ('WSAECONNREFUSED',):
-    value = getattr(errno, name, None)
-    if value is not None:
-        _SOFT_CONNECT_ERRORS.add(value)
-
-_RESET_ERRORS = set([errno.ECONNRESET])
-for name in ('WSAECONNRESET',):
-    value = getattr(errno, name, None)
-    if value is not None:
-        _RESET_ERRORS.add(value)
-
 _SSL_WANT_READ = getattr(ssl, 'SSL_ERROR_WANT_READ', None)
 _SSL_WANT_WRITE = getattr(ssl, 'SSL_ERROR_WANT_WRITE', None)
 _SSL_WANT_READ_ERROR = getattr(ssl, 'SSLWantReadError', None)
 _SSL_WANT_WRITE_ERROR = getattr(ssl, 'SSLWantWriteError', None)
 
 _MAX_RESPONSE_BYTES = 65536
-
-_PHASE_CONNECT = 'connect'
-_PHASE_PROXY = 'proxy'
-_PHASE_HANDSHAKE = 'handshake'
-_PHASE_REQUEST = 'request'
-_PHASE_RESPONSE = 'response'
-
 
 class _PendingConn(object):
     __slots__ = (

@@ -5,11 +5,11 @@ TLS handshake bump server transport for Bob.
 
 from __future__ import absolute_import
 
-import errno
 import logging
 import socket
 
 from ..transport_base import Server, TransportError, _get_errno, raise_bind_error
+from ..socket_errors import TEMP_ERRORS as _TEMP_ERRORS
 from . import tls_handshake_bump_cert as bump_cert
 from . import tls_handshake_bump_codec as codec
 from . import tls_handshake_bump_selector as bump_selector
@@ -21,13 +21,6 @@ from ...logging_util import get_logger, log_event
 from ... import time_provider
 
 _LOG = get_logger(__name__)
-
-_TEMP_ERRORS = set([errno.EWOULDBLOCK, errno.EAGAIN])
-for name in ('WSAEWOULDBLOCK', 'WSAEINTR'):
-    value = getattr(errno, name, None)
-    if value is not None:
-        _TEMP_ERRORS.add(value)
-
 
 class _ConnState(object):
     __slots__ = (
@@ -380,4 +373,3 @@ class TlsHandshakeBumpServer(Server):
             except Exception:
                 pass
             self._sock = None
-

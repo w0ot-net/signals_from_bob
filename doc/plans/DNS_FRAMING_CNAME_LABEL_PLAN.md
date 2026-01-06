@@ -50,6 +50,10 @@
      at init time; reject configs where no q_frame yields both frames >=
      min_frame. For default label_max_len=50 and EDNS=512 with min_frame=44,
      the max base_domain length is 83 characters (including dots).
+   - Set protocol_initial_mtu for DNS to the largest safe payload size:
+     max(1, min(query_data_cap, response_data_cap) - PACKET_HEADER_SIZE).
+     This makes the pre-negotiation MTU match the framing limits and avoids a
+     hardcoded 100-byte default for DNS.
 3) Remove per-query response sizing in the server:
    - Delete DnsServer._response_payload_cap and related qname_wire_len and
      max_packet_size plumbing in _ResponseSender.

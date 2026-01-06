@@ -40,7 +40,7 @@ class AdaptivePacer(object):
     # Require this many RTTs of no loss before applying the feedback floor.
     _FEEDBACK_FLOOR_RTT_FACTOR = 4.0
     # Apply only a fraction of feedback reductions to dampen cuts.
-    _FEEDBACK_REDUCTION_GAIN = 0.20
+    _FEEDBACK_REDUCTION_GAIN = 0.10
 
     def __init__(self, enabled, target_inflight_ratio, min_inflight,
                  max_inflight, feedback_gain, ack_ewma_alpha, rtt_floor_ms,

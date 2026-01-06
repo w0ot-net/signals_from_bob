@@ -54,8 +54,12 @@ serve as an implicit poll hint.
   - SYN/SYN+ACK/ACK packets must have zero segments and no content flags set.
   - While CONNECTING, accept only SYN/SYN+ACK/ACK and reject any other packets
     (no implicit-ACK data without content flags).
-  - Alice remains CONNECTING unless the final ACK exchange succeeds; do not
-    treat ACK send failures as connected.
+  - Add a post-ACK state for Alice (e.g., `HANDSHAKE_ACKED`):
+    - Enter after sending the final ACK and before the first post-ACK response.
+    - Accept non-handshake packets with valid content flags in this state, but
+      still reject SYN/ACK flags.
+    - Transition to CONNECTED on the first valid post-ACK response.
+    - Revert to CONNECTING on timeout/failure; do not start negotiation.
 - Replace "ack-only" terminology in docs/logs with "poll hint" (`POLL`) to make
   the intent explicit.
 - Update log context strings and the protocol module example to emit
@@ -85,12 +89,14 @@ serve as an implicit poll hint.
    - Do not OR `FLAG_KEEPALIVE` onto pre-set content flags for empty packets.
      Choose exactly one content flag and pass `packet.flags` (post-build) into
      `SendWindow.send()` so retransmits preserve `POLL` vs `KEEPALIVE`.
-6. Enforce strict handshake completion:
+6. Add the post-ACK state for Alice (e.g., `HANDSHAKE_ACKED`) and update the
+   handshake flow/validation to use it (enter after final ACK, accept content
+   flags, reject SYN/ACK, transition to CONNECTED on first response, revert to
+   CONNECTING on failure).
+7. Enforce strict handshake completion:
    - Bob: remove implicit-ACK handling for non-handshake packets while
      CONNECTING.
-   - Alice: if final ACK exchange fails, revert to CONNECTING and retry
-     (do not mark CONNECTED or start negotiation on failure).
-7. Update receive paths:
+8. Update receive paths:
    - Alice: add explicit `POLL` handling in `_handle_response()` and
      `_poll_decision()` (or a new poll-hint state) so `POLL` triggers immediate
      polling without marking `_got_data` or `KEEPALIVE`.
@@ -98,15 +104,17 @@ serve as an implicit poll hint.
      explicitly for `HAS_SEGMENTS`/`POLL`/`KEEPALIVE`.
    - Bob: continue to ignore keepalive segments as today, but validate content
      flags for protocol correctness.
-8. Update documentation to describe the new flags, the content-flag rules, and
+9. Update documentation to describe the new flags, the content-flag rules, and
    the explicit "poll hint" semantics, including a sweep to replace ack-only
    wording in `doc/ARCHITECTURE.md` and `doc/DNS_TRANSPORT.md`.
-9. Add unit tests that validate:
+10. Add unit tests that validate:
    - content-flag/segment mismatch is a protocol violation,
    - handshake packets reject content flags,
    - Alice polling behavior distinguishes `POLL` vs `KEEPALIVE`,
    - Bob emits `POLL` when pending data exists but no segments fit,
    - `POLL` does not generate RTT samples.
+   - The post-ACK state accepts content-flag packets and transitions to
+     CONNECTED, while rejecting SYN/ACK.
 
 ## Validation
 

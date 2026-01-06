@@ -2,6 +2,13 @@
 
 Status: draft
 
+## Execution Scope (When Asked To Execute This Plan)
+
+- Only implement the FLAG_POLL_HINT flag and the minimal supporting changes
+  required for that flag to be valid, logged, and acted upon as described here.
+- Do NOT implement any work from doc/plans/DNS_ADAPTIVE_QUERY_CLAMP_PLAN.md.
+  That plan is explicitly out of scope when executing this one.
+
 ## Goal
 
 - Add a new packet header flag that lets Bob signal "keep the clamp hot" without

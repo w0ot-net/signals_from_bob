@@ -1,6 +1,6 @@
 # Pacer Feedback Decouple During SACK Stalls Plan
 
-Status: draft
+Status: implemented
 
 ## Goal
 Prevent pacer feedback from collapsing `target_inflight` while Alice is
@@ -51,3 +51,9 @@ without shrinking the inflight target.
 - Unit tests for pacer freeze/unfreeze behavior.
 - User-run ICMP+SOCKS logs show fewer `pacer` blocks during SACK stalls and
   reduced `target_inflight` collapse while maintaining stability.
+
+## Execution Notes
+- Implemented pacer feedback freeze/unfreeze tied to SACK-hole window-distance
+  stalls in Alice and added a new debug log for freeze transitions.
+- Updated pacer state fields to expose feedback freeze state.
+- Tests not updated or run (per instructions to avoid changes under `./tests`).

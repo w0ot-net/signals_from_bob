@@ -663,11 +663,20 @@ class AliceTunnel(BaseTunnel):
             max_window=self.MAX_WINDOW
         )
         if not exceeded:
+            self._maybe_unfreeze_pacer_feedback(now, reason='distance_clear')
             return None
+        distance_details = self._send_window.distance_details(now=now)
+        self._update_pacer_feedback_freeze(
+            now,
+            distance_info,
+            distance_details,
+            keepalive_only,
+        )
         return {
             'reason': 'window_distance',
             'keepalive_only': keepalive_only,
             'distance_info': distance_info,
+            'distance_details': distance_details,
             'pacer_cap': pacer_cap,
         }
 
@@ -700,6 +709,113 @@ class AliceTunnel(BaseTunnel):
             'unacked': unacked,
             'cap': cap,
         }
+
+    def _should_freeze_pacer_feedback(self, distance_info, details):
+        if not self._pacer.enabled:
+            return False
+        if details is None:
+            return False
+        if not details.get('missing_in_unacked'):
+            return False
+        missing_age = details.get('missing_age')
+        if missing_age is None:
+            return False
+        min_age = self._rtt.rto_sec * self._fast_retransmit_min_age_ratio
+        if missing_age < min_age:
+            return False
+        (distance, max_in_flight, effective_cap, unacked,
+         _distance_limit, _last_cum_ack, _next_seq) = distance_info
+        buffered = distance - unacked
+        cap = effective_cap
+        if cap is None:
+            cap = max_in_flight
+        if cap is None:
+            cap = self._send_window._max_in_flight
+        if cap < 1:
+            cap = 1
+        low_unacked = max(2, int(cap * 0.25))
+        high_buffered = max(4, int(cap * 0.5))
+        if unacked > low_unacked:
+            return False
+        if buffered < high_buffered:
+            return False
+        return True
+
+    def _update_pacer_feedback_freeze(self, now, distance_info, details,
+                                      keepalive_only):
+        if not self._pacer.enabled:
+            return
+        if keepalive_only:
+            return
+        should_freeze = self._should_freeze_pacer_feedback(
+            distance_info,
+            details,
+        )
+        if should_freeze:
+            if self._pacer.freeze_feedback(now, reason='sack_stall'):
+                self._log_pacer_feedback_freeze(
+                    action='freeze',
+                    reason='sack_stall',
+                    distance_info=distance_info,
+                    details=details,
+                )
+            return
+        if self._pacer.unfreeze_feedback(now):
+            self._log_pacer_feedback_freeze(
+                action='unfreeze',
+                reason='stall_clear',
+                distance_info=distance_info,
+                details=details,
+            )
+
+    def _maybe_unfreeze_pacer_feedback(self, now, reason):
+        if not self._pacer.enabled:
+            return
+        if self._pacer.unfreeze_feedback(now):
+            self._log_pacer_feedback_freeze(
+                action='unfreeze',
+                reason=reason,
+                distance_info=None,
+                details=None,
+            )
+
+    def _log_pacer_feedback_freeze(self, action, reason, distance_info,
+                                   details):
+        def build_fields():
+            fields = {
+                'side': 'alice',
+                'action': action,
+                'reason': reason,
+            }
+            if distance_info is not None:
+                (distance, max_in_flight, effective_cap, unacked,
+                 distance_limit, last_cum_ack, next_seq) = distance_info
+                buffered = distance - unacked
+                fields.update({
+                    'distance': distance,
+                    'distance_limit': distance_limit,
+                    'buffered': buffered,
+                    'unacked': unacked,
+                    'max_in_flight': max_in_flight,
+                    'effective_cap': effective_cap,
+                    'last_cum_ack': last_cum_ack,
+                    'next_seq': next_seq,
+                })
+            if details is not None:
+                fields.update({
+                    'missing_in_unacked': details.get('missing_in_unacked'),
+                    'missing_age': details.get('missing_age'),
+                    'ack_miss_count': details.get('ack_miss_count'),
+                    'ack_miss_last_age': details.get('ack_miss_last_age'),
+                })
+            return fields
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.pacer_feedback_freeze',
+            'Pacer feedback freeze update',
+            build_fields,
+        )
 
     def _log_send_blocked(self, decision, now):
         reason = decision.get('reason')
@@ -763,6 +879,9 @@ class AliceTunnel(BaseTunnel):
         if reason == 'window_distance':
             distance_info = decision.get('distance_info')
             pacer_cap = decision.get('pacer_cap')
+            distance_details = decision.get('distance_details')
+            if distance_details is None:
+                distance_details = self._send_window.distance_details(now=now)
             (distance, max_in_flight, effective_cap, unacked,
              distance_limit, last_cum_ack, next_seq) = distance_info
             buffered = distance - unacked
@@ -780,7 +899,7 @@ class AliceTunnel(BaseTunnel):
                 }
                 if pacer_cap is not None:
                     fields['pacer_cap'] = pacer_cap
-                fields.update(self._send_window.distance_details(now=now))
+                fields.update(distance_details)
                 return fields
             log_event(
                 self._logger,
@@ -1766,6 +1885,19 @@ class AliceTunnel(BaseTunnel):
                 srtt_ms=self._rtt.srtt_ms,
             )
             self._maybe_log_pacer_target_change(self._pacer_cap(), reason='ack')
+        if (self._pacer.enabled and self._pacer.feedback_frozen and
+                acked_count > 0):
+            exceeded, _ = self._send_window.distance_exceeded(
+                max_window=self.MAX_WINDOW
+            )
+            if not exceeded:
+                if self._pacer.unfreeze_feedback(now):
+                    self._log_pacer_feedback_freeze(
+                        action='unfreeze',
+                        reason='ack_progress',
+                        distance_info=None,
+                        details=None,
+                    )
         return (True, response_kind)
 
     def _maybe_request_window(self, now):

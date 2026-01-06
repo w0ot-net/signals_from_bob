@@ -56,15 +56,47 @@ class AdaptivePacer(object):
         self._block_penalty = 0
         self._block_reason = None
         self._last_block_time = None
+        self._feedback_frozen = False
+        self._feedback_frozen_reason = None
+        self._feedback_frozen_since = None
 
     @property
     def enabled(self):
         return self._enabled
 
+    @property
+    def feedback_frozen(self):
+        return self._feedback_frozen
+
+    def freeze_feedback(self, now, reason=None):
+        if not self._enabled:
+            return False
+        if self._feedback_frozen:
+            return False
+        self._feedback_frozen = True
+        self._feedback_frozen_reason = reason
+        self._feedback_frozen_since = now
+        return True
+
+    def unfreeze_feedback(self, now):
+        if not self._enabled:
+            return False
+        if not self._feedback_frozen:
+            return False
+        self._feedback_frozen = False
+        self._feedback_frozen_reason = None
+        self._feedback_frozen_since = None
+        if self._last_ack_time is None:
+            self._last_ack_time = now
+        return True
+
     def on_ack(self, acked_count, now, srtt_ms=None):
         if not self._enabled:
             return
         if acked_count <= 0:
+            return
+        if self._feedback_frozen:
+            self._last_ack_time = now
             return
         if self._last_ack_time is None:
             self._last_ack_time = now
@@ -318,6 +350,9 @@ class AdaptivePacer(object):
             'ack_rate_ewma': self._ack_rate_ewma,
             'ack_samples': self._ack_samples,
             'srtt_ms': srtt_ms,
+            'feedback_frozen': self._feedback_frozen,
+            'feedback_frozen_reason': self._feedback_frozen_reason,
+            'feedback_frozen_since': self._feedback_frozen_since,
         }
         if rate_limit is not None:
             fields['rate_limit'] = rate_limit

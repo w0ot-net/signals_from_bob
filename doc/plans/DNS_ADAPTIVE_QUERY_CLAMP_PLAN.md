@@ -41,6 +41,8 @@
 - Keep a per-request response cap on Bob for DNS so responses never exceed the
   size derived from the specific query, even with pipelined requests or
   retransmits before Alice's clamp updates.
+- Poll-hint signaling is now handled by the dedicated header flag defined in
+  doc/plans/POLL_HINT_FLAG_PLAN.md. Do not add control-message hints here.
 - Do not add special handling for in-flight pipelined queries when bob_has_data
   flips; the transient lag is acceptable because per-request caps guarantee
   responses stay within the query budget and allow Bob to deliver at least one
@@ -66,9 +68,9 @@
   hard-close if a retransmit exceeds the current request cap, and keep the
   clamp hot across loss so Alice continues issuing small queries until Bob
   successfully retransmits.
-- No new poll-hint flag is required. Use a control-segment hint (existing
-  control message or a small new control message) and clamp stickiness to keep
-  Alice in the response-max mode while retransmits are pending.
+- Poll-hint signaling uses the new header flag from
+  doc/plans/POLL_HINT_FLAG_PLAN.md; this plan assumes that flag exists and is
+  honored by Alice for clamp decisions.
 
 ## Plan
 1) Precompute query->response caps for DNS (DnsClient init):

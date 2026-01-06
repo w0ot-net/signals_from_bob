@@ -38,6 +38,8 @@
 - Keep a per-request response cap on Bob for DNS so responses never exceed the
   size derived from the specific query, even with pipelined requests or
   retransmits before Alice's clamp updates.
+- Ensure Alice enforces the clamp at packet build time (not just at config
+  validation) by passing a per-send payload cap into _collect_segments.
 
 ## Plan
 1) Precompute query->response caps for DNS:
@@ -61,6 +63,9 @@
      while respecting the transport send_mtu.
    - Expose the chosen clamp to the tunnel via a per-packet cap so
      _collect_segments uses min(_send_mtu, transport_cap) when packing.
+   - Wire the clamp into Alice's send path (e.g., carry the cap on the
+     transport SendPermit or a transport callback) and have AliceTunnel pass
+     the per-send cap into _collect_segments instead of using _send_mtu alone.
 4) Preserve per-request response caps on Bob:
    - Continue computing response_payload_cap from each query (qname length,
      EDNS size) in DnsServer.

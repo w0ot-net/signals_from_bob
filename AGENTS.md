@@ -26,4 +26,5 @@ Project Rules
 - when executing a <plan>.md, do not update any code under ./tests; we will fix tests later
 - if unrelated changes are present, only commit the changes you made and ignore the other changes
 - when asked to look at logs, default to logs/server_log.db and logs/client_log.db unless otherwise specified
+- when inspecting any .db file, use the sqlite3 command line utility unless it expressly needs python
 - after inspecting logs for a bug listed under doc/bugs, summarize any new findings in the corresponding .md file

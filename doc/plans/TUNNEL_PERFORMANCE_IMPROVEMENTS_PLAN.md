@@ -38,11 +38,11 @@
    the response payload cap is never less than
    PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1. If a transport cannot meet
    this floor for the configured settings, fail fast during initialization
-   (config error) rather than allowing "pending data but no segment fits"
-   responses.
+   (config error). With this guarantee, remove ack-only responses: Bob must
+   never emit empty packets without KEEPALIVE, and receivers treat any
+   empty/non-KEEPALIVE packet as a protocol violation.
 5) Treat "real data" as the presence of segments (control or data), not the
-   KEEPALIVE flag. Ack-only responses (no segments) should not trigger Alice's
-   data pacing.
+   KEEPALIVE flag. Empty responses are idle keepalives only.
 6) Add a data-pending event in ChannelManager (mirroring control_send_event)
    that is inclusive of control messages, so Alice can check pending state
    without repeated lock acquisition inside the hot send loop. Update it on
@@ -50,8 +50,8 @@
 7) Add a fast path in BaseTunnel decode to skip Segment.decode_all when the
    decrypted body is empty.
 8) Update doc/TUNNEL.md, doc/ASYMMETRY.md, doc/PROTOCOL.md, and
-   doc/DNS_TRANSPORT.md to document the "real data" definition and the
-   transport-level minimum payload guarantee.
+   doc/DNS_TRANSPORT.md to document the "real data" definition, the minimum
+   payload guarantee, and the removal of ack-only responses.
 
 ## Performance/Complexity Proposals
 - Use a min-heap with lazy deletion to keep oldest-unacked selection near O(log n) without reordering _unacked.

@@ -42,7 +42,10 @@
    - Packet MTU (packet_mtu) = max SFB packet bytes before transport encoding
      (header + segments, not the outer protocol size).
    - Payload bytes = packet_mtu - PACKET_HEADER_SIZE (segment bytes).
-   - Minimum packet MTU = PACKET_HEADER_SIZE + 1 (at least 1 byte of payload).
+   - Minimum packet MTU = PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1
+     (at least one segment header plus 1 byte of segment payload).
+   - Keepalive-only packets are smaller, but MTU definitions should be
+     segment-capable.
    - Note that transport on-wire sizes include extra protocol headers/records
      and can exceed packet_mtu (DNS, TLS, TLS bump), so document those separately.
    - Reaffirm per-direction (asymmetric) negotiation.
@@ -83,9 +86,10 @@
    - Log a single transport.mtu_limits event at init with computed values and
      constraint inputs (base_domain length, edns_size, caps, tls_bump_max_clienthello_bytes).
 5) Tighten validation and errors:
-   - Fail fast if computed send_packet_mtu/recv_packet_mtu < PACKET_HEADER_SIZE + 1, with
-     transport-specific error messages (e.g., DNS base_domain too long, TLS bump
-     max ClientHello bytes too small).
+   - Fail fast if computed send_packet_mtu/recv_packet_mtu <
+     PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1, with transport-specific
+     error messages (e.g., DNS base_domain too long, TLS bump max ClientHello
+     bytes too small).
    - Keep existing DNS/TLS validation and surface clearer MTU-related errors.
 6) Default-safe caps and override behavior:
    - Treat icmp_packet_mtu and udp_ephemeral_packet_mtu as caps; defaults

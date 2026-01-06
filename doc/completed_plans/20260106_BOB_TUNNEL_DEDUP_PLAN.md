@@ -1,6 +1,6 @@
 # Bob Tunnel Dedup Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -38,3 +38,12 @@ behavior, logging, or performance.
 - Code review focused on logging parity, send_window updates, and responder
   error handling.
 - Do not run `tests/e2e`; any testing is left to the user.
+
+## Execution Notes
+
+- Added a shared serve-loop helper for foreground/background recv/dispatch
+  without altering log messages or idle-timeout checks.
+- Collapsed handshake dispatch in `handle_request` for DISCONNECTED/CONNECTING.
+- Centralized response finalization (metrics, responder call, packet_send log)
+  and reused it across keepalive, segments, and retransmit sends.
+- Tests not run (per instructions; e2e tests are user-run only).

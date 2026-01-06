@@ -43,6 +43,31 @@ def _build_clienthello_record_with_sni(sni_name):
     )
 
 
+def _build_clienthello_record(body):
+    handshake = (
+        struct.pack('!B', codec.TLS_HANDSHAKE_CLIENT_HELLO) +
+        _pack_u24(len(body)) +
+        body
+    )
+    return (
+        struct.pack('!BHH', codec.TLS_CONTENT_TYPE_HANDSHAKE,
+                    codec.TLS_VERSION_1_2, len(handshake)) +
+        handshake
+    )
+
+
+def _build_clienthello_body_with_extensions(extensions):
+    return b''.join([
+        struct.pack('!H', codec.TLS_VERSION_1_2),
+        b'\x00' * 32,
+        b'\x00',  # session_id_len
+        struct.pack('!H', 2) + struct.pack('!H', codec.TLS_RSA_WITH_AES_128_CBC_SHA),
+        b'\x01\x00',  # compression_methods_len=1, method=0x00
+        struct.pack('!H', len(extensions)),
+        extensions,
+    ])
+
+
 class TlsHandshakeBumpCodecTests(unittest.TestCase):
     def test_parse_record_header_invalid_length(self):
         with self.assertRaises(ValueError):
@@ -284,6 +309,110 @@ class TlsHandshakeBumpCodecTests(unittest.TestCase):
         record = header + handshake
         with self.assertRaises(ValueError):
             codec.parse_client_hello_sni_from_buffer(record, len(handshake))
+
+    def test_parse_client_hello_invalid_legacy_version(self):
+        body = struct.pack('!H', 0x0200)
+        record = _build_clienthello_record(body)
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni(record)
+
+    def test_parse_client_hello_random_truncated(self):
+        body = struct.pack('!H', codec.TLS_VERSION_1_2) + (b'\x00' * 10)
+        record = _build_clienthello_record(body)
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni(record)
+
+    def test_parse_client_hello_session_id_truncated(self):
+        body = (
+            struct.pack('!H', codec.TLS_VERSION_1_2) +
+            (b'\x00' * 32) +
+            b'\x01'
+        )
+        record = _build_clienthello_record(body)
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni(record)
+
+    def test_parse_client_hello_cipher_suites_truncated(self):
+        body = (
+            struct.pack('!H', codec.TLS_VERSION_1_2) +
+            (b'\x00' * 32) +
+            b'\x00' +
+            struct.pack('!H', 2)
+        )
+        record = _build_clienthello_record(body)
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni(record)
+
+    def test_parse_client_hello_compression_list_truncated(self):
+        body = (
+            struct.pack('!H', codec.TLS_VERSION_1_2) +
+            (b'\x00' * 32) +
+            b'\x00' +
+            struct.pack('!H', 2) +
+            struct.pack('!H', codec.TLS_RSA_WITH_AES_128_CBC_SHA) +
+            b'\x02'
+        )
+        record = _build_clienthello_record(body)
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni(record)
+
+    def test_parse_client_hello_extensions_length_mismatch(self):
+        body = (
+            struct.pack('!H', codec.TLS_VERSION_1_2) +
+            (b'\x00' * 32) +
+            b'\x00' +
+            struct.pack('!H', 2) +
+            struct.pack('!H', codec.TLS_RSA_WITH_AES_128_CBC_SHA) +
+            b'\x01\x00' +
+            struct.pack('!H', 1)
+        )
+        record = _build_clienthello_record(body)
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni(record)
+
+    def test_parse_client_hello_missing_sni_extension(self):
+        extensions = struct.pack('!HH', 0x000a, 0)
+        body = _build_clienthello_body_with_extensions(extensions)
+        record = _build_clienthello_record(body)
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni(record)
+
+    def test_parse_client_hello_sni_list_length_invalid(self):
+        sni_data = struct.pack('!H', 2) + b'\x00'
+        extensions = struct.pack(
+            '!HH',
+            codec.EXT_SERVER_NAME,
+            len(sni_data),
+        ) + sni_data
+        body = _build_clienthello_body_with_extensions(extensions)
+        record = _build_clienthello_record(body)
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni(record)
+
+    def test_parse_client_hello_sni_entry_truncated(self):
+        sni_data = struct.pack('!H', 1) + b'\x00'
+        extensions = struct.pack(
+            '!HH',
+            codec.EXT_SERVER_NAME,
+            len(sni_data),
+        ) + sni_data
+        body = _build_clienthello_body_with_extensions(extensions)
+        record = _build_clienthello_record(body)
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni(record)
+
+    def test_parse_client_hello_sni_non_ascii_name(self):
+        sni_entry = b'\x00' + struct.pack('!H', 1) + b'\xff'
+        sni_data = struct.pack('!H', len(sni_entry)) + sni_entry
+        extensions = struct.pack(
+            '!HH',
+            codec.EXT_SERVER_NAME,
+            len(sni_data),
+        ) + sni_data
+        body = _build_clienthello_body_with_extensions(extensions)
+        record = _build_clienthello_record(body)
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni(record)
 
 
 if __name__ == '__main__':

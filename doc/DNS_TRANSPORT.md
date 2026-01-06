@@ -234,10 +234,16 @@ The DNS transport exposes per-direction packet MTUs:
 - Alice send_packet_mtu / Bob recv_packet_mtu: query-side MTU (encoded in the QNAME).
 - Alice recv_packet_mtu / Bob send_packet_mtu: response-side MTU (encoded in the CNAME target).
 
+Packet MTU is SFB packet bytes before DNS encoding (header + segments). The
+on-wire DNS message includes extra protocol headers and names and can be
+larger than `packet_mtu`.
+
 These values depend on `base_domain`, `cname_label`, and `label_max_len`. The
-tunnel negotiates tx/rx MTUs independently (asymmetric MTU).
-Payload bytes are derived as `(packet_mtu - PACKET_HEADER_SIZE)` when packing
-segments.
+tunnel negotiates tx/rx MTUs independently (asymmetric MTU). Payload bytes are
+derived as `(packet_mtu - PACKET_HEADER_SIZE)` when packing segments.
+Minimum packet MTU is `PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1` (at least
+one segment header plus 1 byte of segment payload). Keepalive-only packets are
+smaller but MTU definitions are segment-capable.
 
 ### Query-Side MTU (Alice send_packet_mtu, Bob recv_packet_mtu)
 
@@ -278,7 +284,8 @@ response_mtu = 142 bytes
 When `dns_response_type=CNAME`, the full DNS response must fit within the EDNS
 size (minimum 512 bytes) and includes the original QNAME in both the question
 and answer sections. This means the usable response packet size depends on the
-query's QNAME wire length.
+query's QNAME wire length (which varies with payload length, base_domain, and
+label_max_len).
 
 The client precomputes a lookup across all possible query packet sizes using
 the same sizing rules as the server (EDNS clamp plus OPT record length) to
@@ -295,7 +302,9 @@ Alice selects a per-send query cap based on adaptive clamp mode:
 
 "Real data" means:
 - Alice: pending non-control channel data (data channels only)
-- Bob: inbound packets that include at least one non-control segment
+- Bob: response header flags indicate HAS_SEGMENTS or POLL_HINT; Alice cannot
+  inspect encrypted segments, so any HAS_SEGMENTS is treated as data for clamp
+  decisions.
 The chosen packet cap is attached to the send permit and applied at packet
 build time, so segments are sized before encoding the DNS query. Bob still
 enforces the per-request response cap for each response and retransmit.
@@ -318,6 +327,9 @@ cap, which improves throughput.
 
 Values above assume `dns_label_max_len=50`, `dns_cname_label=0`, and
 `dns_edns_size=512`.
+
+Note: config validation enforces `dns_edns_size <= 512`. Larger EDNS sizes
+require loosening config validation and re-evaluating response sizing.
 
 ---
 

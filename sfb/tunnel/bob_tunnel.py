@@ -492,7 +492,7 @@ class BobTunnel(BaseTunnel):
         if not segments:
             return self._send_keepalive_response(responder, now, poll_hint=True)
         packet, _ = self._build_packet(
-            flags=FLAG_HAS_SEGMENTS,
+            flags=FLAG_HAS_SEGMENTS | FLAG_POLL_HINT,
             segments=segments,
         )
         encrypted_body, response_data = self._encode_packet_for_send(packet)

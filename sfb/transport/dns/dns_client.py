@@ -20,14 +20,19 @@ from ..transport_base import (
     PendingTracker,
     prune_and_count,
 )
+from ..mtu_limits import resolve_mtu_limits
 from . import codec
 from .dns_utils import load_system_resolvers
 from ...compat import require_bytes_like
 from ...config import Config
 from ...logging_util import get_logger, log_event
 from ...protocol import (
-    PACKET_HEADER_SIZE,
-    SEGMENT_HEADER_SIZE,
+    PacketHeader,
+    FLAG_SYN,
+    FLAG_ACK,
+    FLAG_KEEPALIVE,
+    FLAG_HAS_SEGMENTS,
+    FLAG_POLL_HINT,
 )
 from ...utils import parse_host_port
 from ... import time_provider
@@ -140,19 +145,13 @@ class DnsClient(Transport):
         )
 
         # Calculate MTUs
-        self._send_packet_mtu = codec.calc_query_mtu(
-            self._base_domain, self._label_max_len
+        send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
+            'dns', config, role='client'
         )
-        calculated_recv_mtu = codec.calc_response_mtu(
-            self._rtype,
-            config.dns_edns_size,
-            self._cname_suffix,
-            self._label_max_len,
-        )
-        self._min_query_packet_mtu = PACKET_HEADER_SIZE
-        self._min_response_packet_mtu = (
-            PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1
-        )
+        self._send_packet_mtu = send_mtu
+        calculated_recv_mtu = recv_mtu
+        self._min_query_packet_mtu = min_packet_mtu
+        self._min_response_packet_mtu = min_packet_mtu
         self._response_cap_lookup = None
         self._max_response_payload_cap = None
         self._balanced_query_payload = None
@@ -178,6 +177,21 @@ class DnsClient(Transport):
             self._recv_packet_mtu = effective_recv_mtu
         else:
             self._recv_packet_mtu = calculated_recv_mtu
+        mtu_details = {
+            'transport': 'dns',
+            'role': 'client',
+            'send_packet_mtu': self._send_packet_mtu,
+            'recv_packet_mtu': self._recv_packet_mtu,
+            'min_packet_mtu': min_packet_mtu,
+        }
+        mtu_details.update(mtu_constraints)
+        log_event(
+            _LOG,
+            logging.INFO,
+            'transport.mtu_limits',
+            'Transport MTU limits',
+            lambda: mtu_details,
+        )
         self._recv_bufsize = max(self._edns_size, config.dns_recv_bufsize_min)
 
         # Pending query tracking
@@ -241,7 +255,8 @@ class DnsClient(Transport):
         self._alice_has_data_pending = bool(has_data)
 
     def notify_peer_data(self, has_data):
-        self._update_bob_data_state(bool(has_data))
+        if has_data:
+            self._update_bob_data_state(True)
 
     def notify_recv_window_sack(self, sack):
         if sack:
@@ -469,6 +484,7 @@ class DnsClient(Transport):
         self._pending.pop(corr_id)
         del self._dns_to_corr[dns_id]
 
+        self._update_bob_data_from_payload(payload)
         log_event(
             _LOG,
             logging.DEBUG,
@@ -477,6 +493,59 @@ class DnsClient(Transport):
             lambda: {'corr_id': corr_id, 'dns_id': dns_id, 'bytes': len(payload)},
         )
         return (corr_id, payload)
+
+    def _update_bob_data_from_payload(self, payload):
+        if not payload:
+            return
+        try:
+            header = PacketHeader.decode(payload)
+        except ValueError as exc:
+            self._log_clamp_header_skip('decode_error', payload, error=str(exc))
+            return
+        flags = header.flags
+        if flags & (FLAG_SYN | FLAG_ACK):
+            self._log_clamp_header_skip(
+                'handshake_flags',
+                payload,
+                flags=flags,
+            )
+            return
+        content_flags = flags & (FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS)
+        if content_flags == 0:
+            self._log_clamp_header_skip(
+                'missing_content_flags',
+                payload,
+                flags=flags,
+            )
+            return
+        if content_flags == (FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS):
+            self._log_clamp_header_skip(
+                'multiple_content_flags',
+                payload,
+                flags=flags,
+            )
+            return
+        if content_flags == FLAG_HAS_SEGMENTS:
+            self._update_bob_data_state(True)
+            return
+        if flags & FLAG_POLL_HINT:
+            self._update_bob_data_state(True)
+            return
+        self._update_bob_data_state(False)
+
+    def _log_clamp_header_skip(self, reason, payload, flags=None, error=None):
+        log_event(
+            _LOG,
+            logging.DEBUG,
+            'dns.clamp_header_skip',
+            'DNS clamp header unusable',
+            lambda: {
+                'reason': reason,
+                'flags': flags,
+                'error': error,
+                'payload_bytes': len(payload),
+            },
+        )
 
     def _on_prune(self, stale):
         for _, pending in stale:

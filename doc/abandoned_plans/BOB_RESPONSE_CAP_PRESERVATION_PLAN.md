@@ -1,6 +1,6 @@
 # Bob Response Cap Preservation Plan
 
-Status: draft
+Status: abandoned
 
 ## Goal
 - Preserve per-request response caps on Bob when payload_cap plumbing is removed
@@ -50,3 +50,6 @@ Status: draft
 5) Validation:
    - Run relevant non-e2e unit tests with `python3` if desired.
    - Do not run tests under `tests/e2e/`.
+
+## Abandon Notes
+- Superseded by later guidance; leaving the plan here for reference only.

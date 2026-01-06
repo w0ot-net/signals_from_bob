@@ -419,19 +419,68 @@ class BobTunnel(BaseTunnel):
             ),
         )
 
-    def _send_response(self, responder, now):
-        """Build and send response packet."""
-        response_payload_cap = None
-        if hasattr(responder, 'payload_cap'):
-            response_payload_cap = responder.payload_cap
+    def _send_keepalive_response(self, responder, now):
+        packet, _ = self._build_packet(
+            flags=FLAG_KEEPALIVE,
+            segments=[],
+        )
+        encrypted_body, response_data = self._encode_packet_for_send(packet)
+        self._send_window.send(
+            [],
+            flags=packet.flags,
+            encrypted_body=encrypted_body,
+            now=now,
+        )
+        self._packets_sent += 1
+        self._bytes_sent += len(response_data)
+        self._log_response_cap(responder, response_data)
+        self._respond(responder, response_data, 'keepalive', packet)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.packet_send',
+            'Packet sent',
+            lambda: self._packet_send_fields(
+                packet,
+                len(response_data),
+                'keepalive',
+            ),
+        )
 
-        # Opportunistic retransmit: if we have unacked packets, resend oldest
-        # Rebuild with fresh ack/sack to ensure current ACK state is sent
+    def _send_segments_response(self, responder, now, segments):
+        packet, _ = self._build_packet(
+            flags=FLAG_HAS_SEGMENTS,
+            segments=segments,
+        )
+        encrypted_body, response_data = self._encode_packet_for_send(packet)
+        self._send_window.send(
+            segments,
+            flags=packet.flags,
+            encrypted_body=encrypted_body,
+            now=now,
+        )
+        self._packets_sent += 1
+        self._bytes_sent += len(response_data)
+        self._log_response_cap(responder, response_data)
+        self._respond(responder, response_data, 'segments', packet)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.packet_send',
+            'Packet sent',
+            lambda: self._packet_send_fields(
+                packet,
+                len(response_data),
+                'segments',
+            ),
+        )
+
+    def _select_response_action(self, now, response_payload_cap):
+        decision = {'action': None}
         oldest_info = self._send_window.get_oldest_unacked_info()
         if oldest_info is not None:
-            seq, segments, flags, encrypted_body, send_time, retransmit_count = (
-                oldest_info
-            )
+            (seq, segments, flags, encrypted_body,
+             send_time, retransmit_count) = oldest_info
             cooldown = self._retransmit_cooldown()
             age = None
             if send_time is not None:
@@ -464,23 +513,78 @@ class BobTunnel(BaseTunnel):
                     },
                 )
             else:
-                self._send_retransmit_response(
-                    responder,
-                    response_payload_cap,
-                    now,
-                    seq,
-                    segments,
-                    flags,
-                    encrypted_body,
-                    context='retransmit',
-                )
-                return
+                decision.update({
+                    'action': 'retransmit',
+                    'context': 'retransmit',
+                    'seq': seq,
+                    'segments': segments,
+                    'flags': flags,
+                    'encrypted_body': encrypted_body,
+                })
+                return decision
 
-        # No retransmits needed - check window before sending new data
         if not self._send_window.can_send:
-            # Window full but no unacked? Shouldn't happen - log and send a
-            # poll hint to maintain request/response contract.
-            unacked = self._send_window.unacked_count
+            decision.update({
+                'action': 'window_blocked',
+                'context': 'window_full',
+                'reason': 'window_full',
+                'oldest_info': oldest_info,
+                'unacked': self._send_window.unacked_count,
+                'max_in_flight': self._send_window._max_in_flight,
+            })
+            return decision
+
+        exceeded, distance_info = self._send_window.distance_exceeded(
+            max_window=self.MAX_WINDOW
+        )
+        if exceeded:
+            decision.update({
+                'action': 'distance_blocked',
+                'context': 'window_distance',
+                'reason': 'window_distance',
+                'oldest_info': oldest_info,
+                'distance_info': distance_info,
+            })
+            return decision
+
+        max_payload = self._payload_mtu_from_packet(self._send_packet_mtu)
+        if response_payload_cap is not None:
+            cap_payload = response_payload_cap - PACKET_HEADER_SIZE
+            if cap_payload < 0:
+                cap_payload = 0
+            if cap_payload < max_payload:
+                max_payload = cap_payload
+        segments, pending_data = self._collect_segments(
+            max_payload,
+            return_pending=True,
+        )
+
+        if not segments:
+            if pending_data:
+                decision.update({
+                    'action': 'poll_hint',
+                    'context': 'poll_hint',
+                    'reason': 'pending_data',
+                })
+                return decision
+            decision.update({
+                'action': 'keepalive',
+                'context': 'keepalive',
+            })
+            return decision
+
+        decision.update({
+            'action': 'segments',
+            'context': 'segments',
+            'segments': segments,
+        })
+        return decision
+
+    def _log_send_blocked(self, decision, now):
+        action = decision.get('action')
+        if action == 'window_blocked':
+            unacked = decision.get('unacked', 0)
+            max_in_flight = decision.get('max_in_flight')
             if unacked == 0:
                 log_event(
                     self._logger,
@@ -489,7 +593,7 @@ class BobTunnel(BaseTunnel):
                     'Send window full but no unacked packets',
                     lambda: {
                         'unacked': unacked,
-                        'max_in_flight': self._send_window._max_in_flight,
+                        'max_in_flight': max_in_flight,
                         'side': 'bob',
                     },
                 )
@@ -501,7 +605,7 @@ class BobTunnel(BaseTunnel):
                     'Send window full',
                     lambda: {
                         'unacked': unacked,
-                        'max_in_flight': self._send_window._max_in_flight,
+                        'max_in_flight': max_in_flight,
                         'side': 'bob',
                     },
                 )
@@ -511,8 +615,8 @@ class BobTunnel(BaseTunnel):
                 'tunnel.send_blocked',
                 'Send window full',
                 lambda: {
-                    'unacked': self._send_window.unacked_count,
-                    'max_in_flight': self._send_window._max_in_flight,
+                    'unacked': unacked,
+                    'max_in_flight': max_in_flight,
                     'side': 'bob',
                 },
             )
@@ -526,26 +630,14 @@ class BobTunnel(BaseTunnel):
                     'reason': 'window_full',
                 },
             )
-            if oldest_info is not None:
-                self._send_retransmit_response(
-                    responder,
-                    response_payload_cap,
-                    now,
-                    oldest_info[0],
-                    oldest_info[1],
-                    oldest_info[2],
-                    oldest_info[3],
-                    context='window_full',
-                    reason='window_full',
-                )
             return
-        exceeded, distance_info = self._send_window.distance_exceeded(
-            max_window=self.MAX_WINDOW
-        )
-        if exceeded:
+
+        if action == 'distance_blocked':
+            distance_info = decision.get('distance_info')
             (distance, max_in_flight, effective_cap, unacked,
              distance_limit, last_cum_ack, next_seq) = distance_info
             buffered = distance - unacked
+
             def build_distance_fields():
                 fields = {
                     'distance': distance,
@@ -560,6 +652,7 @@ class BobTunnel(BaseTunnel):
                 }
                 fields.update(self._send_window.distance_details(now=now))
                 return fields
+
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -597,6 +690,31 @@ class BobTunnel(BaseTunnel):
                     'distance_limit': distance_limit,
                 },
             )
+            return
+
+    def _send_response(self, responder, now):
+        """Build and send response packet."""
+        response_payload_cap = None
+        if hasattr(responder, 'payload_cap'):
+            response_payload_cap = responder.payload_cap
+
+        decision = self._select_response_action(now, response_payload_cap)
+        action = decision.get('action')
+        if action == 'retransmit':
+            self._send_retransmit_response(
+                responder,
+                response_payload_cap,
+                now,
+                decision['seq'],
+                decision['segments'],
+                decision['flags'],
+                decision['encrypted_body'],
+                context=decision.get('context', 'retransmit'),
+            )
+            return
+        if action in ('window_blocked', 'distance_blocked'):
+            self._log_send_blocked(decision, now)
+            oldest_info = decision.get('oldest_info')
             if oldest_info is not None:
                 self._send_retransmit_response(
                     responder,
@@ -606,100 +724,36 @@ class BobTunnel(BaseTunnel):
                     oldest_info[1],
                     oldest_info[2],
                     oldest_info[3],
-                    context='window_distance',
-                    reason='window_distance',
+                    context=decision.get('context'),
+                    reason=decision.get('reason'),
                 )
             return
-
-        # Collect new segments - use send MTU
-        max_payload = self._payload_mtu_from_packet(self._send_packet_mtu)
-        if response_payload_cap is not None:
-            cap_payload = response_payload_cap - PACKET_HEADER_SIZE
-            if cap_payload < 0:
-                cap_payload = 0
-            if cap_payload < max_payload:
-                max_payload = cap_payload
-        segments, pending_data = self._collect_segments(
-            max_payload,
-            return_pending=True,
-        )
-
-        if not segments:
-            if pending_data:
-                self._log_reliability_state(
-                    logging.DEBUG,
-                    'tunnel.keepalive_suppressed',
-                    'Keepalive suppressed by pending data',
-                    now=now,
-                    extra_fields={
-                        'reason': 'pending_data',
-                    },
-                )
-                self._send_poll_hint_response(
-                    responder,
-                    now,
-                    'poll_hint',
-                )
-                return
-            packet, seq = self._build_packet(
-                flags=FLAG_KEEPALIVE,
-                segments=[],
-            )
-            encrypted_body, response_data = self._encode_packet_for_send(packet)
-            self._send_window.send(
-                [],
-                flags=packet.flags,
-                encrypted_body=encrypted_body,
-                now=now,
-            )
-            self._packets_sent += 1
-            self._bytes_sent += len(response_data)
-            self._log_response_cap(responder, response_data)
-            self._respond(responder, response_data, 'keepalive', packet)
-            log_event(
-                self._logger,
+        if action == 'poll_hint':
+            self._log_reliability_state(
                 logging.DEBUG,
-                'tunnel.packet_send',
-                'Packet sent',
-                lambda: self._packet_send_fields(
-                    packet,
-                    len(response_data),
-                    'keepalive',
-                ),
+                'tunnel.keepalive_suppressed',
+                'Keepalive suppressed by pending data',
+                now=now,
+                extra_fields={
+                    'reason': decision.get('reason'),
+                },
+            )
+            self._send_poll_hint_response(
+                responder,
+                now,
+                decision.get('context', 'poll_hint'),
             )
             return
-
-        # Build packet
-        packet, seq = self._build_packet(
-            flags=FLAG_HAS_SEGMENTS,
-            segments=segments,
-        )
-        encrypted_body, response_data = self._encode_packet_for_send(packet)
-
-        # Record send (store segments for retransmit with fresh ack/sack)
-        self._send_window.send(
-            segments,
-            flags=packet.flags,
-            encrypted_body=encrypted_body,
-            now=now,
-        )
-        self._packets_sent += 1
-        self._bytes_sent += len(response_data)
-
-        # Send response
-        self._log_response_cap(responder, response_data)
-        self._respond(responder, response_data, 'segments', packet)
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.packet_send',
-            'Packet sent',
-            lambda: self._packet_send_fields(
-                packet,
-                len(response_data),
-                'segments',
-            ),
-        )
+        if action == 'keepalive':
+            self._send_keepalive_response(responder, now)
+            return
+        if action == 'segments':
+            self._send_segments_response(
+                responder,
+                now,
+                decision.get('segments'),
+            )
+            return
 
     def _log_response_cap(self, responder, response_data):
         response_payload_cap = None

@@ -7,6 +7,7 @@
 - Preserve behavior for retransmit gating, window/distance blocking, payload-cap
   clamping, keepalive suppression, and counters.
 - Make send outcomes explicit and easier to reason about.
+- eliminate duplicated or unnecessary code
 
 ## Non-Goals
 - Change retransmit, windowing, or keepalive behavior.
@@ -39,3 +40,9 @@
      using fields from the decision structure.
 5) Review the diff to confirm Python 2.7/3 compatibility and that observable
    behavior and log fields are unchanged.
+
+## Execution Notes
+- Added response selection and send helpers to separate decision logic from
+  send/log side effects.
+- Centralized send-blocked and keepalive-suppressed logging in the dispatch
+  path while preserving existing fields.

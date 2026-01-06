@@ -38,16 +38,18 @@ Handshake retransmission is independent of the reliability send window.
 - Builds a SYN packet (seq=ISN, flags=FLAG_SYN).
 - Sends it via `transport.reserve_send()` and `transport.send()`.
 - Waits for SYN+ACK with timeout `min(rto_sec, remaining_timeout)`.
-- On timeout, decode failure, or unexpected response:
+- On timeout or decode failure:
   - `RttEstimator.backoff()` doubles the RTO (clamped).
-  - Loop retries until `tunnel_connect_timeout` expires.
+  - Loop retries until `tunnel_connect_timeout` expires (no extra sleep beyond
+    the recv timeout).
+- On unexpected response or other errors, Alice backs off and then sleeps
+  `min(rto_sec, timeout/10)` before retrying.
 - If the transport cannot reserve a send permit, Alice logs
   `tunnel.send_blocked`, sleeps `min(rto_sec, timeout/10)`, and retries.
-- After each attempt (successful or not), Alice sleeps
-  `min(rto_sec, timeout/10)` before retrying, unless the loop exits.
 
 No RTT samples are taken during handshake; the estimator starts at
-`protocol_initial_rto_ms` and only backs off until data ACK samples arrive.
+`protocol_initial_rto_ms`, may back off on handshake timeouts, and is reset
+after the handshake completes.
 
 ### Final ACK retransmit (_complete_handshake)
 
@@ -60,15 +62,17 @@ No RTT samples are taken during handshake; the estimator starts at
 - If the transport cannot reserve a send permit, Alice sleeps for
   `min(rto_sec, remaining)` and retries.
 
-If handshake ACK retries exceed the remaining timeout, `TunnelError` is raised.
+If handshake ACK retries exceed the remaining timeout (or other errors occur),
+`AliceTunnel` logs `tunnel.ack_send_failed`, keeps the tunnel connected, resets
+RTO, and still queues negotiation; the error is not propagated.
 
 ## Tick Loop Ordering (Data Path)
 
 Each `tick()` in `AliceTunnel` executes in this order:
 1. Drain available responses (`transport.recv()` non-blocking).
 2. If no responses and transport pending is high, wait up to 50ms for a response.
-3. Reset packet-count timeout if any valid response was decoded.
-4. Check packet-count timeout (disconnect if exceeded).
+3. Update `_last_recv_time` when any valid response is decoded.
+4. Check the no-response timeout (wall-clock silence, disconnect if exceeded).
 5. Scan RTO retransmits and send them if the cumulative ACK has not advanced
    within the current RTO window.
 6. Attempt fast retransmit for a SACK hole if the window distance is exceeded.
@@ -111,15 +115,17 @@ For each candidate:
     - Updates `send_time` to `now` (restarts the RTO timer).
     - Increments global retransmit stats.
   - Calls `AdaptivePacer.on_retransmit()` (probe reset).
-  - Increments `_packets_sent`, `_bytes_sent`, and `_packets_since_response`.
+  - Increments `_packets_sent` and `_bytes_sent`.
   - Logs `tunnel.retransmit` and `tunnel.packet_send`.
-  - The `tunnel.retransmit` reason is `rto` for timer-driven retransmits.
-    Fast retransmit uses reason `fast_retransmit`.
+  - The `tunnel.retransmit` reason is `rto` for data retransmits and
+    `rto_keepalive` for keepalive retransmits. Fast retransmit uses reason
+    `fast_retransmit`.
 
 If the rate limiter denies `consume()` or no send permit is available, the
 retransmit is skipped (no backoff, no send_time update).
-Keepalive-only RTO candidates are dropped instead of retransmitted, so the
-next keepalive poll uses a fresh sequence number.
+Keepalive-only RTO candidates are retransmitted (reason `rto_keepalive`).
+Keepalive drops only happen when the send window is full and a new keepalive
+poll needs to make room.
 
 ### Window Semantics
 
@@ -144,7 +150,8 @@ Send behavior:
 - Uses `_send_retransmit(..., reason='fast_retransmit')`.
 - Respects retransmit budget and rate limiter.
 - Fast retransmit counts are pruned when a seq leaves the unacked set.
-- Keepalive holes may be fast retransmitted; only RTO drops keepalive candidates.
+- Keepalive holes may be fast retransmitted; keepalives are also eligible for
+  RTO retransmit (reason `rto_keepalive`).
 
 ## RTT And RTO Estimation (Alice Only)
 
@@ -182,7 +189,8 @@ Effects on retransmit logic:
 - ACK progress updates `SendWindow.last_ack_progress_time` and sets
   `_ack_progressed` for window-growth gating.
 - `data_acked_count` (only packets with segments) drives pacing feedback.
-- Keepalive packets (no segments) can update RTT but do not drive pacing.
+- Keepalive packets (no segments) do not contribute RTT samples and do not
+  drive pacing.
 
 ## Polling And Keepalive Effects On Retransmit Timing
 
@@ -206,8 +214,8 @@ Keepalive specifics:
   not contribute RTT samples.
 - If an empty keepalive poll is ready and the window is full, the oldest
   keepalive is dropped so a replacement keepalive poll can be sent.
-- Keepalive responses are suppressed when any channel has pending data; real
-  data replaces keepalives.
+- Bob suppresses keepalive responses when any channel has pending data; he
+  responds with ACK-only or data instead.
 
 ## Instrumentation Events (Alice)
 
@@ -215,8 +223,9 @@ Key structured events emitted during retransmit/ACK handling:
 - `tunnel.retransmit_scan`: RTO scan summary (candidate count, RTO, ACK silence).
 - `tunnel.retransmit_skip`: includes reasons like `ack_silence`.
 - `tunnel.retransmit`: retransmit send details (seq, flags, ack/sack, bytes,
-  reason, previous send age/count). Reasons include `rto` and `fast_retransmit`.
-- `tunnel.keepalive_drop`: keepalive drops (`window_full`, `rto_keepalive`).
+  reason, previous send age/count). Reasons include `rto`, `rto_keepalive`,
+  and `fast_retransmit`.
+- `tunnel.keepalive_drop`: keepalive drops (`window_full`).
 - `tunnel.ack_detail`: ACK processing detail (acked counts, RTT samples, send
   and recv window snapshots).
 - `tunnel.reliability_state`: structured snapshot of send/recv window, RTT,
@@ -262,7 +271,8 @@ connection and logs `tunnel.timeout_no_response`. Retransmissions stop once clos
 ## Logging And Stats
 
 Key retransmit-related events:
-- `tunnel.retransmit`: emitted on each retransmit (reason `rto`).
+- `tunnel.retransmit`: emitted on each retransmit (reasons `rto`,
+  `rto_keepalive`, `fast_retransmit`).
 - `tunnel.send_blocked`: emitted when rate-limited or transport-blocked.
 - `tunnel.packet_send` and `tunnel.packet_recv`: all sends/receives.
 - `tunnel.ack`: ACK/SACK processing details.

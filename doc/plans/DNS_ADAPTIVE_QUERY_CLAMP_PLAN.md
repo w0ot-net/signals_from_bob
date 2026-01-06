@@ -67,16 +67,20 @@
 1) Precompute query->response caps for DNS (DnsClient init):
    - For each possible query payload length (0..max_query_payload), compute:
      - QNAME wire length for the encoded payload and base_domain.
-     - Response payload cap (packet bytes) based on rtype, edns_size,
-       cname_suffix, label_max_len, and qname length.
+     - Response payload cap (packet bytes) by calling a shared codec helper
+       that mirrors server sizing, including EDNS clamp and OPT record length.
    - Store a lookup that answers: "largest query payload that still yields
      response_payload_cap >= target_response_payload".
    - Record max_response_payload_cap as the maximum response_payload_cap across
      all query payload lengths, and derive max_response_packet_mtu as
      PACKET_HEADER_SIZE + max_response_payload_cap.
-   - Implement the lookup builder as a shared helper (e.g., in
-     sfb/transport/dns/codec.py) so DnsClient and DnsServer can both reuse it
-     instead of duplicating cap logic.
+   - Implement the response-cap helper in sfb/transport/dns/codec.py and use it
+     in both DnsClient and DnsServer:
+     - Helper inputs: qname_wire_len, edns_size, cname_suffix, label_max_len,
+       opt_record_len (or an edns_enabled flag that implies opt_record_len).
+     - Helper outputs: (response_payload_cap, max_packet_size).
+     - Helper must apply the same EDNS clamp and OPT record length rules as
+       DnsServer._response_payload_cap so the client lookup cannot diverge.
    - Keep the lookup in DnsClient so per-send clamp selection is O(1) and does
      not depend on live socket state.
 2) Enforce a response MTU ceiling derived from the lookup:

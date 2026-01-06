@@ -82,6 +82,9 @@ serve as an implicit poll hint.
      and no content flags during handshake.
    - Bob: set `HAS_SEGMENTS` when sending segments, `POLL` when responding with
      empty packets due to pending data, and `KEEPALIVE` when idle.
+   - Do not OR `FLAG_KEEPALIVE` onto pre-set content flags for empty packets.
+     Choose exactly one content flag and pass `packet.flags` (post-build) into
+     `SendWindow.send()` so retransmits preserve `POLL` vs `KEEPALIVE`.
 6. Enforce strict handshake completion:
    - Bob: remove implicit-ACK handling for non-handshake packets while
      CONNECTING.

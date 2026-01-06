@@ -50,6 +50,9 @@ serve as an implicit poll hint.
   - `WANTS_POLL` and `KEEPALIVE` require zero segments.
 - RTT sampling treats `WANTS_POLL` like `KEEPALIVE` (no RTT samples or backoff
   reset for WANTS_POLL-only packets).
+- Keep `drop_keepalive`/`drop_oldest_keepalive` scoped to `FLAG_KEEPALIVE` only;
+  `WANTS_POLL` is a non-idle hint and should not be eligible for keepalive
+  drops. Track it separately in send-window debug state.
 - Handshake rules:
   - SYN/SYN+ACK/ACK packets must have zero segments and no content flags set.
   - While CONNECTING, accept only SYN/SYN+ACK/ACK and reject any other packets
@@ -81,10 +84,14 @@ serve as an implicit poll hint.
    flags in logs and debugging.
 3. Update `sfb/reliability/send_window.py` RTT sampling to skip `FLAG_WANTS_POLL`
    (same policy as `FLAG_KEEPALIVE`) and adjust imports.
-4. Replace `_validate_keepalive_packet()` in `sfb/tunnel/base_tunnel.py` with
+4. Update send-window debug accounting:
+   - Keep `drop_keepalive`/`drop_oldest_keepalive` limited to `FLAG_KEEPALIVE`.
+   - Add `wants_poll_unacked` (and `oldest_wants_poll`) in `debug_state()` and
+     `distance_details()` so `WANTS_POLL` is not lumped into `empty_unacked`.
+5. Replace `_validate_keepalive_packet()` in `sfb/tunnel/base_tunnel.py` with
    content-flag validation that enforces the rules above (including CONNECTING
    rejection of non-handshake packets).
-5. Update send paths:
+6. Update send paths:
    - Alice: set `HAS_SEGMENTS` when sending segments, `KEEPALIVE` on idle polls,
      and no content flags during handshake.
    - Bob: set `HAS_SEGMENTS` when sending segments, `WANTS_POLL` when responding with
@@ -92,14 +99,14 @@ serve as an implicit poll hint.
    - Do not OR `FLAG_KEEPALIVE` onto pre-set content flags for empty packets.
      Choose exactly one content flag and pass `packet.flags` (post-build) into
      `SendWindow.send()` so retransmits preserve `WANTS_POLL` vs `KEEPALIVE`.
-6. Add the post-ACK state for Alice (e.g., `HANDSHAKE_ACKED`) and update the
+7. Add the post-ACK state for Alice (e.g., `HANDSHAKE_ACKED`) and update the
    handshake flow/validation to use it (enter after final ACK, accept content
    flags, reject SYN/ACK, transition to CONNECTED on first response, revert to
    CONNECTING on failure).
-7. Enforce strict handshake completion:
+8. Enforce strict handshake completion:
    - Bob: remove implicit-ACK handling for non-handshake packets while
      CONNECTING.
-8. Update receive paths:
+9. Update receive paths:
    - Alice: add explicit `WANTS_POLL` handling in `_handle_response()` and
      `_poll_decision()` (or a new poll-hint state) so `WANTS_POLL` triggers immediate
      polling without marking `_got_data` or `KEEPALIVE`.
@@ -107,10 +114,10 @@ serve as an implicit poll hint.
      explicitly for `HAS_SEGMENTS`/`WANTS_POLL`/`KEEPALIVE`.
    - Bob: continue to ignore keepalive segments as today, but validate content
      flags for protocol correctness.
-9. Update documentation to describe the new flags, the content-flag rules, and
+10. Update documentation to describe the new flags, the content-flag rules, and
   the explicit "poll hint" semantics, including a sweep to replace ack-only
   wording in `doc/ARCHITECTURE.md` and `doc/DNS_TRANSPORT.md`.
-10. Add unit tests that validate:
+11. Add unit tests that validate:
    - content-flag/segment mismatch is a protocol violation,
    - handshake packets reject content flags,
    - Alice polling behavior distinguishes `WANTS_POLL` vs `KEEPALIVE`,

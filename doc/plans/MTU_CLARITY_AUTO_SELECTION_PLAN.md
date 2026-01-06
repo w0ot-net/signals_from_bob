@@ -91,7 +91,7 @@
      routine tuning.
 7) Update CLI help and summary docs:
    - CLI help should say "advanced override; leave default for auto".
-   - TRANSPORTS/README summarize per-transport MTU selection and defaults.
+   - doc/TRANSPORTS.md summarizes per-transport MTU selection and defaults.
    - TLS_TRANSPORT/PROTOCOL/TUNNEL explicitly distinguish transport packet MTU
      from tunnel payload MTU and align negotiation wording.
    - Do not add new runtime dependencies or change E2E test instructions.

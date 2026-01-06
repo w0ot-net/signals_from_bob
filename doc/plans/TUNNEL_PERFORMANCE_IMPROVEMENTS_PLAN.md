@@ -45,8 +45,11 @@
    KEEPALIVE flag. Empty responses are idle keepalives only.
 6) Add a data-pending event in ChannelManager (mirroring control_send_event)
    that is inclusive of control messages, so Alice can check pending state
-   without repeated lock acquisition inside the hot send loop. Update it on
-   register/unregister, send-state transitions, and active-channel pruning.
+   without repeated lock acquisition inside the hot send loop. Ensure control
+   send-event set/clear transitions update the combined event (or keep
+   separate events and OR them in the hot loop) so the signal clears when
+   control data drains. Update it on register/unregister, send-state
+   transitions, and active-channel pruning.
 7) Add a fast path in BaseTunnel decode to skip Segment.decode_all when the
    decrypted body is empty.
 8) Update doc/TUNNEL.md, doc/ASYMMETRY.md, doc/PROTOCOL.md, and

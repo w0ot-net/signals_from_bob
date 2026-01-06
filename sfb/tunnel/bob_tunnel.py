@@ -266,6 +266,29 @@ class BobTunnel(BaseTunnel):
                 # Send response
                 self._send_response(responder, now)
 
+        elif self._state == TunnelState.CONNECTING:
+            # Data packet while connecting - treat as implicit ACK
+            self._send_window._next_seq = (self._local_isn + 1) & 0xFFFF
+            self._set_state(TunnelState.CONNECTED)
+            self._handshake_complete = True
+            log_event(
+                self._logger,
+                logging.INFO,
+                'tunnel.connected',
+                'Connected',
+                lambda: {
+                    'local_isn': self._local_isn,
+                    'remote_isn': self._remote_isn,
+                    'mode': 'implicit_ack',
+                    'side': 'bob',
+                },
+            )
+
+            self._process_incoming_packet(
+                packet, now=now, packet_size=packet_size
+            )
+            self._send_response(responder, now)
+
     def _handle_data(self, packet, responder, now, packet_size=None):
         """Handle data packets."""
         # Process incoming

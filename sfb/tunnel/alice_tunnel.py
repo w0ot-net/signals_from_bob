@@ -330,8 +330,11 @@ class AliceTunnel(BaseTunnel):
                 'Failed to send ACK',
                 lambda: {'error': str(e), 'side': 'alice'},
             )
-            self._set_state(TunnelState.CONNECTING)
-            raise
+            # Still mark as connected - Bob will accept data as implicit ACK
+            self._set_state(TunnelState.CONNECTED)
+            self._rtt.reset()
+            # Still try to negotiate
+            self._send_negotiation()
 
     def _send_negotiation(self):
         """Queue MTU and window negotiation messages."""

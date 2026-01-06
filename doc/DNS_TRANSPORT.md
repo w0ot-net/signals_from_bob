@@ -289,7 +289,7 @@ to carry one segment.
 
 Alice selects a per-send query cap based on adaptive clamp mode:
 - response_max while retransmits may be pending (retransmit_guard or
-  recv_window_sack), or when only Bob has real data
+  recv_window_sack when Bob recently sent data), or when only Bob has real data
 - balanced when both sides have real data (accept lower throughput)
 - alice_max when Alice has real data and Bob does not, or when neither has data
 

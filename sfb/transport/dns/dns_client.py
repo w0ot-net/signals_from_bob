@@ -571,10 +571,11 @@ class DnsClient(Transport):
             self._retransmit_guard = True
             self._retransmit_guard_keepalives = 0
             return
-        if self._bob_has_data_remaining > 0:
+        bob_has_data_remaining = self._bob_has_data_remaining
+        if bob_has_data_remaining > 0:
             self._bob_has_data_remaining -= 1
             self._retransmit_guard = True
-        if self._recv_window_sack:
+        if self._recv_window_sack and bob_has_data_remaining > 0:
             self._retransmit_guard = True
             self._retransmit_guard_keepalives = 0
             return

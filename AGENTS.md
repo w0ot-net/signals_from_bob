@@ -13,8 +13,8 @@ Project Rules
 - for authoritative DNS mode we should use port 53
 - E2E tests are in tests/e2e/ - do NOT run them yourself; only the user will run them
 - always commit and push after making code changes, including documentation updates
-- always commit only the files you touched; do not commit the whole project
 - Never use `git add .` or `git add -A`. Always stage explicit paths.
+- always commit only the files you touched; do not commit the whole project
 - breaking changes are acceptable when they improve cleanliness or performance; make the clean change and update all call sites in the same change, and avoid compatibility shims or transitional signatures for internal APIs
 - for code reviews, try to answer your own questions; if that is not possible, suggest likely best options when posing questions, grounded in observed facts
 - for code reviews or plan reviews, ignore any changes to tests unless I explicitly ask about tests

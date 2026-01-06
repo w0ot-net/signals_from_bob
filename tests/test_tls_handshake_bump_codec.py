@@ -44,6 +44,102 @@ def _build_clienthello_record_with_sni(sni_name):
 
 
 class TlsHandshakeBumpCodecTests(unittest.TestCase):
+    def test_parse_record_header_invalid_length(self):
+        with self.assertRaises(ValueError):
+            codec.parse_record_header(b'\x16\x03\x03\x00')
+        with self.assertRaises(ValueError):
+            codec.parse_record_header(b'\x16\x03\x03\x00\x00\x00')
+
+    def test_parse_record_header_invalid_content_type(self):
+        header = struct.pack('!BHH', 0x15, codec.TLS_VERSION_1_2, 0)
+        with self.assertRaises(ValueError):
+            codec.parse_record_header(header)
+
+    def test_parse_record_header_invalid_version(self):
+        for version in (0x0300, 0x0304):
+            header = struct.pack(
+                '!BHH',
+                codec.TLS_CONTENT_TYPE_HANDSHAKE,
+                version,
+                0,
+            )
+            with self.assertRaises(ValueError):
+                codec.parse_record_header(header)
+
+    def test_parse_record_header_payload_too_large(self):
+        header = struct.pack(
+            '!BHH',
+            codec.TLS_CONTENT_TYPE_HANDSHAKE,
+            codec.TLS_VERSION_1_2,
+            codec.TLS_MAX_RECORD_PAYLOAD + 1,
+        )
+        with self.assertRaises(ValueError):
+            codec.parse_record_header(header)
+
+    def test_parse_record_header_max_record_bytes(self):
+        header = struct.pack(
+            '!BHH',
+            codec.TLS_CONTENT_TYPE_HANDSHAKE,
+            codec.TLS_VERSION_1_2,
+            1,
+        )
+        with self.assertRaises(ValueError):
+            codec.parse_record_header(
+                header,
+                max_record_bytes=codec.TLS_RECORD_HEADER_LEN,
+            )
+
+    def test_parse_client_hello_sni_record_length_mismatch(self):
+        header = struct.pack(
+            '!BHH',
+            codec.TLS_CONTENT_TYPE_HANDSHAKE,
+            codec.TLS_VERSION_1_2,
+            1,
+        )
+        record = header
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni(record)
+
+    def test_parse_client_hello_sni_max_record_bytes(self):
+        header = struct.pack(
+            '!BHH',
+            codec.TLS_CONTENT_TYPE_HANDSHAKE,
+            codec.TLS_VERSION_1_2,
+            1,
+        )
+        record = header + b'\x00'
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni(
+                record,
+                max_record_bytes=codec.TLS_RECORD_HEADER_LEN,
+            )
+
+    def test_parse_client_hello_sni_from_buffer_record_length_mismatch(self):
+        header = struct.pack(
+            '!BHH',
+            codec.TLS_CONTENT_TYPE_HANDSHAKE,
+            codec.TLS_VERSION_1_2,
+            1,
+        )
+        record = header
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni_from_buffer(record, 1)
+
+    def test_parse_client_hello_sni_from_buffer_max_record_bytes(self):
+        header = struct.pack(
+            '!BHH',
+            codec.TLS_CONTENT_TYPE_HANDSHAKE,
+            codec.TLS_VERSION_1_2,
+            1,
+        )
+        record = bytearray(header + b'\x00')
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni_from_buffer(
+                record,
+                1,
+                max_record_bytes=codec.TLS_RECORD_HEADER_LEN,
+            )
+
     def test_base32_roundtrip(self):
         data = b'hello'
         encoded = codec.base32_encode(data)

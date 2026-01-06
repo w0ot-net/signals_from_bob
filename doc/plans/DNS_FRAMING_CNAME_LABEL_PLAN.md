@@ -17,6 +17,7 @@
 - sfb/transport/dns/dns_server.py
 - sfb/transport/dns/__init__.py
 - sfb/transport/dns/dns_utils.py
+- sfb/tunnel/bob_tunnel.py
 - sfb/config.py
 - sfb/cli.py
 - doc/DNS_TRANSPORT.md
@@ -34,20 +35,28 @@
 1) Define DNS framing for tunnel payloads: 2-byte big-endian length prefix +
    payload + zero padding to a fixed frame size.
 2) Compute fixed frame sizes once at transport init:
-   - Query frame size = calc_query_mtu(...) bytes.
+   - Define min_frame = PACKET_HEADER_SIZE + 2 + 4. This allows at least one
+     control-channel byte per packet (3-byte segment header + 1 data byte) so
+     MTU/window messages can stream even when framing is tight.
+   - Query frame size: choose the largest q_frame <= calc_query_mtu(...)
+     that still allows a response frame >= min_frame. Compute qname wire
+     length for each candidate q_frame, then compute response_payload_cap
+     from that fixed qname length.
    - Response frame size = min(calc_response_mtu(...),
      precomputed response payload cap based on fixed QNAME wire length and
      UDP size).
    - Data caps = frame_size - 2 for each direction.
-   - Enforce a base domain length cap so both frame sizes stay >= 100 bytes
-     (data cap 98). For the default label_max_len=50 and EDNS=512, this caps
-     base_domain length at 84 characters (including dots). Document the cap
-     and validate it in config.
+   - Enforce a base domain length cap by running the same feasibility check
+     at init time; reject configs where no q_frame yields both frames >=
+     min_frame. For default label_max_len=50 and EDNS=512 with min_frame=44,
+     the max base_domain length is 83 characters (including dots).
 3) Remove per-query response sizing in the server:
    - Delete DnsServer._response_payload_cap and related qname_wire_len and
      max_packet_size plumbing in _ResponseSender.
    - Use a constant response payload cap derived at init and attach it to the
      responder.
+   - Either keep responder.qname_wire_len/max_packet_size for BobTunnel
+     logging or update BobTunnel to drop those fields.
 4) Apply framing in send/receive paths:
    - DnsClient: prefix length and pad outgoing data to the query frame size;
      decode framing on responses and return the exact payload length.

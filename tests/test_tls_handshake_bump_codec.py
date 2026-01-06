@@ -262,6 +262,29 @@ class TlsHandshakeBumpCodecTests(unittest.TestCase):
         )
         self.assertEqual(decoded, payload)
 
+    def test_scan_response_payload_start_offset(self):
+        payload = b'pingpong'
+        cn = codec.encode_cn_value(payload, max_len=cert_template.CN_LEN)
+        buffer_bytes = b'xx' + cn.encode('ascii')
+        decoded = codec.scan_response_payload(
+            buffer_bytes,
+            start_offset=2,
+        )
+        self.assertEqual(decoded, payload)
+        self.assertIsNone(codec.scan_response_payload(buffer_bytes, start_offset=999))
+        decoded = codec.scan_response_payload(buffer_bytes, start_offset=-1)
+        self.assertEqual(decoded, payload)
+
+    def test_scan_response_payload_max_token_len_too_small(self):
+        payload = b'pingpong'
+        cn = codec.encode_cn_value(payload, max_len=cert_template.CN_LEN)
+        buffer_bytes = cn.encode('ascii')
+        decoded = codec.scan_response_payload(
+            buffer_bytes,
+            max_token_len=codec.SFB_BUMP_RESPONSE_TOKEN_MIN_LEN - 1,
+        )
+        self.assertIsNone(decoded)
+
     def test_response_checksum_reject(self):
         payload = b'pong'
         cn = codec.encode_cn_value(payload, max_len=128)
@@ -273,6 +296,31 @@ class TlsHandshakeBumpCodecTests(unittest.TestCase):
             codec.decode_cn_value(tampered)
         scanned = codec.scan_response_payload(tampered.encode('ascii'))
         self.assertIsNone(scanned)
+
+    def test_response_padding_mismatch(self):
+        payload = b'pong'
+        cn = codec.encode_cn_value(payload, max_len=128)
+        decoded = codec.base32_decode(cn)
+        payload_len = struct.unpack('!H', decoded[1:3])[0]
+        tampered = (
+            decoded[:1] +
+            struct.pack('!H', payload_len - 1) +
+            decoded[3:5] +
+            decoded[5:]
+        )
+        encoded = codec.base32_encode(tampered)
+        with self.assertRaises(ValueError):
+            codec.decode_cn_value(encoded)
+
+    def test_response_payload_len_too_large(self):
+        payload = b'pong'
+        cn = codec.encode_cn_value(payload, max_len=128)
+        with self.assertRaises(ValueError):
+            codec._decode_response_payload(cn, max_payload_len=1)
+
+    def test_response_token_invalid_header_bytes(self):
+        token = b'!' + (b'A' * (codec.SFB_BUMP_RESPONSE_TOKEN_MIN_LEN - 1))
+        self.assertIsNone(codec._try_decode_response_header_at(token, 0))
 
     def test_sni_payload_cap(self):
         base_domain = 'example.com'

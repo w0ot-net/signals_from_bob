@@ -33,7 +33,7 @@
 
 ## Plan
 1) Add a data-unacked counter to SendWindow and update it in send/ack paths so Alice can query it in O(1).
-2) Preserve _unacked insertion order (cumulative ACK scanning assumes send order with wrap-aware comparisons). Track oldest-by-send-time separately (min-heap or cached pointer) without reordering _unacked. Use lazy validation on retransmit/ack updates; fall back to a scan only when the cache is stale.
+2) Preserve _unacked insertion order (cumulative ACK scanning assumes send order with wrap-aware comparisons). Track oldest-by-send-time separately (min-heap or cached pointer) without reordering _unacked. Invalidate cached/heap entries on retransmit/ack/drop (including Bob's opportunistic retransmits), and use lazy validation; fall back to a scan only when the cache is stale.
 3) In BaseTunnel packet processing, deliver control segments for each ready packet, then process control messages once per packet; keep control-before-data ordering and remove the redundant post-loop control polling.
 4) Define a protocol requirement: when Bob sends POLL_HINT, the response must
    have capacity for at least 1 byte of segment payload. Enforce this per

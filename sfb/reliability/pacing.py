@@ -20,6 +20,9 @@ class AdaptivePacer(object):
     # Minimum ACK samples before allowing feedback to reduce inflight. Higher
     # values delay reductions to avoid oscillation on sparse ACKs.
     _FEEDBACK_MIN_SAMPLES = 3
+    # Treat large ACK gaps as idle relative to RTT to avoid feedback collapse.
+    _ACK_IDLE_RTT_FACTOR = 6.0
+    _ACK_IDLE_MIN_SEC = 0.25
     # "Small unacked" threshold for aggressive window-distance cuts. Lower
     # values make the fast reduction trigger less often.
     _BLOCK_SMALL_UNACKED = 2
@@ -70,7 +73,10 @@ class AdaptivePacer(object):
         if dt <= 0:
             self._last_ack_time = now
             return
-        if dt > self._ack_idle_reset_sec:
+        idle_reset = self._ack_idle_reset_sec
+        if srtt_ms is not None:
+            idle_reset = self._ack_idle_threshold(srtt_ms)
+        if dt > idle_reset:
             self._reset_feedback()
             return
         rate = float(acked_count) / dt
@@ -161,6 +167,18 @@ class AdaptivePacer(object):
     def _reset_probe(self, now):
         self._probe_extra = 0
         self._last_probe_time = now
+
+    def _ack_idle_threshold(self, srtt_ms):
+        rtt_ms = srtt_ms
+        if rtt_ms < self._rtt_floor_ms:
+            rtt_ms = self._rtt_floor_ms
+        rtt_sec = rtt_ms / 1000.0
+        idle_reset = rtt_sec * self._ACK_IDLE_RTT_FACTOR
+        if idle_reset < self._ACK_IDLE_MIN_SEC:
+            idle_reset = self._ACK_IDLE_MIN_SEC
+        if idle_reset > self._ack_idle_reset_sec:
+            idle_reset = self._ack_idle_reset_sec
+        return idle_reset
 
     def _feedback_reduction_ready(self):
         return self._ack_samples >= self._feedback_min_samples

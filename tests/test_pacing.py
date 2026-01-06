@@ -99,6 +99,15 @@ class AdaptivePacerTests(unittest.TestCase):
         self.assertIsNone(pacer._ack_rate_ewma)
         self.assertIsNone(pacer._last_ack_time)
 
+    def test_ack_idle_reset_uses_srtt_threshold(self):
+        pacer = make_pacer(ack_idle_reset_sec=10.0, ack_ewma_alpha=1.0)
+        pacer.on_ack(1, now=1.0, srtt_ms=100.0)
+        pacer.on_ack(1, now=1.4, srtt_ms=100.0)
+        self.assertIsNotNone(pacer._ack_rate_ewma)
+        pacer.on_ack(1, now=2.2, srtt_ms=100.0)
+        self.assertIsNone(pacer._ack_rate_ewma)
+        self.assertIsNone(pacer._last_ack_time)
+
     def test_ack_idle_reset_boundary_does_not_reset(self):
         pacer = make_pacer(ack_idle_reset_sec=1.0, ack_ewma_alpha=1.0)
         pacer.on_ack(1, now=1.0)

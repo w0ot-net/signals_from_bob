@@ -258,10 +258,23 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         self._hash_lock = threading.Lock()
         self._hash_events = {}
         self._hash_values = {}
+        self._incoming_hash_lock = threading.Lock()
+        self._incoming_hash_state = {}
+        self._incoming_hash_expiry = max(
+            float(self._hash_timeout or 0.0),
+            float(getattr(config, 'tunnel_no_response_timeout', 0.0) or 0.0),
+        )
+        if self._incoming_hash_expiry <= 0:
+            self._incoming_hash_expiry = None
 
         # Transfer statistics
         self._last_stats = None
         self._current_stats = None
+
+    def shutdown(self):
+        super(FileTransferModule, self).shutdown()
+        with self._incoming_hash_lock:
+            self._incoming_hash_state.clear()
 
     # -------------------------------------------------------------------------
     # Public API (called by user, runs in caller's thread)
@@ -433,10 +446,26 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         rid = msg.get('rid')
         digest = msg.get('hash')
         alg = msg.get('alg')
+        ch = msg.get('ch')
         if rid is None or digest is None:
             return
         if alg not in (None, 'sha256'):
             self.send_message(file_err(rid, 'hash', 'unsupported hash', msg.get('ch')))
+            return
+        owns_channel = None
+        if ch is not None:
+            try:
+                owns_channel = self._tunnel.channel_manager._owns_channel_id(ch)
+            except Exception:
+                owns_channel = None
+        if owns_channel is False:
+            resolved = self._update_incoming_hash_state(
+                rid, ch=ch, received=digest
+            )
+            if resolved is not None:
+                self._send_hash_response(
+                    rid, resolved['ch'], resolved['received'], resolved['computed']
+                )
             return
         self._store_hash_value(rid, digest)
 
@@ -569,11 +598,13 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
             self.send_message(file_put_ok(rid, ch))
             hash_obj = hashlib.sha256()
             self._recv_to_file(channel, out_fp, size, timeout=None, hash_obj=hash_obj)
-            expected = self._wait_hash_value(rid, timeout=self._hash_timeout)
-            if expected != hash_obj.hexdigest():
-                self.send_message(file_err(rid, 'hash', 'hash mismatch', ch))
-                return
-            self.send_message(file_hash_ok(rid, ch))
+            resolved = self._update_incoming_hash_state(
+                rid, ch=ch, computed=hash_obj.hexdigest()
+            )
+            if resolved is not None:
+                self._send_hash_response(
+                    rid, resolved['ch'], resolved['received'], resolved['computed']
+                )
             out_fp.close()
             out_fp = None
         except FileTransferError as e:
@@ -713,3 +744,56 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         with self._hash_lock:
             self._hash_values.pop(rid, None)
             self._hash_events.pop(rid, None)
+
+    def _update_incoming_hash_state(self, rid, ch=None, received=None, computed=None):
+        """Track hash exchange for incoming uploads."""
+        now = time_provider.now()
+        with self._incoming_hash_lock:
+            self._prune_incoming_hash_state_locked(now)
+            entry = self._incoming_hash_state.get(rid)
+            if entry is None:
+                entry = {
+                    'ch': ch,
+                    'received': None,
+                    'computed': None,
+                    'updated': now,
+                }
+                self._incoming_hash_state[rid] = entry
+            if ch is not None:
+                entry['ch'] = ch
+            if received is not None:
+                entry['received'] = received
+            if computed is not None:
+                entry['computed'] = computed
+            entry['updated'] = now
+            if entry['received'] is not None and entry['computed'] is not None:
+                resolved = {
+                    'ch': entry['ch'],
+                    'received': entry['received'],
+                    'computed': entry['computed'],
+                }
+                self._incoming_hash_state.pop(rid, None)
+                return resolved
+        return None
+
+    def _prune_incoming_hash_state_locked(self, now):
+        expiry = self._incoming_hash_expiry
+        if not expiry:
+            return
+        cutoff = now - expiry
+        if cutoff <= 0:
+            return
+        stale = [
+            rid for rid, entry in self._incoming_hash_state.items()
+            if entry.get('updated', 0) < cutoff
+        ]
+        for rid in stale:
+            self._incoming_hash_state.pop(rid, None)
+
+    def _send_hash_response(self, rid, ch, received, computed):
+        """Send hash_ok or hash mismatch error."""
+        if received != computed:
+            self.send_message(file_err(rid, 'hash', 'hash mismatch', ch))
+            return False
+        self.send_message(file_hash_ok(rid, ch))
+        return True

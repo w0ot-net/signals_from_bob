@@ -105,11 +105,6 @@ class ChannelManager(object):
         """The control channel (channel 0)."""
         return self._control
 
-    @property
-    def control_send_event(self):
-        """Event set when control channel has pending send data."""
-        return self._control.send_event
-
     def set_channel_request_handler(self, handler):
         """
         Set handler for remote channel open requests.
@@ -120,12 +115,19 @@ class ChannelManager(object):
             raise TypeError('handler must be callable or None')
         self._channel_request_handler = handler
 
-    def has_pending_data(self, include_control=True):
-        """Return True if any channel has queued send data."""
-        if include_control and self._control.send_event.is_set():
-            return True
-        with self._lock:
-            return bool(self._active_channels)
+    def has_pending_data(self, mode='control_or_data'):
+        """Return True if channels have queued send data."""
+        if mode == 'control':
+            return self._control.send_event.is_set()
+        if mode == 'data':
+            with self._lock:
+                return bool(self._active_channels)
+        if mode == 'control_or_data':
+            if self._control.send_event.is_set():
+                return True
+            with self._lock:
+                return bool(self._active_channels)
+        raise ValueError('mode must be control_or_data, control, or data')
 
     def has_data_channels_pending(self):
         """Return True if any non-control channel has queued send data."""

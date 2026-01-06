@@ -536,57 +536,38 @@ class AliceTunnel(BaseTunnel):
             self._send_packet_mtu
         )
         pacing_blocked = False
+        pending_mode = 'control' if serial_window else 'control_or_data'
+        control_only = serial_window
+        break_on_empty = not serial_window
         while True:
-            if serial_window:
-                if self._channel_manager.control_send_event.is_set():
-                    if not self._can_send_new(
-                            now=now,
-                            keepalive_only=False):
-                        break
-                    if not self._poll_pacing_allows_send(now):
-                        pacing_blocked = True
-                        break
-                    permit = self._reserve_transport_permit(now)
-                    if permit is None:
-                        break
-                    segments = self._collect_segments(
-                        send_payload_limit,
-                        control_only=True,
-                    )
-                    if segments:
-                        self._has_pending_data_acks = True
-                        self._send_new_packet(segments, now, permit=permit)
-                        continue
-                    self._transport.release_send(permit)
-            else:
-                if self._channel_manager.has_pending_data():
-                    if not self._can_send_new(
-                            now=now,
-                            keepalive_only=False):
-                        break
-                    if not self._poll_pacing_allows_send(now):
-                        pacing_blocked = True
-                        break
-                    permit = self._reserve_transport_permit(now)
-                    if permit is None:
-                        break
-                    segments = self._collect_segments(send_payload_limit)
-                    if segments:
-                        self._has_pending_data_acks = True
-                        self._send_new_packet(segments, now, permit=permit)
-                        continue
-                    self._transport.release_send(permit)
+            if self._channel_manager.has_pending_data(mode=pending_mode):
+                if not self._can_send_new(
+                        now=now,
+                        keepalive_only=False):
+                    break
+                if not self._poll_pacing_allows_send(now):
+                    pacing_blocked = True
+                    break
+                permit = self._reserve_transport_permit(now)
+                if permit is None:
+                    break
+                segments = self._collect_segments(
+                    send_payload_limit,
+                    control_only=control_only,
+                )
+                if segments:
+                    self._has_pending_data_acks = True
+                    self._send_new_packet(segments, now, permit=permit)
+                    continue
+                self._transport.release_send(permit)
+                if break_on_empty:
                     break
 
             should_poll, keepalive_due, consume_pong_grace = self._poll_decision(now)
             if not should_poll:
                 break
-            if serial_window:
-                if self._channel_manager.control_send_event.is_set():
-                    continue
-            else:
-                if self._channel_manager.has_pending_data():
-                    continue
+            if self._channel_manager.has_pending_data(mode=pending_mode):
+                continue
             window_full = not self._send_window.can_send
             if window_full:
                 if not self._can_send_new(
@@ -629,12 +610,13 @@ class AliceTunnel(BaseTunnel):
                 continue
             segments = self._collect_segments(
                 send_payload_limit,
-                control_only=serial_window,
+                control_only=control_only,
             )
             if segments:
                 self._send_new_packet(segments, now, permit=permit)
                 continue
-            if self._channel_manager.has_pending_data() and not serial_window:
+            if (break_on_empty and
+                    self._channel_manager.has_pending_data(mode=pending_mode)):
                 self._transport.release_send(permit)
                 break
             self._send_new_packet([], now, flags=FLAG_KEEPALIVE, permit=permit)
@@ -653,7 +635,8 @@ class AliceTunnel(BaseTunnel):
 
         if (not paced_sleep and not received_any and
                 self._packets_sent == packets_sent_before and
-                not self._channel_manager.has_pending_data() and
+                not self._channel_manager.has_pending_data(
+                    mode='control_or_data') and
                 not self._got_data and not self._has_pending_data_acks):
             idle_sleep = max(self._config.tunnel_tick_sleep, 0.01)
             time_provider.sleep(idle_sleep)

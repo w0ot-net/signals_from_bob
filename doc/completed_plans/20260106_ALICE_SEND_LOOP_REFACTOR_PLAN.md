@@ -34,3 +34,10 @@
    has_pending_data(include_control=...) to the new mode API.
 5) Review the diff to confirm behavior is unchanged aside from the API change
    and that the loop remains Python 2.7/3 compatible.
+
+## Execution Notes
+- Date: 2026-01-06
+- Removed ChannelManager.control_send_event and added has_pending_data(mode=...).
+- Refactored Alice send loop to use pending_mode/control_only/break_on_empty for
+  unified pending and keepalive suppression behavior.
+- Tests not run (per instructions).

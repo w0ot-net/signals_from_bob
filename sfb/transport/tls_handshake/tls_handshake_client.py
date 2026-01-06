@@ -85,8 +85,8 @@ class TlsClient(Transport):
         self._handshake_timeout = validated['handshake_timeout']
         self._max_record_send = validated['max_clienthello_bytes']
         self._max_record_recv = validated['max_serverhello_bytes']
-        self._send_mtu = validated['client_payload_cap']
-        self._recv_mtu = validated['server_payload_cap']
+        self._send_packet_mtu = validated['client_payload_cap']
+        self._recv_packet_mtu = validated['server_payload_cap']
         self._sni = validated['sni']
         self._alpn_list = validated['alpn_list']
         self._clienthello_padding_target = validated['clienthello_padding_target']
@@ -139,8 +139,8 @@ class TlsClient(Transport):
                 'handshake_timeout': self._handshake_timeout,
                 'max_clienthello_bytes': self._max_record_send,
                 'max_serverhello_bytes': self._max_record_recv,
-                'send_mtu': self._send_mtu,
-                'recv_mtu': self._recv_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
                 'sni': self._sni,
                 'alpn': self._alpn_list,
                 'clienthello_padding_target': self._clienthello_padding_target,
@@ -153,12 +153,12 @@ class TlsClient(Transport):
         self._next_corr_id = 0
 
     @property
-    def send_mtu(self):
-        return self._send_mtu
+    def send_packet_mtu(self):
+        return self._send_packet_mtu
 
     @property
-    def recv_mtu(self):
-        return self._recv_mtu
+    def recv_packet_mtu(self):
+        return self._recv_packet_mtu
 
     @property
     def max_in_flight(self):
@@ -202,9 +202,11 @@ class TlsClient(Transport):
             pending_before = len(self._pending_state)
         require_bytes_like(data)
         data = to_bytes(data)
-        if len(data) > self._send_mtu:
+        if len(data) > self._send_packet_mtu:
             raise TransportError(
-                'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
+                'Data size %d exceeds send MTU %d' % (
+                    len(data), self._send_packet_mtu
+                )
             )
 
         try:
@@ -484,7 +486,7 @@ class TlsClient(Transport):
             self._log_parse_error('tls.parse', corr_id)
             self._close_pending(corr_id, state)
             return None
-        if len(payload) > self._recv_mtu:
+        if len(payload) > self._recv_packet_mtu:
             self._log_parse_error('tls.mtu', corr_id)
             self._close_pending(corr_id, state)
             return None

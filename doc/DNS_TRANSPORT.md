@@ -229,15 +229,17 @@ the peer accepts a larger receive MTU.
 
 ## MTU Calculation
 
-The DNS transport exposes per-direction MTUs:
+The DNS transport exposes per-direction packet MTUs:
 
-- Alice send_mtu / Bob recv_mtu: query-side MTU (encoded in the QNAME).
-- Alice recv_mtu / Bob send_mtu: response-side MTU (encoded in the CNAME target).
+- Alice send_packet_mtu / Bob recv_packet_mtu: query-side MTU (encoded in the QNAME).
+- Alice recv_packet_mtu / Bob send_packet_mtu: response-side MTU (encoded in the CNAME target).
 
 These values depend on `base_domain`, `cname_label`, and `label_max_len`. The
 tunnel negotiates tx/rx MTUs independently (asymmetric MTU).
+Payload bytes are derived as `(packet_mtu - PACKET_HEADER_SIZE)` when packing
+segments.
 
-### Query-Side MTU (Alice send_mtu, Bob recv_mtu)
+### Query-Side MTU (Alice send_packet_mtu, Bob recv_packet_mtu)
 
 ```
 available_chars = 253 - len(base_domain) - 1 - 4 - 1  # nonce is 4 chars
@@ -255,7 +257,7 @@ usable_chars = 229 - 4 = 225
 query_mtu = floor(225 * 5 / 8) = 140 bytes
 ```
 
-### Response-Side MTU (Alice recv_mtu, Bob send_mtu)
+### Response-Side MTU (Alice recv_packet_mtu, Bob send_packet_mtu)
 
 ```
 cname_suffix = cname_label + '.' + base_domain

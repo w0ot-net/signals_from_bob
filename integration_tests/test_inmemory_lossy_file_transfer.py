@@ -104,8 +104,8 @@ class LossyInMemoryFileTransferIntegrationTests(unittest.TestCase):
 
         client, server = create_inmemory_transport_pair(
             self._config,
-            send_mtu=4096,
-            recv_mtu=4096,
+            send_packet_mtu=4096,
+            recv_packet_mtu=4096,
         )
 
         handshake_impairment = NetworkImpairment()

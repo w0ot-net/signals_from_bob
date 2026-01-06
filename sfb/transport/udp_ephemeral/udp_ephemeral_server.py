@@ -30,10 +30,10 @@ class UdpEphemeralServer(Server):
 
         validated = validate_udp_ephemeral_config(config, role='server')
         self._config = config
-        self._recv_mtu = validated['payload_mtu']
-        self._send_mtu = validated['payload_mtu']
+        self._recv_packet_mtu = validated['packet_mtu']
+        self._send_packet_mtu = validated['packet_mtu']
         self._listen_addr = validated['listen_addr']
-        self._recv_bufsize = max(1, self._recv_mtu + 1)
+        self._recv_bufsize = max(1, self._recv_packet_mtu + 1)
 
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
@@ -54,18 +54,18 @@ class UdpEphemeralServer(Server):
                 'listen_addr': '%s:%d' % (
                     self._listen_addr[0], self._listen_addr[1]
                 ),
-                'recv_mtu': self._recv_mtu,
-                'send_mtu': self._send_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
             },
         )
 
     @property
-    def recv_mtu(self):
-        return self._recv_mtu
+    def recv_packet_mtu(self):
+        return self._recv_packet_mtu
 
     @property
-    def send_mtu(self):
-        return self._send_mtu
+    def send_packet_mtu(self):
+        return self._send_packet_mtu
 
     def recv(self, timeout=None):
         deadline = None
@@ -109,7 +109,7 @@ class UdpEphemeralServer(Server):
                 )
                 raise TransportError('Receive failed: %s' % e)
 
-            if len(data) > self._recv_mtu:
+            if len(data) > self._recv_packet_mtu:
                 log_event(
                     _LOG,
                     logging.DEBUG,
@@ -118,7 +118,7 @@ class UdpEphemeralServer(Server):
                     lambda: {
                         'addr': '%s:%d' % (addr[0], addr[1]),
                         'bytes': len(data),
-                        'recv_mtu': self._recv_mtu,
+                        'recv_packet_mtu': self._recv_packet_mtu,
                     },
                 )
                 continue
@@ -139,7 +139,7 @@ class UdpEphemeralServer(Server):
     def _make_responder(self, addr):
         def responder(data):
             data = require_bytes_like(data)
-            if len(data) > self._send_mtu:
+            if len(data) > self._send_packet_mtu:
                 log_event(
                     _LOG,
                     logging.DEBUG,
@@ -148,12 +148,12 @@ class UdpEphemeralServer(Server):
                     lambda: {
                         'addr': '%s:%d' % (addr[0], addr[1]),
                         'bytes': len(data),
-                        'send_mtu': self._send_mtu,
+                        'send_packet_mtu': self._send_packet_mtu,
                     },
                 )
                 raise TransportError(
                     'Data size %d exceeds send MTU %d' %
-                    (len(data), self._send_mtu)
+                    (len(data), self._send_packet_mtu)
                 )
             try:
                 self._sock.sendto(data, addr)
@@ -180,7 +180,7 @@ class UdpEphemeralServer(Server):
                     'bytes': len(data),
                 },
             )
-        responder.payload_cap = self._send_mtu
+        responder.payload_cap = self._send_packet_mtu
         return responder
 
     def close(self):

@@ -104,12 +104,15 @@ class DnsServer(Server):
         self._soa_record = self._build_soa_record()
 
         # Calculate MTUs
-        self._recv_mtu = codec.calc_query_mtu(self._base_domain,
-                                              self._label_max_len)
-        self._send_mtu = codec.calc_response_mtu(self._rtype,
-                                                 config.dns_edns_size,
-                                                 self._cname_suffix,
-                                                 self._label_max_len)
+        self._recv_packet_mtu = codec.calc_query_mtu(
+            self._base_domain, self._label_max_len
+        )
+        self._send_packet_mtu = codec.calc_response_mtu(
+            self._rtype,
+            config.dns_edns_size,
+            self._cname_suffix,
+            self._label_max_len,
+        )
         if self._rtype == codec.QTYPE_CNAME and self._edns_size <= DNS_STANDARD_SIZE:
             self._payload_cap = codec.calc_cname_payload_cap(
                 self._base_domain,
@@ -160,18 +163,18 @@ class DnsServer(Server):
             lambda: {
                 'base_domain': self._base_domain,
                 'label_max': self._label_max_len,
-                'recv_mtu': self._recv_mtu,
-                'send_mtu': self._send_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
             },
         )
 
     @property
-    def recv_mtu(self):
-        return self._recv_mtu
+    def recv_packet_mtu(self):
+        return self._recv_packet_mtu
 
     @property
-    def send_mtu(self):
-        return self._send_mtu
+    def send_packet_mtu(self):
+        return self._send_packet_mtu
 
     @property
     def payload_cap(self):

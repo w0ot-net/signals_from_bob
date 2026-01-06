@@ -74,11 +74,11 @@ class MockTransport(Transport):
         return 16
 
     @property
-    def send_mtu(self):
+    def send_packet_mtu(self):
         return 200
 
     @property
-    def recv_mtu(self):
+    def recv_packet_mtu(self):
         return 200
 
     def close(self):
@@ -110,11 +110,11 @@ class MockServer(Server):
         return responder
 
     @property
-    def send_mtu(self):
+    def send_packet_mtu(self):
         return 200
 
     @property
-    def recv_mtu(self):
+    def recv_packet_mtu(self):
         return 200
 
     def close(self):
@@ -483,8 +483,8 @@ class LossyTransportTests(unittest.TestCase):
         inner = MockTransport()
         lossy = LossyTransport(inner, no_impairment())
 
-        self.assertEqual(lossy.send_mtu, inner.send_mtu)
-        self.assertEqual(lossy.recv_mtu, inner.recv_mtu)
+        self.assertEqual(lossy.send_packet_mtu, inner.send_packet_mtu)
+        self.assertEqual(lossy.recv_packet_mtu, inner.recv_packet_mtu)
         self.assertEqual(lossy.max_in_flight, inner.max_in_flight)
 
     def test_reserve_send_uses_inner_once(self):
@@ -505,7 +505,7 @@ class LossyTransportTests(unittest.TestCase):
         permit = lossy.reserve_send()
         self.assertIsNotNone(permit)
         with self.assertRaises(TransportError):
-            lossy.send(b'a' * (inner.send_mtu + 1), permit)
+            lossy.send(b'a' * (inner.send_packet_mtu + 1), permit)
 
     def test_release_send_releases_inner_permit(self):
         inner = MockTransport()

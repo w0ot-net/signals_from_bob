@@ -37,7 +37,7 @@ class InMemoryTransportTests(unittest.TestCase):
 
     def test_mtu_enforced(self):
         client, server = create_inmemory_transport_pair(
-            Config(), send_mtu=4, recv_mtu=4
+            Config(), send_packet_mtu=4, recv_packet_mtu=4
         )
         permit = client.reserve_send()
         self.assertIsNotNone(permit)

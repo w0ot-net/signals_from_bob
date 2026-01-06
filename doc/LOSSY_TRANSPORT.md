@@ -52,7 +52,7 @@ capacity.
 
 ### Send Path
 
-- Validates payload size against `send_mtu` before impairment decisions.
+- Validates payload size against `send_packet_mtu` before impairment decisions.
 - Allocates a wrapper correlation ID immediately and marks it as pending.
 - Applies impairment in this order:
   - Drop: do not call the inner transport; pending remains until timeout.

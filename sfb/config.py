@@ -58,7 +58,7 @@ class Config:
     # Target host/IPv4 for Alice
     icmp_target: Optional[str] = None
     # Max SFB packet size to send/receive in ICMP payload
-    icmp_payload_mtu: int = 1350
+    icmp_packet_mtu: int = 1350
     # Timeout before considering an ICMP request stale (seconds)
     icmp_pending_timeout: float = 10.0
 
@@ -68,7 +68,7 @@ class Config:
     # Listen host:port for Bob (IPv4 only)
     udp_ephemeral_listen_addr: str = "0.0.0.0:53"
     # Max SFB packet size to send/receive in UDP payload
-    udp_ephemeral_payload_mtu: int = 1350
+    udp_ephemeral_packet_mtu: int = 1350
     # Timeout before considering a UDP request stale (seconds)
     udp_ephemeral_pending_timeout: float = 5.0
     # Minutes before reusing a UDP source port
@@ -348,9 +348,9 @@ class Config:
 
     # --- Protocol (rarely need changing) ---
     # Maximum packet size (bytes)
-    protocol_max_packet_size: int = 1450
-    # Initial MTU before negotiation (bytes)
-    protocol_initial_mtu: int = 100
+    protocol_max_packet_mtu: int = 1450
+    # Initial packet MTU before negotiation (bytes)
+    protocol_initial_packet_mtu: int = PACKET_HEADER_SIZE + 100
     # Initial retransmission timeout (milliseconds)
     protocol_initial_rto_ms: int = 1000
     # Minimum RTO (milliseconds)
@@ -385,14 +385,14 @@ class Config:
             raise ValueError("dns_cname_label must include non-base32 characters")
 
         # ICMP validation
-        if self.icmp_payload_mtu <= 0:
-            raise ValueError("icmp_payload_mtu must be > 0")
+        if self.icmp_packet_mtu <= 0:
+            raise ValueError("icmp_packet_mtu must be > 0")
         if self.icmp_pending_timeout <= 0:
             raise ValueError("icmp_pending_timeout must be > 0")
 
         # UDP ephemeral validation
-        if self.udp_ephemeral_payload_mtu <= 0:
-            raise ValueError("udp_ephemeral_payload_mtu must be > 0")
+        if self.udp_ephemeral_packet_mtu <= 0:
+            raise ValueError("udp_ephemeral_packet_mtu must be > 0")
         if self.udp_ephemeral_pending_timeout <= 0:
             raise ValueError("udp_ephemeral_pending_timeout must be > 0")
         if self.udp_ephemeral_source_port_reuse_minutes < 0:
@@ -477,12 +477,12 @@ class Config:
         if self.tunnel_connect_poll_interval <= 0:
             raise ValueError("tunnel_connect_poll_interval must be > 0")
 
-        payload_mtu = self.protocol_max_packet_size - PACKET_HEADER_SIZE
-        if payload_mtu < 1:
+        payload_bytes = self.protocol_max_packet_mtu - PACKET_HEADER_SIZE
+        if payload_bytes < 1:
             raise ValueError(
-                "protocol_max_packet_size must be > %d" % PACKET_HEADER_SIZE
+                "protocol_max_packet_mtu must be > %d" % PACKET_HEADER_SIZE
             )
-        worst_case_buf = payload_mtu * self.max_in_flight * 4
+        worst_case_buf = payload_bytes * self.max_in_flight * 4
         if worst_case_buf < 1024:
             worst_case_buf = 1024
         if self.channel_max_send_buf < worst_case_buf:

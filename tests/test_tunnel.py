@@ -82,11 +82,11 @@ class MockTransport(Transport):
         return self._max_in_flight
 
     @property
-    def send_mtu(self):
+    def send_packet_mtu(self):
         return 200
 
     @property
-    def recv_mtu(self):
+    def recv_packet_mtu(self):
         return 200
 
     def close(self):
@@ -138,11 +138,11 @@ class MockServer(Server):
         return None
 
     @property
-    def send_mtu(self):
+    def send_packet_mtu(self):
         return 200
 
     @property
-    def recv_mtu(self):
+    def recv_packet_mtu(self):
         return 200
 
     def close(self):
@@ -263,11 +263,11 @@ class _PairedAliceTransport(Transport):
         return 16
 
     @property
-    def send_mtu(self):
+    def send_packet_mtu(self):
         return 200
 
     @property
-    def recv_mtu(self):
+    def recv_packet_mtu(self):
         return 200
 
     def close(self):
@@ -304,11 +304,11 @@ class _PairedBobServer(Server):
         return responder
 
     @property
-    def send_mtu(self):
+    def send_packet_mtu(self):
         return 200
 
     @property
-    def recv_mtu(self):
+    def recv_packet_mtu(self):
         return 200
 
     def close(self):
@@ -397,8 +397,8 @@ class BaseTunnelGapTests(unittest.TestCase):
         from sfb.protocol import PACKET_HEADER_SIZE
 
         class DummyTransport(object):
-            send_mtu = PACKET_HEADER_SIZE - 10
-            recv_mtu = PACKET_HEADER_SIZE + 5
+            send_packet_mtu = PACKET_HEADER_SIZE - 10
+            recv_packet_mtu = PACKET_HEADER_SIZE + 5
             payload_cap = 123
 
         tunnel = BaseTunnel(make_test_config())
@@ -406,12 +406,13 @@ class BaseTunnelGapTests(unittest.TestCase):
         self.assertEqual(send_payload, 1)
         self.assertEqual(recv_payload, 5)
         self.assertEqual(tunnel._payload_cap, 123)
-        self.assertEqual(tunnel._send_mtu, 1)
-        self.assertEqual(tunnel._recv_mtu, 5)
         self.assertEqual(
-            tunnel._max_packet_size,
-            recv_payload + PACKET_HEADER_SIZE
+            tunnel._send_packet_mtu, DummyTransport.send_packet_mtu
         )
+        self.assertEqual(
+            tunnel._recv_packet_mtu, DummyTransport.recv_packet_mtu
+        )
+        self.assertEqual(tunnel._max_packet_size, DummyTransport.recv_packet_mtu)
 
     def test_collect_segments_payload_cap_limits_data(self):
         from sfb.protocol import PACKET_HEADER_SIZE, SEGMENT_HEADER_SIZE
@@ -625,34 +626,39 @@ class MtuNegotiationTests(unittest.TestCase):
         alice = BaseTunnel(make_test_config())
         bob = BaseTunnel(make_test_config(), is_initiator=False)
 
-        alice._proposed_send_mtu = 120
-        alice._proposed_recv_mtu = 80
-        alice._send_mtu = 120
-        alice._recv_mtu = 80
+        alice._proposed_send_packet_mtu = 120
+        alice._proposed_recv_packet_mtu = 80
+        alice._send_packet_mtu = 120
+        alice._recv_packet_mtu = 80
 
-        bob._proposed_send_mtu = 60
-        bob._proposed_recv_mtu = 200
-        bob._send_mtu = 60
-        bob._recv_mtu = 200
+        bob._proposed_send_packet_mtu = 60
+        bob._proposed_recv_packet_mtu = 200
+        bob._send_packet_mtu = 60
+        bob._recv_packet_mtu = 200
 
-        bob._handle_mtu({'t': 'tun', 'c': 'mtu', 'tx': 120, 'rx': 80})
+        bob._handle_mtu({
+            't': 'tun',
+            'c': 'mtu',
+            'tx': 120 - PACKET_HEADER_SIZE,
+            'rx': 80 - PACKET_HEADER_SIZE,
+        })
         msgs = _control_messages(bob.control)
         mtu_ok = [m for m in msgs if m.get('c') == 'mtu_ok']
         self.assertEqual(len(mtu_ok), 1)
         mtu_ok = mtu_ok[0]
 
-        self.assertEqual(bob.negotiated_recv_mtu, 120)
-        self.assertEqual(bob._recv_mtu, 120)
-        self.assertEqual(bob.negotiated_send_mtu, 60)
-        self.assertEqual(bob._send_mtu, 60)
-        self.assertEqual(mtu_ok.get('tx'), 60)
-        self.assertEqual(mtu_ok.get('rx'), 120)
+        self.assertEqual(bob.negotiated_recv_packet_mtu, 120)
+        self.assertEqual(bob._recv_packet_mtu, 120)
+        self.assertEqual(bob.negotiated_send_packet_mtu, 60)
+        self.assertEqual(bob._send_packet_mtu, 60)
+        self.assertEqual(mtu_ok.get('tx'), 60 - PACKET_HEADER_SIZE)
+        self.assertEqual(mtu_ok.get('rx'), 120 - PACKET_HEADER_SIZE)
 
         alice._handle_mtu_ok(mtu_ok)
-        self.assertEqual(alice.negotiated_send_mtu, 120)
-        self.assertEqual(alice._send_mtu, 120)
-        self.assertEqual(alice.negotiated_recv_mtu, 60)
-        self.assertEqual(alice._recv_mtu, 60)
+        self.assertEqual(alice.negotiated_send_packet_mtu, 120)
+        self.assertEqual(alice._send_packet_mtu, 120)
+        self.assertEqual(alice.negotiated_recv_packet_mtu, 60)
+        self.assertEqual(alice._recv_packet_mtu, 60)
 
         msgs = _control_messages(alice.control)
         mtu_ack = [m for m in msgs if m.get('c') == 'mtu_ack']
@@ -661,21 +667,26 @@ class MtuNegotiationTests(unittest.TestCase):
         self.assertTrue(alice._mtu_negotiated)
         self.assertTrue(bob._mtu_negotiated)
 
-    def test_mtu_ack_applies_pending_send_mtu(self):
+    def test_mtu_ack_applies_pending_send_packet_mtu(self):
         bob = BaseTunnel(make_test_config(), is_initiator=False)
-        bob._proposed_send_mtu = 120
-        bob._proposed_recv_mtu = 100
-        bob._send_mtu = 60
-        bob._recv_mtu = 100
+        bob._proposed_send_packet_mtu = 120
+        bob._proposed_recv_packet_mtu = 100
+        bob._send_packet_mtu = 60
+        bob._recv_packet_mtu = 100
 
-        bob._handle_mtu({'t': 'tun', 'c': 'mtu', 'tx': 100, 'rx': 120})
-        self.assertEqual(bob._pending_send_mtu, 120)
-        self.assertEqual(bob._send_mtu, 60)
+        bob._handle_mtu({
+            't': 'tun',
+            'c': 'mtu',
+            'tx': 100 - PACKET_HEADER_SIZE,
+            'rx': 120 - PACKET_HEADER_SIZE,
+        })
+        self.assertEqual(bob._pending_send_packet_mtu, 120)
+        self.assertEqual(bob._send_packet_mtu, 60)
 
         bob._handle_mtu_ack({'t': 'tun', 'c': 'mtu_ack'})
-        self.assertEqual(bob._send_mtu, 120)
-        self.assertEqual(bob.negotiated_send_mtu, 120)
-        self.assertIsNone(bob._pending_send_mtu)
+        self.assertEqual(bob._send_packet_mtu, 120)
+        self.assertEqual(bob.negotiated_send_packet_mtu, 120)
+        self.assertIsNone(bob._pending_send_packet_mtu)
         self.assertTrue(bob._mtu_negotiated)
 
 
@@ -934,7 +945,7 @@ class BobPollingTests(unittest.TestCase):
         bob._send_window._next_seq = 101
 
         bob.control.send_message({'t': 'tun', 'c': 'test'})
-        bob._send_mtu = SEGMENT_HEADER_SIZE - 1
+        bob._send_packet_mtu = SEGMENT_HEADER_SIZE - 1
 
         sent_responses = []
 
@@ -1404,7 +1415,7 @@ class KeepaliveFlagTests(unittest.TestCase):
         bob._recv_window.set_initial_seq(201)
         bob._send_window._next_seq = 101
 
-        bob._send_mtu = 0
+        bob._send_packet_mtu = 0
         bob.control.send_message(tun_window(8))
 
         sent_responses = []
@@ -1447,45 +1458,64 @@ class NegotiationTests(unittest.TestCase):
         """Verify Bob responds to MTU request with mtu_ok."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel(make_test_config(), is_initiator=False)
-        tunnel._proposed_recv_mtu = 200  # Bob receive max
-        tunnel._proposed_send_mtu = 180  # Bob send max
+        config = make_test_config()
+        tunnel = BaseTunnel(config, is_initiator=False)
+        tunnel._proposed_recv_packet_mtu = 200  # Bob receive max
+        tunnel._proposed_send_packet_mtu = 180  # Bob send max
 
-        # Alice requests tx=500, rx=150
-        tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu', 'tx': 500, 'rx': 150})
+        # Alice requests tx=500, rx=150 (payload bytes in message)
+        tunnel._dispatch_control_message({
+            't': 'tun',
+            'c': 'mtu',
+            'tx': 500 - PACKET_HEADER_SIZE,
+            'rx': 150 - PACKET_HEADER_SIZE,
+        })
 
         # Bob should agree to rx=min(500, 200) = 200 for receiving
-        self.assertEqual(tunnel.negotiated_recv_mtu, 200)
+        self.assertEqual(tunnel.negotiated_recv_packet_mtu, 200)
         # But _mtu_negotiated is False until Bob receives mtu_ack
         self.assertFalse(tunnel._mtu_negotiated)
-        # And _send_mtu stays at default until ack
-        self.assertEqual(tunnel._send_mtu, 100)
+        # And _send_packet_mtu stays at default until ack
+        self.assertEqual(
+            tunnel._send_packet_mtu,
+            config.protocol_initial_packet_mtu,
+        )
 
         # Check mtu_ok was queued
         send_data = b''.join(tunnel.control._send_buf)
         self.assertIn(b'"c":"mtu_ok"', send_data)
-        self.assertIn(b'"tx":150', send_data)
-        self.assertIn(b'"rx":200', send_data)
+        self.assertIn(
+            b'"tx":%d' % (150 - PACKET_HEADER_SIZE),
+            send_data,
+        )
+        self.assertIn(
+            b'"rx":%d' % (200 - PACKET_HEADER_SIZE),
+            send_data,
+        )
 
         # After receiving mtu_ack, Bob can send larger packets
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu_ack'})
         self.assertTrue(tunnel._mtu_negotiated)
-        self.assertEqual(tunnel._send_mtu, 150)
+        self.assertEqual(tunnel._send_packet_mtu, 150)
 
     def test_mtu_negotiation_invalid_ignored(self):
         """Verify invalid MTU requests are ignored."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
         tunnel = BaseTunnel(make_test_config(), is_initiator=False)
-        tunnel._proposed_recv_mtu = 200
-        tunnel._proposed_send_mtu = 180
+        tunnel._proposed_recv_packet_mtu = 200
+        tunnel._proposed_send_packet_mtu = 180
 
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu', 'tx': 0, 'rx': -1})
 
-        self.assertEqual(tunnel.negotiated_recv_mtu, tunnel._default_mtu)
-        self.assertEqual(tunnel.negotiated_send_mtu, tunnel._default_mtu)
-        self.assertEqual(tunnel._send_mtu, tunnel._default_mtu)
-        self.assertIsNone(tunnel._pending_send_mtu)
+        self.assertEqual(
+            tunnel.negotiated_recv_packet_mtu, tunnel._default_packet_mtu
+        )
+        self.assertEqual(
+            tunnel.negotiated_send_packet_mtu, tunnel._default_packet_mtu
+        )
+        self.assertEqual(tunnel._send_packet_mtu, tunnel._default_packet_mtu)
+        self.assertIsNone(tunnel._pending_send_packet_mtu)
         self.assertEqual(tunnel.control.send_buf_size, 0)
 
     def test_mtu_negotiation_bob_downsizes_immediately(self):
@@ -1493,44 +1523,64 @@ class NegotiationTests(unittest.TestCase):
         from sfb.tunnel.base_tunnel import BaseTunnel
 
         tunnel = BaseTunnel(make_test_config(), is_initiator=False)
-        tunnel._proposed_recv_mtu = 200  # Bob receive max
-        tunnel._proposed_send_mtu = 180  # Bob send max
+        tunnel._proposed_recv_packet_mtu = 200  # Bob receive max
+        tunnel._proposed_send_packet_mtu = 180  # Bob send max
 
-        # Alice requests a smaller Bob->Alice MTU
-        tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu', 'tx': 150, 'rx': 80})
+        # Alice requests a smaller Bob->Alice MTU (payload bytes in message)
+        tunnel._dispatch_control_message({
+            't': 'tun',
+            'c': 'mtu',
+            'tx': 150 - PACKET_HEADER_SIZE,
+            'rx': 80 - PACKET_HEADER_SIZE,
+        })
 
         # Bob should clamp send path immediately
-        self.assertEqual(tunnel.negotiated_recv_mtu, 150)
-        self.assertEqual(tunnel._send_mtu, 80)
-        self.assertEqual(tunnel.negotiated_send_mtu, 80)
-        self.assertIsNone(tunnel._pending_send_mtu)
+        self.assertEqual(tunnel.negotiated_recv_packet_mtu, 150)
+        self.assertEqual(tunnel._send_packet_mtu, 80)
+        self.assertEqual(tunnel.negotiated_send_packet_mtu, 80)
+        self.assertIsNone(tunnel._pending_send_packet_mtu)
         self.assertFalse(tunnel._mtu_negotiated)
 
         # mtu_ack should not change the already-reduced send MTU
         tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu_ack'})
-        self.assertEqual(tunnel._send_mtu, 80)
+        self.assertEqual(tunnel._send_packet_mtu, 80)
         self.assertTrue(tunnel._mtu_negotiated)
 
     def test_mtu_negotiation_alice_accepts(self):
         """Verify Alice accepts mtu_ok, updates MTU, and sends mtu_ack."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel(make_test_config(), is_initiator=True)
-        tunnel._proposed_send_mtu = 200  # Alice send max
-        tunnel._proposed_recv_mtu = 160  # Alice recv max
+        config = make_test_config()
+        tunnel = BaseTunnel(config, is_initiator=True)
+        tunnel._proposed_send_packet_mtu = 200  # Alice send max
+        tunnel._proposed_recv_packet_mtu = 160  # Alice recv max
 
         # Default is 100
-        self.assertEqual(tunnel.negotiated_recv_mtu, 100)
-        self.assertEqual(tunnel.negotiated_send_mtu, 100)
-        self.assertEqual(tunnel._send_mtu, 100)
+        self.assertEqual(
+            tunnel.negotiated_recv_packet_mtu,
+            config.protocol_initial_packet_mtu,
+        )
+        self.assertEqual(
+            tunnel.negotiated_send_packet_mtu,
+            config.protocol_initial_packet_mtu,
+        )
+        self.assertEqual(
+            tunnel._send_packet_mtu,
+            config.protocol_initial_packet_mtu,
+        )
 
-        # Bob sends mtu_ok
-        tunnel._dispatch_control_message({'t': 'tun', 'c': 'mtu_ok', 'tx': 150, 'rx': 140})
+        # Bob sends mtu_ok (payload bytes in message)
+        tunnel._dispatch_control_message({
+            't': 'tun',
+            'c': 'mtu_ok',
+            'tx': 150 - PACKET_HEADER_SIZE,
+            'rx': 140 - PACKET_HEADER_SIZE,
+        })
 
         # Alice updates both receive and send MTU immediately
-        self.assertEqual(tunnel.negotiated_recv_mtu, 150)
-        self.assertEqual(tunnel.negotiated_send_mtu, 140)
-        self.assertEqual(tunnel._send_mtu, 140)
+        self.assertEqual(tunnel.negotiated_recv_packet_mtu, 150)
+        self.assertEqual(tunnel.negotiated_send_packet_mtu, 140)
+        self.assertEqual(tunnel._send_packet_mtu, 140)
         self.assertTrue(tunnel._mtu_negotiated)
 
         # Check mtu_ack was queued
@@ -1589,11 +1639,18 @@ class NegotiationTests(unittest.TestCase):
         """Verify tunnel starts with conservative MTU/window."""
         from sfb.tunnel.base_tunnel import BaseTunnel
 
-        tunnel = BaseTunnel(make_test_config())
+        config = make_test_config()
+        tunnel = BaseTunnel(config)
 
         # Pre-negotiation defaults
-        self.assertEqual(tunnel.negotiated_send_mtu, 100)
-        self.assertEqual(tunnel.negotiated_recv_mtu, 100)
+        self.assertEqual(
+            tunnel.negotiated_send_packet_mtu,
+            config.protocol_initial_packet_mtu,
+        )
+        self.assertEqual(
+            tunnel.negotiated_recv_packet_mtu,
+            config.protocol_initial_packet_mtu,
+        )
         self.assertEqual(tunnel.negotiated_window, 1)
         self.assertEqual(tunnel._send_window._max_in_flight, 1)
         self.assertFalse(tunnel._mtu_negotiated)

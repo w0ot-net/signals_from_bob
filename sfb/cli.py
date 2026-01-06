@@ -428,9 +428,9 @@ def add_dns_client_args(parser, config):
 def add_icmp_common_args(parser, config):
     """Add ICMP arguments shared by client and server."""
     parser.add_argument(
-        '--icmp-mtu', type=int, default=config.icmp_payload_mtu,
-        help='Max ICMP payload size in bytes (default: %s)' %
-             config.icmp_payload_mtu
+        '--icmp-packet-mtu', type=int, default=config.icmp_packet_mtu,
+        help='Max ICMP packet size in bytes (default: %s)' %
+             config.icmp_packet_mtu
     )
 
 
@@ -447,10 +447,10 @@ def add_icmp_client_args(parser, config, require_target=True):
 def add_udp_ephemeral_common_args(parser, config):
     """Add UDP ephemeral arguments shared by client and server."""
     parser.add_argument(
-        '--udp-ephemeral-mtu', type=int,
-        default=config.udp_ephemeral_payload_mtu,
-        help='Max UDP payload size in bytes (default: %s)' %
-             config.udp_ephemeral_payload_mtu
+        '--udp-ephemeral-packet-mtu', type=int,
+        default=config.udp_ephemeral_packet_mtu,
+        help='Max UDP packet size in bytes (default: %s)' %
+             config.udp_ephemeral_packet_mtu
     )
 
 
@@ -519,7 +519,7 @@ def add_tls_client_args(parser, config):
              'default: %s)' % config.tls_clienthello_padding_target
     )
     parser.add_argument(
-        '--tls-mtu', type=int,
+        '--tls-max-record-bytes', type=int,
         default=config.tls_max_clienthello_bytes,
         help='TLS max record size in bytes (default: %s)' %
              config.tls_max_clienthello_bytes
@@ -550,7 +550,7 @@ def add_tls_server_args(parser, config):
              'default: %s)' % config.tls_clienthello_padding_target
     )
     parser.add_argument(
-        '--tls-mtu', type=int,
+        '--tls-max-record-bytes', type=int,
         default=config.tls_max_clienthello_bytes,
         help='TLS max record size in bytes (default: %s)' %
              config.tls_max_clienthello_bytes
@@ -875,12 +875,12 @@ def create_config(args):
         else:
             config_kwargs['dns_resolver'] = getattr(args, 'target', None)
     elif args.transport == 'icmp':
-        config_kwargs['icmp_payload_mtu'] = getattr(args, 'icmp_mtu', None)
+        config_kwargs['icmp_packet_mtu'] = getattr(args, 'icmp_packet_mtu', None)
         if args.role == 'client':
             config_kwargs['icmp_target'] = getattr(args, 'target', None)
     elif args.transport == 'udp_ephemeral':
-        config_kwargs['udp_ephemeral_payload_mtu'] = getattr(
-            args, 'udp_ephemeral_mtu', None
+        config_kwargs['udp_ephemeral_packet_mtu'] = getattr(
+            args, 'udp_ephemeral_packet_mtu', None
         )
         if args.role == 'client':
             config_kwargs['udp_ephemeral_target'] = getattr(args, 'target', None)
@@ -903,8 +903,12 @@ def create_config(args):
             config_kwargs['tls_alpn'] = getattr(args, 'tls_alpn', None)
             config_kwargs['tls_clienthello_padding_target'] = getattr(
                 args, 'tls_clienthello_padding_target', None)
-            config_kwargs['tls_max_clienthello_bytes'] = getattr(args, 'tls_mtu', None)
-            config_kwargs['tls_max_serverhello_bytes'] = getattr(args, 'tls_mtu', None)
+            config_kwargs['tls_max_clienthello_bytes'] = getattr(
+                args, 'tls_max_record_bytes', None
+            )
+            config_kwargs['tls_max_serverhello_bytes'] = getattr(
+                args, 'tls_max_record_bytes', None
+            )
         else:
             listen_addr = getattr(args, 'listen_addr', None)
             if listen_addr:
@@ -914,8 +918,12 @@ def create_config(args):
             config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
             config_kwargs['tls_clienthello_padding_target'] = getattr(
                 args, 'tls_clienthello_padding_target', None)
-            config_kwargs['tls_max_clienthello_bytes'] = getattr(args, 'tls_mtu', None)
-            config_kwargs['tls_max_serverhello_bytes'] = getattr(args, 'tls_mtu', None)
+            config_kwargs['tls_max_clienthello_bytes'] = getattr(
+                args, 'tls_max_record_bytes', None
+            )
+            config_kwargs['tls_max_serverhello_bytes'] = getattr(
+                args, 'tls_max_record_bytes', None
+            )
     elif args.transport == 'tls_handshake_bump':
         config_kwargs['tls_bump_base_domain'] = getattr(args, 'tls_bump_base_domain', None)
         if args.role == 'client':

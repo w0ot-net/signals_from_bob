@@ -65,8 +65,8 @@ class UdpEphemeralClient(Transport):
 
         validated = validate_udp_ephemeral_config(config, role='client')
         self._config = config
-        self._send_mtu = validated['payload_mtu']
-        self._recv_mtu = validated['payload_mtu']
+        self._send_packet_mtu = validated['packet_mtu']
+        self._recv_packet_mtu = validated['packet_mtu']
         self._max_in_flight = config.max_in_flight
         self._pending_timeout = validated['pending_timeout']
         self._reuse_minutes = validated['reuse_minutes']
@@ -80,7 +80,7 @@ class UdpEphemeralClient(Transport):
         self._port_last_used = {}
         self._next_corr_id = 0
         self._max_port_bind_attempts = 100
-        self._recv_bufsize = max(1, self._recv_mtu + 1)
+        self._recv_bufsize = max(1, self._recv_packet_mtu + 1)
 
         log_event(
             _LOG,
@@ -90,8 +90,8 @@ class UdpEphemeralClient(Transport):
             lambda: {
                 'target': '%s:%d' % (target_host, target_port),
                 'target_ip': '%s:%d' % (self._target_addr[0], self._target_addr[1]),
-                'send_mtu': self._send_mtu,
-                'recv_mtu': self._recv_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
                 'max_in_flight': self._max_in_flight,
                 'pending_timeout': self._pending_timeout,
                 'source_port_reuse_minutes': self._reuse_minutes,
@@ -99,12 +99,12 @@ class UdpEphemeralClient(Transport):
         )
 
     @property
-    def send_mtu(self):
-        return self._send_mtu
+    def send_packet_mtu(self):
+        return self._send_packet_mtu
 
     @property
-    def recv_mtu(self):
-        return self._recv_mtu
+    def recv_packet_mtu(self):
+        return self._recv_packet_mtu
 
     @property
     def max_in_flight(self):
@@ -144,9 +144,11 @@ class UdpEphemeralClient(Transport):
             pending_before = len(self._pending)
 
         data = require_bytes_like(data)
-        if len(data) > self._send_mtu:
+        if len(data) > self._send_packet_mtu:
             raise TransportError(
-                'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
+                'Data size %d exceeds send MTU %d' % (
+                    len(data), self._send_packet_mtu
+                )
             )
 
         now = permit.now
@@ -307,7 +309,7 @@ class UdpEphemeralClient(Transport):
         now = time_provider.now()
         self._drop_pending(corr_id, state, now)
 
-        if len(data) > self._recv_mtu:
+        if len(data) > self._recv_packet_mtu:
             log_event(
                 _LOG,
                 logging.DEBUG,
@@ -316,7 +318,7 @@ class UdpEphemeralClient(Transport):
                 lambda: {
                     'corr_id': corr_id,
                     'bytes': len(data),
-                    'recv_mtu': self._recv_mtu,
+                    'recv_packet_mtu': self._recv_packet_mtu,
                 },
             )
             return None

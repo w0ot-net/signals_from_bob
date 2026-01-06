@@ -42,11 +42,11 @@ class DummyTransport(Transport):
         return self._max_in_flight
 
     @property
-    def send_mtu(self):
+    def send_packet_mtu(self):
         return 1024
 
     @property
-    def recv_mtu(self):
+    def recv_packet_mtu(self):
         return 1024
 
 

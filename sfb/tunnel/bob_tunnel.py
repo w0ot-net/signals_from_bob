@@ -55,14 +55,16 @@ class BobTunnel(BaseTunnel):
         # Security: only accept these message types from Alice by default
         self._allowed_message_types = {'tun', 'ch'}
 
-        _send_payload, recv_payload = self._init_transport_limits(transport)
+        send_payload, recv_payload = self._init_transport_limits(transport)
         log_event(
             self._logger,
             logging.DEBUG,
             'tunnel.init',
             'Tunnel init',
             lambda: {
-                'transport_recv_mtu': transport.recv_mtu,
+                'transport_send_packet_mtu': transport.send_packet_mtu,
+                'transport_recv_packet_mtu': transport.recv_packet_mtu,
+                'send_payload': send_payload,
                 'recv_payload': recv_payload,
                 'max_packet_size': self._max_packet_size,
                 'side': 'bob',
@@ -355,8 +357,8 @@ class BobTunnel(BaseTunnel):
                 'seg_count': len(segments),
                 'bytes': len(response_data),
                 'side': 'bob',
-                'send_mtu': self._send_mtu,
-                'recv_mtu': self._recv_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
             }
             if reason is not None:
                 fields['reason'] = reason
@@ -619,7 +621,7 @@ class BobTunnel(BaseTunnel):
             return
 
         # Collect new segments - use send MTU
-        max_payload = self._send_mtu
+        max_payload = self._payload_mtu_from_packet(self._send_packet_mtu)
         if response_payload_cap is not None:
             cap_payload = response_payload_cap - PACKET_HEADER_SIZE
             if cap_payload < 0:

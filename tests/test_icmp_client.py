@@ -44,8 +44,8 @@ class IcmpClientTests(unittest.TestCase):
 
     def _make_client(self):
         client = IcmpClient.__new__(IcmpClient)
-        client._send_mtu = 1024
-        client._recv_mtu = 1024
+        client._send_packet_mtu = 1024
+        client._recv_packet_mtu = 1024
         client._recv_bufsize = 65535
         client._max_in_flight = 5
         client._pending = PendingTracker(1.0)
@@ -100,7 +100,7 @@ class IcmpClientTests(unittest.TestCase):
 
     def test_try_recv_logs_oversize_response(self):
         client = self._make_client()
-        client._recv_mtu = 2
+        client._recv_packet_mtu = 2
         packet = build_echo_reply(1, 7, b'toolong')
         client._sock = DummyRecvSock(packet, ('10.0.0.2', 0))
         calls = []
@@ -113,7 +113,7 @@ class IcmpClientTests(unittest.TestCase):
         result = client._try_recv()
         self.assertEqual(result, (None, None))
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0]['recv_mtu'], 2)
+        self.assertEqual(calls[0]['recv_packet_mtu'], 2)
 
     def test_try_recv_logs_missing_pending(self):
         client = self._make_client()

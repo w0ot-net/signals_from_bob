@@ -50,8 +50,8 @@ class IcmpServerTests(unittest.TestCase):
 
     def _make_server(self):
         server = IcmpServer.__new__(IcmpServer)
-        server._recv_mtu = 4
-        server._send_mtu = 4
+        server._recv_packet_mtu = 4
+        server._send_packet_mtu = 4
         server._recv_bufsize = 65535
         return server
 
@@ -76,7 +76,7 @@ class IcmpServerTests(unittest.TestCase):
 
     def test_recv_logs_oversize_request(self):
         server = self._make_server()
-        server._recv_mtu = 2
+        server._recv_packet_mtu = 2
         packet = build_echo_request(1, 3, b'toolong')
         sock = QueueSock(packets=[(packet, ('10.0.0.2', 0))])
         server._sock = sock
@@ -92,7 +92,7 @@ class IcmpServerTests(unittest.TestCase):
         self.assertIsNone(data)
         self.assertIsNone(responder)
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0]['recv_mtu'], 2)
+        self.assertEqual(calls[0]['recv_packet_mtu'], 2)
 
     def test_responder_logs_send_oversize(self):
         server = self._make_server()
@@ -108,7 +108,7 @@ class IcmpServerTests(unittest.TestCase):
         with self.assertRaises(TransportError):
             responder(b'toolong')
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0]['send_mtu'], 4)
+        self.assertEqual(calls[0]['send_packet_mtu'], 4)
 
     def test_responder_logs_send_failed(self):
         server = self._make_server()

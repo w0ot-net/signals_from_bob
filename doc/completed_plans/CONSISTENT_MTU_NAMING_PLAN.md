@@ -1,6 +1,6 @@
 # Consistent MTU Naming Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -82,3 +82,13 @@ call sites updated.
 - Run unit tests that cover config parsing, transport init, and tunnel MTU
   negotiation using python3.
 - Do not run tests in tests/e2e/.
+
+## Execution Notes
+
+- Renamed config and CLI MTU keys/flags to packet_mtu naming, including TLS
+  record flags, and updated docs/examples to match.
+- Converted transport interfaces and tunnel state to send_packet_mtu/recv_packet_mtu
+  with payload bytes derived at use sites; kept tun_mtu fields as payload bytes.
+- Updated tests and integration fixtures to use packet_mtu naming and payload
+  conversions; default initial packet MTU now includes PACKET_HEADER_SIZE to
+  preserve the prior 100-byte payload limit.

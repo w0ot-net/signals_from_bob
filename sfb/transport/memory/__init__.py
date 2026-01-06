@@ -13,26 +13,29 @@ from .memory_server import InMemoryServer
 from .memory_link import _InMemoryLink
 
 
-def create_inmemory_transport_pair(config, send_mtu=None, recv_mtu=None):
+def create_inmemory_transport_pair(config, send_packet_mtu=None,
+                                   recv_packet_mtu=None):
     """
     Create a connected in-memory Transport/Server pair.
 
     Args:
         config: Config instance
-        send_mtu: Optional request MTU (Alice->Bob)
-        recv_mtu: Optional response MTU (Bob->Alice)
+        send_packet_mtu: Optional request MTU (Alice->Bob)
+        recv_packet_mtu: Optional response MTU (Bob->Alice)
     Returns:
         tuple: (InMemoryTransport, InMemoryServer)
     """
     link = _InMemoryLink(
-        send_mtu, recv_mtu, config,
+        send_packet_mtu, recv_packet_mtu, config,
     )
     return (
         InMemoryTransport(
-            config, link=link, send_mtu=send_mtu, recv_mtu=recv_mtu,
+            config, link=link, send_packet_mtu=send_packet_mtu,
+            recv_packet_mtu=recv_packet_mtu,
         ),
         InMemoryServer(
-            config, link=link, send_mtu=recv_mtu, recv_mtu=send_mtu,
+            config, link=link, send_packet_mtu=recv_packet_mtu,
+            recv_packet_mtu=send_packet_mtu,
         ),
     )
 

@@ -48,8 +48,8 @@ class IcmpClient(Transport):
                                    socket.IPPROTO_ICMP)
         self._sock.setblocking(False)
 
-        self._send_mtu = config.icmp_payload_mtu
-        self._recv_mtu = config.icmp_payload_mtu
+        self._send_packet_mtu = config.icmp_packet_mtu
+        self._recv_packet_mtu = config.icmp_packet_mtu
         self._max_in_flight = config.max_in_flight
         self._pending_timeout = config.icmp_pending_timeout
         self._recv_bufsize = 65535
@@ -65,20 +65,20 @@ class IcmpClient(Transport):
             lambda: {
                 'target': config.icmp_target,
                 'target_ip': self._target_ip,
-                'send_mtu': self._send_mtu,
-                'recv_mtu': self._recv_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
                 'max_in_flight': self._max_in_flight,
                 'pending_timeout': self._pending_timeout,
             },
         )
 
     @property
-    def send_mtu(self):
-        return self._send_mtu
+    def send_packet_mtu(self):
+        return self._send_packet_mtu
 
     @property
-    def recv_mtu(self):
-        return self._recv_mtu
+    def recv_packet_mtu(self):
+        return self._recv_packet_mtu
 
     @property
     def max_in_flight(self):
@@ -118,9 +118,11 @@ class IcmpClient(Transport):
             pending_before = len(self._pending)
 
         data = require_bytes_like(data)
-        if len(data) > self._send_mtu:
+        if len(data) > self._send_packet_mtu:
             raise TransportError(
-                'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
+                'Data size %d exceeds send MTU %d' % (
+                    len(data), self._send_packet_mtu
+                )
             )
 
         seq = self._next_sequence()
@@ -228,7 +230,7 @@ class IcmpClient(Transport):
             return (None, None)
 
         _, _, seq, payload = result
-        if len(payload) > self._recv_mtu:
+        if len(payload) > self._recv_packet_mtu:
             log_event(
                 _LOG,
                 logging.DEBUG,
@@ -237,7 +239,7 @@ class IcmpClient(Transport):
                 lambda: {
                     'corr_id': seq,
                     'bytes': len(payload),
-                    'recv_mtu': self._recv_mtu,
+                    'recv_packet_mtu': self._recv_packet_mtu,
                     'addr': '%s:%d' % (addr[0], addr[1]),
                 },
             )

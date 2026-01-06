@@ -339,8 +339,14 @@ class AliceTunnel(BaseTunnel):
     def _send_negotiation(self):
         """Queue MTU and window negotiation messages."""
         # Queue MTU request (asymmetric)
+        send_payload = self._payload_mtu_from_packet(
+            self._proposed_send_packet_mtu
+        )
+        recv_payload = self._payload_mtu_from_packet(
+            self._proposed_recv_packet_mtu
+        )
         self.control.send_message(
-            tun_mtu(self._proposed_send_mtu, self._proposed_recv_mtu)
+            tun_mtu(send_payload, recv_payload)
         )
         log_event(
             self._logger,
@@ -348,8 +354,10 @@ class AliceTunnel(BaseTunnel):
             'tunnel.mtu_propose',
             'MTU request',
             lambda: {
-                'tx': self._proposed_send_mtu,
-                'rx': self._proposed_recv_mtu,
+                'tx_payload': send_payload,
+                'rx_payload': recv_payload,
+                'tx_packet_mtu': self._proposed_send_packet_mtu,
+                'rx_packet_mtu': self._proposed_recv_packet_mtu,
                 'side': 'alice',
             },
         )
@@ -505,6 +513,9 @@ class AliceTunnel(BaseTunnel):
         self._maybe_fast_retransmit(now, ack_silence)
 
         # 3. Send new packets if we can
+        send_payload_limit = self._payload_mtu_from_packet(
+            self._send_packet_mtu
+        )
         pacing_blocked = False
         while True:
             if serial_window:
@@ -520,7 +531,7 @@ class AliceTunnel(BaseTunnel):
                     if permit is None:
                         break
                     segments = self._collect_segments(
-                        self._send_mtu,
+                        send_payload_limit,
                         control_only=True,
                     )
                     if segments:
@@ -540,7 +551,7 @@ class AliceTunnel(BaseTunnel):
                     permit = self._reserve_transport_permit(now)
                     if permit is None:
                         break
-                    segments = self._collect_segments(self._send_mtu)
+                    segments = self._collect_segments(send_payload_limit)
                     if segments:
                         self._has_pending_data_acks = True
                         self._send_new_packet(segments, now, permit=permit)
@@ -598,7 +609,7 @@ class AliceTunnel(BaseTunnel):
                     self._pong_grace_remaining -= 1
                 continue
             segments = self._collect_segments(
-                self._send_mtu,
+                send_payload_limit,
                 control_only=serial_window,
             )
             if segments:
@@ -1554,8 +1565,8 @@ class AliceTunnel(BaseTunnel):
                 'seg_count': len(segments),
                 'bytes': len(packet_data),
                 'side': 'alice',
-                'send_mtu': self._send_mtu,
-                'recv_mtu': self._recv_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
             }
             if reason is not None:
                 fields['reason'] = reason

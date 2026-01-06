@@ -41,7 +41,9 @@
    - Payload MTU = transport MTU - PACKET_HEADER_SIZE (segment bytes).
    - Minimum packet MTU = PACKET_HEADER_SIZE + 1 (at least 1 byte of payload).
    - Reaffirm per-direction (asymmetric) negotiation.
-   - Explicitly map transport.send_mtu/recv_mtu (packet bytes) to tunnel
+   - Explicitly map transport.send_packet_mtu/recv_packet_mtu (packet bytes)
+     to tunnel payload bytes in BaseTunnel and call out that tun_mtu values
+     are payload bytes, not full packet bytes.
      payload MTU in BaseTunnel and call out that tun_mtu values are payload
      bytes, not full packet bytes.
 2) Add per-transport MTU limit tables:
@@ -53,10 +55,11 @@
    - TLS ClientHello: document record-size caps and computed payload sizes.
    - TLS bump: document SNI/CN payload caps derived from base domain/CN length.
 3) Implement shared MTU resolution in sfb/transport/mtu_limits.py:
-   - Provide a function that returns send_mtu/recv_mtu (packet bytes),
+   - Provide a function that returns send_packet_mtu/recv_packet_mtu (packet
+     bytes),
      min_mtu, and a dict of constraint details for logging.
    - DNS/TLS/TLS bump use existing codec math; ICMP/UDP clamp to
-     min(protocol_max_packet_size, configured_cap).
+     min(protocol_max_packet_mtu, configured_cap).
    - Keep asymmetric results where the transport supports it (DNS, TLS, bump).
 4) Update transports to use the shared MTU resolver:
    - Replace per-transport MTU calculations with the helper where possible.
@@ -67,7 +70,7 @@
      transport-specific error messages (e.g., DNS base_domain too long).
    - Keep existing DNS/TLS validation and surface clearer MTU-related errors.
 6) Default-safe caps and override behavior:
-   - Treat icmp_payload_mtu and udp_ephemeral_payload_mtu as caps; defaults
+   - Treat icmp_packet_mtu and udp_ephemeral_packet_mtu as caps; defaults
      remain 1350 (safe on typical 1500 MTU links).
    - Auto selection always clamps to these caps, even if a larger size is
      otherwise possible.

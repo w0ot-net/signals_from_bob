@@ -150,10 +150,12 @@ MTU negotiation. Sent immediately after handshake.
 {"t":"tun","c":"mtu_ok","tx":150,"rx":500}
 ```
 
-Alice proposes her transport's max payload MTUs for each direction.
-Bob responds with independent `tx`/`rx` values based on his limits.
+Alice proposes payload bytes for each direction (derived from transport packet
+MTUs). Bob responds with independent `tx`/`rx` payload values based on his
+limits.
 
-Until `mtu_ok` is received, both sides limit payloads to 100 bytes (header added on the wire).
+Until `mtu_ok` is received, both sides limit payloads to
+(`protocol_initial_packet_mtu` - PACKET_HEADER_SIZE) (header added on the wire).
 
 ### window / window_ok
 

@@ -99,8 +99,8 @@ class TlsHandshakeBumpClient(Transport):
         self._pending_timeout = validated['pending_timeout']
         self._connect_timeout = validated['connect_timeout']
         self._handshake_timeout = validated['handshake_timeout']
-        self._send_mtu = validated['sni_payload_cap']
-        self._recv_mtu = validated['cn_payload_cap']
+        self._send_packet_mtu = validated['sni_payload_cap']
+        self._recv_packet_mtu = validated['cn_payload_cap']
         self._cn_max_len = validated['cn_max_len']
         self._base_domain = validated['base_domain']
         self._request_path = validated['request_path']
@@ -160,8 +160,8 @@ class TlsHandshakeBumpClient(Transport):
                 'pending_timeout': self._pending_timeout,
                 'connect_timeout': self._connect_timeout,
                 'handshake_timeout': self._handshake_timeout,
-                'send_mtu': self._send_mtu,
-                'recv_mtu': self._recv_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
                 'base_domain': self._base_domain,
                 'request_path': self._request_path,
             },
@@ -174,12 +174,12 @@ class TlsHandshakeBumpClient(Transport):
         self._proxy_timeout = validated['proxy_timeout']
 
     @property
-    def send_mtu(self):
-        return self._send_mtu
+    def send_packet_mtu(self):
+        return self._send_packet_mtu
 
     @property
-    def recv_mtu(self):
-        return self._recv_mtu
+    def recv_packet_mtu(self):
+        return self._recv_packet_mtu
 
     @property
     def max_in_flight(self):
@@ -223,9 +223,11 @@ class TlsHandshakeBumpClient(Transport):
             pending_before = len(self._pending_state)
         require_bytes_like(data)
         data = to_bytes(data)
-        if len(data) > self._send_mtu:
+        if len(data) > self._send_packet_mtu:
             raise TransportError(
-                'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
+                'Data size %d exceeds send MTU %d' % (
+                    len(data), self._send_packet_mtu
+                )
             )
 
         try:
@@ -570,7 +572,7 @@ class TlsHandshakeBumpClient(Transport):
         payload = self._extract_payload(state, corr_id)
         if payload is None:
             return None
-        if len(payload) > self._recv_mtu:
+        if len(payload) > self._recv_packet_mtu:
             self._log_parse_error('tls_bump.mtu', corr_id)
             self._close_pending(corr_id, state)
             return None
@@ -591,7 +593,7 @@ class TlsHandshakeBumpClient(Transport):
         buffer_bytes = state.recv_buf
         payload = codec.scan_response_payload(
             buffer_bytes,
-            max_payload_len=self._recv_mtu,
+            max_payload_len=self._recv_packet_mtu,
             max_token_len=self._cn_max_len,
             start_offset=state.scan_offset,
         )

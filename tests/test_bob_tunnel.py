@@ -91,11 +91,11 @@ class MockServer(Server):
         return None
 
     @property
-    def send_mtu(self):
+    def send_packet_mtu(self):
         return 200
 
     @property
-    def recv_mtu(self):
+    def recv_packet_mtu(self):
         return 200
 
     def close(self):
@@ -113,11 +113,11 @@ class ImmediateTimeoutServer(Server):
         return None, None
 
     @property
-    def send_mtu(self):
+    def send_packet_mtu(self):
         return 200
 
     @property
-    def recv_mtu(self):
+    def recv_packet_mtu(self):
         return 200
 
     def close(self):
@@ -151,11 +151,11 @@ class OneShotServer(Server):
         return self._request, self._responder
 
     @property
-    def send_mtu(self):
+    def send_packet_mtu(self):
         return 200
 
     @property
-    def recv_mtu(self):
+    def recv_packet_mtu(self):
         return 200
 
     def close(self):
@@ -190,11 +190,11 @@ class CloseOnRespondServer(Server):
         return self._request, responder
 
     @property
-    def send_mtu(self):
+    def send_packet_mtu(self):
         return 200
 
     @property
-    def recv_mtu(self):
+    def recv_packet_mtu(self):
         return 200
 
     def close(self):
@@ -474,7 +474,7 @@ class BobResponseTests(unittest.TestCase):
         tunnel._remote_isn = 20
         tunnel._recv_window.set_initial_seq(21)
         tunnel._send_window._next_seq = 11
-        tunnel._send_mtu = 1
+        tunnel._send_packet_mtu = PACKET_HEADER_SIZE + 1
 
         tunnel.control.send_message({'t': 'tun', 'c': 'ping'})
 
@@ -545,7 +545,7 @@ class BobResponseTests(unittest.TestCase):
         tunnel._set_state(TunnelState.CONNECTED)
         tunnel._recv_window.set_initial_seq(1)
         tunnel._send_window._next_seq = 1
-        tunnel._send_mtu = SEGMENT_HEADER_SIZE
+        tunnel._send_packet_mtu = PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE - 1
 
         tunnel.control.send_message({'t': 'tun', 'c': 'ping'})
 

@@ -185,23 +185,23 @@ class Transport(with_metaclass(TransportMeta, object)):
 
     @property
     @abc.abstractmethod
-    def send_mtu(self):
+    def send_packet_mtu(self):
         """
         Maximum bytes that can be sent in one request.
 
         Returns:
-            int: max send size
+            int: max send size in packet bytes
         """
         pass
 
     @property
     @abc.abstractmethod
-    def recv_mtu(self):
+    def recv_packet_mtu(self):
         """
         Maximum bytes that can be received in one response.
 
         Returns:
-            int: max receive size
+            int: max receive size in packet bytes
         """
         pass
 
@@ -271,23 +271,23 @@ class Server(object):
 
     @property
     @abc.abstractmethod
-    def recv_mtu(self):
+    def recv_packet_mtu(self):
         """
         Maximum bytes that can be received in one request.
 
         Returns:
-            int: max receive size
+            int: max receive size in packet bytes
         """
         pass
 
     @property
     @abc.abstractmethod
-    def send_mtu(self):
+    def send_packet_mtu(self):
         """
         Maximum bytes that can be sent in one response.
 
         Returns:
-            int: max send size
+            int: max send size in packet bytes
         """
         pass
 

@@ -265,7 +265,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   `mod` control messages; suggests module load control traffic never arrived.
 - Alice reliability state shows the tunnel stuck at initial negotiation:
   `negotiated_window` 1 (`send_max_in_flight` 1) and
-  `negotiated_{send,recv}_mtu` 100 while `send_mtu` remains 1312.
+  `negotiated_{send,recv}_packet_mtu` 100 while `send_packet_mtu` remains 1312.
 - Alice repeatedly logs `tunnel.send_blocked` (window full) with
   `send_unacked` 1 (keepalive) and drops incoming packets as
   `recv_action=out_of_window` (example offset 434, seq 437), leaving

@@ -318,8 +318,8 @@ Configuration uses on-wire record sizes:
   (includes 5-byte record header).
 
 Derived transport MTUs:
-- `send_mtu`: max SFB payload bytes Alice can send.
-- `recv_mtu`: max SFB payload bytes Alice can receive.
+- `send_packet_mtu`: max SFB packet bytes Alice can send.
+- `recv_packet_mtu`: max SFB packet bytes Alice can receive.
 
 MTU calculation:
 - Build a ClientHello/ServerHello with standard extensions, a random
@@ -328,7 +328,8 @@ MTU calculation:
 - Payload extension overhead is 10 bytes (extension header + SFB header)
   before payload bytes.
 - Clamp on-wire limits to 16389 bytes max.
-- Reject configs where `send_mtu < PACKET_HEADER_SIZE + 1`.
+- Payload bytes are derived as `(packet_mtu - PACKET_HEADER_SIZE)`.
+- Reject configs where `send_packet_mtu < PACKET_HEADER_SIZE + 1`.
 
 ---
 

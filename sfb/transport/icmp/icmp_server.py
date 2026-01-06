@@ -36,8 +36,8 @@ class IcmpServer(Server):
                                    socket.IPPROTO_ICMP)
         self._sock.setblocking(False)
 
-        self._recv_mtu = config.icmp_payload_mtu
-        self._send_mtu = config.icmp_payload_mtu
+        self._recv_packet_mtu = config.icmp_packet_mtu
+        self._send_packet_mtu = config.icmp_packet_mtu
         self._recv_bufsize = 65535
         log_event(
             _LOG,
@@ -45,18 +45,18 @@ class IcmpServer(Server):
             'icmp.server_config',
             'ICMP server config',
             lambda: {
-                'recv_mtu': self._recv_mtu,
-                'send_mtu': self._send_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
             },
         )
 
     @property
-    def recv_mtu(self):
-        return self._recv_mtu
+    def recv_packet_mtu(self):
+        return self._recv_packet_mtu
 
     @property
-    def send_mtu(self):
-        return self._send_mtu
+    def send_packet_mtu(self):
+        return self._send_packet_mtu
 
     def recv(self, timeout=None):
         deadline = None
@@ -120,7 +120,7 @@ class IcmpServer(Server):
                 continue
 
             _, ident, seq, payload = result
-            if len(payload) > self._recv_mtu:
+            if len(payload) > self._recv_packet_mtu:
                 log_event(
                     _LOG,
                     logging.DEBUG,
@@ -129,7 +129,7 @@ class IcmpServer(Server):
                     lambda: {
                         'addr': '%s:%d' % (addr[0], addr[1]),
                         'bytes': len(payload),
-                        'recv_mtu': self._recv_mtu,
+                        'recv_packet_mtu': self._recv_packet_mtu,
                         'corr_id': seq,
                     },
                 )
@@ -152,7 +152,7 @@ class IcmpServer(Server):
     def _make_responder(self, addr, ident, seq):
         def responder(data):
             data = require_bytes_like(data)
-            if len(data) > self._send_mtu:
+            if len(data) > self._send_packet_mtu:
                 log_event(
                     _LOG,
                     logging.DEBUG,
@@ -161,12 +161,14 @@ class IcmpServer(Server):
                     lambda: {
                         'addr': '%s:%d' % (addr[0], addr[1]),
                         'bytes': len(data),
-                        'send_mtu': self._send_mtu,
+                        'send_packet_mtu': self._send_packet_mtu,
                         'corr_id': seq,
                     },
                 )
                 raise TransportError(
-                    'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
+                    'Data size %d exceeds send MTU %d' % (
+                        len(data), self._send_packet_mtu
+                    )
                 )
             packet = build_echo_reply(ident, seq, data)
             try:

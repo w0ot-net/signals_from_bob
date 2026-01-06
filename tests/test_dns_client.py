@@ -65,10 +65,10 @@ class DnsClientTests(unittest.TestCase):
         client._opt_arcount = 0
         return client
 
-    def _make_send_client(self, send_mtu=1024):
+    def _make_send_client(self, send_packet_mtu=1024):
         client = DnsClient.__new__(DnsClient)
         client._max_in_flight = 5
-        client._send_mtu = send_mtu
+        client._send_packet_mtu = send_packet_mtu
         client._pending = PendingTracker(1.0)
         client._dns_to_corr = {}
         client._next_corr_id = 0
@@ -262,12 +262,12 @@ class DnsClientTests(unittest.TestCase):
             self.assertTrue(client._opt_record)
             self.assertIsNone(client._payload_cap)
             self.assertEqual(
-                client._send_mtu,
+                client._send_packet_mtu,
                 codec.calc_query_mtu(client._base_domain,
                                      client._label_max_len),
             )
             self.assertEqual(
-                client._recv_mtu,
+                client._recv_packet_mtu,
                 codec.calc_response_mtu(client._rtype,
                                         config.dns_edns_size,
                                         client._cname_suffix,
@@ -709,7 +709,7 @@ class DnsClientTests(unittest.TestCase):
         self.assertEqual(client._sock.sent[0][1], ('127.0.0.1', 53))
 
     def test_send_rejects_oversize(self):
-        client = self._make_send_client(send_mtu=3)
+        client = self._make_send_client(send_packet_mtu=3)
         permit = client.reserve_send(now=1)
         with self.assertRaises(TransportError):
             client.send(b'toolong', permit)

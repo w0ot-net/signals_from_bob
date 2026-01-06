@@ -119,12 +119,15 @@ class DnsClient(Transport):
             self._opt_arcount = 0
 
         # Calculate MTUs
-        self._send_mtu = codec.calc_query_mtu(self._base_domain,
-                                              self._label_max_len)
-        self._recv_mtu = codec.calc_response_mtu(self._rtype,
-                                                 config.dns_edns_size,
-                                                 self._cname_suffix,
-                                                 self._label_max_len)
+        self._send_packet_mtu = codec.calc_query_mtu(
+            self._base_domain, self._label_max_len
+        )
+        self._recv_packet_mtu = codec.calc_response_mtu(
+            self._rtype,
+            config.dns_edns_size,
+            self._cname_suffix,
+            self._label_max_len,
+        )
         if self._rtype == codec.QTYPE_CNAME and self._edns_size <= 512:
             self._payload_cap = codec.calc_cname_payload_cap(
                 self._base_domain,
@@ -147,12 +150,12 @@ class DnsClient(Transport):
         self._dns_to_corr = {}  # dns_id -> corr_id
 
     @property
-    def send_mtu(self):
-        return self._send_mtu
+    def send_packet_mtu(self):
+        return self._send_packet_mtu
 
     @property
-    def recv_mtu(self):
-        return self._recv_mtu
+    def recv_packet_mtu(self):
+        return self._recv_packet_mtu
 
     @property
     def payload_cap(self):
@@ -209,9 +212,11 @@ class DnsClient(Transport):
         if pending_before is None:
             pending_before = len(self._pending)
         data = require_bytes_like(data)
-        if len(data) > self._send_mtu:
+        if len(data) > self._send_packet_mtu:
             raise TransportError(
-                'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
+                'Data size %d exceeds send MTU %d' % (
+                    len(data), self._send_packet_mtu
+                )
             )
 
         # Generate IDs

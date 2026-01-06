@@ -71,13 +71,13 @@ class Transport:
         ...
 
     @property
-    def send_mtu(self):
-        """Max bytes per send."""
+    def send_packet_mtu(self):
+        """Max packet bytes per send."""
         ...
 
     @property
-    def recv_mtu(self):
-        """Max bytes per recv."""
+    def recv_packet_mtu(self):
+        """Max packet bytes per recv."""
         ...
 
     def release_send(self, permit):
@@ -114,13 +114,13 @@ class Server:
         ...
 
     @property
-    def send_mtu(self):
-        """Max bytes per response."""
+    def send_packet_mtu(self):
+        """Max packet bytes per response."""
         ...
 
     @property
-    def recv_mtu(self):
-        """Max bytes per request."""
+    def recv_packet_mtu(self):
+        """Max packet bytes per request."""
         ...
 
     def close(self):

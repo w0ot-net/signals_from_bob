@@ -21,13 +21,13 @@ def validate_udp_ephemeral_config(config, role):
         role: 'client' or 'server'
 
     Returns:
-        dict: normalized values (payload_mtu, timeouts, addrs)
+        dict: normalized values (packet_mtu, timeouts, addrs)
     """
     if role not in ('client', 'server'):
         raise TransportError('Invalid UDP ephemeral role: %s' % role)
 
-    payload_mtu = _require_positive_int(
-        config.udp_ephemeral_payload_mtu, 'udp_ephemeral_payload_mtu'
+    packet_mtu = _require_positive_int(
+        config.udp_ephemeral_packet_mtu, 'udp_ephemeral_packet_mtu'
     )
     pending_timeout = _require_positive_float(
         config.udp_ephemeral_pending_timeout, 'udp_ephemeral_pending_timeout'
@@ -55,7 +55,7 @@ def validate_udp_ephemeral_config(config, role):
         )
 
     return {
-        'payload_mtu': payload_mtu,
+        'packet_mtu': packet_mtu,
         'pending_timeout': pending_timeout,
         'reuse_minutes': reuse_minutes,
         'target_addr': target_addr,

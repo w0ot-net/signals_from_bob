@@ -68,8 +68,8 @@ class TlsHandshakeBumpServer(Server):
         self._pending_timeout = validated['pending_timeout']
         self._handshake_timeout = validated['handshake_timeout']
         self._max_record_recv = validated['max_clienthello_bytes']
-        self._recv_mtu = validated['sni_payload_cap']
-        self._send_mtu = validated['cn_payload_cap']
+        self._recv_packet_mtu = validated['sni_payload_cap']
+        self._send_packet_mtu = validated['cn_payload_cap']
         self._base_domain = validated['base_domain']
         self._cn_max_len = validated['cn_max_len']
         self._max_in_flight = config.max_in_flight
@@ -98,8 +98,8 @@ class TlsHandshakeBumpServer(Server):
                 'pending_timeout': self._pending_timeout,
                 'handshake_timeout': self._handshake_timeout,
                 'max_clienthello_bytes': self._max_record_recv,
-                'recv_mtu': self._recv_mtu,
-                'send_mtu': self._send_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
                 'max_in_flight': self._max_in_flight,
                 'base_domain': self._base_domain,
                 'cn_max_len': self._cn_max_len,
@@ -110,12 +110,12 @@ class TlsHandshakeBumpServer(Server):
         self._selector = bump_selector.SocketSelector()
 
     @property
-    def recv_mtu(self):
-        return self._recv_mtu
+    def recv_packet_mtu(self):
+        return self._recv_packet_mtu
 
     @property
-    def send_mtu(self):
-        return self._send_mtu
+    def send_packet_mtu(self):
+        return self._send_packet_mtu
 
     def recv(self, timeout=None):
         if self._sock is None:
@@ -227,7 +227,7 @@ class TlsHandshakeBumpServer(Server):
             self._log_parse_error('tls_bump.sni_decode')
             self._close_conn(sock)
             return None
-        if len(payload) > self._recv_mtu:
+        if len(payload) > self._recv_packet_mtu:
             self._log_parse_error('tls_bump.mtu')
             self._close_conn(sock)
             return None
@@ -249,9 +249,11 @@ class TlsHandshakeBumpServer(Server):
             raise TransportError('Responder already used')
         require_bytes_like(data)
         data = to_bytes(data)
-        if len(data) > self._send_mtu:
+        if len(data) > self._send_packet_mtu:
             raise TransportError(
-                'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
+                'Data size %d exceeds send MTU %d' % (
+                    len(data), self._send_packet_mtu
+                )
             )
         try:
             cn_value = codec.encode_cn_value(data, max_len=self._cn_max_len)

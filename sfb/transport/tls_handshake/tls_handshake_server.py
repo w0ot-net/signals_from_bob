@@ -70,8 +70,8 @@ class TlsServer(Server):
         self._handshake_timeout = validated['handshake_timeout']
         self._max_record_recv = validated['max_clienthello_bytes']
         self._max_record_send = validated['max_serverhello_bytes']
-        self._recv_mtu = validated['client_payload_cap']
-        self._send_mtu = validated['server_payload_cap']
+        self._recv_packet_mtu = validated['client_payload_cap']
+        self._send_packet_mtu = validated['server_payload_cap']
         self._max_in_flight = config.max_in_flight
         self._alpn_list = validated['alpn_list']
         self._clienthello_padding_target = validated['clienthello_padding_target']
@@ -102,8 +102,8 @@ class TlsServer(Server):
                 'handshake_timeout': self._handshake_timeout,
                 'max_clienthello_bytes': self._max_record_recv,
                 'max_serverhello_bytes': self._max_record_send,
-                'recv_mtu': self._recv_mtu,
-                'send_mtu': self._send_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
                 'alpn': self._alpn_list,
                 'clienthello_padding_target': self._clienthello_padding_target,
             },
@@ -112,12 +112,12 @@ class TlsServer(Server):
         self._active = {}
 
     @property
-    def recv_mtu(self):
-        return self._recv_mtu
+    def recv_packet_mtu(self):
+        return self._recv_packet_mtu
 
     @property
-    def send_mtu(self):
-        return self._send_mtu
+    def send_packet_mtu(self):
+        return self._send_packet_mtu
 
     def recv(self, timeout=None):
         if self._sock is None:
@@ -225,7 +225,7 @@ class TlsServer(Server):
             self._log_parse_error('tls.parse')
             self._close_conn(sock)
             return None
-        if len(payload) > self._recv_mtu:
+        if len(payload) > self._recv_packet_mtu:
             self._log_parse_error('tls.mtu')
             self._close_conn(sock)
             return None
@@ -253,9 +253,11 @@ class TlsServer(Server):
             raise TransportError('Responder already used')
         require_bytes_like(data)
         data = to_bytes(data)
-        if len(data) > self._send_mtu:
+        if len(data) > self._send_packet_mtu:
             raise TransportError(
-                'Data size %d exceeds send MTU %d' % (len(data), self._send_mtu)
+                'Data size %d exceeds send MTU %d' % (
+                    len(data), self._send_packet_mtu
+                )
             )
         if state.cipher_suite is None:
             raise TransportError('No cipher suite selected')

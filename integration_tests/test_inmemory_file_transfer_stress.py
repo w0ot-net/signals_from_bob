@@ -130,8 +130,8 @@ class InMemoryFileTransferStressTests(unittest.TestCase):
 
         client, server = create_inmemory_transport_pair(
             self._config,
-            send_mtu=4096,
-            recv_mtu=4096,
+            send_packet_mtu=4096,
+            recv_packet_mtu=4096,
         )
         self._alice = AliceTunnel(client, self._config, crypto=Plain())
         self._bob = BobTunnel(server, self._config, crypto=Plain())

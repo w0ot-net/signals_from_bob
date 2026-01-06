@@ -21,7 +21,7 @@
 
 ## Next Diagnostic Steps
 - Run `scripts/icmp_socks_diag.py` with tunables to see rate impact:
-  - Increase ICMP MTU: `--icmp-mtu 1400` (or larger if path allows).
+  - Increase ICMP MTU: `--icmp-packet-mtu 1400` (or larger if path allows).
   - Increase relay buffer: config override (see below) to 8192 or 16384.
   - Allow unlimited send: `--send-rate 0 --send-burst 0`.
   - Try multiple clients to see if aggregate scales or stalls.
@@ -65,7 +65,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Relay buffer: `--relay-buffer-size 8192`
 - Pump backoff max: `--relay-pump-backoff-max 0.05` (or smaller)
 - Channel max send buf: `--channel-max-send-buf 65536` (if safe)
-- ICMP MTU: `--icmp-mtu 1400`
+- ICMP MTU: `--icmp-packet-mtu 1400`
 - Send rate/burst: `--send-rate 0 --send-burst 0`
 
 ## Action Items
@@ -79,7 +79,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
   python3 scripts/icmp_socks_diag.py --clients 1 --target 127.0.0.1 --timeout 120 \
     --log-profile socks_throughput_debug --verbose-cli \
     --relay-buffer-size 8192 --channel-max-send-buf 65536 \
-    --icmp-mtu 1400 --send-rate 0
+    --icmp-packet-mtu 1400 --send-rate 0
   ```
 - Outcome:
   - SOCKS path: 2MB in ~3.06s; throughput ~0.654 MB/s per client, aggregate ~0.395 MB/s; TTFB ~20 ms; peak ~0.728 MB/s.
@@ -102,7 +102,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Command:
   ```
   python3 scripts/icmp_socks_diag.py --clients 1 --target 127.0.0.1 \
-    --icmp-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug --verbose-cli \
+    --icmp-packet-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug --verbose-cli \
     --relay-buffer-size 32768 --channel-max-send-buf 262144 \
     --relay-pump-backoff-max 0.002 --non-blocking-poll-timeout 0.00002
   ```
@@ -122,7 +122,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Command:
   ```
   python3 scripts/icmp_socks_diag.py --clients 1 --target 127.0.0.1 \
-    --icmp-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug --verbose-cli \
+    --icmp-packet-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug --verbose-cli \
     --relay-buffer-size 32768 --channel-max-send-buf 262144 \
     --relay-pump-backoff-max 0.0001 --non-blocking-poll-timeout 0
   ```
@@ -142,7 +142,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Command:
   ```
   python3 scripts/icmp_socks_diag.py --clients 4 --target 127.0.0.1 \
-    --icmp-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug \
+    --icmp-packet-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug \
     --relay-buffer-size 32768 --channel-max-send-buf 262144 \
     --relay-pump-backoff-max 0.0001 --non-blocking-poll-timeout 0
   ```
@@ -160,7 +160,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Command:
   ```
   python3 scripts/icmp_socks_diag.py --clients 8 --target 127.0.0.1 \
-    --icmp-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug \
+    --icmp-packet-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug \
     --relay-buffer-size 32768 --channel-max-send-buf 262144 \
     --relay-pump-backoff-max 0.0001 --non-blocking-poll-timeout 0
   ```
@@ -206,7 +206,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
   - `pacer_target_inflight` ramps from ~90 to ~158 in probe mode while `pacer_unacked_count` stays near ~50.
   - `tunnel.send_blocked` is only `reason: pacer`, clustered early when target_inflight ~40-50; no blocking once probe target exceeds ~120.
 - Packet sizing:
-  - `tunnel.packet_send` reports `send_mtu` 1312 bytes and `bytes` 1350 per packet.
+  - `tunnel.packet_send` reports `send_packet_mtu` 1312 bytes and `bytes` 1350 per packet.
   - At ~419 pps this is ~0.55 MB/s payload, matching `sock.pump_stats` per-interval bytes.
 - Pump backpressure:
   - `sock.pump_stats` (target_to_channel) shows `buffer_full` ~2300 per interval with `send_buf_size` 1048576 and `sleep_time` ~0.95s.

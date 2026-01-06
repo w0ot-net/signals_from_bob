@@ -99,7 +99,7 @@ def _shutdown_socket_write(sock):
 
 
 def _outbound_cap(config):
-    max_in_flight_bytes = config.max_in_flight * config.protocol_max_packet_size
+    max_in_flight_bytes = config.max_in_flight * config.protocol_max_packet_mtu
     cap = config.channel_max_recv_buf
     if cap is None:
         cap = max_in_flight_bytes

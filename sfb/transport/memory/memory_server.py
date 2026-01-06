@@ -14,24 +14,25 @@ from ...protocol.constants import DEFAULT_MAX_PACKET_SIZE
 class InMemoryServer(Server):
     """Server-side in-memory transport (Bob)."""
 
-    def __init__(self, config, link=None, send_mtu=None, recv_mtu=None):
+    def __init__(self, config, link=None, send_packet_mtu=None,
+                 recv_packet_mtu=None):
         if not isinstance(config, Config):
             raise TypeError('config must be a Config instance')
-        request_mtu = recv_mtu or DEFAULT_MAX_PACKET_SIZE
-        response_mtu = send_mtu or DEFAULT_MAX_PACKET_SIZE
+        request_mtu = recv_packet_mtu or DEFAULT_MAX_PACKET_SIZE
+        response_mtu = send_packet_mtu or DEFAULT_MAX_PACKET_SIZE
         self._link = link or _InMemoryLink(
             request_mtu, response_mtu, config,
         )
-        self._send_mtu = self._link.response_mtu
-        self._recv_mtu = self._link.request_mtu
+        self._send_packet_mtu = self._link.response_mtu
+        self._recv_packet_mtu = self._link.request_mtu
 
     @property
-    def send_mtu(self):
-        return self._send_mtu
+    def send_packet_mtu(self):
+        return self._send_packet_mtu
 
     @property
-    def recv_mtu(self):
-        return self._recv_mtu
+    def recv_packet_mtu(self):
+        return self._recv_packet_mtu
 
     def recv(self, timeout=None):
         try:
@@ -53,10 +54,10 @@ class InMemoryServer(Server):
             if self._link.is_closed():
                 return
             response_data = to_bytes(response_data)
-            if len(response_data) > self._send_mtu:
+            if len(response_data) > self._send_packet_mtu:
                 raise TransportError(
                     'Response size %d exceeds send MTU %d' % (
-                        len(response_data), self._send_mtu
+                        len(response_data), self._send_packet_mtu
                     )
                 )
             self._link._responses.put((corr_id, response_data))

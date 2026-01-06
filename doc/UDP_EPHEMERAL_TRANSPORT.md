@@ -39,7 +39,7 @@ Alice                                              Bob
 
 - A single UDP socket is bound to `udp_ephemeral_listen_addr`.
 - Each request returns `(payload, responder)`.
-- The responder enforces `send_mtu` and attaches `payload_cap` for tunnel
+- The responder enforces `send_packet_mtu` and attaches `payload_cap` for tunnel
   logging.
 
 ---
@@ -49,7 +49,7 @@ Alice                                              Bob
 Client settings:
 
 - `udp_ephemeral_target` (`--target`)
-- `udp_ephemeral_payload_mtu` (`--udp-ephemeral-mtu`)
+- `udp_ephemeral_packet_mtu` (`--udp-ephemeral-packet-mtu`)
 - `udp_ephemeral_pending_timeout` (`--udp-ephemeral-pending-timeout`)
 - `udp_ephemeral_source_port_reuse_minutes`
   (`--udp-ephemeral-source-port-reuse-minutes`)
@@ -57,11 +57,11 @@ Client settings:
 Server settings:
 
 - `udp_ephemeral_listen_addr` (`--listen-addr`)
-- `udp_ephemeral_payload_mtu` (`--udp-ephemeral-mtu`)
+- `udp_ephemeral_packet_mtu` (`--udp-ephemeral-packet-mtu`)
 
 Defaults:
 
-- `udp_ephemeral_payload_mtu`: 1350
+- `udp_ephemeral_packet_mtu`: 1350
 - `udp_ephemeral_pending_timeout`: 5.0
 - `udp_ephemeral_source_port_reuse_minutes`: 1.0
 - `udp_ephemeral_listen_addr`: 0.0.0.0:53
@@ -70,6 +70,7 @@ Defaults:
 
 ## MTU and Timeouts
 
-The transport enforces `send_mtu` and `recv_mtu` on payload sizes. The
-pending timeout controls how long Alice waits for a response before pruning
+The transport enforces `send_packet_mtu` and `recv_packet_mtu` on packet sizes.
+Payload bytes are derived as `(packet_mtu - PACKET_HEADER_SIZE)`. The pending
+timeout controls how long Alice waits for a response before pruning
 the request and closing its socket.

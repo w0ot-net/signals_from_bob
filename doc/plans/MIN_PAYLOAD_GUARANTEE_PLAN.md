@@ -30,12 +30,12 @@ negotiation.
 
 1. Define the minimum packet size expression (local or shared constant) using
    PACKET_HEADER_SIZE and SEGMENT_HEADER_SIZE.
-2. Update TLS handshake config validation to require client/server payload
-   caps >= minimum packet size.
-3. Update TLS handshake bump config validation to require SNI/CN payload caps
+2. Update TLS handshake config validation to require client/server packet MTUs
    >= minimum packet size.
-4. In BaseTunnel._init_transport_limits, validate transport.send_mtu and
-   transport.recv_mtu against the minimum and raise TunnelError if either
+3. Update TLS handshake bump config validation to require SNI/CN packet MTUs
+   >= minimum packet size.
+4. In BaseTunnel._init_transport_limits, validate transport.send_packet_mtu
+   and transport.recv_packet_mtu against the minimum and raise TunnelError if either
    is too small.
 5. Update protocol/tunnel docs if they already describe minimum MTU behavior.
 

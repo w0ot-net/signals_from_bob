@@ -322,22 +322,23 @@ allows the `mod` type).
 
 ## MTU Handling
 
-The tunnel negotiates per-direction payload MTUs. Each side proposes its
+The tunnel negotiates per-direction packet MTUs. Each side proposes its
 transport send and recv limits, and the negotiation clamps each direction
-independently. The result is two payload MTUs:
+independently. The result is two packet MTUs:
 
-- `send_mtu`: max payload bytes this side may send.
-- `recv_mtu`: max payload bytes this side will accept.
+- `send_packet_mtu`: max packet bytes this side may send.
+- `recv_packet_mtu`: max packet bytes this side will accept.
 
-| Direction | Payload MTU Used |
-|-----------|------------------|
-| Alice -> Bob | Alice send_mtu (Bob recv_mtu) |
-| Bob -> Alice | Bob send_mtu (Alice recv_mtu) |
+| Direction | Packet MTU Used |
+|-----------|-----------------|
+| Alice -> Bob | Alice send_packet_mtu (Bob recv_packet_mtu) |
+| Bob -> Alice | Bob send_packet_mtu (Alice recv_packet_mtu) |
 
-The tunnel passes `send_mtu` to `channel_manager.collect_segments(max_payload)`
-for outbound packets. Inbound packets are validated against `recv_mtu`
-(`max_packet_size = recv_mtu + PACKET_HEADER_SIZE`). The packet header (38
-bytes) is added on the wire.
+Payload bytes are derived as `(packet_mtu - PACKET_HEADER_SIZE)`. The tunnel
+passes that payload size to
+`channel_manager.collect_segments(max_payload)` for outbound packets. Inbound
+packets are validated against `recv_packet_mtu` (max packet size). The packet
+header (38 bytes) is added on the wire.
 
 ---
 

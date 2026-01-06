@@ -92,7 +92,7 @@ class BaseTunnel(object):
         self._channel_manager = ChannelManager(is_alice=is_initiator, config=config)
 
         # Initial MTU/window before negotiation
-        self._default_mtu = config.protocol_initial_mtu
+        self._default_packet_mtu = config.protocol_initial_packet_mtu
         self._default_window = config.tunnel_initial_window
 
         # Reliability - start with initial window until negotiated
@@ -117,11 +117,11 @@ class BaseTunnel(object):
         self._remote_isn = None  # Set during handshake
 
         # MTU/Window negotiation state (asymmetric)
-        self._proposed_send_mtu = None  # Set by subclass from transport
-        self._proposed_recv_mtu = None  # Set by subclass from transport
-        self._send_mtu = self._default_mtu  # Active sender payload MTU
-        self._recv_mtu = self._default_mtu  # Active receiver payload MTU
-        self._pending_send_mtu = None  # Pending send MTU increase awaiting ack
+        self._proposed_send_packet_mtu = None  # Set by subclass from transport
+        self._proposed_recv_packet_mtu = None  # Set by subclass from transport
+        self._send_packet_mtu = self._default_packet_mtu
+        self._recv_packet_mtu = self._default_packet_mtu
+        self._pending_send_packet_mtu = None  # Pending send MTU increase awaiting ack
         self._mtu_negotiated = False
         self._window_negotiated = False
         self._window_final = False
@@ -138,8 +138,8 @@ class BaseTunnel(object):
         self._bytes_sent = 0
         self._bytes_received = 0
 
-        # Transport MTU for receive (payload + header)
-        self._max_packet_size = self._default_mtu + PACKET_HEADER_SIZE
+        # Transport MTU for receive (packet bytes)
+        self._max_packet_size = self._recv_packet_mtu
 
         # Background thread support
         self._bg_thread = None
@@ -151,14 +151,28 @@ class BaseTunnel(object):
         Initialize transport-derived payload/MTU limits.
         """
         self._payload_cap = getattr(transport, 'payload_cap', None)
-        send_payload = max(1, transport.send_mtu - PACKET_HEADER_SIZE)
-        recv_payload = max(1, transport.recv_mtu - PACKET_HEADER_SIZE)
-        self._proposed_send_mtu = send_payload
-        self._proposed_recv_mtu = recv_payload
-        self._send_mtu = send_payload
-        self._recv_mtu = recv_payload
-        self._max_packet_size = recv_payload + PACKET_HEADER_SIZE
-        return send_payload, recv_payload
+        send_packet_mtu = transport.send_packet_mtu
+        recv_packet_mtu = transport.recv_packet_mtu
+        self._proposed_send_packet_mtu = send_packet_mtu
+        self._proposed_recv_packet_mtu = recv_packet_mtu
+        self._send_packet_mtu = send_packet_mtu
+        self._recv_packet_mtu = recv_packet_mtu
+        self._max_packet_size = recv_packet_mtu
+        return (
+            self._payload_mtu_from_packet(send_packet_mtu),
+            self._payload_mtu_from_packet(recv_packet_mtu),
+        )
+
+    @staticmethod
+    def _payload_mtu_from_packet(packet_mtu):
+        payload_bytes = packet_mtu - PACKET_HEADER_SIZE
+        if payload_bytes < 1:
+            return 1
+        return payload_bytes
+
+    @staticmethod
+    def _packet_mtu_from_payload(payload_bytes):
+        return payload_bytes + PACKET_HEADER_SIZE
 
     @property
     def state(self):
@@ -186,19 +200,19 @@ class BaseTunnel(object):
         return self._module_loader
 
     @property
-    def negotiated_mtu(self):
-        """Current effective MTUs as (send_mtu, recv_mtu)."""
-        return (self._send_mtu, self._recv_mtu)
+    def negotiated_packet_mtu(self):
+        """Current effective MTUs as (send_packet_mtu, recv_packet_mtu)."""
+        return (self._send_packet_mtu, self._recv_packet_mtu)
 
     @property
-    def negotiated_send_mtu(self):
-        """Current effective send MTU (payload bytes)."""
-        return self._send_mtu
+    def negotiated_send_packet_mtu(self):
+        """Current effective send MTU (packet bytes)."""
+        return self._send_packet_mtu
 
     @property
-    def negotiated_recv_mtu(self):
-        """Current effective receive MTU (payload bytes)."""
-        return self._recv_mtu
+    def negotiated_recv_packet_mtu(self):
+        """Current effective receive MTU (packet bytes)."""
+        return self._recv_packet_mtu
 
     @property
     def negotiated_window(self):
@@ -290,8 +304,8 @@ class BaseTunnel(object):
         fields = {
             'side': 'alice' if self._is_initiator else 'bob',
             'state': self._state,
-            'send_mtu': self._send_mtu,
-            'recv_mtu': self._recv_mtu,
+            'send_packet_mtu': self._send_packet_mtu,
+            'recv_packet_mtu': self._recv_packet_mtu,
             'negotiated_window': self.negotiated_window,
             'packets_sent': self._packets_sent,
             'packets_received': self._packets_received,
@@ -409,8 +423,8 @@ class BaseTunnel(object):
             'seg_count': len(packet.segments),
             'bytes': data_len,
             'context': context,
-            'send_mtu': self._send_mtu,
-            'recv_mtu': self._recv_mtu,
+            'send_packet_mtu': self._send_packet_mtu,
+            'recv_packet_mtu': self._recv_packet_mtu,
             'negotiated_window': self.negotiated_window,
             'unacked': self._send_window.unacked_count,
             'max_in_flight': self._send_window._max_in_flight,
@@ -559,8 +573,8 @@ class BaseTunnel(object):
                 'seg_count': len(packet.segments),
                 'bytes': packet_size
                 if packet_size is not None else packet.encoded_size(),
-                'send_mtu': self._send_mtu,
-                'recv_mtu': self._recv_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
                 'negotiated_window': self.negotiated_window,
                 'unacked': self._send_window.unacked_count,
                 'side': 'alice' if self._is_initiator else 'bob',
@@ -905,10 +919,11 @@ class BaseTunnel(object):
         Responds with mtu_ok containing per-direction MTUs.
         Applies downsizes immediately; increases wait for mtu_ack from Alice.
         """
-        peer_send_mtu = msg.get('tx', self._default_mtu)
-        peer_recv_mtu = msg.get('rx', self._default_mtu)
-        if (not isinstance(peer_send_mtu, integer_types) or peer_send_mtu < 1 or
-                not isinstance(peer_recv_mtu, integer_types) or peer_recv_mtu < 1):
+        default_payload = self._payload_mtu_from_packet(self._default_packet_mtu)
+        peer_send_payload = msg.get('tx', default_payload)
+        peer_recv_payload = msg.get('rx', default_payload)
+        if (not isinstance(peer_send_payload, integer_types) or peer_send_payload < 1 or
+                not isinstance(peer_recv_payload, integer_types) or peer_recv_payload < 1):
             log_event(
                 self._logger,
                 logging.WARNING,
@@ -920,56 +935,71 @@ class BaseTunnel(object):
                 },
             )
             return
+        peer_send_packet_mtu = self._packet_mtu_from_payload(peer_send_payload)
+        peer_recv_packet_mtu = self._packet_mtu_from_payload(peer_recv_payload)
         log_event(
             self._logger,
             logging.INFO,
             'tunnel.mtu_propose',
-            'MTU request received (tx=%d rx=%d)' % (peer_send_mtu, peer_recv_mtu),
+            'MTU request received (tx_payload=%d rx_payload=%d)' % (
+                peer_send_payload, peer_recv_payload
+            ),
             lambda: {
-                'tx': peer_send_mtu,
-                'rx': peer_recv_mtu,
+                'tx_payload': peer_send_payload,
+                'rx_payload': peer_recv_payload,
                 'side': 'alice' if self._is_initiator else 'bob',
-                'send_mtu': self._send_mtu,
-                'recv_mtu': self._recv_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
             },
         )
 
-        prev_send = self._send_mtu
-        prev_recv = self._recv_mtu
+        prev_send = self._send_packet_mtu
+        prev_recv = self._recv_packet_mtu
 
         # Negotiate each direction independently.
-        agreed_recv = min(peer_send_mtu, self._proposed_recv_mtu or self._default_mtu)
-        agreed_send = min(peer_recv_mtu, self._proposed_send_mtu or self._default_mtu)
+        agreed_recv_packet_mtu = min(
+            peer_send_packet_mtu,
+            self._proposed_recv_packet_mtu or self._default_packet_mtu,
+        )
+        agreed_send_packet_mtu = min(
+            peer_recv_packet_mtu,
+            self._proposed_send_packet_mtu or self._default_packet_mtu,
+        )
 
-        self._recv_mtu = agreed_recv
-        self._max_packet_size = agreed_recv + PACKET_HEADER_SIZE
+        self._recv_packet_mtu = agreed_recv_packet_mtu
+        self._max_packet_size = agreed_recv_packet_mtu
 
         # Downsize immediately; only defer increases until mtu_ack arrives.
-        if agreed_send <= self._send_mtu:
-            self._send_mtu = agreed_send
-            self._pending_send_mtu = None
+        if agreed_send_packet_mtu <= self._send_packet_mtu:
+            self._send_packet_mtu = agreed_send_packet_mtu
+            self._pending_send_packet_mtu = None
         else:
-            self._pending_send_mtu = agreed_send
+            self._pending_send_packet_mtu = agreed_send_packet_mtu
 
         # Send confirmation (using small packets still)
-        self.control.send_message(tun_mtu_ok(agreed_send, agreed_recv))
+        self.control.send_message(
+            tun_mtu_ok(
+                self._payload_mtu_from_packet(agreed_send_packet_mtu),
+                self._payload_mtu_from_packet(agreed_recv_packet_mtu),
+            )
+        )
         log_event(
             self._logger,
             logging.INFO,
             'tunnel.mtu_ok',
             'MTU negotiate response (recv=%d send_applied=%d send_pending=%s)' % (
-                agreed_recv,
-                self._send_mtu,
-                self._pending_send_mtu,
+                agreed_recv_packet_mtu,
+                self._send_packet_mtu,
+                self._pending_send_packet_mtu,
             ),
             lambda: {
-                'recv': agreed_recv,
-                'send_applied': self._send_mtu,
-                'send_pending': self._pending_send_mtu,
+                'recv_packet_mtu': agreed_recv_packet_mtu,
+                'send_applied': self._send_packet_mtu,
+                'send_pending': self._pending_send_packet_mtu,
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
-        if prev_send != self._send_mtu or prev_recv != self._recv_mtu:
+        if prev_send != self._send_packet_mtu or prev_recv != self._recv_packet_mtu:
             log_event(
                 self._logger,
                 logging.INFO,
@@ -978,8 +1008,8 @@ class BaseTunnel(object):
                 lambda: {
                     'prev_send': prev_send,
                     'prev_recv': prev_recv,
-                    'send': self._send_mtu,
-                    'recv': self._recv_mtu,
+                    'send_packet_mtu': self._send_packet_mtu,
+                    'recv_packet_mtu': self._recv_packet_mtu,
                     'context': 'mtu_request',
                     'side': 'alice' if self._is_initiator else 'bob',
                 },
@@ -991,10 +1021,11 @@ class BaseTunnel(object):
 
         Updates negotiated send/recv MTU, then sends mtu_ack.
         """
-        peer_send_mtu = msg.get('tx', self._default_mtu)
-        peer_recv_mtu = msg.get('rx', self._default_mtu)
-        if (not isinstance(peer_send_mtu, integer_types) or peer_send_mtu < 1 or
-                not isinstance(peer_recv_mtu, integer_types) or peer_recv_mtu < 1):
+        default_payload = self._payload_mtu_from_packet(self._default_packet_mtu)
+        peer_send_payload = msg.get('tx', default_payload)
+        peer_recv_payload = msg.get('rx', default_payload)
+        if (not isinstance(peer_send_payload, integer_types) or peer_send_payload < 1 or
+                not isinstance(peer_recv_payload, integer_types) or peer_recv_payload < 1):
             log_event(
                 self._logger,
                 logging.WARNING,
@@ -1006,18 +1037,26 @@ class BaseTunnel(object):
                 },
             )
             return
+        peer_send_packet_mtu = self._packet_mtu_from_payload(peer_send_payload)
+        peer_recv_packet_mtu = self._packet_mtu_from_payload(peer_recv_payload)
 
-        prev_send = self._send_mtu
-        prev_recv = self._recv_mtu
+        prev_send = self._send_packet_mtu
+        prev_recv = self._recv_packet_mtu
 
         # Clamp to our transport limits.
-        agreed_send = min(peer_recv_mtu, self._proposed_send_mtu or self._default_mtu)
-        agreed_recv = min(peer_send_mtu, self._proposed_recv_mtu or self._default_mtu)
+        agreed_send_packet_mtu = min(
+            peer_recv_packet_mtu,
+            self._proposed_send_packet_mtu or self._default_packet_mtu,
+        )
+        agreed_recv_packet_mtu = min(
+            peer_send_packet_mtu,
+            self._proposed_recv_packet_mtu or self._default_packet_mtu,
+        )
 
-        self._send_mtu = agreed_send
-        self._recv_mtu = agreed_recv
-        self._pending_send_mtu = None
-        self._max_packet_size = agreed_recv + PACKET_HEADER_SIZE
+        self._send_packet_mtu = agreed_send_packet_mtu
+        self._recv_packet_mtu = agreed_recv_packet_mtu
+        self._pending_send_packet_mtu = None
+        self._max_packet_size = agreed_recv_packet_mtu
         self._mtu_negotiated = True
 
         # Send ack so Bob knows he can also start sending larger packets
@@ -1028,12 +1067,12 @@ class BaseTunnel(object):
             'tunnel.mtu_ok',
             'MTU negotiated',
             lambda: {
-                'send': agreed_send,
-                'recv': agreed_recv,
+                'send_packet_mtu': agreed_send_packet_mtu,
+                'recv_packet_mtu': agreed_recv_packet_mtu,
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
-        if prev_send != self._send_mtu or prev_recv != self._recv_mtu:
+        if prev_send != self._send_packet_mtu or prev_recv != self._recv_packet_mtu:
             log_event(
                 self._logger,
                 logging.INFO,
@@ -1042,8 +1081,8 @@ class BaseTunnel(object):
                 lambda: {
                     'prev_send': prev_send,
                     'prev_recv': prev_recv,
-                    'send': self._send_mtu,
-                    'recv': self._recv_mtu,
+                    'send_packet_mtu': self._send_packet_mtu,
+                    'recv_packet_mtu': self._recv_packet_mtu,
                     'context': 'mtu_ok',
                     'side': 'alice' if self._is_initiator else 'bob',
                 },
@@ -1055,11 +1094,11 @@ class BaseTunnel(object):
 
         Now Bob can safely use the larger MTU for sending.
         """
-        prev_send = self._send_mtu
-        prev_recv = self._recv_mtu
-        if self._pending_send_mtu is not None:
-            self._send_mtu = self._pending_send_mtu
-            self._pending_send_mtu = None
+        prev_send = self._send_packet_mtu
+        prev_recv = self._recv_packet_mtu
+        if self._pending_send_packet_mtu is not None:
+            self._send_packet_mtu = self._pending_send_packet_mtu
+            self._pending_send_packet_mtu = None
         self._mtu_negotiated = True
         log_event(
             self._logger,
@@ -1067,12 +1106,12 @@ class BaseTunnel(object):
             'tunnel.mtu_ack',
             'MTU ack applied',
             lambda: {
-                'send': self._send_mtu,
-                'recv': self._recv_mtu,
+                'send_packet_mtu': self._send_packet_mtu,
+                'recv_packet_mtu': self._recv_packet_mtu,
                 'side': 'alice' if self._is_initiator else 'bob',
             },
         )
-        if prev_send != self._send_mtu or prev_recv != self._recv_mtu:
+        if prev_send != self._send_packet_mtu or prev_recv != self._recv_packet_mtu:
             log_event(
                 self._logger,
                 logging.INFO,
@@ -1081,8 +1120,8 @@ class BaseTunnel(object):
                 lambda: {
                     'prev_send': prev_send,
                     'prev_recv': prev_recv,
-                    'send': self._send_mtu,
-                    'recv': self._recv_mtu,
+                    'send_packet_mtu': self._send_packet_mtu,
+                    'recv_packet_mtu': self._recv_packet_mtu,
                     'context': 'mtu_ack',
                     'side': 'alice' if self._is_initiator else 'bob',
                 },

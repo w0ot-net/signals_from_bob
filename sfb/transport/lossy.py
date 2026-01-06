@@ -320,12 +320,12 @@ class LossyTransport(Transport):
         self._recv_queue = _EventQueue()
 
     @property
-    def send_mtu(self):
-        return self._inner.send_mtu
+    def send_packet_mtu(self):
+        return self._inner.send_packet_mtu
 
     @property
-    def recv_mtu(self):
-        return self._inner.recv_mtu
+    def recv_packet_mtu(self):
+        return self._inner.recv_packet_mtu
 
     @property
     def max_in_flight(self):
@@ -356,9 +356,11 @@ class LossyTransport(Transport):
 
     def _send_impl(self, data, permit):
         data = to_bytes(data)
-        if len(data) > self.send_mtu:
+        if len(data) > self.send_packet_mtu:
             raise TransportError(
-                'Data size %d exceeds send MTU %d' % (len(data), self.send_mtu)
+                'Data size %d exceeds send MTU %d' % (
+                    len(data), self.send_packet_mtu
+                )
             )
 
         now = permit.now
@@ -674,12 +676,12 @@ class LossyServer(Server):
         self._response_queue = _EventQueue()
 
     @property
-    def send_mtu(self):
-        return self._inner.send_mtu
+    def send_packet_mtu(self):
+        return self._inner.send_packet_mtu
 
     @property
-    def recv_mtu(self):
-        return self._inner.recv_mtu
+    def recv_packet_mtu(self):
+        return self._inner.recv_packet_mtu
 
     def recv(self, timeout=None):
         now = time_provider.now()

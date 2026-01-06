@@ -85,16 +85,16 @@ to whichever valid poll arrived.
 Even though ICMP is not constrained like DNS, the tunnel requires independent
 send/recv MTUs per side. The ICMP transport should:
 
-- Expose separate `send_mtu` and `recv_mtu` values.
+- Expose separate `send_packet_mtu` and `recv_packet_mtu` values.
 - Default them to the same computed ICMP payload cap (symmetric in practice),
   while still allowing independent clamping during MTU negotiation.
 
 Current approach:
-- `icmp_payload_mtu` controls the ICMP payload size limit, with a conservative
+- `icmp_packet_mtu` controls the ICMP payload size limit, with a conservative
   default (1350 bytes to avoid fragmentation on 1500 MTU links).
-- `send_mtu`/`recv_mtu` reflect the SFB packet size carried in the ICMP data
-  payload, not including ICMP headers. The tunnel already subtracts
-  `PACKET_HEADER_SIZE`.
+- `send_packet_mtu`/`recv_packet_mtu` reflect the SFB packet size carried in
+  the ICMP data payload, not including ICMP headers. The tunnel derives
+  payload bytes by subtracting `PACKET_HEADER_SIZE`.
 
 If future path MTU discovery is added, it should update these independently.
 
@@ -144,7 +144,7 @@ Use `non_blocking_poll_timeout` in tight poll loops to avoid CPU spikes.
 
 Config fields:
 - `icmp_target`: Alice target host/IP
-- `icmp_payload_mtu`: max SFB packet size to send/receive (default conservative)
+- `icmp_packet_mtu`: max SFB packet size to send/receive (default conservative)
 - `max_in_flight`: max concurrent ICMP requests in flight
 - `icmp_pending_timeout`: timeout before pruning stale ICMP requests
 - `non_blocking_poll_timeout`: poll timeout used by the tunnel loop
@@ -158,13 +158,13 @@ Config fields:
 CLI:
 - `--transport icmp`
 - Alice: `--target <host>`
-- `--icmp-mtu <bytes>` (both roles)
+- `--icmp-packet-mtu <bytes>` (both roles)
 - Alice pacing (all transports): `--send-rate`, `--send-burst`,
   `--pace-target-inflight-ratio`, `--pace-min-inflight`,
   `--pace-max-inflight`, `--pace-feedback-gain`,
   `--pace-ack-ewma-alpha`, `--pace-rtt-floor-ms`,
   `--pace-ack-idle-reset-sec`
-- Bob: `--icmp-mtu <bytes>` only
+- Bob: `--icmp-packet-mtu <bytes>` only
 
 ---
 

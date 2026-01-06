@@ -38,10 +38,10 @@ def _control_messages(control):
 
 
 class _DummyTransport(Transport):
-    def __init__(self, send_mtu=200, recv_mtu=200, max_in_flight=16):
+    def __init__(self, send_packet_mtu=200, recv_packet_mtu=200, max_in_flight=16):
         super(_DummyTransport, self).__init__()
-        self._send_mtu = send_mtu
-        self._recv_mtu = recv_mtu
+        self._send_packet_mtu = send_packet_mtu
+        self._recv_packet_mtu = recv_packet_mtu
         self._max_in_flight = max_in_flight
         self._pending = []
         self.release_calls = 0
@@ -69,12 +69,12 @@ class _DummyTransport(Transport):
         return self._max_in_flight
 
     @property
-    def send_mtu(self):
-        return self._send_mtu
+    def send_packet_mtu(self):
+        return self._send_packet_mtu
 
     @property
-    def recv_mtu(self):
-        return self._recv_mtu
+    def recv_packet_mtu(self):
+        return self._recv_packet_mtu
 
     def release_send(self, permit):
         self.release_calls += 1
@@ -82,12 +82,12 @@ class _DummyTransport(Transport):
 
 
 class _QueueTransport(Transport):
-    def __init__(self, responses=None, send_mtu=200, recv_mtu=200,
+    def __init__(self, responses=None, send_packet_mtu=200, recv_packet_mtu=200,
                  max_in_flight=16, fail_after=None):
         super(_QueueTransport, self).__init__()
         self._responses = list(responses) if responses else []
-        self._send_mtu = send_mtu
-        self._recv_mtu = recv_mtu
+        self._send_packet_mtu = send_packet_mtu
+        self._recv_packet_mtu = recv_packet_mtu
         self._max_in_flight = max_in_flight
         self._fail_after = fail_after
         self._send_calls = 0
@@ -128,12 +128,12 @@ class _QueueTransport(Transport):
         return self._max_in_flight
 
     @property
-    def send_mtu(self):
-        return self._send_mtu
+    def send_packet_mtu(self):
+        return self._send_packet_mtu
 
     @property
-    def recv_mtu(self):
-        return self._recv_mtu
+    def recv_packet_mtu(self):
+        return self._recv_packet_mtu
 
 
 
@@ -233,8 +233,8 @@ class ConnectTests(unittest.TestCase):
         ack_response = Packet(seq=101, ack=0, sack=0, flags=0)
         transport = _QueueTransport(
             responses=[syn_ack.encode(), ack_response.encode()],
-            send_mtu=240,
-            recv_mtu=180,
+            send_packet_mtu=240,
+            recv_packet_mtu=180,
         )
         alice = AliceTunnel(transport, config, crypto=Plain())
 
@@ -255,11 +255,11 @@ class ConnectTests(unittest.TestCase):
         mtu_msg = mtu_msgs[0]
         self.assertEqual(
             mtu_msg.get('tx'),
-            transport.send_mtu - PACKET_HEADER_SIZE,
+            transport.send_packet_mtu - PACKET_HEADER_SIZE,
         )
         self.assertEqual(
             mtu_msg.get('rx'),
-            transport.recv_mtu - PACKET_HEADER_SIZE,
+            transport.recv_packet_mtu - PACKET_HEADER_SIZE,
         )
         self.assertEqual(window_msgs[0].get('size'), 8)
 

@@ -317,7 +317,7 @@ class SocksLoopTests(unittest.TestCase):
         config = Config(
             dns_base_domain='test.local',
             non_blocking_poll_timeout=0.001,
-            protocol_max_packet_size=64,
+            protocol_max_packet_mtu=64,
             relay_pump_backoff_max=0.01,
             relay_buffer_size=32,
             relay_channel_timeout=0.01,

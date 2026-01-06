@@ -164,14 +164,15 @@ retransmits; response silence is only used for connection timeout.
 
 ### Bob (Opportunistic)
 
-Bob has no timers. On each request from Alice, Bob includes:
-1. The oldest unacked packet (if any) via `send_window.get_oldest_unacked()`
-2. New data from channels
+Bob does not run a background retransmit timer. On each request from Alice, Bob
+may include the oldest unacked packet (if any) when it passes the retransmit
+cooldown and cumulative ACKs are not advancing, otherwise the retransmit is
+skipped for that poll. After that, Bob adds new data from channels.
 
-Over multiple polls, all unacked packets eventually get retransmitted. This
-approach prioritizes the oldest data and avoids flooding responses with
-redundant retransmits. If faster recovery is needed, Bob can call
-`get_oldest_unacked()` multiple times to include more retransmits.
+Over multiple polls, the oldest unacked packet is retried once its cooldown
+expires and ACK progress stalls. This approach prioritizes the oldest data and
+avoids flooding responses with redundant retransmits. If faster recovery is
+needed, Bob can include more than one retransmit per response.
 
 The total number of unacked packets remains capped at max_in_flight, so the
 SACK bitmap always covers all outstanding packets.
@@ -202,11 +203,11 @@ keepalive-flag packet when idle, or with queued data if available. If either
 side has actual data to send, the packet itself serves as keepalive—no channel
 0 ping/pong messages are sent (legacy ping/pong are ignored if received).
 
-For pacing decisions, "real data" is the presence of one or more segments
-(control or data). The keepalive flag is only an idle hint and should not be
-used as a data/no-data signal.
+For poll/keepalive decisions on Alice, any response without `FLAG_KEEPALIVE` is
+treated as real data (including ack-only packets). Keepalive-flag packets are
+treated as idle responses and should not carry segments.
 
-Keepalive interval is configurable (default: 5 seconds).
+Keepalive interval is configurable (default: 1.0 second).
 
 Keepalive responses are suppressed when any channel data is queued; queued data
 replaces the keepalive. If data is queued but no segment fits, Bob may send an
@@ -451,11 +452,11 @@ tunnel.serve_forever()
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `keepalive_interval` | 5.0s | Time between keepalive packets (Alice) |
-| `connect_timeout` | 10.0s | Handshake timeout (Alice) |
-| `idle_timeout` | 60.0s | Connection timeout with no activity (Bob) |
-| `max_retries` | 10 | Max consecutive failures before disconnect |
-| `initial_rto` | 1000ms | Initial retransmit timeout (Alice) |
+| `tunnel_keepalive_interval` | 1.0s | Time between keepalive packets (Alice) |
+| `tunnel_connect_timeout` | 10.0s | Handshake timeout (Alice) |
+| `tunnel_idle_timeout` | 60.0s | Connection timeout with no activity (Bob) |
+| `tunnel_no_response_timeout` | 60.0s | Alice timeout on response silence |
+| `protocol_initial_rto_ms` | 1000ms | Initial retransmit timeout (Alice) |
 
 ---
 

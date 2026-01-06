@@ -529,7 +529,6 @@ class AliceTunnel(BaseTunnel):
                     'side': 'alice',
                 },
             )
-            self._maybe_sack_stall_rto_retransmit(now, ack_silence)
 
         self._maybe_fast_retransmit(now, ack_silence)
 
@@ -1122,44 +1121,6 @@ class AliceTunnel(BaseTunnel):
 
     def _fast_retransmit_sack_ready(self):
         return self._send_window.sack_progress_ready()
-
-    def _maybe_sack_stall_rto_retransmit(self, now, ack_silence):
-        if ack_silence is None:
-            return False
-        if ack_silence >= self._rtt.rto_sec:
-            return False
-        exceeded, distance_info = self._send_window.distance_exceeded(
-            max_window=self.MAX_WINDOW
-        )
-        if not exceeded:
-            return False
-        last_cum_ack = distance_info[5]
-        missing_info = self._send_window.get_unacked_info(last_cum_ack)
-        if missing_info is None:
-            return False
-        (seq, segments, flags, encrypted_body,
-         send_time, _retransmit_count) = missing_info
-        if send_time is None:
-            return False
-        missing_age = now - send_time
-        if missing_age < 0:
-            missing_age = 0.0
-        if missing_age < self._rtt.rto_sec:
-            return False
-        if not self._can_send_retransmit(now=now):
-            return False
-        reason = 'rto_keepalive' if flags & FLAG_KEEPALIVE else 'rto'
-        sent = self._send_retransmit(
-            seq,
-            segments,
-            flags,
-            encrypted_body,
-            now,
-            reason=reason,
-        )
-        if sent:
-            self._backoff_rto_once()
-        return sent
 
     def _prune_fast_retransmit_counts(self):
         if not self._fast_retransmit_counts:

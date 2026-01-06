@@ -25,7 +25,13 @@ import tempfile
 from .config import Config
 from .compat import byte_at, text_type
 from .crypto import Plain, RC4, XOR
-from .logging_util import add_component_filters, add_sqlite_handler, get_logger, log_event
+from .logging_util import (
+    StructuredLogFormatter,
+    add_component_filters,
+    add_sqlite_handler,
+    get_logger,
+    log_event,
+)
 from .log_profiles import LOG_PROFILES, apply_log_profile
 from .transport import TRANSPORTS, TransportError, get_transport_class
 from .tunnel import AliceTunnel, BobTunnel, TunnelError, TunnelState
@@ -1414,6 +1420,12 @@ def main(args=None):
         level=level,
         format='%(name)s %(levelname)s %(message)s'
     )
+    stdout_formatter = StructuredLogFormatter(
+        '%(name)s %(levelname)s %(message)s'
+    )
+    for handler in logging.getLogger().handlers:
+        if isinstance(handler, logging.StreamHandler):
+            handler.setFormatter(stdout_formatter)
     if parsed.db_log:
         db_dir = os.path.dirname(parsed.db_log)
         if os.path.exists(parsed.db_log):

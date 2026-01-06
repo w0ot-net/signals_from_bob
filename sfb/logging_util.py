@@ -21,6 +21,28 @@ from . import time_provider
 DEFAULT_FORMAT = '%(asctime)s %(levelname)s %(name)s: %(message)s'
 
 
+class StructuredLogFormatter(logging.Formatter):
+    """
+    Formatter that appends event fields when present.
+    """
+
+    def __init__(self, fmt=None, datefmt=None):
+        logging.Formatter.__init__(self, fmt=fmt, datefmt=datefmt)
+
+    def format(self, record):
+        message = logging.Formatter.format(self, record)
+        event = getattr(record, 'event', None)
+        fields = getattr(record, 'fields', None)
+        extras = []
+        if event:
+            extras.append('event=%s' % _coerce_text(event))
+        if fields:
+            extras.append('fields=%s' % _encode_fields(fields))
+        if extras:
+            return '%s | %s' % (message, ' '.join(extras))
+        return message
+
+
 def configure_logging(level='INFO', to_stdout=True, log_file=None):
     """
     Configure tunnel logging.

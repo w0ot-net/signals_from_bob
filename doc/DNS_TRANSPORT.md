@@ -294,6 +294,8 @@ Alice selects a per-send query cap based on adaptive clamp mode:
 The chosen packet cap is attached to the send permit and applied at packet
 build time, so segments are sized before encoding the DNS query. Bob still
 enforces the per-request response cap for each response and retransmit.
+The DNS server attaches `response_payload_cap` to the responder so Bob can
+apply the per-request cap for both new sends and retransmits.
 
 Response caps and MTUs are packet bytes; payload bytes are
 (`packet_mtu` - `PACKET_HEADER_SIZE`).

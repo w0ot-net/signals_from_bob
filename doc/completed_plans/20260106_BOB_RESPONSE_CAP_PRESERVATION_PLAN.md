@@ -1,6 +1,6 @@
 # Bob Response Cap Preservation Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 - Preserve per-request response caps on Bob when payload_cap plumbing is removed
@@ -50,3 +50,9 @@ Status: draft
 5) Validation:
    - Run relevant non-e2e unit tests with `python3` if desired.
    - Do not run tests under `tests/e2e/`.
+
+## Execution Notes
+- Set UDP ephemeral responder `response_payload_cap` to `send_packet_mtu`.
+- Documented responder response cap metadata in transport docs and server base.
+- Clarified response cap enforcement notes in Bob and DNS docs.
+- Tests not run (per instructions).

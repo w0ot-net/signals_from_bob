@@ -144,6 +144,10 @@ class Server:
         ...
 ```
 
+The responder may expose `response_payload_cap` (packet bytes) to provide a
+per-request response cap for Bob. This is distinct from the client-side
+`payload_cap_for_send` hook.
+
 ---
 
 ## Usage Patterns

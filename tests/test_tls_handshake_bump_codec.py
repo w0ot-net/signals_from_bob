@@ -227,6 +227,64 @@ class TlsHandshakeBumpCodecTests(unittest.TestCase):
         parsed = codec.parse_client_hello_sni_from_buffer(bytearray(record), record_len)
         self.assertEqual(parsed, sni)
 
+    def test_parse_client_hello_sni_record_too_short(self):
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni(b'\x16\x03\x03')
+
+    def test_parse_client_hello_sni_from_buffer_invalid_record_len(self):
+        header = struct.pack(
+            '!BHH',
+            codec.TLS_CONTENT_TYPE_HANDSHAKE,
+            codec.TLS_VERSION_1_2,
+            0,
+        )
+        record = header
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni_from_buffer(record, None)
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni_from_buffer(record, -1)
+
+    def test_parse_client_hello_sni_from_buffer_handshake_header_truncated(self):
+        header = struct.pack(
+            '!BHH',
+            codec.TLS_CONTENT_TYPE_HANDSHAKE,
+            codec.TLS_VERSION_1_2,
+            2,
+        )
+        record = header + b'\x00\x00'
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni_from_buffer(record, 2)
+
+    def test_parse_client_hello_sni_from_buffer_invalid_handshake_type(self):
+        header = struct.pack(
+            '!BHH',
+            codec.TLS_CONTENT_TYPE_HANDSHAKE,
+            codec.TLS_VERSION_1_2,
+            codec.TLS_HANDSHAKE_HEADER_LEN,
+        )
+        handshake = (
+            struct.pack('!B', codec.TLS_HANDSHAKE_SERVER_HELLO) +
+            _pack_u24(0)
+        )
+        record = header + handshake
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni_from_buffer(record, len(handshake))
+
+    def test_parse_client_hello_sni_from_buffer_handshake_length_mismatch(self):
+        header = struct.pack(
+            '!BHH',
+            codec.TLS_CONTENT_TYPE_HANDSHAKE,
+            codec.TLS_VERSION_1_2,
+            codec.TLS_HANDSHAKE_HEADER_LEN,
+        )
+        handshake = (
+            struct.pack('!B', codec.TLS_HANDSHAKE_CLIENT_HELLO) +
+            _pack_u24(1)
+        )
+        record = header + handshake
+        with self.assertRaises(ValueError):
+            codec.parse_client_hello_sni_from_buffer(record, len(handshake))
+
 
 if __name__ == '__main__':
     unittest.main()

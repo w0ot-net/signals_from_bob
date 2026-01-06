@@ -209,3 +209,9 @@
    - DNS client/server/codec tests for clamp lookup, per-send caps, and
      min-cap enforcement.
    - Tunnel/BobTunnel tests that reference payload_cap behavior.
+
+## Execution Notes
+- Implemented per-send payload caps via transport hook and BaseTunnel clamp.
+- Added DNS response cap lookup/shared codec helper with MTU clamping and logging.
+- Updated Bob retransmit handling to keep unacked entries and send control segments.
+- Documentation updated; tests not modified per instructions.

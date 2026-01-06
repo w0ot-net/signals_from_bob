@@ -11,6 +11,7 @@ from __future__ import absolute_import
 import logging
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
+from .tunnel_control_messages import tun_ping
 from ..logging_util import log_event
 from .. import time_provider
 from ..protocol import (
@@ -350,7 +351,7 @@ class BobTunnel(BaseTunnel):
                 self._logger,
                 logging.WARNING,
                 'tunnel.retransmit_cap_blocked',
-                'Retransmit exceeds per-request cap; sending poll hint',
+                'Retransmit exceeds per-request cap; sending control segment',
                 lambda: {
                     'seq': seq,
                     'bytes': len(response_data),
@@ -374,7 +375,7 @@ class BobTunnel(BaseTunnel):
                             'seq': dropped_seq,
                         },
                     )
-            self._send_keepalive_response(responder, now, poll_hint=True)
+            self._send_poll_hint_segment(responder, now, response_payload_cap)
             return False
         prev_info = self._send_window.get_unacked_info(seq)
         prev_retransmit_count = None
@@ -468,6 +469,55 @@ class BobTunnel(BaseTunnel):
                     'error': str(exc),
                     'side': 'bob',
                     'poll_hint': poll_hint,
+                    'unacked': self._send_window.unacked_count,
+                    'max_in_flight': self._send_window._max_in_flight,
+                },
+            )
+            return False
+        return True
+
+    def _send_poll_hint_segment(self, responder, now, response_payload_cap):
+        self.control.send_message(tun_ping())
+        max_payload = self._payload_mtu_from_packet(self._send_packet_mtu)
+        if response_payload_cap is not None:
+            cap_payload = response_payload_cap - PACKET_HEADER_SIZE
+            if cap_payload < 0:
+                cap_payload = 0
+            if cap_payload < max_payload:
+                max_payload = cap_payload
+        segments = self._collect_segments(
+            max_payload,
+            control_only=True,
+        )
+        if not segments:
+            return self._send_keepalive_response(responder, now, poll_hint=True)
+        packet, _ = self._build_packet(
+            flags=FLAG_HAS_SEGMENTS,
+            segments=segments,
+        )
+        encrypted_body, response_data = self._encode_packet_for_send(packet)
+        try:
+            self._send_response_packet(
+                responder,
+                packet,
+                response_data,
+                'poll_hint',
+                'poll_hint',
+                now=now,
+                encrypted_body=encrypted_body,
+                segments=segments,
+                record_send=True,
+            )
+        except ValueError as exc:
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'tunnel.send_blocked',
+                'Poll-hint control send blocked',
+                lambda: {
+                    'reason': 'window_full',
+                    'error': str(exc),
+                    'side': 'bob',
                     'unacked': self._send_window.unacked_count,
                     'max_in_flight': self._send_window._max_in_flight,
                 },
@@ -703,8 +753,8 @@ class BobTunnel(BaseTunnel):
     def _send_response(self, responder, now):
         """Build and send response packet."""
         response_payload_cap = None
-        if hasattr(responder, 'payload_cap'):
-            response_payload_cap = responder.payload_cap
+        if hasattr(responder, 'response_payload_cap'):
+            response_payload_cap = responder.response_payload_cap
 
         decision = self._select_response_action(now, response_payload_cap)
         action = decision.get('action')
@@ -749,8 +799,8 @@ class BobTunnel(BaseTunnel):
 
     def _log_response_cap(self, responder, response_data):
         response_payload_cap = None
-        if hasattr(responder, 'payload_cap'):
-            response_payload_cap = responder.payload_cap
+        if hasattr(responder, 'response_payload_cap'):
+            response_payload_cap = responder.response_payload_cap
         qname_wire_len = getattr(responder, 'qname_wire_len', None)
         max_packet_size = getattr(responder, 'max_packet_size', None)
         if response_payload_cap is None or qname_wire_len is None:
@@ -761,7 +811,7 @@ class BobTunnel(BaseTunnel):
             'tunnel.response_cap',
             'DNS response cap detail',
             lambda: {
-                'payload_cap': response_payload_cap,
+                'response_payload_cap': response_payload_cap,
                 'qname_wire_len': qname_wire_len,
                 'max_packet_size': max_packet_size,
                 'response_bytes': len(response_data),

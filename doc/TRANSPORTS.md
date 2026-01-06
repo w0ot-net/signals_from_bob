@@ -80,6 +80,22 @@ class Transport:
         """Max packet bytes per recv."""
         ...
 
+    def payload_cap_for_send(self, permit):
+        """
+        Optional per-send packet cap for tunnel payload collection.
+
+        Returns packet byte cap or None.
+        """
+        ...
+
+    def notify_send_pending(self, has_pending_data):
+        """Optional hint about Alice pending data state."""
+        ...
+
+    def notify_recv_window_sack(self, sack):
+        """Optional hint about Alice receive window SACK state."""
+        ...
+
     def release_send(self, permit):
         """Release a reserved permit when a send is skipped."""
         ...

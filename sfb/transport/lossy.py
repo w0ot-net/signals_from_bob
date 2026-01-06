@@ -334,6 +334,20 @@ class LossyTransport(Transport):
     def pending_count(self):
         return self._pending_total()
 
+    def payload_cap_for_send(self, permit):
+        if permit is None or not permit.data:
+            return None
+        inner_permit = permit.data.get('inner_permit')
+        if inner_permit is None:
+            return None
+        return self._inner.payload_cap_for_send(inner_permit)
+
+    def notify_send_pending(self, has_pending_data):
+        self._inner.notify_send_pending(has_pending_data)
+
+    def notify_recv_window_sack(self, sack):
+        self._inner.notify_recv_window_sack(sack)
+
     def reserve_send(self, now=None):
         if now is None:
             now = time_provider.now()

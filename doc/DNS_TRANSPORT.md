@@ -273,23 +273,34 @@ response_mtu = floor(usable_chars * 5 / 8)
 response_mtu = 142 bytes
 ```
 
-### CNAME Payload Cap (512-byte DNS responses)
+### CNAME Response Caps and Adaptive Clamp
 
-When `dns_response_type=CNAME` and `dns_edns_size <= 512`, the full DNS response
-must fit in 512 bytes and includes the original QNAME in both the question and
-answer sections. This reduces the usable response payload for long queries.
+When `dns_response_type=CNAME`, the full DNS response must fit within the EDNS
+size (minimum 512 bytes) and includes the original QNAME in both the question
+and answer sections. This means the usable response packet size depends on the
+query's QNAME wire length.
 
-The client precomputes a conservative `payload_cap`, and the server computes a
-per-query cap based on the actual QNAME wire length. Bob clamps the max packet
-size to at least 512 bytes for this calculation and uses the per-query cap to
-limit response payloads.
+The client precomputes a lookup across all possible query packet sizes using
+the same sizing rules as the server (EDNS clamp plus OPT record length) to
+derive a per-query `response_payload_cap` in packet bytes. The maximum of that
+lookup bounds Alice's `recv_packet_mtu` and Bob's `send_packet_mtu`; init fails
+if the maximum response packet size is smaller than the minimum packet needed
+to carry one segment.
 
-For `tunnel.example.com` with `cname_label=0` and `label_max_len=50`, the cap is
-84 bytes.
+Alice selects a per-send query cap based on adaptive clamp mode:
+- response_max while retransmits may be pending (maximize Bob's response size)
+- balanced when both sides have data
+- idle when Bob has no data (keep response slots small)
+The chosen packet cap is attached to the send permit and applied at packet
+build time, so segments are sized before encoding the DNS query. Bob still
+enforces the per-request response cap for each response and retransmit.
+
+Response caps and MTUs are packet bytes; payload bytes are
+(`packet_mtu` - `PACKET_HEADER_SIZE`).
 
 ### MTU Examples by Domain Length
 
-| Base Domain | Length | Query MTU | Response MTU | CNAME Payload Cap (512) |
+| Base Domain | Length | Query MTU | Response MTU | CNAME Response Cap (512) |
 |-------------|--------|-----------|--------------|-------------------------|
 | `t.co` | 4 | 149 | 151 | 93 |
 | `example.com` | 11 | 145 | 146 | 88 |
@@ -823,14 +834,14 @@ This section describes techniques to maximize throughput over the DNS transport.
 | Response overhead | 12 + qname_len + 4 + qname_len + 10 bytes | Header + question + answer (without RDATA) |
 | Encoding overhead (query/response) | 1.625x | Base32 in QNAME/CNAME |
 | MTU (label_max_len=50) | 132-151 bytes (query), 134-153 bytes (response) | Depends on domain and cname_label |
-| CNAME payload cap (512) | 76-94 bytes | Depends on domain and cname_label |
+| CNAME response cap (512) | 76-94 bytes | Depends on domain and cname_label |
 
 ### Optimal Domain Selection
 
 Shorter base domains and shorter `dns_cname_label` values provide higher MTU
-and payload caps:
+and response caps:
 
-| Base Domain | Query MTU | CNAME Payload Cap (512) |
+| Base Domain | Query MTU | CNAME Response Cap (512) |
 |-------------|-----------|-------------------------|
 | `t.co` | 149 | 93 |
 | `x.local` (direct mode) | 147 | 91 |
@@ -918,17 +929,17 @@ def prepare_response(mtu):
 
 ### Performance Summary
 
-| Configuration | Query MTU | Response MTU | CNAME Payload Cap (512) |
+| Configuration | Query MTU | Response MTU | CNAME Response Cap (512) |
 |---------------|-----------|--------------|-------------------------|
 | `tunnel.example.com` | 140 | 142 | 84 |
 | `x` (direct mode) | 151 | 153 | 94 |
 
-With 512-byte DNS responses, the CNAME payload cap often becomes the limiting
+With 512-byte DNS responses, the CNAME response cap often becomes the limiting
 factor for response payload size.
 
 ### Throughput Estimates
 
-The estimates below assume CNAME responses with `tunnel.example.com` (payload
+The estimates below assume CNAME responses with `tunnel.example.com` (response
 cap 84 bytes) unless noted otherwise. Payload bytes refer to tunnel packet
 bytes; application payload is smaller due to protocol headers.
 

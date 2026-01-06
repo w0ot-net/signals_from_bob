@@ -126,15 +126,15 @@ Retransmits are sent via `_send_retransmit_response()`:
     deterministic even when re-encrypted.
 - Encodes `header + encrypted_body` into `response_data`.
 
-### Response Payload Cap (Fatal When Exceeded)
+### Response Payload Cap (Retransmit Blocked)
 
-If the responder exposes `payload_cap`, retransmit checks:
-- If `len(response_data) > payload_cap`, Bob logs:
+If the responder exposes `response_payload_cap`, retransmit checks:
+- If `len(response_data) > response_payload_cap`, Bob logs:
   - `tunnel.retransmit_skip` with reason `cap`
-  - `tunnel.retransmit_cap_fatal`
-  then closes the tunnel and returns without sending.
-- There is no segmentation or down-sizing on retransmit; it either fits or the
-  tunnel is closed. This is intentional behavior.
+  - `tunnel.retransmit_cap_blocked`
+- The unacked entry remains; Bob does not close the tunnel.
+- Bob responds with a small control segment (not a keepalive) so Alice sees
+  segments and keeps clamp state hot until a larger-cap request arrives.
 
 ### Side Effects On Successful Retransmit
 

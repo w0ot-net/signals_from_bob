@@ -14,6 +14,7 @@ import struct
 from ..base32 import base32_decode as shared_base32_decode
 from ..base32 import base32_encode as shared_base32_encode
 from ...compat import byte_at, require_bytes_like, text_type, to_bytes
+from ...config import DNS_STANDARD_SIZE
 
 # DNS constants
 QTYPE_A = 1
@@ -391,6 +392,23 @@ def _qname_wire_len_for_payload(payload_len, base_domain, label_max_len):
     return len(encode_name(qname))
 
 
+def calc_qname_wire_len(payload_len, base_domain, label_max_len=None):
+    """
+    Calculate QNAME wire length for an encoded query payload.
+
+    Args:
+        payload_len: query payload length in bytes
+        base_domain: tunnel domain suffix
+        label_max_len: max label length for tunnel data labels
+
+    Returns:
+        int: QNAME wire length in bytes
+    """
+    label_max_len = _normalize_label_max_len(label_max_len)
+    base_domain = _normalize_domain(base_domain)
+    return _qname_wire_len_for_payload(payload_len, base_domain, label_max_len)
+
+
 def _max_cname_payload_for_response(fixed_len, cname_suffix, label_max_len,
                                     max_packet_size):
     if fixed_len >= max_packet_size:
@@ -417,6 +435,47 @@ def _max_cname_payload_for_response(fixed_len, cname_suffix, label_max_len,
         else:
             high = mid - 1
     return best
+
+
+def calc_cname_response_payload_cap(qname_wire_len, edns_size, cname_suffix,
+                                    label_max_len=None, opt_record_len=0):
+    """
+    Calculate response payload cap for a CNAME response.
+
+    Args:
+        qname_wire_len: wire length of QNAME
+        edns_size: advertised EDNS UDP size
+        cname_suffix: CNAME suffix used for tunnel data
+        label_max_len: max label length for tunnel data labels
+        opt_record_len: encoded OPT record length when EDNS is enabled
+
+    Returns:
+        tuple: (response_payload_cap, max_packet_size)
+    """
+    if qname_wire_len is None:
+        return None, None
+    label_max_len = _normalize_label_max_len(label_max_len)
+    cname_suffix = _normalize_domain(cname_suffix)
+    max_packet_size = edns_size
+    if max_packet_size < DNS_STANDARD_SIZE:
+        max_packet_size = DNS_STANDARD_SIZE
+    additional_len = 0
+    if edns_size > DNS_STANDARD_SIZE and opt_record_len:
+        additional_len = opt_record_len
+    question_len = qname_wire_len + 4
+    answer_name_len = qname_wire_len
+    answer_fixed_len = 10
+    fixed_len = (12 + question_len + answer_name_len +
+                 answer_fixed_len + additional_len)
+    if fixed_len >= max_packet_size:
+        return 0, max_packet_size
+    response_payload = _max_cname_payload_for_response(
+        fixed_len,
+        cname_suffix,
+        label_max_len,
+        max_packet_size,
+    )
+    return response_payload, max_packet_size
 
 
 def calc_cname_payload_cap(base_domain, cname_suffix, label_max_len=None,

@@ -89,7 +89,6 @@ class BaseTunnel(object):
         self._is_initiator = is_initiator
         self._state = TunnelState.DISCONNECTED
         self._logger = logger or get_logger(__name__)
-        self._payload_cap = None
 
         # Channel management
         self._channel_manager = ChannelManager(is_alice=is_initiator, config=config)
@@ -153,7 +152,6 @@ class BaseTunnel(object):
         """
         Initialize transport-derived payload/MTU limits.
         """
-        self._payload_cap = getattr(transport, 'payload_cap', None)
         send_packet_mtu = transport.send_packet_mtu
         recv_packet_mtu = transport.recv_packet_mtu
         self._proposed_send_packet_mtu = send_packet_mtu
@@ -1334,7 +1332,7 @@ class BaseTunnel(object):
         )
 
     def _collect_segments(self, max_payload, return_pending=False,
-                          control_only=False):
+                          control_only=False, payload_cap=None):
         """
         Collect segments from channels for transmission.
 
@@ -1342,12 +1340,13 @@ class BaseTunnel(object):
             max_payload: Max bytes for segments
             return_pending: If True, return (segments, pending_data)
             control_only: If True, only collect control channel segments
+            payload_cap: Optional packet byte cap for this send
         Returns:
             list: List of Segment instances if return_pending is False
             tuple: (segments, pending_data) if return_pending is True
         """
-        if self._payload_cap is not None:
-            cap_payload = self._payload_cap - PACKET_HEADER_SIZE
+        if payload_cap is not None:
+            cap_payload = payload_cap - PACKET_HEADER_SIZE
             if cap_payload < 0:
                 cap_payload = 0
             if max_payload > cap_payload:

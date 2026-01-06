@@ -205,6 +205,36 @@ class Transport(with_metaclass(TransportMeta, object)):
         """
         pass
 
+    def payload_cap_for_send(self, permit):
+        """
+        Optional per-send packet cap for tunnel payload collection.
+
+        Args:
+            permit: SendPermit returned by reserve_send()
+
+        Returns:
+            int: packet byte cap or None
+        """
+        return None
+
+    def notify_send_pending(self, has_pending_data):
+        """
+        Optional hint about Alice's pending data state.
+
+        Args:
+            has_pending_data: bool indicating queued data for this send attempt
+        """
+        return None
+
+    def notify_recv_window_sack(self, sack):
+        """
+        Optional hint about Alice's receive window SACK state.
+
+        Args:
+            sack: int SACK bitmap from Alice's recv window
+        """
+        return None
+
     def close(self):
         """
         Close the transport and release resources.

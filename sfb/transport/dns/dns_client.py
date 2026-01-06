@@ -25,6 +25,7 @@ from .dns_utils import load_system_resolvers
 from ...compat import require_bytes_like
 from ...config import Config
 from ...logging_util import get_logger, log_event
+from ...protocol import PACKET_HEADER_SIZE, SEGMENT_HEADER_SIZE
 from ...utils import parse_host_port
 from ... import time_provider
 
@@ -75,7 +76,12 @@ class DnsClient(Transport):
         )
         self._nonce = random.randint(0, 0xFFFF)
         self._query_id = random.randint(0, 0xFFFF)
-        self._payload_cap = None
+        self._alice_has_pending_data = False
+        self._bob_has_data_polls = 2
+        self._bob_has_data_remaining = 0
+        self._retransmit_guard = False
+        self._retransmit_guard_keepalives = 0
+        self._recv_window_sack = 0
 
         # Parse resolver address or use system resolver
         resolver = config.dns_resolver
@@ -117,31 +123,58 @@ class DnsClient(Transport):
         else:
             self._opt_record = b''
             self._opt_arcount = 0
+        self._opt_record_len = len(self._opt_record)
+        rto_sec = float(config.protocol_initial_rto_ms) / 1000.0
+        keepalive_interval = float(config.tunnel_keepalive_interval)
+        if keepalive_interval <= 0:
+            keepalive_interval = 1.0
+        keepalive_target = int(rto_sec / keepalive_interval)
+        if keepalive_target < 1:
+            keepalive_target = 1
+        self._retransmit_guard_keepalive_target = max(
+            2,
+            keepalive_target + 1,
+        )
 
         # Calculate MTUs
         self._send_packet_mtu = codec.calc_query_mtu(
             self._base_domain, self._label_max_len
         )
-        self._recv_packet_mtu = codec.calc_response_mtu(
+        calculated_recv_mtu = codec.calc_response_mtu(
             self._rtype,
             config.dns_edns_size,
             self._cname_suffix,
             self._label_max_len,
         )
-        if self._rtype == codec.QTYPE_CNAME and self._edns_size <= 512:
-            self._payload_cap = codec.calc_cname_payload_cap(
-                self._base_domain,
-                self._cname_suffix,
-                self._label_max_len,
-                self._edns_size,
+        self._min_query_packet_mtu = PACKET_HEADER_SIZE
+        self._min_response_packet_mtu = (
+            PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1
+        )
+        self._response_cap_lookup = None
+        self._max_response_payload_cap = None
+        self._balanced_query_payload = None
+        self._max_response_packet_mtu = None
+        if self._rtype == codec.QTYPE_CNAME:
+            self._init_response_caps()
+            effective_recv_mtu = min(
+                calculated_recv_mtu,
+                self._max_response_packet_mtu,
             )
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'dns.payload_cap',
-                'DNS payload cap',
-                lambda: {'payload_cap': self._payload_cap},
-            )
+            if effective_recv_mtu < calculated_recv_mtu:
+                log_event(
+                    _LOG,
+                    logging.INFO,
+                    'dns.mtu_clamp',
+                    'DNS response MTU clamped',
+                    lambda: {
+                        'calculated_mtu': calculated_recv_mtu,
+                        'max_response_packet_mtu': self._max_response_packet_mtu,
+                        'effective_mtu': effective_recv_mtu,
+                    },
+                )
+            self._recv_packet_mtu = effective_recv_mtu
+        else:
+            self._recv_packet_mtu = calculated_recv_mtu
         self._recv_bufsize = max(self._edns_size, config.dns_recv_bufsize_min)
 
         # Pending query tracking
@@ -156,10 +189,6 @@ class DnsClient(Transport):
     @property
     def recv_packet_mtu(self):
         return self._recv_packet_mtu
-
-    @property
-    def payload_cap(self):
-        return self._payload_cap
 
     @property
     def max_in_flight(self):
@@ -192,7 +221,29 @@ class DnsClient(Transport):
                 },
             )
             return None
-        return self._reserve_permit(now=now, pending_before=pending_before)
+        permit = self._reserve_permit(now=now, pending_before=pending_before)
+        payload_cap = self._select_payload_cap()
+        self._attach_payload_cap(permit, payload_cap)
+        return permit
+
+    def payload_cap_for_send(self, permit):
+        if permit is None:
+            return None
+        data = permit.data
+        if isinstance(data, dict) and 'sfb_payload_cap' in data:
+            return data.get('sfb_payload_cap')
+        return None
+
+    def notify_send_pending(self, has_pending_data):
+        self._alice_has_pending_data = bool(has_pending_data)
+
+    def notify_recv_window_sack(self, sack):
+        if sack:
+            self._recv_window_sack = sack
+            self._retransmit_guard = True
+            self._retransmit_guard_keepalives = 0
+        else:
+            self._recv_window_sack = 0
 
     def _send_impl(self, data, permit):
         """
@@ -426,6 +477,8 @@ class DnsClient(Transport):
         self._pending.pop(corr_id)
         del self._dns_to_corr[dns_id]
 
+        self._update_bob_data_state(len(payload) > PACKET_HEADER_SIZE)
+
         log_event(
             _LOG,
             logging.DEBUG,
@@ -453,6 +506,152 @@ class DnsClient(Transport):
                 lambda: {'count': len(stale)},
             )
         return stale
+
+    def _attach_payload_cap(self, permit, payload_cap):
+        if payload_cap is None:
+            return
+        if permit.data is None:
+            permit.data = {}
+        if not isinstance(permit.data, dict):
+            return
+        permit.data['sfb_payload_cap'] = payload_cap
+
+    def _select_payload_cap(self):
+        if self._response_cap_lookup is None:
+            return None
+        mode = self._select_clamp_mode()
+        if mode == 'balanced' and self._balanced_query_payload is None:
+            mode = 'response_max'
+        if mode == 'response_max':
+            target = self._max_response_payload_cap
+        elif mode == 'balanced':
+            target = self._balanced_query_payload
+        else:
+            target = self._min_response_packet_mtu
+        query_payload = self._query_payload_for_target(target)
+        if query_payload is None:
+            return None
+        if mode == 'balanced' and self._balanced_query_payload is not None:
+            if query_payload > self._balanced_query_payload:
+                query_payload = self._balanced_query_payload
+        if query_payload > self._send_packet_mtu:
+            query_payload = self._send_packet_mtu
+        if query_payload < self._min_query_packet_mtu:
+            query_payload = self._min_query_packet_mtu
+        return query_payload
+
+    def _select_clamp_mode(self):
+        if self._retransmit_guard:
+            return 'response_max'
+        if (self._alice_has_pending_data and
+                self._bob_has_data_remaining > 0):
+            return 'balanced'
+        return 'idle'
+
+    def _query_payload_for_target(self, target_response_payload):
+        if target_response_payload is None:
+            return None
+        if target_response_payload < 0:
+            target_response_payload = 0
+        lookup = self._response_cap_lookup
+        if not lookup:
+            return None
+        if target_response_payload >= len(lookup):
+            target_response_payload = len(lookup) - 1
+        return lookup[target_response_payload]
+
+    def _update_bob_data_state(self, has_segments):
+        if has_segments:
+            self._bob_has_data_remaining = self._bob_has_data_polls
+            self._retransmit_guard = True
+            self._retransmit_guard_keepalives = 0
+            return
+        if self._bob_has_data_remaining > 0:
+            self._bob_has_data_remaining -= 1
+            self._retransmit_guard = True
+        if self._recv_window_sack:
+            self._retransmit_guard = True
+            self._retransmit_guard_keepalives = 0
+            return
+        self._retransmit_guard_keepalives += 1
+        if (self._bob_has_data_remaining <= 0 and
+                self._retransmit_guard_keepalives >=
+                self._retransmit_guard_keepalive_target):
+            self._retransmit_guard = False
+
+    def _init_response_caps(self):
+        if self._send_packet_mtu < self._min_query_packet_mtu:
+            raise TransportError(
+                'DNS query MTU %d below packet header size %d' % (
+                    self._send_packet_mtu,
+                    self._min_query_packet_mtu,
+                )
+            )
+        max_query_payload = self._send_packet_mtu
+        response_caps = [0] * (max_query_payload + 1)
+        max_response_payload = 0
+        balanced_query_payload = None
+        for payload_len in range(self._min_query_packet_mtu,
+                                 max_query_payload + 1):
+            try:
+                qname_wire_len = codec.calc_qname_wire_len(
+                    payload_len,
+                    self._base_domain,
+                    self._label_max_len,
+                )
+            except ValueError:
+                continue
+            response_cap, _ = codec.calc_cname_response_payload_cap(
+                qname_wire_len,
+                self._edns_size,
+                self._cname_suffix,
+                self._label_max_len,
+                self._opt_record_len,
+            )
+            if response_cap is None:
+                response_cap = 0
+            response_caps[payload_len] = response_cap
+            if response_cap > max_response_payload:
+                max_response_payload = response_cap
+            if response_cap >= payload_len:
+                balanced_query_payload = payload_len
+        self._max_response_payload_cap = max_response_payload
+        self._max_response_packet_mtu = max_response_payload
+        if self._max_response_packet_mtu < self._min_response_packet_mtu:
+            raise TransportError(
+                'DNS response MTU %d below minimum %d (base_domain=%s, '
+                'label_max_len=%d, edns_size=%d)' % (
+                    self._max_response_packet_mtu,
+                    self._min_response_packet_mtu,
+                    self._base_domain,
+                    self._label_max_len,
+                    self._edns_size,
+                )
+            )
+        lookup = [0] * (self._max_response_packet_mtu + 1)
+        for payload_len in range(self._min_query_packet_mtu,
+                                 max_query_payload + 1):
+            response_cap = response_caps[payload_len]
+            if response_cap <= 0:
+                continue
+            if response_cap > self._max_response_packet_mtu:
+                response_cap = self._max_response_packet_mtu
+            for target in range(response_cap + 1):
+                if payload_len > lookup[target]:
+                    lookup[target] = payload_len
+        if lookup[self._min_response_packet_mtu] < self._min_query_packet_mtu:
+            raise TransportError(
+                'DNS response MTU %d below minimum %d (base_domain=%s, '
+                'label_max_len=%d, edns_size=%d)' % (
+                    self._max_response_packet_mtu,
+                    self._min_response_packet_mtu,
+                    self._base_domain,
+                    self._label_max_len,
+                    self._edns_size,
+                )
+            )
+        self._response_cap_lookup = lookup
+        self._balanced_query_payload = balanced_query_payload
 
     def _encode_query(self, data):
         """Encode data into DNS query name with nonce."""

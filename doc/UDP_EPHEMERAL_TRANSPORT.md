@@ -39,8 +39,7 @@ Alice                                              Bob
 
 - A single UDP socket is bound to `udp_ephemeral_listen_addr`.
 - Each request returns `(payload, responder)`.
-- The responder enforces `send_packet_mtu` and attaches `payload_cap` for tunnel
-  logging.
+- The responder enforces `send_packet_mtu` on responses.
 
 ---
 

@@ -39,6 +39,10 @@
      precomputed response payload cap based on fixed QNAME wire length and
      UDP size).
    - Data caps = frame_size - 2 for each direction.
+   - Enforce a base domain length cap so both frame sizes stay >= 100 bytes
+     (data cap 98). For the default label_max_len=50 and EDNS=512, this caps
+     base_domain length at 84 characters (including dots). Document the cap
+     and validate it in config.
 3) Remove per-query response sizing in the server:
    - Delete DnsServer._response_payload_cap and related qname_wire_len and
      max_packet_size plumbing in _ResponseSender.

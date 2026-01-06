@@ -20,3 +20,6 @@
 
 ## Performance/Complexity Proposals
 - Use a min-heap with lazy deletion to keep oldest-unacked selection near O(log n) without reordering _unacked (avoid wrap-related cumulative ACK regressions). Prefer this over a cached pointer so we avoid repeated O(n) scans when retransmitting the oldest in tight poll loops.
+
+## Execution Notes
+- 2026-01-06: Implemented the SendWindow data-unacked counter and heap-backed oldest selection. Tests not run (per instructions).

@@ -6,6 +6,7 @@ Send window tracking unacked packets.
 from __future__ import absolute_import
 
 from collections import OrderedDict, deque
+import heapq
 
 from .. import time_provider
 from ..protocol import (
@@ -60,6 +61,10 @@ class SendWindow(object):
         self._last_keepalive_drop_unacked_before = None
         self._last_keepalive_drop_unacked_after = None
         self._keepalive_drop_count = 0
+        self._data_unacked_count = 0
+        self._unacked_heap = []
+        self._unacked_heap_token = 0
+        self._unacked_heap_enabled = False
 
     @property
     def next_seq(self):
@@ -78,11 +83,7 @@ class SendWindow(object):
 
     def data_unacked_count(self):
         """Number of unacked packets carrying segments."""
-        count = 0
-        for pkt in self._unacked.values():
-            if pkt.segments:
-                count += 1
-        return count
+        return self._data_unacked_count
 
     @property
     def last_cum_ack(self):
@@ -150,6 +151,10 @@ class SendWindow(object):
             send_time=now,
             retransmit_count=0,
         )
+        if segments:
+            self._data_unacked_count += 1
+        if self._unacked_heap_enabled:
+            self._push_unacked_heap(self._unacked[seq])
         self._stats.on_send()
 
         return seq
@@ -367,6 +372,8 @@ class SendWindow(object):
 
         pkt.retransmit_count += 1
         pkt.send_time = now
+        if self._unacked_heap_enabled:
+            self._push_unacked_heap(pkt)
         self._retransmit_count += 1
         self._stats.on_retransmit()
 
@@ -383,6 +390,8 @@ class SendWindow(object):
             return False
         count_before = len(self._unacked)
         del self._unacked[seq]
+        if pkt.segments:
+            self._data_unacked_count -= 1
         count_after = len(self._unacked)
         self._record_keepalive_drop(
             seq, reason, now, count_before, count_after
@@ -399,6 +408,8 @@ class SendWindow(object):
             if pkt.flags & FLAG_KEEPALIVE:
                 count_before = len(self._unacked)
                 del self._unacked[seq]
+                if pkt.segments:
+                    self._data_unacked_count -= 1
                 count_after = len(self._unacked)
                 self._record_keepalive_drop(
                     seq, reason, now, count_before, count_after
@@ -665,6 +676,8 @@ class SendWindow(object):
         if pkt is None:
             self._record_ack_miss(seq, is_sack, now, ack, sack)
             return (0, 0)
+        if pkt.segments:
+            self._data_unacked_count -= 1
         self._record_ack_event(seq, pkt, now, is_sack, ack, sack)
         self._stats.on_ack(is_sack)
         if pkt.retransmit_count == 0:
@@ -679,6 +692,25 @@ class SendWindow(object):
     def _select_oldest_unacked(self):
         if not self._unacked:
             return None
+        if not self._unacked_heap_enabled:
+            self._rebuild_unacked_heap()
+            self._unacked_heap_enabled = True
+        oldest = self._select_oldest_from_heap()
+        if oldest is not None:
+            return oldest
+        return self._select_oldest_from_scan()
+
+    def _select_oldest_from_heap(self):
+        while self._unacked_heap:
+            _send_time, token, seq = self._unacked_heap[0]
+            pkt = self._unacked.get(seq)
+            if pkt is None or pkt.heap_token != token:
+                heapq.heappop(self._unacked_heap)
+                continue
+            return (seq, pkt)
+        return None
+
+    def _select_oldest_from_scan(self):
         oldest = None
         oldest_time = None
         for seq, pkt in self._unacked.items():
@@ -688,7 +720,24 @@ class SendWindow(object):
             if oldest is None or pkt_time < oldest_time:
                 oldest = (seq, pkt)
                 oldest_time = pkt_time
+        if oldest is None:
+            return None
+        self._rebuild_unacked_heap()
         return oldest
+
+    def _rebuild_unacked_heap(self):
+        self._unacked_heap = []
+        for pkt in self._unacked.values():
+            self._push_unacked_heap(pkt)
+
+    def _push_unacked_heap(self, pkt):
+        self._unacked_heap_token += 1
+        token = self._unacked_heap_token
+        pkt.heap_token = token
+        pkt_time = pkt.send_time
+        if pkt_time is None:
+            pkt_time = 0.0
+        heapq.heappush(self._unacked_heap, (pkt_time, token, pkt.seq))
 
     def _ack_is_future(self, ack):
         return seq_gt(ack, self._next_seq)
@@ -780,6 +829,7 @@ class _UnackedPacket(object):
         'encrypted_body',
         'send_time',
         'retransmit_count',
+        'heap_token',
     )
 
     def __init__(self, seq, segments, flags, encrypted_body, send_time, retransmit_count):
@@ -789,3 +839,4 @@ class _UnackedPacket(object):
         self.encrypted_body = encrypted_body
         self.send_time = send_time
         self.retransmit_count = retransmit_count
+        self.heap_token = None

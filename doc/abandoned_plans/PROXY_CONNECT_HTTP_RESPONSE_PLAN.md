@@ -1,5 +1,7 @@
 # Proxy CONNECT HTTP Response Plan
 
+Status: abandoned
+
 ## Goal
 - Replace manual status parsing in `parse_connect_response` with standard library
   HTTP response parsing while keeping the current return contract, buffer scan
@@ -38,3 +40,6 @@
      stays tolerant.
 
 5. Verify behavior remains compatible across Python 2.7 and 3.
+
+## Abandonment notes
+- 2026-01-05: Abandoned per request; no implementation work recorded.

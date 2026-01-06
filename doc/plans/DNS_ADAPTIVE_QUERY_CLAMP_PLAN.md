@@ -66,6 +66,9 @@
   hard-close if a retransmit exceeds the current request cap, and keep the
   clamp hot across loss so Alice continues issuing small queries until Bob
   successfully retransmits.
+- No new poll-hint flag is required. Use a control-segment hint (existing
+  control message or a small new control message) and clamp stickiness to keep
+  Alice in the response-max mode while retransmits are pending.
 
 ## Plan
 1) Precompute query->response caps for DNS (DnsClient init):
@@ -109,17 +112,38 @@
    - Do not decay bob_has_data on timeouts or missing responses; only decay on
      explicit keepalive-only responses so loss cannot prematurely relax the
      clamp while Bob may still need to retransmit.
+   - Track a retransmit_guard mode that forces response-max clamping whenever
+     Bob may need to retransmit:
+     - Enter retransmit_guard when any response contains segments.
+     - Remain in retransmit_guard while bob_has_data is true or while Alice has
+       evidence of missing Bob data (recv_window.sack != 0).
+     - Exit retransmit_guard only after N consecutive keepalive-only responses
+       with recv_window.sack == 0 (N should cover at least one RTO window).
    - Keep this state independent of MTU negotiation so it only controls the
      clamp target, not the negotiated send/recv MTUs.
 4) Decide the target response size for each send:
+   - Define clamp modes:
+     - response_max: maximize Bob's response capacity during retransmit_guard.
+     - balanced: when both sides have data, prefer similar payload sizes.
+     - idle: when Bob has no data, allow Alice to use the largest queries.
    - Compute min_response_packet_mtu as
      PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1.
    - Convert to payload bytes when comparing against per-send payload caps:
      min_response_payload = SEGMENT_HEADER_SIZE + 1.
-   - If bob_has_data is set, target_response_payload should allow Bob to send
-     up to the current response packet MTU (bounded by what DNS can encode).
-   - Otherwise target_response_payload = min_response_packet_mtu to keep
-     response slots small while idle.
+   - response_max target_response_payload = max_response_payload_cap derived
+     from the lookup; this produces the smallest Alice query payload that still
+     allows the largest possible response packet. This is the minimum Alice
+     must use while retransmits are pending.
+   - balanced target_response_payload is chosen by finding the largest query
+     payload q such that response_cap(q) >= q. This yields near-equal payload
+     sizes in both directions (Alice sends q, Bob can send at least q).
+   - idle target_response_payload = min_response_packet_mtu to keep response
+     slots small while Bob is idle, allowing larger Alice queries.
+   - Mode selection:
+     - Use response_max while retransmit_guard is active.
+     - Use balanced when retransmit_guard is off and both sides have pending
+       data (Alice has pending data and bob_has_data is true).
+     - Otherwise use idle.
 5) Select and attach the per-send clamp (packet bytes):
    - Use the precomputed lookup to pick the largest query payload length whose
      response payload cap >= target_response_payload.
@@ -154,8 +178,10 @@
        seq/bytes/cap so operators can diagnose cap mismatches.
      - Do not close the tunnel; leave the unacked entry intact so it can be
        retransmitted when a larger-cap request arrives.
-     - Send a small control-only response (poll hint) instead of a keepalive
-       to ensure Alice sees a segment and keeps bob_has_data hot.
+     - Send a small control segment instead of a keepalive to ensure Alice
+       sees a segment and keeps bob_has_data hot. This must not require a new
+       packet flag; use an existing control message or add a new control
+       message type if needed.
    - Ensure Alice treats any response with segments (including poll hints) as
      bob_has_data so the clamp stays in the "small query" mode until Bob
      retransmits successfully.

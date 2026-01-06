@@ -96,6 +96,8 @@ Content-flag constraints (post-ACK):
 - `KEEPALIVE` requires zero segments
 - `POLL_HINT` is only valid when paired with `KEEPALIVE` or `HAS_SEGMENTS`
 - `KEEPALIVE` + `POLL_HINT` means "no segments now, but keep clamp hot"
+- "Real data" for pacing is any packet with `HAS_SEGMENTS` (control or data);
+  `POLL_HINT` is advisory and does not imply data was sent
 - Any violation is a fatal protocol error (log, drop, close)
 
 ---

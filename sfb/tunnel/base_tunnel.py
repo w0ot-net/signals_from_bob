@@ -656,13 +656,8 @@ class BaseTunnel(object):
                 'state': self._state,
             },
         )
-        has_data_segments = False
-        if packet.segments:
-            for segment in packet.segments:
-                if not segment.is_control:
-                    has_data_segments = True
-                    break
-        self._transport.notify_peer_data(has_data_segments)
+        has_segments = bool(packet.flags & FLAG_HAS_SEGMENTS)
+        self._transport.notify_peer_data(has_segments)
         sample_rtt = bool(packet.flags & FLAG_HAS_SEGMENTS)
         (rtt_samples, acked_count, data_acked_count, unacked_before,
          unacked_after, prev_cum_ack, prev_cum_ack_time, _ack_advanced,

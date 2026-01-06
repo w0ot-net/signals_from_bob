@@ -519,9 +519,6 @@ class DnsClient(Transport):
         if has_segments:
             self._update_bob_data_state(True)
             return
-        if poll_hint:
-            self._update_bob_data_state(True)
-            return
         self._update_bob_data_state(False)
 
     def _log_clamp_header_skip(self, reason, payload, flags=None, error=None):

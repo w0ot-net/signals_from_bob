@@ -33,3 +33,9 @@
 
 ## Testing
 - Do not run tests here. The user will run E2E tests as needed.
+
+## Execution Notes
+- Updated BaseTunnel peer data detection to use HAS_SEGMENTS for O(1) checks.
+- DNS client now treats POLL_HINT as advisory for clamp only, not data state.
+- Documented real data semantics and POLL_HINT behavior in tunnel/protocol/DNS
+  docs.

@@ -513,6 +513,32 @@ class TlsHandshakeBumpCodecTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             codec.parse_client_hello_sni(record)
 
+    def test_build_server_handshake_record_random_len(self):
+        with self.assertRaises(ValueError):
+            codec.build_server_handshake_record(b'\x00', random_bytes=b'\x00')
+
+    def test_build_server_handshake_record_too_large(self):
+        oversize = b'\x00' * (codec.TLS_MAX_RECORD_PAYLOAD + 1)
+        with self.assertRaises(ValueError):
+            codec.build_server_handshake_record(oversize)
+
+    def test_build_server_handshake_record_structure(self):
+        cert_der = b'\x01\x02\x03\x04'
+        random_bytes = b'\x11' * 32
+        record = codec.build_server_handshake_record(
+            cert_der,
+            random_bytes=random_bytes,
+        )
+        length = codec.parse_record_header(
+            record[:codec.TLS_RECORD_HEADER_LEN]
+        )
+        self.assertEqual(len(record), codec.TLS_RECORD_HEADER_LEN + length)
+        offset = codec.TLS_RECORD_HEADER_LEN
+        self.assertEqual(
+            record[offset],
+            codec.TLS_HANDSHAKE_SERVER_HELLO,
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

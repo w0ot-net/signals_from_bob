@@ -39,9 +39,12 @@
 
 ## Plan
 1) Define MTU terminology in docs:
-   - Packet MTU (packet_mtu) = max packet bytes on the wire (header + segments).
+   - Packet MTU (packet_mtu) = max SFB packet bytes before transport encoding
+     (header + segments, not the outer protocol size).
    - Payload bytes = packet_mtu - PACKET_HEADER_SIZE (segment bytes).
    - Minimum packet MTU = PACKET_HEADER_SIZE + 1 (at least 1 byte of payload).
+   - Note that transport on-wire sizes include extra protocol headers/records
+     and can exceed packet_mtu (DNS, TLS, TLS bump), so document those separately.
    - Reaffirm per-direction (asymmetric) negotiation.
    - Explicitly map transport.send_packet_mtu/recv_packet_mtu (packet bytes)
      to tunnel payload bytes in BaseTunnel and call out that tun_mtu values

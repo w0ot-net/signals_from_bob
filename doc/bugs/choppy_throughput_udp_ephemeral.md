@@ -59,6 +59,21 @@
 - Effect: Alice stops sending and Bob sees no packets during the stall window
   even though only one sequence is missing.
 
+## Log Review: DNS Clamp Mode Window (Jan 7, 20:17 run)
+- Logs: `logs/client_log.db` (Alice), `logs/server_log.db` (Bob).
+- Alice: repeated `tunnel.send_blocked` with `block_reason=window_distance`,
+  `inflight` ~119/128; `tunnel.retransmit_skip` shows `ack_silence` ~0.47-0.55s
+  with `rto_sec` 10.0s even as `send_oldest_age` is ~10.4-10.5s; `tunnel.ack`
+  stays at `ack=1558` with mostly SACK-only acks and minimal `acked_count`.
+- Alice: `dns.clamp_select` reports `mode=clamp_max_bob`, `query_payload_cap=60`,
+  and `target_response_payload=146` while `poll_hint_mode=keepalive`.
+- Bob: `tunnel.response_cap` shows `response_payload_cap=43` with
+  `qname_wire_len=200` and `max_packet_size=512`; `tunnel.retransmit_skip`
+  is gated by `reason=cooldown` with `unacked` ~65-68.
+- Effect: clamp mode selection is active, but the DNS response payload cap is
+  far below the target and the cumulative ACK stalls, so window-distance
+  blocks dominate and throughput remains bursty.
+
 ## Hypotheses
 1) SACK hole handling is too conservative. The missing seq persists long
    enough to trigger repeated feedback freezes.

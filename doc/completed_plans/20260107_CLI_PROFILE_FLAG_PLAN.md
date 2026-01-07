@@ -1,6 +1,6 @@
 # CLI Profile Flag Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 - Add a `--cprofile` CLI flag that runs sfb normally but writes a cProfile
@@ -25,7 +25,7 @@ Status: draft
   fall back to `tempfile.gettempdir()`.
 - Create the output directory if needed and always dump in a `finally` block
   so profiles are written on errors or clean exits.
-- When `--profile` is absent, the execution path stays unchanged.
+- When `--cprofile` is absent, the execution path stays unchanged.
 - Note that cProfile only tracks the main thread; document this caveat.
 
 ## Plan
@@ -48,3 +48,7 @@ Status: draft
 - Manual run with and without `--cprofile` to confirm the `.prof` file appears
   only when requested.
 - Do not run tests/e2e/.
+
+## Execution notes
+- 2026-01-07: Implemented `--cprofile` with /tmp default, fallback to
+  `tempfile.gettempdir()`, and README usage notes.

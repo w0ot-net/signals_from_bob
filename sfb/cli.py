@@ -12,6 +12,7 @@ from __future__ import absolute_import
 
 import argparse
 import base64
+import cProfile
 import errno
 import logging
 import os
@@ -21,6 +22,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 
 from .config import Config
 from .compat import byte_at, text_type
@@ -57,6 +59,7 @@ ROLE_ALIASES = {
 }
 
 _DB_LOG_DEFAULT = object()
+_CPROFILE_DEFAULT = object()
 
 
 def _print_error(message):
@@ -66,6 +69,47 @@ def _print_error(message):
     else:
         sys.stderr.write(prefix + message + '\n')
     sys.stderr.flush()
+
+
+def _default_cprofile_dir():
+    base_dir = '/tmp'
+    if os.path.isdir(base_dir) and os.access(base_dir, os.W_OK):
+        return base_dir
+    return tempfile.gettempdir()
+
+
+def _cprofile_default_filename(role, transport):
+    role = role or 'unknown'
+    transport = transport or 'unknown'
+    timestamp = time.strftime(
+        '%Y%m%d_%H%M%S',
+        time.localtime(time_provider.wall_time()),
+    )
+    return 'sfb_%s_%s_%s_%s.prof' % (role, transport, timestamp, os.getpid())
+
+
+def _resolve_cprofile_path(value, role, transport):
+    if value is None:
+        return None
+    filename = _cprofile_default_filename(role, transport)
+    if value is _CPROFILE_DEFAULT or value == '':
+        path = os.path.join(_default_cprofile_dir(), filename)
+    else:
+        path = value
+        if os.path.isdir(path):
+            path = os.path.join(path, filename)
+    return os.path.abspath(path)
+
+
+def _ensure_parent_dir(path):
+    parent = os.path.dirname(path)
+    if not parent:
+        return
+    try:
+        os.makedirs(parent)
+    except OSError as e:
+        if e.errno != errno.EEXIST or not os.path.isdir(parent):
+            raise
 
 
 def _positive_int(value):
@@ -477,6 +521,14 @@ def add_common_args(parser, config, require_domain=True, require_role=True):
         default=config.log_profile,
         metavar='<log_profile>',
         help='Logging profile name (default: %s)' % config.log_profile
+    )
+    parser.add_argument(
+        '--cprofile',
+        nargs='?',
+        const=_CPROFILE_DEFAULT,
+        default=None,
+        metavar='[path]',
+        help='Write cProfile output to optional path (default: /tmp/sfb_*.prof)'
     )
     parser.add_argument(
         '--tls-bump-generate-cert',
@@ -1586,9 +1638,8 @@ def run_client(args, config, crypto, logger):
         )
 
 
-def main(args=None):
-    """Main entry point."""
-    parsed = parse_args(args)
+def _run_main(parsed, cprofile_path):
+    """Run the CLI with parsed args."""
     cert_result = _handle_tls_bump_generate_cert(parsed)
     if cert_result is not None:
         return cert_result
@@ -1661,6 +1712,7 @@ def main(args=None):
             'log_profile_explicit': bool(
                 getattr(parsed, 'log_profile_explicit', False)
             ),
+            'cprofile_path': cprofile_path,
             'db_log_path': parsed.db_log,
             'db_log_flush': parsed.db_log_flush,
             'db_log_queue': parsed.db_log_queue,
@@ -1680,6 +1732,14 @@ def main(args=None):
             'log_component_module_nc_linux': config.log_component_module_nc_linux,
         },
     )
+    if cprofile_path:
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.cprofile',
+            'cProfile enabled',
+            lambda: {'path': cprofile_path},
+        )
 
     # Create config and crypto
     crypto = create_crypto(parsed, logger)
@@ -1689,6 +1749,40 @@ def main(args=None):
         return run_server(parsed, config, crypto, logger)
     else:
         return run_client(parsed, config, crypto, logger)
+
+
+def main(args=None):
+    """Main entry point."""
+    parsed = parse_args(args)
+    cprofile_path = _resolve_cprofile_path(
+        getattr(parsed, 'cprofile', None),
+        parsed.role,
+        parsed.transport,
+    )
+    profiler = None
+    if cprofile_path:
+        try:
+            _ensure_parent_dir(cprofile_path)
+        except OSError as e:
+            _print_error(
+                'Failed to prepare cProfile output path %s: %s' %
+                (cprofile_path, e)
+            )
+            return 2
+        profiler = cProfile.Profile()
+        profiler.enable()
+    try:
+        return _run_main(parsed, cprofile_path)
+    finally:
+        if profiler is not None:
+            profiler.disable()
+            try:
+                profiler.dump_stats(cprofile_path)
+            except Exception as e:
+                _print_error(
+                    'Failed to write cProfile output to %s: %s' %
+                    (cprofile_path, e)
+                )
 
 
 if __name__ == '__main__':

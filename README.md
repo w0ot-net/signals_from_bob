@@ -13,3 +13,14 @@ Enable the pre-commit hook to enforce ASCII-only files:
 ```
 git config core.hooksPath .githooks
 ```
+
+## Profiling
+Use `--cprofile` to write a cProfile output file.
+Examples:
+```
+python3 -m sfb.cli --cprofile --role client --transport dns --domain t.example.com
+python3 -m sfb.cli --cprofile /tmp/sfb_run.prof --role client --transport dns --domain t.example.com
+```
+Default output: `/tmp/sfb_<role>_<transport>_<YYYYMMDD_HHMMSS>_<pid>.prof`
+(falls back to `tempfile.gettempdir()` when `/tmp` is unavailable).
+Note: cProfile captures the main thread only.

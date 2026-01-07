@@ -48,6 +48,17 @@
   to reach the 128 cap even though unacked is low, which triggers the
   window_distance stall.
 
+## Log Review: ACK-Silence Stall (Jan 7, 11:14 run)
+- Logs: `logs/client_log.db` (Alice).
+- `tunnel.send_blocked` is `reason=pacer` with `inflight=127`, `unacked=1`,
+  `cap=128` for long stretches; no `tunnel.packet_send` in the same window.
+- `tunnel.retransmit_skip` shows `ack_silence` ~7.9s while `rto_sec` is 10.0s,
+  so RTO retransmit is delayed until the max backoff.
+- `tunnel.retransmit` has no recent entries in the last 2k events, implying
+  fast retransmit is not triggering (no SACK progress).
+- Effect: Alice stops sending and Bob sees no packets during the stall window
+  even though only one sequence is missing.
+
 ## Hypotheses
 1) SACK hole handling is too conservative. The missing seq persists long
    enough to trigger repeated feedback freezes.

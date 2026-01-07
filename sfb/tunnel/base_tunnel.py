@@ -340,6 +340,12 @@ class BaseTunnel(object):
             prefixed[prefix + key] = value
         return prefixed
 
+    @staticmethod
+    def _merge_fields(base, extra):
+        if extra:
+            base.update(extra)
+        return base
+
     def _reliability_snapshot(self, now=None, include_buffered=False):
         if now is None:
             now = time_provider.now()
@@ -750,13 +756,13 @@ class BaseTunnel(object):
             logging.DEBUG,
             'tunnel.recv_window',
             'recv_window ready packets',
-            lambda: dict(
+            lambda: self._merge_fields(
                 {
                     'seq': packet.seq,
                     'ready': len(ready_packets),
                     'side': 'alice' if self._is_initiator else 'bob',
                 },
-                **self._prefix_fields('recv_', recv_info),
+                self._prefix_fields('recv_', recv_info),
             ),
         )
         if recv_info is not None and recv_info.get('action') in (

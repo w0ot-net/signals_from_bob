@@ -36,5 +36,6 @@ Status: completed
 - Optional: `python2.7 -m py_compile sfb/tunnel/base_tunnel.py`
 
 ## Execution Notes
-- Reviewed `sfb/tunnel/base_tunnel.py` for Python 2/3 compatibility; no
-  Python 3-only syntax or bytes/str hazards found, so no code changes needed.
+- Removed Python 3-only dict unpacking in the recv-window log path and added a
+  small helper to merge dict fields so `sfb/tunnel/base_tunnel.py` parses on
+  Python 2.7.

@@ -1,6 +1,6 @@
 # Alice Tunnel Python 2 Compatibility Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 - Ensure `sfb/tunnel/alice_tunnel.py` is fully compatible with Python 2.7 and
@@ -31,3 +31,7 @@ Status: draft
 ## Validation
 - `python3 -m py_compile sfb/tunnel/alice_tunnel.py`
 - Optional: `python2.7 -m py_compile sfb/tunnel/alice_tunnel.py`
+
+## Execution Notes
+- Reviewed `sfb/tunnel/alice_tunnel.py` for Python 2/3 compatibility; no
+  Python 3-only syntax or bytes/str hazards found, so no code changes needed.

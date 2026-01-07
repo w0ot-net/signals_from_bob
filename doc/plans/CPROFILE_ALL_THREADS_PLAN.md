@@ -14,9 +14,12 @@ Status: draft
 
 ## Affected Components
 - sfb/cli.py
+- sfb/profiling.py
 - README.md
 
 ## Design Notes
+- Implement the cProfile manager in `sfb/profiling.py` to keep CLI logic
+  minimal and reusable.
 - Use per-thread `cProfile.Profile()` instances and merge with `pstats.Stats`.
 - Install a thread wrapper by patching `threading.Thread.run` so each thread
   enables its own profiler and disables it on exit.
@@ -28,10 +31,11 @@ Status: draft
 - Document that profiling covers threads started after the wrapper is enabled.
 
 ## Plan
-1. Add a small multi-thread cProfile manager in `sfb/cli.py`.
+1. Add a small multi-thread cProfile manager in `sfb/profiling.py`.
    - Store per-thread `cProfile.Profile` objects in a list guarded by a lock.
    - Wrap `threading.Thread.run` to enable/disable profiling inside each thread.
    - Enable profiling for the main thread and include it in the list.
+   - Expose a minimal start/stop API for the CLI to use.
 2. Update the `--cprofile` execution path.
    - Start the manager before `_run_main` and stop it in `finally`.
    - Merge per-thread profiles with `pstats.Stats.add` and write one `.prof`.

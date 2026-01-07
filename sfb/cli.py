@@ -391,6 +391,30 @@ def add_common_args(parser, config, require_domain=True, require_role=True):
              'Client tx=requests; server tx=responses. Overrides --loss.'
     )
     parser.add_argument(
+        '--dup',
+        type=_percent_in_range,
+        default=0.0,
+        metavar='<percent>',
+        help='Packet duplication percent for both directions (0-100). '
+             'Overridden by --rx-dup/--tx-dup.'
+    )
+    parser.add_argument(
+        '--rx-dup',
+        type=_percent_in_range,
+        default=None,
+        metavar='<percent>',
+        help='Packet duplication percent for incoming packets (0-100). '
+             'Client rx=responses; server rx=requests. Overrides --dup.'
+    )
+    parser.add_argument(
+        '--tx-dup',
+        type=_percent_in_range,
+        default=None,
+        metavar='<percent>',
+        help='Packet duplication percent for outgoing packets (0-100). '
+             'Client tx=requests; server tx=responses. Overrides --dup.'
+    )
+    parser.add_argument(
         '--domain',
         required=require_domain,
         default=config.dns_base_domain,
@@ -1128,30 +1152,59 @@ def create_crypto(args, logger):
     return crypto
 
 
-def _resolve_loss_percents(args):
-    base = getattr(args, 'loss', 0.0) or 0.0
+def _resolve_directional_percents(base, tx_override, rx_override):
+    base = base or 0.0
     tx_percent = base
     rx_percent = base
-    if getattr(args, 'tx_loss', None) is not None:
-        tx_percent = args.tx_loss
-    if getattr(args, 'rx_loss', None) is not None:
-        rx_percent = args.rx_loss
+    if tx_override is not None:
+        tx_percent = tx_override
+    if rx_override is not None:
+        rx_percent = rx_override
     return tx_percent, rx_percent
 
 
+def _resolve_loss_percents(args):
+    return _resolve_directional_percents(
+        getattr(args, 'loss', 0.0),
+        getattr(args, 'tx_loss', None),
+        getattr(args, 'rx_loss', None),
+    )
+
+
+def _resolve_dup_percents(args):
+    return _resolve_directional_percents(
+        getattr(args, 'dup', 0.0),
+        getattr(args, 'tx_dup', None),
+        getattr(args, 'rx_dup', None),
+    )
+
+
 def _wrap_lossy_transport(transport, args, role, logger):
-    tx_percent, rx_percent = _resolve_loss_percents(args)
-    if tx_percent <= 0 and rx_percent <= 0:
+    tx_loss_percent, rx_loss_percent = _resolve_loss_percents(args)
+    tx_dup_percent, rx_dup_percent = _resolve_dup_percents(args)
+    if (tx_loss_percent <= 0 and rx_loss_percent <= 0 and
+            tx_dup_percent <= 0 and rx_dup_percent <= 0):
         return transport
-    tx_rate = tx_percent / 100.0
-    rx_rate = rx_percent / 100.0
-    if tx_rate == rx_rate:
-        impairment = NetworkImpairment(loss_rate=tx_rate)
+    tx_loss_rate = tx_loss_percent / 100.0
+    rx_loss_rate = rx_loss_percent / 100.0
+    tx_dup_rate = tx_dup_percent / 100.0
+    rx_dup_rate = rx_dup_percent / 100.0
+    if tx_loss_rate == rx_loss_rate and tx_dup_rate == rx_dup_rate:
+        impairment = NetworkImpairment(
+            loss_rate=tx_loss_rate,
+            dup_rate=tx_dup_rate,
+        )
         send_impairment = impairment
         recv_impairment = impairment
     else:
-        send_impairment = NetworkImpairment(loss_rate=tx_rate)
-        recv_impairment = NetworkImpairment(loss_rate=rx_rate)
+        send_impairment = NetworkImpairment(
+            loss_rate=tx_loss_rate,
+            dup_rate=tx_dup_rate,
+        )
+        recv_impairment = NetworkImpairment(
+            loss_rate=rx_loss_rate,
+            dup_rate=rx_dup_rate,
+        )
     stats_enabled = bool(args.verbose)
     if role == 'client':
         wrapped = LossyTransport(
@@ -1171,14 +1224,18 @@ def _wrap_lossy_transport(transport, args, role, logger):
         logger,
         logging.INFO,
         'cli.lossy_transport',
-        'Loss simulation enabled',
+        'Lossy transport enabled',
         lambda: {
             'role': role,
             'transport': args.transport,
-            'tx_loss_percent': tx_percent,
-            'rx_loss_percent': rx_percent,
-            'tx_loss_rate': tx_rate,
-            'rx_loss_rate': rx_rate,
+            'tx_loss_percent': tx_loss_percent,
+            'rx_loss_percent': rx_loss_percent,
+            'tx_loss_rate': tx_loss_rate,
+            'rx_loss_rate': rx_loss_rate,
+            'tx_dup_percent': tx_dup_percent,
+            'rx_dup_percent': rx_dup_percent,
+            'tx_dup_rate': tx_dup_rate,
+            'rx_dup_rate': rx_dup_rate,
         },
     )
     return wrapped

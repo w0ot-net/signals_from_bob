@@ -1,6 +1,6 @@
 # Duplication Simulation Flags Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -54,3 +54,10 @@ any transport: `--dup` (both directions), `--rx-dup`, and `--tx-dup`.
   confirm logs show the lossy wrapper and configured rates.
 - Verify `--rx-dup`/`--tx-dup` override behavior and that `0` disables dup.
 - Do not run tests/e2e/.
+
+## Execution Notes
+
+- Added CLI duplication flags with percent validation and logging.
+- Extended the lossy wrapper helper to merge loss and duplication rates.
+- Documented direction mapping and compounding behavior.
+- Validation not run (not requested).

@@ -34,24 +34,29 @@ Parameters (all rates are probabilities in [0.0, 1.0]):
 `LossyTransport` adds `pending_timeout_sec` to control how long synthetic
 pending entries (drops or stale requests) linger before pruning.
 
-## CLI Loss Flags
+## CLI Loss/Dup Flags
 
 The CLI can wrap any transport with `LossyTransport` or `LossyServer` using
-loss-only flags:
+loss and duplication flags:
 
 - `--loss <percent>`: apply to both directions.
 - `--rx-loss <percent>`: incoming direction override.
 - `--tx-loss <percent>`: outgoing direction override.
+- `--dup <percent>`: apply to both directions.
+- `--rx-dup <percent>`: incoming direction override.
+- `--tx-dup <percent>`: outgoing direction override.
 
 Direction mapping is local:
 
 - Client: tx=requests (Alice -> Bob), rx=responses (Bob -> Alice).
 - Server: tx=responses (Bob -> Alice), rx=requests (Alice -> Bob).
 
-Loss is configured as a percent in [0, 100] and converted to `loss_rate`
-in [0.0, 1.0]. The wrapper is only enabled when any rate is non-zero.
-Enabling loss on both sides compounds the rate; for example 10 percent on
-both ends yields about 19 percent end-to-end (1 - (1 - 0.10)^2).
+Loss and duplication are configured as a percent in [0, 100] and converted to
+`loss_rate`/`dup_rate` in [0.0, 1.0]. The wrapper is only enabled when any rate
+is non-zero. Enabling loss on both sides compounds the rate; for example
+10 percent on both ends yields about 19 percent end-to-end
+(1 - (1 - 0.10)^2). Enabling duplication on both sides compounds duplicates
+and can amplify traffic.
 
 ## Impairment Decisions
 

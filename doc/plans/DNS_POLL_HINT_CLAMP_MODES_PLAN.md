@@ -28,6 +28,8 @@ Implement three DNS clamp scenarios while keeping the MIN_PACKET_MTU rule:
   point exists.
 - Treat POLL_HINT + KEEPALIVE (no segments) as the minimum-query clamp to
   maximize response capacity for Bob.
+- Do not send control-only poll-hint responses; control segments are treated
+  the same as data segments, and poll-hint keepalives are used when nothing fits.
 
 ## Implementation Steps
 
@@ -42,8 +44,9 @@ Implement three DNS clamp scenarios while keeping the MIN_PACKET_MTU rule:
    - minimum query payload for POLL_HINT + KEEPALIVE,
    - safe-max query payload for default mode,
    and log the selected clamp mode and any fallback used.
-5. Bob tunnel: when responding with segments, set POLL_HINT whenever Bob has
-   pending data (and the response cap allows it); keep the existing keepalive
-   + poll-hint path when no segments fit.
-6. Update DNS_TRANSPORT.md to describe the safe-max default and the
-   poll-hint content-flag mapping for balanced/min clamps.
+5. Bob tunnel: remove the control-only poll-hint path; when no segments fit
+   but data is pending, send KEEPALIVE + POLL_HINT (when allowed) and leave
+   segments queued for a larger-cap poll. When responding with segments, set
+   POLL_HINT whenever pending data remains.
+6. Update DNS_TRANSPORT.md to describe the safe-max default, balanced/min
+   clamps, and the "no control-only poll-hint segments" rule.

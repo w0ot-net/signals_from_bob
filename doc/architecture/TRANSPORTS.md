@@ -219,6 +219,26 @@ so there is no separate transport-specific limit.
 
 ---
 
+## Loss Simulation Wrapper
+
+The CLI can wrap any transport with `LossyTransport`/`LossyServer` to inject
+packet loss without changing the underlying transport. Use:
+
+- `--loss <percent>` for both directions.
+- `--rx-loss <percent>` for incoming packets.
+- `--tx-loss <percent>` for outgoing packets.
+
+Direction mapping is local:
+
+- Client: tx=requests (Alice -> Bob), rx=responses (Bob -> Alice).
+- Server: tx=responses (Bob -> Alice), rx=requests (Alice -> Bob).
+
+Loss is configured as a percent in [0, 100] and converted to `loss_rate`
+in [0.0, 1.0]. Enabling loss on both sides compounds the rate for each
+direction.
+
+---
+
 ## MTU Selection Summary
 
 Auto selection chooses the largest safe MTU per transport and clamps it by

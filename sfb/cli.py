@@ -33,7 +33,14 @@ from .logging_util import (
     log_event,
 )
 from .log_profiles import LOG_PROFILES, apply_log_profile
-from .transport import TRANSPORTS, TransportError, get_transport_class
+from .transport import (
+    TRANSPORTS,
+    LossyServer,
+    LossyTransport,
+    NetworkImpairment,
+    TransportError,
+    get_transport_class,
+)
 from .tunnel import AliceTunnel, BobTunnel, TunnelError, TunnelState
 from .modules import CLI_MODULES
 from .modules.base_module import ModuleError
@@ -68,6 +75,16 @@ def _positive_int(value):
         raise argparse.ArgumentTypeError('must be a positive integer')
     if value <= 0:
         raise argparse.ArgumentTypeError('must be a positive integer')
+    return value
+
+
+def _percent_in_range(value):
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError('must be a percentage in [0, 100]')
+    if value < 0 or value > 100:
+        raise argparse.ArgumentTypeError('must be a percentage in [0, 100]')
     return value
 
 
@@ -348,6 +365,30 @@ def add_common_args(parser, config, require_domain=True, require_role=True):
         dest='max_in_flight', type=int, default=config.max_in_flight,
         help='Max in-flight packets (1-256, default: %s)' %
              config.max_in_flight
+    )
+    parser.add_argument(
+        '--loss',
+        type=_percent_in_range,
+        default=0.0,
+        metavar='<percent>',
+        help='Packet loss percent for both directions (0-100). '
+             'Overridden by --rx-loss/--tx-loss.'
+    )
+    parser.add_argument(
+        '--rx-loss',
+        type=_percent_in_range,
+        default=None,
+        metavar='<percent>',
+        help='Packet loss percent for incoming packets (0-100). '
+             'Client rx=responses; server rx=requests. Overrides --loss.'
+    )
+    parser.add_argument(
+        '--tx-loss',
+        type=_percent_in_range,
+        default=None,
+        metavar='<percent>',
+        help='Packet loss percent for outgoing packets (0-100). '
+             'Client tx=requests; server tx=responses. Overrides --loss.'
     )
     parser.add_argument(
         '--domain',
@@ -1087,6 +1128,62 @@ def create_crypto(args, logger):
     return crypto
 
 
+def _resolve_loss_percents(args):
+    base = getattr(args, 'loss', 0.0) or 0.0
+    tx_percent = base
+    rx_percent = base
+    if getattr(args, 'tx_loss', None) is not None:
+        tx_percent = args.tx_loss
+    if getattr(args, 'rx_loss', None) is not None:
+        rx_percent = args.rx_loss
+    return tx_percent, rx_percent
+
+
+def _wrap_lossy_transport(transport, args, role, logger):
+    tx_percent, rx_percent = _resolve_loss_percents(args)
+    if tx_percent <= 0 and rx_percent <= 0:
+        return transport
+    tx_rate = tx_percent / 100.0
+    rx_rate = rx_percent / 100.0
+    if tx_rate == rx_rate:
+        impairment = NetworkImpairment(loss_rate=tx_rate)
+        send_impairment = impairment
+        recv_impairment = impairment
+    else:
+        send_impairment = NetworkImpairment(loss_rate=tx_rate)
+        recv_impairment = NetworkImpairment(loss_rate=rx_rate)
+    stats_enabled = bool(args.verbose)
+    if role == 'client':
+        wrapped = LossyTransport(
+            transport,
+            send_impairment=send_impairment,
+            recv_impairment=recv_impairment,
+            stats_enabled=stats_enabled,
+        )
+    else:
+        wrapped = LossyServer(
+            transport,
+            recv_impairment=recv_impairment,
+            send_impairment=send_impairment,
+            stats_enabled=stats_enabled,
+        )
+    log_event(
+        logger,
+        logging.INFO,
+        'cli.lossy_transport',
+        'Loss simulation enabled',
+        lambda: {
+            'role': role,
+            'transport': args.transport,
+            'tx_loss_percent': tx_percent,
+            'rx_loss_percent': rx_percent,
+            'tx_loss_rate': tx_rate,
+            'rx_loss_rate': rx_rate,
+        },
+    )
+    return wrapped
+
+
 def run_server(args, config, crypto, logger):
     """Run in server role."""
     # Change to root directory for file transfers
@@ -1113,6 +1210,7 @@ def run_server(args, config, crypto, logger):
     try:
         transport_cls = get_transport_class(args.transport, 'server')
         transport = transport_cls(config)
+        transport = _wrap_lossy_transport(transport, args, 'server', logger)
         tunnel = BobTunnel(transport, config, crypto=crypto)
     except (TransportError, TunnelError) as e:
         _print_error(str(e))
@@ -1329,6 +1427,7 @@ def run_client(args, config, crypto, logger):
     try:
         transport_cls = get_transport_class(args.transport, 'client')
         transport = transport_cls(config)
+        transport = _wrap_lossy_transport(transport, args, 'client', logger)
         tunnel = AliceTunnel(transport, config, crypto=crypto)
     except (TransportError, TunnelError) as e:
         _print_error(str(e))

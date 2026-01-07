@@ -1,6 +1,6 @@
 # Loss Simulation Flags Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -50,3 +50,10 @@ transport: `--loss` (both directions), `--rx-loss`, and `--tx-loss`.
   confirm logs show the lossy wrapper and configured rates.
 - Verify `--rx-loss`/`--tx-loss` override behavior and that `0` disables loss.
 - Do not run tests/e2e/.
+
+## Execution Notes
+
+- Added CLI loss flags with percent validation and logging.
+- Wrapped client/server transports with LossyTransport/LossyServer when enabled.
+- Documented direction mapping and compounding behavior.
+- Validation not run (not requested).

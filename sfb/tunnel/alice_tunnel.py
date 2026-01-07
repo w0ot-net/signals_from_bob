@@ -139,6 +139,7 @@ class AliceTunnel(BaseTunnel):
         self._next_poll_time = 0.0
         self._poll_pace_interval = None
         self._poll_pace_sleep_max = 0.01
+        self._tick_sleep_hint = 0.0
 
         # Enable module loader for handling Bob's module requests.
         self.enable_module_loader()
@@ -546,6 +547,7 @@ class AliceTunnel(BaseTunnel):
             self._send_packet_mtu
         )
         pacing_blocked = False
+        tick_slept = False
         pending_mode = 'control' if serial_window else 'control_or_data'
         control_only = serial_window
         break_on_empty = not serial_window
@@ -654,6 +656,8 @@ class AliceTunnel(BaseTunnel):
         paced_sleep = False
         if pacing_blocked and self._packets_sent == packets_sent_before:
             paced_sleep = self._sleep_for_poll_pacing(time_provider.now())
+            if paced_sleep:
+                tick_slept = True
 
         if (not paced_sleep and not received_any and
                 self._packets_sent == packets_sent_before and
@@ -661,7 +665,12 @@ class AliceTunnel(BaseTunnel):
                 not self._got_data and not self._has_pending_data_acks):
             idle_sleep = max(self._config.tunnel_tick_sleep, 0.01)
             time_provider.sleep(idle_sleep)
+            tick_slept = True
 
+        if received_any or self._packets_sent != packets_sent_before or tick_slept:
+            self._tick_sleep_hint = 0.0
+        else:
+            self._tick_sleep_hint = self._config.tunnel_tick_sleep
         return True
 
     def _check_serial_window_block(self):
@@ -2044,8 +2053,9 @@ class AliceTunnel(BaseTunnel):
             if duration and (time_provider.now() - start) >= duration:
                 break
 
-            # Brief sleep to avoid busy loop
-            time_provider.sleep(self._config.tunnel_tick_sleep)
+            sleep_hint = self._tick_sleep_hint
+            if sleep_hint > 0:
+                time_provider.sleep(sleep_hint)
 
     def _run_loop(self):
         """Background thread loop - calls tick() until stopped."""
@@ -2061,7 +2071,9 @@ class AliceTunnel(BaseTunnel):
                     lambda: {'error': str(e), 'side': 'alice'},
                     exc_info=True,
                 )
-            time_provider.sleep(self._config.tunnel_tick_sleep)
+            sleep_hint = self._tick_sleep_hint
+            if sleep_hint > 0:
+                time_provider.sleep(sleep_hint)
 
     def close(self):
         """Close the tunnel and transport."""

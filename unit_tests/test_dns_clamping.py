@@ -6,6 +6,14 @@ from __future__ import absolute_import
 import unittest
 
 from sfb.config import DNS_STANDARD_SIZE
+from sfb.protocol import (
+    PacketHeader,
+    FLAG_ACK,
+    FLAG_HAS_SEGMENTS,
+    FLAG_KEEPALIVE,
+    FLAG_POLL_HINT,
+    FLAG_SYN,
+)
 from sfb.protocol.constants import MIN_PACKET_MTU
 from sfb.transport.dns import codec
 from sfb.transport.dns.dns_client import DnsClient
@@ -52,6 +60,10 @@ def _max_query_payload_for_min_response(base_domain, label_max_len, edns_size,
     return max_payload
 
 
+def _encode_flags(flags):
+    return PacketHeader(flags=flags).encode()
+
+
 class DnsClampingTests(unittest.TestCase):
     def _make_client(self, base_domain, label_max_len=50, edns_size=512):
         client = DnsClient.__new__(DnsClient)
@@ -71,9 +83,12 @@ class DnsClampingTests(unittest.TestCase):
     def _make_clamp_client(self):
         client = DnsClient.__new__(DnsClient)
         client._alice_has_data_pending = False
+        client._bob_has_data_polls = 2
         client._bob_has_data_remaining = 0
+        client._poll_hint_budget = 0
         client._retransmit_guard = False
         client._recv_window_sack = 0
+        client._max_in_flight = 1
         return client
 
     def test_init_response_caps_clamps_query_mtu(self):
@@ -133,6 +148,29 @@ class DnsClampingTests(unittest.TestCase):
         client._response_cap_lookup = [0, 7, 14]
         self.assertEqual(client._query_payload_for_target(99), 14)
 
+    def test_query_payload_for_target_returns_none_on_empty_lookup(self):
+        client = self._make_clamp_client()
+        client._response_cap_lookup = []
+        self.assertIsNone(client._query_payload_for_target(1))
+
+    def test_select_payload_cap_returns_none_without_poll_hint(self):
+        client = self._make_clamp_client()
+        client._response_cap_lookup = [0, 5, 10]
+        client._max_response_payload_cap = 10
+        client._send_packet_mtu = 10
+        client._min_query_packet_mtu = 4
+        client._poll_hint_budget = 0
+        self.assertIsNone(client._select_payload_cap())
+
+    def test_select_payload_cap_returns_none_with_empty_lookup(self):
+        client = self._make_clamp_client()
+        client._response_cap_lookup = []
+        client._max_response_payload_cap = 10
+        client._send_packet_mtu = 10
+        client._min_query_packet_mtu = 4
+        client._poll_hint_budget = 1
+        self.assertIsNone(client._select_payload_cap())
+
     def test_calc_cname_response_payload_cap_clamps_edns_size(self):
         base_domain = 'example.com'
         qname_wire_len = codec.calc_qname_wire_len(
@@ -178,6 +216,17 @@ class DnsClampingTests(unittest.TestCase):
         self.assertEqual(max_packet_with_opt, edns_size)
         self.assertLessEqual(payload_with_opt, payload_no_opt)
 
+    def test_calc_cname_response_payload_cap_returns_none_for_missing_qname(self):
+        payload_cap, max_packet_size = codec.calc_cname_response_payload_cap(
+            None,
+            512,
+            '0.example.com',
+            50,
+            0,
+        )
+        self.assertIsNone(payload_cap)
+        self.assertIsNone(max_packet_size)
+
     def test_compute_max_response_packet_mtu_drops_below_min(self):
         base_domain = _make_domain(90)
         server = DnsServer.__new__(DnsServer)
@@ -192,6 +241,93 @@ class DnsClampingTests(unittest.TestCase):
         )
         max_response_packet_mtu = server._compute_max_response_packet_mtu()
         self.assertLess(max_response_packet_mtu, MIN_PACKET_MTU)
+
+    def test_update_bob_data_ignores_empty_payload(self):
+        client = self._make_clamp_client()
+        client._bob_has_data_remaining = 1
+        client._poll_hint_budget = 2
+        client._retransmit_guard = True
+        client._update_bob_data_from_payload(b'')
+        self.assertEqual(client._bob_has_data_remaining, 1)
+        self.assertEqual(client._poll_hint_budget, 2)
+        self.assertTrue(client._retransmit_guard)
+
+    def test_update_bob_data_ignores_short_header(self):
+        client = self._make_clamp_client()
+        client._bob_has_data_remaining = 1
+        client._poll_hint_budget = 2
+        client._retransmit_guard = True
+        client._update_bob_data_from_payload(b'\x00')
+        self.assertEqual(client._bob_has_data_remaining, 1)
+        self.assertEqual(client._poll_hint_budget, 2)
+        self.assertTrue(client._retransmit_guard)
+
+    def test_update_bob_data_ignores_handshake_flags(self):
+        client = self._make_clamp_client()
+        client._bob_has_data_remaining = 1
+        client._poll_hint_budget = 2
+        payload = _encode_flags(FLAG_SYN)
+        client._update_bob_data_from_payload(payload)
+        self.assertEqual(client._bob_has_data_remaining, 1)
+        self.assertEqual(client._poll_hint_budget, 2)
+
+    def test_update_bob_data_ignores_missing_content_flags(self):
+        client = self._make_clamp_client()
+        client._bob_has_data_remaining = 1
+        payload = _encode_flags(0)
+        client._update_bob_data_from_payload(payload)
+        self.assertEqual(client._bob_has_data_remaining, 1)
+
+    def test_update_bob_data_ignores_poll_hint_only(self):
+        client = self._make_clamp_client()
+        client._poll_hint_budget = 1
+        payload = _encode_flags(FLAG_POLL_HINT)
+        client._update_bob_data_from_payload(payload)
+        self.assertEqual(client._poll_hint_budget, 1)
+
+    def test_update_bob_data_ignores_multiple_content_flags(self):
+        client = self._make_clamp_client()
+        client._bob_has_data_remaining = 1
+        payload = _encode_flags(FLAG_KEEPALIVE | FLAG_HAS_SEGMENTS)
+        client._update_bob_data_from_payload(payload)
+        self.assertEqual(client._bob_has_data_remaining, 1)
+
+    def test_update_bob_data_sets_poll_hint_budget_on_keepalive(self):
+        client = self._make_clamp_client()
+        client._max_in_flight = 4
+        client._bob_has_data_remaining = 1
+        payload = _encode_flags(FLAG_KEEPALIVE | FLAG_POLL_HINT)
+        client._update_bob_data_from_payload(payload)
+        self.assertEqual(client._poll_hint_budget, 4)
+        self.assertTrue(client._retransmit_guard)
+        self.assertEqual(client._bob_has_data_remaining, 0)
+
+    def test_update_bob_data_sets_poll_hint_budget_on_segments(self):
+        client = self._make_clamp_client()
+        client._max_in_flight = 3
+        client._bob_has_data_polls = 3
+        payload = _encode_flags(FLAG_HAS_SEGMENTS | FLAG_POLL_HINT)
+        client._update_bob_data_from_payload(payload)
+        self.assertEqual(client._poll_hint_budget, 3)
+        self.assertTrue(client._retransmit_guard)
+        self.assertEqual(client._bob_has_data_remaining, 3)
+
+    def test_reset_poll_hint_budget_clamps_invalid_max_in_flight(self):
+        client = self._make_clamp_client()
+        client._max_in_flight = 'bad'
+        client._poll_hint_budget = 0
+        client._retransmit_guard = False
+        client._reset_poll_hint_budget()
+        self.assertEqual(client._poll_hint_budget, 1)
+        self.assertTrue(client._retransmit_guard)
+
+    def test_consume_poll_hint_budget_clears_retransmit_guard(self):
+        client = self._make_clamp_client()
+        client._poll_hint_budget = 1
+        client._retransmit_guard = True
+        client._consume_poll_hint_budget()
+        self.assertEqual(client._poll_hint_budget, 0)
+        self.assertFalse(client._retransmit_guard)
 
 
 if __name__ == '__main__':

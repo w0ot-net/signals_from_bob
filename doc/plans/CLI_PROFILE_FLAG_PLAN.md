@@ -3,7 +3,7 @@
 Status: draft
 
 ## Goal
-- Add a `--profile` CLI flag that runs sfb normally but writes a cProfile
+- Add a `--cprofile` CLI flag that runs sfb normally but writes a cProfile
   output file when the flag is present.
 - Keep the default path predictable and safe while allowing a custom path.
 - Preserve Python 2.7/3 compatibility and standard-library-only behavior.
@@ -19,8 +19,10 @@ Status: draft
 
 ## Design Notes
 - Use `cProfile.Profile()` with `enable()`/`disable()` and `dump_stats()`.
-- `--profile` accepts an optional path. If omitted, write to
-  `profile_results/sfb_<role>_<transport>_<YYYYMMDD_HHMMSS>_<pid>.prof`.
+- `--cprofile` accepts an optional path. If omitted, write to
+  `/tmp/sfb_<role>_<transport>_<YYYYMMDD_HHMMSS>_<pid>.prof`.
+- For Windows compatibility, if `/tmp` is not available or not writable,
+  fall back to `tempfile.gettempdir()`.
 - Create the output directory if needed and always dump in a `finally` block
   so profiles are written on errors or clean exits.
 - When `--profile` is absent, the execution path stays unchanged.
@@ -28,7 +30,7 @@ Status: draft
 
 ## Plan
 1. CLI parsing
-   - Add `--profile` with `nargs='?'` and a `const` to detect the flag when no
+   - Add `--cprofile` with `nargs='?'` and a `const` to detect the flag when no
      path is provided.
    - Keep the option in `add_common_args` so it appears in both parse passes.
 2. Profile path resolution
@@ -43,6 +45,6 @@ Status: draft
    - Add a short README note with example usage and the default output path.
 
 ## Validation
-- Manual run with and without `--profile` to confirm the `.prof` file appears
+- Manual run with and without `--cprofile` to confirm the `.prof` file appears
   only when requested.
 - Do not run tests/e2e/.

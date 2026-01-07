@@ -27,12 +27,13 @@
 1. Define a module instance id field.
    - Require `mid` on all module control messages (t not in {tun, ch}).
    - Document the `mid` field in doc/CONTROL_MESSAGES.md and doc/PROTOCOL.md.
-   - Standardize `mid` as an integer; default instance is `1`.
+   - Standardize `mid` as a positive integer; default instance is `1`.
 
 2. Route module messages by `(type, mid)`.
    - Change `BaseTunnel.register_module`/`unregister_module` to accept `module_id`.
    - Store handlers by `(type, mid)` and update dispatch to select by `mid`.
-   - Log and drop module messages that are missing `mid` or target an unknown instance.
+   - Log and drop module messages that are missing `mid`, use non-positive
+     `mid`, or target an unknown instance.
 
 3. Make BaseModule instance-aware.
    - Add `module_id` parameter to the BaseModule constructor (default 1).

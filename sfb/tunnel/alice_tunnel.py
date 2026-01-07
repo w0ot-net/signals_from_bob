@@ -724,15 +724,28 @@ class AliceTunnel(BaseTunnel):
         self._maybe_log_pacer_target_change(cap, reason='gate_check')
         if keepalive_only:
             return None
-        unacked = self._send_window.unacked_count
-        if self._pacer.can_send(unacked, cap, srtt_ms=self._rtt.srtt_ms):
+        unacked, inflight = self._pacer_inflight_counts()
+        if inflight is None:
+            inflight = unacked
+        if self._pacer.can_send(inflight, cap, srtt_ms=self._rtt.srtt_ms):
             return None
         return {
             'reason': 'pacer',
             'keepalive_only': keepalive_only,
             'unacked': unacked,
+            'inflight': inflight,
             'cap': cap,
         }
+
+    def _pacer_inflight_counts(self):
+        unacked = self._send_window.unacked_count
+        distance_info = self._send_window.distance_info()
+        if distance_info is None:
+            return unacked, None
+        distance = distance_info[0]
+        if distance < unacked:
+            distance = unacked
+        return unacked, distance
 
     def _should_freeze_pacer_feedback(self, distance_info, details):
         if not self._pacer.enabled:
@@ -1002,8 +1015,14 @@ class AliceTunnel(BaseTunnel):
 
         if reason == 'pacer':
             unacked = decision.get('unacked')
+            inflight = decision.get('inflight')
             cap = decision.get('cap')
-            self._log_pacer_state(cap, unacked, action='blocked')
+            self._log_pacer_state(
+                cap,
+                unacked,
+                action='blocked',
+                inflight_count=inflight,
+            )
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -1013,6 +1032,7 @@ class AliceTunnel(BaseTunnel):
                     'side': 'alice',
                     'reason': 'pacer',
                     'unacked': unacked,
+                    'inflight': inflight,
                     'cap': cap,
                 },
             )
@@ -1026,6 +1046,7 @@ class AliceTunnel(BaseTunnel):
                     'reason': 'pacer',
                     'keepalive_only': keepalive_only,
                     'unacked': unacked,
+                    'inflight': inflight,
                     'cap': cap,
                 },
             )
@@ -1459,7 +1480,8 @@ class AliceTunnel(BaseTunnel):
             return
         self._log_pacer_adjust(prev_target, 'blocked', block_reason=reason)
 
-    def _log_pacer_state(self, cap, unacked_count, action=None):
+    def _log_pacer_state(self, cap, unacked_count, action=None,
+                         inflight_count=None):
         if not self._pacer.enabled:
             return
         fields = self._pacer.state_fields(
@@ -1468,6 +1490,8 @@ class AliceTunnel(BaseTunnel):
             rate_limit=self._config.tunnel_send_rate,
             srtt_ms=self._rtt.srtt_ms,
         )
+        if inflight_count is not None and inflight_count != unacked_count:
+            fields['inflight_count'] = inflight_count
         if self._pacer_summary_interval > 0:
             target = fields.get('target_inflight')
             if target is not None:
@@ -1714,7 +1738,13 @@ class AliceTunnel(BaseTunnel):
         self._advance_poll_pacing(now)
         if self._pacer.enabled:
             cap = self._pacer_cap()
-            self._log_pacer_state(cap, self._send_window.unacked_count, action='send')
+            unacked, inflight = self._pacer_inflight_counts()
+            self._log_pacer_state(
+                cap,
+                unacked,
+                action='send',
+                inflight_count=inflight,
+            )
 
         self._last_send_time = now
         self._packets_sent += 1

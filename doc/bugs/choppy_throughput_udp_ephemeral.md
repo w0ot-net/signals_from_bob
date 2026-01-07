@@ -43,6 +43,10 @@
   penalty and reduced target inflight drive the bursty cadence.
 - Retransmit bursts plus pacer clamp explain the oscillation more than simple
   ack silence; the pump backpressure aligns with the pacing drops.
+- The pacer gates on `unacked` only, so it can keep sending while distance
+  (next_seq - last_cum_ack) climbs during a SACK hole. That allows distance
+  to reach the 128 cap even though unacked is low, which triggers the
+  window_distance stall.
 
 ## Hypotheses
 1) SACK hole handling is too conservative. The missing seq persists long

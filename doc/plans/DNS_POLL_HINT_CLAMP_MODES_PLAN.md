@@ -41,9 +41,9 @@ Scenario C (Alice idle but still at max, Bob sends POLL_HINT):
 ## Implementation Steps
 
 1. DNS client: keep `send_packet_mtu` as the clamp_safe_max_alice cap (so MTU
-   negotiation
-   and segment sizing stay safe) and store the raw query MTU separately for
-   lookup/logging; default mode uses safe max, not the raw maximum.
+   negotiation and segment sizing stay safe), build the response-cap lookup
+   against that safe-max bound, and store the raw query MTU only for logging.
+   Default mode uses safe max, not the raw maximum.
 2. DNS client: add a poll-hint mode field so `_reset_poll_hint_budget()`
    records whether the last poll hint arrived with segments or keepalive.
 3. DNS client: update `_update_bob_data_from_payload()` to set poll-hint mode

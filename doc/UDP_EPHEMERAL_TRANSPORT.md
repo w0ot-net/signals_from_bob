@@ -50,8 +50,8 @@ Client settings:
 - `udp_ephemeral_target` (`--target`)
 - `udp_ephemeral_packet_mtu` (`--udp-ephemeral-packet-mtu`)
 - `udp_ephemeral_pending_timeout` (`--udp-ephemeral-pending-timeout`)
-- `udp_ephemeral_source_port_reuse_minutes`
-  (`--udp-ephemeral-source-port-reuse-minutes`)
+- `udp_ephemeral_source_port_reuse_seconds`
+  (`--udp-ephemeral-source-port-reuse-seconds`)
 
 Server settings:
 
@@ -62,7 +62,7 @@ Defaults:
 
 - `udp_ephemeral_packet_mtu`: 1350
 - `udp_ephemeral_pending_timeout`: 5.0
-- `udp_ephemeral_source_port_reuse_minutes`: 0.0
+- `udp_ephemeral_source_port_reuse_seconds`: 0.0
 - `udp_ephemeral_listen_addr`: 0.0.0.0:53
 
 ---

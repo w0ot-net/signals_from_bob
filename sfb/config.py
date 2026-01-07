@@ -71,8 +71,8 @@ class Config:
     udp_ephemeral_packet_mtu: int = 1350
     # Timeout before considering a UDP request stale (seconds)
     udp_ephemeral_pending_timeout: float = 5.0
-    # Minutes before reusing a UDP source port
-    udp_ephemeral_source_port_reuse_minutes: float = 0.0
+    # Seconds before reusing a UDP source port
+    udp_ephemeral_source_port_reuse_seconds: float = 0.0
 
     # --- TLS ClientHello Transport ---
     # Alice target host:port (IPv4 only)
@@ -395,8 +395,8 @@ class Config:
             raise ValueError("udp_ephemeral_packet_mtu must be > 0")
         if self.udp_ephemeral_pending_timeout <= 0:
             raise ValueError("udp_ephemeral_pending_timeout must be > 0")
-        if self.udp_ephemeral_source_port_reuse_minutes < 0:
-            raise ValueError("udp_ephemeral_source_port_reuse_minutes must be >= 0")
+        if self.udp_ephemeral_source_port_reuse_seconds < 0:
+            raise ValueError("udp_ephemeral_source_port_reuse_seconds must be >= 0")
 
         # Crypto validation
         if self.crypto_mode not in ("none", "xor", "rc4"):

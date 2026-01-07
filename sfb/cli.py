@@ -485,10 +485,10 @@ def add_udp_ephemeral_client_args(parser, config, require_target=True):
              config.udp_ephemeral_pending_timeout
     )
     parser.add_argument(
-        '--udp-ephemeral-source-port-reuse-minutes', type=float,
-        default=config.udp_ephemeral_source_port_reuse_minutes,
-        help='Minutes before reusing a source port (default: %s)' %
-             config.udp_ephemeral_source_port_reuse_minutes
+        '--udp-ephemeral-source-port-reuse-seconds', type=float,
+        default=config.udp_ephemeral_source_port_reuse_seconds,
+        help='Seconds before reusing a source port (default: %s)' %
+             config.udp_ephemeral_source_port_reuse_seconds
     )
 
 
@@ -909,8 +909,8 @@ def create_config(args):
             config_kwargs['udp_ephemeral_pending_timeout'] = getattr(
                 args, 'udp_ephemeral_pending_timeout', None
             )
-            config_kwargs['udp_ephemeral_source_port_reuse_minutes'] = getattr(
-                args, 'udp_ephemeral_source_port_reuse_minutes', None
+            config_kwargs['udp_ephemeral_source_port_reuse_seconds'] = getattr(
+                args, 'udp_ephemeral_source_port_reuse_seconds', None
             )
         else:
             listen_addr = getattr(args, 'listen_addr', None)

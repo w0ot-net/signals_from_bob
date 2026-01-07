@@ -73,8 +73,7 @@ class UdpEphemeralClient(Transport):
         self._recv_packet_mtu = recv_mtu
         self._max_in_flight = config.max_in_flight
         self._pending_timeout = validated['pending_timeout']
-        self._reuse_minutes = validated['reuse_minutes']
-        self._reuse_seconds = self._reuse_minutes * 60.0
+        self._reuse_seconds = validated['reuse_seconds']
 
         target_host, target_port = validated['target_addr']
         self._target_addr = self._resolve_target(target_host, target_port)
@@ -113,7 +112,7 @@ class UdpEphemeralClient(Transport):
                 'recv_packet_mtu': self._recv_packet_mtu,
                 'max_in_flight': self._max_in_flight,
                 'pending_timeout': self._pending_timeout,
-                'source_port_reuse_minutes': self._reuse_minutes,
+                'source_port_reuse_seconds': self._reuse_seconds,
             },
         )
 
@@ -447,7 +446,7 @@ class UdpEphemeralClient(Transport):
             'UDP ephemeral source ports exhausted',
             lambda: {
                 'attempts': self._max_port_bind_attempts,
-                'reuse_minutes': self._reuse_minutes,
+                'reuse_seconds': self._reuse_seconds,
             },
         )
         raise TransportError(

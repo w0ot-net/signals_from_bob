@@ -32,9 +32,9 @@ def validate_udp_ephemeral_config(config, role):
     pending_timeout = _require_positive_float(
         config.udp_ephemeral_pending_timeout, 'udp_ephemeral_pending_timeout'
     )
-    reuse_minutes = _require_non_negative_float(
-        config.udp_ephemeral_source_port_reuse_minutes,
-        'udp_ephemeral_source_port_reuse_minutes'
+    reuse_seconds = _require_non_negative_float(
+        config.udp_ephemeral_source_port_reuse_seconds,
+        'udp_ephemeral_source_port_reuse_seconds'
     )
 
     target_addr = None
@@ -57,7 +57,7 @@ def validate_udp_ephemeral_config(config, role):
     return {
         'packet_mtu': packet_mtu,
         'pending_timeout': pending_timeout,
-        'reuse_minutes': reuse_minutes,
+        'reuse_seconds': reuse_seconds,
         'target_addr': target_addr,
         'listen_addr': listen_addr,
     }

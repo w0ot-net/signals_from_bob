@@ -483,8 +483,8 @@ def parse_args():
         help='Log profile for bob/alice (default: all_events)'
     )
     parser.add_argument(
-        '--module', default='socks_server',
-        help='Bob module to launch (default: socks_server)'
+        '--module', default='socks',
+        help='Bob module to launch (default: socks)'
     )
     parser.add_argument(
         '--max-in-flight', dest='max_in_flight', type=int, default=128,

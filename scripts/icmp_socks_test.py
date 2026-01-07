@@ -4,7 +4,7 @@ Stand up an ICMP tunnel with a SOCKS server and download a file through it.
 
 Flow:
 - Start a local HTTP server on port 8888 serving test_download_files/.
-- Launch Bob with ICMP transport and the socks_server module.
+- Launch Bob with ICMP transport and the socks module.
 - Launch Alice with ICMP transport pointing at Bob.
 - Optionally run N concurrent SOCKS clients (default: 1) that fetch a file
   from the HTTP server through the SOCKS proxy.
@@ -229,7 +229,7 @@ def start_bob(socks_port):
         '--transport', 'icmp',
         '--db-log', SERVER_DB_LOG,
         '--log-profile', 'scp_stalled_icmp_socks',
-        '--module', 'socks_server',
+        '--module', 'socks',
         'start',
         '--socks-host', '127.0.0.1',
         '--socks-port', str(socks_port),

@@ -5,7 +5,7 @@ Generic CLI for sfb tunnel.
 Provides a unified entry point supporting:
 - Roles: server (bob) or client (alice)
 - Transports: dns (extensible)
-- Modules: file_transfer, socks_server, socks_relay, port_fwd_server, port_fwd_relay, etc.
+- Modules: file_transfer, socks, port_fwd_server, port_fwd_relay, etc.
 """
 
 from __future__ import absolute_import
@@ -35,7 +35,7 @@ from .logging_util import (
 from .log_profiles import LOG_PROFILES, apply_log_profile
 from .transport import TRANSPORTS, TransportError, get_transport_class
 from .tunnel import AliceTunnel, BobTunnel, TunnelError, TunnelState
-from .modules import AVAILABLE_MODULES
+from .modules import CLI_MODULES
 from .modules.base_module import ModuleError
 from .utils import parse_host_port
 from . import time_provider
@@ -754,7 +754,7 @@ def add_module_args(parser):
     """Add module selection argument."""
     parser.add_argument(
         '--module',
-        choices=list(AVAILABLE_MODULES.keys()),
+        choices=list(CLI_MODULES.keys()),
         help='Module to load'
     )
     parser.add_argument(
@@ -863,7 +863,7 @@ def parse_args(args=None):
 
         # Module subcommands or module-specific args
         if partial_args.module:
-            module_cls = AVAILABLE_MODULES[partial_args.module]
+            module_cls = CLI_MODULES[partial_args.module]
             if getattr(module_cls, 'USES_SUBCOMMANDS', True):
                 subparsers = parser.add_subparsers(dest='command', help='Module commands')
                 module_cls.register_commands(subparsers, role_for_args, config=config_defaults)
@@ -1220,7 +1220,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
 
         module_name = args.module
         module_id = args.module_id
-        module_cls = AVAILABLE_MODULES[module_name]
+        module_cls = CLI_MODULES[module_name]
         module_logger = get_logger('sfb.modules.%s' % module_name)
         remote_module = module_cls.REMOTE_MODULE or module_name
         log_event(

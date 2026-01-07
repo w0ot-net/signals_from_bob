@@ -18,6 +18,14 @@ AVAILABLE_MODULES = {
     'nc_linux': NcLinuxModule,
     'port_fwd_server': PortForwardServerModule,
     'port_fwd_relay': PortForwardRelayModule,
-    'socks_server': SocksServerModule,
+    'socks': SocksServerModule,
     'socks_relay': SocksRelayModule,
+}
+
+CLI_MODULES = {
+    'file_transfer': FileTransferModule,
+    'nc_linux': NcLinuxModule,
+    'port_fwd_server': PortForwardServerModule,
+    'port_fwd_relay': PortForwardRelayModule,
+    'socks': SocksServerModule,
 }

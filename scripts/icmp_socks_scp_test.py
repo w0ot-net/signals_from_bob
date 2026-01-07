@@ -3,7 +3,7 @@
 ICMP + SOCKS scp upload harness with proxychains config.
 
 Flow:
-- Launch Bob with ICMP transport and the socks_server module.
+- Launch Bob with ICMP transport and the socks module.
 - Launch Alice with ICMP transport targeting 127.0.0.1 by default.
 - Write a custom proxychains config and use it (no /etc config).
 - Use proxychains scp to upload the 2MB test file to /tmp/del.
@@ -358,7 +358,7 @@ def start_bob(socks_host, socks_port, icmp_mtu=None, max_in_flight=None,
     if max_in_flight is not None:
         cmd.extend(['--max-in-flight', str(max_in_flight)])
     cmd.extend([
-        '--module', 'socks_server',
+        '--module', 'socks',
         'start',
         '--socks-host', socks_host,
         '--socks-port', str(socks_port),

@@ -12,7 +12,7 @@ Usage:
 
     # Server with SOCKS proxy
     python3 sfb.py --role bob --transport dns --domain t.example.com \
-        --module socks_server start --socks-port 1080
+        --module socks start --socks-port 1080
 
     # Client
     python3 sfb.py --role client --transport dns --domain t.example.com

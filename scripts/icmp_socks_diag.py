@@ -3,7 +3,7 @@
 ICMP + SOCKS diagnostic harness with live throughput reporting.
 
 - Starts a local HTTP server on port 8888 (configurable) serving test_download_files/.
-- Launches Bob (socks_server) and Alice over ICMP.
+- Launches Bob (socks) and Alice over ICMP.
 - Downloads a file through the SOCKS proxy with a per-second progress bar.
 - Optionally runs a direct HTTP baseline to compare against SOCKS.
 - Prints per-client stats, aggregate throughput, and a simple throughput timeline.
@@ -326,7 +326,7 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
     if icmp_mtu:
         cmd.extend(['--icmp-mtu', str(icmp_mtu)])
     cmd.extend([
-        '--module', 'socks_server',
+        '--module', 'socks',
         'start',
         '--socks-host', '127.0.0.1',
         '--socks-port', str(socks_port),

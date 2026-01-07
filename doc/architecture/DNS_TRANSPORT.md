@@ -310,9 +310,6 @@ Each poll consumes the clamp budget; another POLL_HINT refreshes it.
 Bob should use POLL_HINT when he needs Alice to reduce query size, such as when
 retransmits are blocked by per-request response caps or when pending data
 cannot fit within the current per-request response cap.
-If a per-request response cap is smaller than the minimum segment-capable
-packet size (`PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1`), Bob must not set
-POLL_HINT and instead replies with KEEPALIVE only.
 POLL_HINT is advisory and does not imply data was sent; Alice treats real data
 only when `HAS_SEGMENTS` is set.
 The chosen packet cap is attached to the send permit and applied at packet
@@ -674,15 +671,12 @@ Bob queues outbound packets. When Alice polls:
 5. If no channel data is queued: send `KEEPALIVE` (FLAG_KEEPALIVE, zero
    segments)
 6. If a retransmit cannot fit within the per-request response cap: send
-   `KEEPALIVE` + `POLL_HINT` (zero segments) when the response cap can carry
-   at least one segment byte; otherwise send `KEEPALIVE` without `POLL_HINT`
-   and keep the retransmit queued
+   `KEEPALIVE` + `POLL_HINT` (zero segments) and keep the retransmit queued
 
 The response always contains a valid tunnel packet (with seq/ack headers). When
 no data is queued, the packet carries no segments and sets FLAG_KEEPALIVE. When
 pending data exists, Bob includes segments if they fit; otherwise he uses a
-KEEPALIVE + POLL_HINT response (when allowed by the response cap) to keep Alice
-polling, or a plain KEEPALIVE when POLL_HINT is not allowed.
+KEEPALIVE + POLL_HINT response to keep Alice polling.
 KEEPALIVE + POLL_HINT responses are still idle for real-data detection; only
 `HAS_SEGMENTS` responses count as data received.
 

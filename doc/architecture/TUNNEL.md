@@ -202,9 +202,7 @@ keepalives (zero segments with `FLAG_KEEPALIVE`); packets with zero segments
 and no keepalive flag are protocol violations. Bob responds with a keepalive
 packet when idle and with queued data when available. If a retransmit would
 exceed the per-request response cap, Bob responds with KEEPALIVE + POLL_HINT
-(no segments) only when the response cap can carry at least one segment byte
-(`PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1`); otherwise he uses KEEPALIVE
-without POLL_HINT. POLL_HINT is advisory and does not imply data was sent.
+(no segments). POLL_HINT is advisory and does not imply data was sent.
 KEEPALIVE without POLL_HINT is a true idle keepalive. If either side has
 actual data to send, the packet itself serves as keepalive—no channel 0
 ping/pong messages are sent (legacy ping/pong are ignored if received).
@@ -218,8 +216,7 @@ Keepalive interval is configurable (default: 1.0 second).
 
 Keepalive responses are suppressed when any channel data is queued; queued data
 replaces the keepalive unless a retransmit is blocked by the per-request
-response cap, in which case Bob uses KEEPALIVE + POLL_HINT when allowed by the
-response cap (otherwise KEEPALIVE without POLL_HINT).
+response cap, in which case Bob uses KEEPALIVE + POLL_HINT.
 
 ---
 

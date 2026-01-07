@@ -20,8 +20,6 @@ Implement three DNS clamp scenarios while keeping the MIN_PACKET_MTU rule:
 
 ## Design Notes
 
-- Keep the ASYMMETRY rule: Bob only sets POLL_HINT when the response cap can
-  carry at least one segment byte (MIN_PACKET_MTU).
 - Default mode uses the "safe max" query payload (min_response_query_payload).
 - Treat POLL_HINT + HAS_SEGMENTS as the "balanced" clamp, using the precomputed
   balanced query payload; fallback to the minimum-query clamp if no balanced
@@ -30,6 +28,8 @@ Implement three DNS clamp scenarios while keeping the MIN_PACKET_MTU rule:
   maximize response capacity for Bob.
 - Do not send control-only poll-hint responses; control segments are treated
   the same as data segments, and poll-hint keepalives are used when nothing fits.
+- POLL_HINT is advisory and may be set whenever Bob needs Alice to clamp,
+  regardless of the per-request response cap.
 
 ## Implementation Steps
 
@@ -45,9 +45,13 @@ Implement three DNS clamp scenarios while keeping the MIN_PACKET_MTU rule:
    - minimum query payload for POLL_HINT + KEEPALIVE,
    - safe-max query payload for default mode,
    and log the selected clamp mode and any fallback used.
-5. Bob tunnel: remove the control-only poll-hint path; when no segments fit
-   but data is pending, send KEEPALIVE + POLL_HINT (when allowed) and leave
-   segments queued for a larger-cap poll. When responding with segments, set
+5. Bob tunnel: remove response-cap gating for POLL_HINT (delete
+   `_poll_hint_allowed`) and emit POLL_HINT whenever Bob needs Alice to clamp.
+6. Bob tunnel: remove the control-only poll-hint path; when no segments fit
+   but data is pending, send KEEPALIVE + POLL_HINT and leave segments queued
+   for a larger-cap poll. When responding with segments, set
    POLL_HINT whenever pending data remains.
-6. Update DNS_TRANSPORT.md to describe the safe-max default, balanced/min
+7. Update DNS_TRANSPORT.md to describe the safe-max default, balanced/min
    clamps, and the "no control-only poll-hint segments" rule.
+8. Update protocol/transport docs to remove the response-cap gating rule for
+   POLL_HINT.

@@ -25,7 +25,7 @@
 
 ## Plan
 1. Define a module instance id field.
-   - Require `mid` on all module control messages (t not in {tun, ch, mod}).
+   - Require `mid` on all module control messages (t not in {tun, ch}).
    - Document the `mid` field in doc/CONTROL_MESSAGES.md and doc/PROTOCOL.md.
    - Standardize `mid` as an integer; default instance is `1`.
 

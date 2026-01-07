@@ -311,7 +311,6 @@ class DnsServer(Server):
                 'DNS query received',
                 lambda: {
                     'dns_id': query_id,
-                    'qname': qname,
                     'qtype': qtype,
                     'addr': '%s:%d' % (client_addr[0], client_addr[1]),
                     'query_bytes': len(pkt_data),
@@ -395,7 +394,6 @@ class DnsServer(Server):
                 'DNS response encode failed',
                 lambda: {
                     'dns_id': query_id,
-                    'qname': qname,
                     'qtype': qtype,
                     'payload_bytes': len(data),
                     'error': str(exc),
@@ -430,7 +428,6 @@ class DnsServer(Server):
             'DNS response sent',
             lambda: {
                 'dns_id': query_id,
-                'qname': qname,
                 'qtype': qtype,
                 'rtype': self._rtype,
                 'addr': '%s:%d' % (addr[0], addr[1]),
@@ -473,7 +470,6 @@ class DnsServer(Server):
             'DNS empty response sent',
             lambda: {
                 'dns_id': query_id,
-                'qname': qname,
                 'qtype': qtype,
                 'addr': '%s:%d' % (addr[0], addr[1]),
                 'bytes': len(response),
@@ -521,7 +517,6 @@ class DnsServer(Server):
             'DNS CNAME followup sent',
             lambda: {
                 'dns_id': query_id,
-                'qname': qname,
                 'qtype': qtype,
                 'addr': '%s:%d' % (addr[0], addr[1]),
                 'bytes': len(response),

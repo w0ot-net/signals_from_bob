@@ -24,7 +24,10 @@ Scenario C (Alice idle but still at max, Bob sends POLL_HINT):
 
 - sfb/transport/dns/dns_client.py
 - sfb/tunnel/bob_tunnel.py
+- doc/architecture/BOB_RETRANSMIT_LOGIC.md
 - doc/architecture/DNS_TRANSPORT.md
+- doc/architecture/TUNNEL.md
+- doc/architecture/ASYMMETRY.md
 
 ## Design Notes
 
@@ -60,8 +63,11 @@ Scenario C (Alice idle but still at max, Bob sends POLL_HINT):
    - remove the control-only poll-hint path; when no segments fit but data is
      pending, send KEEPALIVE + POLL_HINT and leave segments queued for a
      larger-cap poll.
-6. Bob tunnel: when responding with segments, thread `pending_data` through so
-   POLL_HINT is set only when more data remains.
+6. Bob tunnel: when responding with segments (new or retransmit), thread
+   `pending_data` through so POLL_HINT is set only when more data remains.
+   For retransmits, compute pending_data via the channel manager and OR
+   FLAG_POLL_HINT into the response flags when needed; update
+   BOB_RETRANSMIT_LOGIC.md to note poll-hint flags may be added on retransmit.
 7. Update DNS_TRANSPORT.md to describe clamp_safe_max_alice, clamp_balanced,
    clamp_max_bob, and the "no control-only poll-hint segments" rule.
 8. Update protocol/transport docs to remove the response-cap gating rule for

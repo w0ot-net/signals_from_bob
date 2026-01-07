@@ -1,6 +1,6 @@
 # DNS Poll Hint Clamp Modes Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -73,3 +73,13 @@ Scenario C (Alice idle but still at max, Bob sends POLL_HINT):
    clamp_max_bob, and the "no control-only poll-hint segments" rule.
 8. Update protocol/transport docs to remove the response-cap gating rule for
    POLL_HINT.
+
+## Execution Notes
+
+- Implemented clamp-safe defaults, poll-hint modes, and selection logic in the
+  DNS client, including safe-max response-cap lookup and clamp mode logging.
+- Updated Bob poll-hint emission: retransmits always set POLL_HINT; keepalive
+  + POLL_HINT is used when no segments fit; poll-hint is set on segment sends
+  only when more data remains.
+- Updated protocol and transport docs to reflect clamp modes, poll-hint usage,
+  and the removal of control-only poll-hint segments (including PROTOCOL.md).

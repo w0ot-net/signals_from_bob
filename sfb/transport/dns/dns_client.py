@@ -89,6 +89,7 @@ class DnsClient(Transport):
         self._bob_has_data_polls = 2
         self._bob_has_data_remaining = 0
         self._poll_hint_budget = 0
+        self._poll_hint_mode = None
         self._retransmit_guard = False
         self._recv_window_sack = 0
 
@@ -137,6 +138,7 @@ class DnsClient(Transport):
         send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
             'dns', config, role='client'
         )
+        self._raw_query_packet_mtu = send_mtu
         self._send_packet_mtu = send_mtu
         calculated_recv_mtu = recv_mtu
         self._min_query_packet_mtu = min_packet_mtu
@@ -172,6 +174,7 @@ class DnsClient(Transport):
             'send_packet_mtu': self._send_packet_mtu,
             'recv_packet_mtu': self._recv_packet_mtu,
             'min_packet_mtu': min_packet_mtu,
+            'raw_query_packet_mtu': self._raw_query_packet_mtu,
         }
         mtu_details.update(mtu_constraints)
         log_event(
@@ -512,7 +515,10 @@ class DnsClient(Transport):
             return
         poll_hint = bool(flags & FLAG_POLL_HINT)
         if poll_hint:
-            self._reset_poll_hint_budget()
+            if has_segments:
+                self._reset_poll_hint_budget('segments')
+            else:
+                self._reset_poll_hint_budget('keepalive')
         if has_segments:
             self._update_bob_data_state(True)
             return
@@ -563,18 +569,30 @@ class DnsClient(Transport):
     def _select_payload_cap(self):
         if self._response_cap_lookup is None:
             return None
-        mode = 'disabled'
+        mode = 'clamp_safe_max_alice'
         target = None
-        query_payload = None
+        query_payload = self._send_packet_mtu
+        fallback = None
         if self._poll_hint_budget > 0:
-            mode = 'response_max'
-            target = self._max_response_payload_cap
-            query_payload = self._max_query_payload_for_response_cap(target)
-            if query_payload is not None:
-                if query_payload > self._send_packet_mtu:
+            if self._poll_hint_mode == 'segments' and self._alice_has_data_pending:
+                mode = 'clamp_balanced'
+                query_payload = self._balanced_query_payload
+                if query_payload is None:
+                    mode = 'clamp_max_bob'
+                    fallback = 'balanced_unavailable'
+            else:
+                mode = 'clamp_max_bob'
+            if mode == 'clamp_max_bob':
+                target = self._max_response_payload_cap
+                query_payload = self._max_query_payload_for_response_cap(target)
+                if query_payload is None:
                     query_payload = self._send_packet_mtu
-                if query_payload < self._min_query_packet_mtu:
-                    query_payload = self._min_query_packet_mtu
+                    fallback = 'missing_response_cap'
+        if query_payload is not None:
+            if query_payload > self._send_packet_mtu:
+                query_payload = self._send_packet_mtu
+            if query_payload < self._min_query_packet_mtu:
+                query_payload = self._min_query_packet_mtu
         log_event(
             _LOG,
             logging.DEBUG,
@@ -589,6 +607,8 @@ class DnsClient(Transport):
                 'target_response_payload': target,
                 'query_payload_cap': query_payload,
                 'poll_hint_budget': self._poll_hint_budget,
+                'poll_hint_mode': self._poll_hint_mode,
+                'fallback': fallback,
             },
         )
         return query_payload
@@ -611,7 +631,7 @@ class DnsClient(Transport):
         if self._bob_has_data_remaining > 0:
             self._bob_has_data_remaining -= 1
 
-    def _reset_poll_hint_budget(self):
+    def _reset_poll_hint_budget(self, mode=None):
         target = self._max_in_flight
         try:
             target = int(target)
@@ -620,6 +640,7 @@ class DnsClient(Transport):
         if target < 1:
             target = 1
         self._poll_hint_budget = target
+        self._poll_hint_mode = mode
         self._retransmit_guard = True
 
     def _consume_poll_hint_budget(self):
@@ -629,19 +650,19 @@ class DnsClient(Transport):
         if self._poll_hint_budget <= 0:
             self._poll_hint_budget = 0
             self._retransmit_guard = False
+            self._poll_hint_mode = None
 
     def _init_response_caps(self):
-        if self._send_packet_mtu < self._min_query_packet_mtu:
+        raw_query_mtu = self._raw_query_packet_mtu
+        if raw_query_mtu < self._min_query_packet_mtu:
             raise TransportError(
                 'DNS query MTU %d below packet header size %d' % (
-                    self._send_packet_mtu,
+                    raw_query_mtu,
                     self._min_query_packet_mtu,
                 )
             )
-        max_query_payload = self._send_packet_mtu
+        max_query_payload = raw_query_mtu
         response_caps = [0] * (max_query_payload + 1)
-        max_response_payload = 0
-        balanced_query_payload = None
         min_response_query_payload = None
         for payload_len in range(self._min_query_packet_mtu,
                                  max_query_payload + 1):
@@ -663,10 +684,6 @@ class DnsClient(Transport):
             if response_cap is None:
                 response_cap = 0
             response_caps[payload_len] = response_cap
-            if response_cap > max_response_payload:
-                max_response_payload = response_cap
-            if response_cap >= payload_len:
-                balanced_query_payload = payload_len
             if response_cap >= MIN_PACKET_MTU:
                 min_response_query_payload = payload_len
         if min_response_query_payload is None:
@@ -681,7 +698,6 @@ class DnsClient(Transport):
         if min_response_query_payload < self._send_packet_mtu:
             old_query_mtu = self._send_packet_mtu
             self._send_packet_mtu = min_response_query_payload
-            max_query_payload = self._send_packet_mtu
             log_event(
                 _LOG,
                 logging.INFO,
@@ -690,12 +706,23 @@ class DnsClient(Transport):
                 lambda: {
                     'old_query_mtu': old_query_mtu,
                     'new_query_mtu': self._send_packet_mtu,
+                    'raw_query_mtu': raw_query_mtu,
                     'min_response_mtu': MIN_PACKET_MTU,
                     'base_domain': self._base_domain,
                     'label_max_len': self._label_max_len,
                     'edns_size': self._edns_size,
                 },
             )
+        max_query_payload = self._send_packet_mtu
+        max_response_payload = 0
+        balanced_query_payload = None
+        for payload_len in range(self._min_query_packet_mtu,
+                                 max_query_payload + 1):
+            response_cap = response_caps[payload_len]
+            if response_cap > max_response_payload:
+                max_response_payload = response_cap
+            if response_cap >= payload_len:
+                balanced_query_payload = payload_len
         self._max_response_payload_cap = max_response_payload
         self._max_response_packet_mtu = max_response_payload
         if self._max_response_packet_mtu < self._min_response_packet_mtu:

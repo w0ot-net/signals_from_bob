@@ -327,6 +327,7 @@ class BobTunnel(BaseTunnel):
     def _send_retransmit_response(self, responder, response_payload_cap, now,
                                   seq, segments, flags, encrypted_body,
                                   context='retransmit', reason=None):
+        flags |= FLAG_POLL_HINT
         packet = self._rebuild_packet(seq, segments, flags=flags)
         encrypted_body, response_data = self._encode_packet_for_send(
             packet,
@@ -492,61 +493,12 @@ class BobTunnel(BaseTunnel):
             return False
         return True
 
-    def _send_poll_hint_segment(self, responder, now, response_payload_cap):
-        max_payload = self._payload_mtu_from_packet(self._send_packet_mtu)
-        if response_payload_cap is not None:
-            cap_payload = response_payload_cap - PACKET_HEADER_SIZE
-            if cap_payload < 0:
-                cap_payload = 0
-            if cap_payload < max_payload:
-                max_payload = cap_payload
-        segments = self._collect_segments(
-            max_payload,
-            control_only=True,
-        )
-        if not segments:
-            return self._send_keepalive_response(
-                responder,
-                now,
-                poll_hint=True,
-            )
+    def _send_segments_response(self, responder, now, segments, poll_hint=False):
+        flags = FLAG_HAS_SEGMENTS
+        if poll_hint:
+            flags |= FLAG_POLL_HINT
         packet, _ = self._build_packet(
-            flags=FLAG_HAS_SEGMENTS | FLAG_POLL_HINT,
-            segments=segments,
-        )
-        encrypted_body, response_data = self._encode_packet_for_send(packet)
-        try:
-            self._send_response_packet(
-                responder,
-                packet,
-                response_data,
-                'poll_hint',
-                'poll_hint',
-                now=now,
-                encrypted_body=encrypted_body,
-                segments=segments,
-                record_send=True,
-            )
-        except ValueError as exc:
-            log_event(
-                self._logger,
-                logging.WARNING,
-                'tunnel.send_blocked',
-                'Poll-hint control send blocked',
-                lambda: {
-                    'reason': 'window_full',
-                    'error': str(exc),
-                    'side': 'bob',
-                    'unacked': self._send_window.unacked_count,
-                    'max_in_flight': self._send_window._max_in_flight,
-                },
-            )
-            return False
-        return True
-
-    def _send_segments_response(self, responder, now, segments):
-        packet, _ = self._build_packet(
-            flags=FLAG_HAS_SEGMENTS,
+            flags=flags,
             segments=segments,
         )
         encrypted_body, response_data = self._encode_packet_for_send(packet)
@@ -647,22 +599,18 @@ class BobTunnel(BaseTunnel):
         )
 
         if not segments:
-            if pending_data:
-                decision.update({
-                    'action': 'poll_hint',
-                    'context': 'poll_hint',
-                })
-            else:
-                decision.update({
-                    'action': 'keepalive',
-                    'context': 'keepalive',
-                })
+            decision.update({
+                'action': 'keepalive',
+                'context': 'keepalive',
+                'poll_hint': bool(pending_data),
+            })
             return decision
 
         decision.update({
             'action': 'segments',
             'context': 'segments',
             'segments': segments,
+            'poll_hint': bool(pending_data),
         })
         return decision
 
@@ -815,16 +763,18 @@ class BobTunnel(BaseTunnel):
                 )
             return
         if action == 'keepalive':
-            self._send_keepalive_response(responder, now)
-            return
-        if action == 'poll_hint':
-            self._send_poll_hint_segment(responder, now, response_payload_cap)
+            self._send_keepalive_response(
+                responder,
+                now,
+                poll_hint=decision.get('poll_hint', False),
+            )
             return
         if action == 'segments':
             self._send_segments_response(
                 responder,
                 now,
                 decision.get('segments'),
+                poll_hint=decision.get('poll_hint', False),
             )
             return
 

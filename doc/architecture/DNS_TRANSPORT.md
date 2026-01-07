@@ -302,21 +302,25 @@ TransportError that reports `base_domain`, `label_max_len`, and `edns_size`.
 This safe-max value becomes Alice's `send_packet_mtu` for MTU negotiation and
 segment sizing; per-query clamps reduce from that baseline via the send permit.
 
-Alice selects query payload caps in two modes:
-- Default mode: safe-max query payload (largest payload that still yields a
-  `MIN_PACKET_MTU` response cap).
-- Poll-hint mode (next max_in_flight polls after POLL_HINT):
-  - POLL_HINT + HAS_SEGMENTS => balanced query payload (fallback to
-    max-response clamp if no balanced point exists).
-  - POLL_HINT + KEEPALIVE => max-response clamp (largest query payload that
-    yields the maximum response cap).
+Alice selects query payload caps using these clamp modes:
+- `clamp_safe_max_alice` (default): safe-max query payload (largest payload
+  that still yields a `MIN_PACKET_MTU` response cap).
+- `clamp_balanced`: for POLL_HINT + HAS_SEGMENTS when Alice has pending data,
+  choose the balanced query payload (largest payload where response cap
+  >= query payload). If no balanced point exists, fall back to
+  `clamp_max_bob`.
+- `clamp_max_bob`: for POLL_HINT + KEEPALIVE, or when POLL_HINT is active and
+  Alice has no pending data, choose the query payload that yields the maximum
+  response cap (largest response payload).
 Each poll consumes the clamp budget; another POLL_HINT refreshes it.
 
-Bob should use POLL_HINT when he needs Alice to reduce query size, such as when
+Bob should use POLL_HINT whenever he needs Alice to clamp, such as when
 retransmits are blocked by per-request response caps or when pending data
-cannot fit within the current per-request response cap.
-POLL_HINT is advisory and does not imply data was sent; Alice treats real data
-only when `HAS_SEGMENTS` is set.
+cannot fit within the current per-request response cap. POLL_HINT is advisory
+and is not gated by the per-request response cap. It does not imply data was
+sent; Alice treats real data only when `HAS_SEGMENTS` is set.
+Bob does not send control-only poll-hint segments; control segments are treated
+the same as data segments, and poll-hint keepalives are used when nothing fits.
 The chosen packet cap is attached to the send permit and applied at packet
 build time, so segments are sized before encoding the DNS query. Bob still
 enforces the per-request response cap for each response and retransmit.
@@ -672,16 +676,18 @@ Bob queues outbound packets. When Alice polls:
 1. Decode incoming packet from query
 2. Pass to reliability/muxer layers
 3. Check outbound queue for response data
-4. If data: encode and send
+4. If data fits: encode and send segments (set `POLL_HINT` if more data remains)
 5. If no channel data is queued: send `KEEPALIVE` (FLAG_KEEPALIVE, zero
    segments)
-6. If a retransmit cannot fit within the per-request response cap: send
-   `KEEPALIVE` + `POLL_HINT` (zero segments) and keep the retransmit queued
+6. If data is queued but no segments fit within the per-request response cap
+   (including retransmits): send `KEEPALIVE` + `POLL_HINT` (zero segments) and
+   keep the data queued
 
 The response always contains a valid tunnel packet (with seq/ack headers). When
 no data is queued, the packet carries no segments and sets FLAG_KEEPALIVE. When
-pending data exists, Bob includes segments if they fit; otherwise he uses a
-KEEPALIVE + POLL_HINT response to keep Alice polling.
+pending data exists, Bob includes segments if they fit and sets POLL_HINT if
+more data remains; otherwise he uses a KEEPALIVE + POLL_HINT response to keep
+Alice polling.
 KEEPALIVE + POLL_HINT responses are still idle for real-data detection; only
 `HAS_SEGMENTS` responses count as data received.
 

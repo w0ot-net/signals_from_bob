@@ -54,12 +54,14 @@ Scenario C (Alice idle but still at max, Bob sends POLL_HINT):
    - clamp_max_bob for POLL_HINT + KEEPALIVE,
    - clamp_safe_max_alice for default mode,
    and log the selected clamp mode and any fallback used.
-5. Bob tunnel: remove response-cap gating for POLL_HINT (delete
-   `_poll_hint_allowed`) and emit POLL_HINT whenever Bob needs Alice to clamp.
-6. Bob tunnel: remove the control-only poll-hint path; when no segments fit
-   but data is pending, send KEEPALIVE + POLL_HINT and leave segments queued
-   for a larger-cap poll. When responding with segments, set
-   POLL_HINT whenever pending data remains.
+5. Bob tunnel: emit POLL_HINT in the actual send paths:
+   - in `_send_retransmit_response`, send KEEPALIVE + POLL_HINT when the
+     retransmit exceeds the per-request cap.
+   - remove the control-only poll-hint path; when no segments fit but data is
+     pending, send KEEPALIVE + POLL_HINT and leave segments queued for a
+     larger-cap poll.
+6. Bob tunnel: when responding with segments, thread `pending_data` through so
+   POLL_HINT is set only when more data remains.
 7. Update DNS_TRANSPORT.md to describe clamp_safe_max_alice, clamp_balanced,
    clamp_max_bob, and the "no control-only poll-hint segments" rule.
 8. Update protocol/transport docs to remove the response-cap gating rule for

@@ -56,7 +56,7 @@ toggle `log_component_*` flags, override `log_event_whitelist` and
 example, `tunnel_pacer_summary_interval`).
 
 Available profiles (current):
-- `all_events`
+- `all`
 - `channel_close_debug` (default)
 - `dns_socks_stall_debug`
 - `dns_transport`

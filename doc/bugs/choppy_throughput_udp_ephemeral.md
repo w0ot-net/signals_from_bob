@@ -27,6 +27,10 @@
   interval with `sleep_time` ~0.93-0.97s and bytes ~0.20-0.43 MB.
 - `sock.pump_stats` channel_to_target shows ~0 bytes with `wait_time` ~0.997s,
   indicating the return path is mostly idle while the forward path is blocked.
+ - Latest run: `tunnel.retransmit_skip` shows `rto_sec` backed off to 8.0s while
+   `tunnel.retransmit` fast retransmits fire at `prev_send_age` ~2.0s; this matches
+   `tunnel.pacer_feedback_freeze` missing_age values around 2.0s, so the SACK hole
+   persists for ~2s before retransmit.
 
 ## Observations (Bob)
 - `tunnel.retransmit_skip` dominates the last window; no pacer summary events.

@@ -127,9 +127,9 @@ class Config:
     tls_bump_cn_max_len: Optional[int] = None
 
     # --- Crypto ---
-    # Encryption mode: 'none', 'xor', 'rc4'
+    # Encryption mode: 'none', 'xor', 'rc4', 'sha256'
     crypto_mode: str = "none"
-    # Pre-shared key for xor/rc4 (bytes or string)
+    # Pre-shared key for xor/rc4/sha256 (bytes or string)
     crypto_psk: Optional[bytes] = None
 
     # --- Tunnel ---
@@ -399,8 +399,8 @@ class Config:
             raise ValueError("udp_ephemeral_source_port_reuse_seconds must be >= 0")
 
         # Crypto validation
-        if self.crypto_mode not in ("none", "xor", "rc4"):
-            raise ValueError("crypto_mode must be 'none', 'xor', or 'rc4'")
+        if self.crypto_mode not in ("none", "xor", "rc4", "sha256"):
+            raise ValueError("crypto_mode must be 'none', 'xor', 'rc4', or 'sha256'")
         if self.crypto_mode != "none" and not self.crypto_psk:
             raise ValueError("crypto_psk required for %s mode" % self.crypto_mode)
 
@@ -577,7 +577,7 @@ def make_cipher(config: Config):
         config: Configuration object
 
     Returns:
-        Cipher instance (Plain, XOR, or RC4)
+        Cipher instance (Plain, XOR, RC4, or SHA256)
     """
     from .crypto import CIPHER_MODES
     cipher_cls = CIPHER_MODES[config.crypto_mode]

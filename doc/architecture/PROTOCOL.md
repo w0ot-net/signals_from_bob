@@ -25,8 +25,10 @@ The header is always added on the wire.
 Packet encryption is optional. When enabled, the header is sent in cleartext
 and only the body (segments) is encrypted with the PSK. Transport MTUs are
 per-direction packet bytes; `tun.mtu` values carry payload bytes only.
-RC4 derives a per-packet key from (seq, direction); keystreams repeat if seq
-wraps under a static PSK.
+RC4 and SHA256 derive per-packet keystreams from (seq, direction); keystreams
+repeat if seq wraps under a static PSK.
+SHA256 derives a packet key using HMAC-SHA256(psk, 'sfb-sha256' + nonce) and
+generates keystream blocks as SHA256(packet_key + counter_be32).
 
 ---
 

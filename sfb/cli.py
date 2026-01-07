@@ -24,7 +24,7 @@ import tempfile
 
 from .config import Config
 from .compat import byte_at, text_type
-from .crypto import Plain, RC4, XOR
+from .crypto import Plain, RC4, SHA256, XOR
 from .logging_util import (
     StructuredLogFormatter,
     add_component_filters,
@@ -363,6 +363,10 @@ def add_common_args(parser, config, require_domain=True, require_role=True):
     crypto_group.add_argument(
         '--rc4',
         help='Enable RC4 encryption with pre-shared key'
+    )
+    crypto_group.add_argument(
+        '--sha256',
+        help='Enable SHA256 stream encryption with pre-shared key'
     )
     parser.add_argument(
         '-v', '--verbose', action='store_true',
@@ -1026,6 +1030,9 @@ def create_config(args):
     elif getattr(args, 'rc4', None) is not None:
         config_kwargs['crypto_mode'] = 'rc4'
         config_kwargs['crypto_psk'] = _normalize_psk(args.rc4)
+    elif getattr(args, 'sha256', None) is not None:
+        config_kwargs['crypto_mode'] = 'sha256'
+        config_kwargs['crypto_psk'] = _normalize_psk(args.sha256)
 
     config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
     return Config(**config_kwargs)
@@ -1058,6 +1065,15 @@ def create_crypto(args, logger):
             'cli.crypto',
             'Encryption enabled',
             lambda: {'mode': 'rc4'},
+        )
+    elif args.sha256 is not None:
+        crypto = SHA256(_normalize_psk(args.sha256))
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.crypto',
+            'Encryption enabled',
+            lambda: {'mode': 'sha256'},
         )
     else:
         crypto = Plain()

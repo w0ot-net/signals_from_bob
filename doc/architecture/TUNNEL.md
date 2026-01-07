@@ -371,10 +371,12 @@ Supported ciphers:
 - `Plain`: No encryption (passthrough, for testing only)
 - `XOR`: Simple XOR with key (lightweight obfuscation)
 - `RC4`: RC4 stream cipher
+- `SHA256`: SHA256 stream cipher (counter mode)
 
 Cipher is configured at tunnel creation. Both sides must use the same cipher
-and key. RC4 derives a per-packet key from (seq, direction) to keep retransmits
-deterministic. Keystreams repeat if seq wraps under a static PSK.
+and key. RC4 and SHA256 derive per-packet keystreams from (seq, direction) to
+keep retransmits deterministic. Keystreams repeat if seq wraps under a static
+PSK.
 
 ---
 

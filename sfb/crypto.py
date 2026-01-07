@@ -6,14 +6,18 @@ Modes:
     - none: No encryption (passthrough)
     - xor: Simple XOR with key
     - rc4: RC4 stream cipher
+    - sha256: SHA256 stream cipher
 
 Only the packet body (segments) is encrypted. The header remains in the clear.
-RC4 is derived per packet using (seq, direction) to keep retransmits stable.
+RC4 and SHA256 are derived per packet using (seq, direction) to keep
+retransmits stable.
 Keystreams repeat if seq wraps under a static PSK.
 """
 
 from __future__ import absolute_import
 
+import hashlib
+import hmac
 import struct
 
 from .compat import integer_types, require_bytes_like, to_bytes
@@ -98,6 +102,42 @@ class XOR(object):
     decrypt = crypt
 
 
+class SHA256(object):
+    """
+    SHA256 stream cipher implementation.
+
+    SHA256 generates a per-packet keystream using a counter mode.
+    """
+
+    def __init__(self, psk):
+        """
+        Initialize SHA256 stream cipher with a pre-shared key.
+
+        Args:
+            psk: Pre-shared key (bytes or str)
+        """
+        self._base_key = to_bytes(_require_key(psk))
+
+    def encrypt(self, data, seq=None, direction=None):
+        """
+        Encrypt data for a specific packet.
+
+        SHA256 is symmetric - the same operation encrypts and decrypts.
+
+        Args:
+            data: Input bytes
+            seq: Packet sequence number (0-65535)
+            direction: 0 for Alice->Bob, 1 for Bob->Alice
+
+        Returns:
+            bytes: Output bytes (same length as input)
+        """
+        nonce = _require_packet_nonce(seq, direction, 'sha256')
+        return _sha256_stream_crypt(self._base_key, data, nonce)
+
+    decrypt = encrypt
+
+
 class Plain(object):
     """
     No-op cipher (passthrough).
@@ -119,6 +159,7 @@ CIPHER_MODES = {
     'none': Plain,
     'xor': XOR,
     'rc4': RC4,
+    'sha256': SHA256,
 }
 
 
@@ -130,9 +171,9 @@ def _require_key(psk):
     return bytearray(key)
 
 
-def _derive_rc4_key(base_key, seq, direction):
+def _require_packet_nonce(seq, direction, mode):
     if seq is None or direction is None:
-        raise ValueError('seq and direction required for rc4')
+        raise ValueError('seq and direction required for %s' % mode)
     if not isinstance(seq, integer_types):
         raise TypeError('seq must be an integer')
     if not isinstance(direction, integer_types):
@@ -141,8 +182,40 @@ def _derive_rc4_key(base_key, seq, direction):
         raise ValueError('seq must be 0-65535')
     if direction not in (0, 1):
         raise ValueError('direction must be 0 or 1')
-    nonce = struct.pack('>HB', seq, direction)
+    return struct.pack('>HB', seq, direction)
+
+
+def _derive_rc4_key(base_key, seq, direction):
+    nonce = _require_packet_nonce(seq, direction, 'rc4')
     return base_key + bytearray(nonce)
+
+
+def _sha256_stream_crypt(base_key, data, nonce):
+    data = require_bytes_like(data)
+    if not data:
+        return b''
+    packet_key = hmac.new(
+        base_key,
+        b'sfb-sha256' + nonce,
+        hashlib.sha256,
+    ).digest()
+    out = bytearray(data)
+    total = len(out)
+    offset = 0
+    counter = 0
+    pack = struct.pack
+    sha256 = hashlib.sha256
+    while offset < total:
+        block = sha256(packet_key + pack('>I', counter)).digest()
+        counter += 1
+        block = bytearray(block)
+        block_len = total - offset
+        if block_len > len(block):
+            block_len = len(block)
+        for i in range(block_len):
+            out[offset + i] ^= block[i]
+        offset += block_len
+    return bytes(out)
 
 
 def _rc4_crypt(key, data):

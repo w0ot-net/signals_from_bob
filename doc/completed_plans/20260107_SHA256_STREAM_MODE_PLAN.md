@@ -45,3 +45,9 @@
 5. Compatibility check.
    - Ensure retransmit determinism remains (seq + direction fixed keystream).
    - Confirm no behavior changes to existing modes.
+
+## Execution Notes
+- Implemented SHA256 stream cipher with per-packet HMAC key and counter-mode
+  keystream in sfb/crypto.py.
+- Wired sha256 mode into config validation, CLI flags, and cipher selection.
+- Updated protocol, tunnel, and architecture docs to include sha256.

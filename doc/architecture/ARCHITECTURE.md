@@ -45,7 +45,7 @@ Alice initiates all transport-level connections. Bob cannot reach Alice directly
                    │ packets
 ┌──────────────────┴──────────────────┐
 │           Crypto Layer              │
-│        (none / xor / rc4)           │
+│     (none / xor / rc4 / sha256)     │
 └──────────────────┬──────────────────┘
                    │ encrypted bytes
 ┌──────────────────┴──────────────────┐
@@ -74,7 +74,7 @@ All transports start with a 100-byte packet limit until MTU_OK completes.
 PSK-based encryption. When enabled, the header stays in the clear and only
 the packet body (segments) is encrypted before handoff to transport.
 
-Modes: none, xor, rc4
+Modes: none, xor, rc4, sha256
 
 Key: raw PSK bytes (non-empty)
 

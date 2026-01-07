@@ -62,7 +62,7 @@ Defaults:
 
 - `udp_ephemeral_packet_mtu`: 1350
 - `udp_ephemeral_pending_timeout`: 5.0
-- `udp_ephemeral_source_port_reuse_minutes`: 1.0
+- `udp_ephemeral_source_port_reuse_minutes`: 0.0
 - `udp_ephemeral_listen_addr`: 0.0.0.0:53
 
 ---

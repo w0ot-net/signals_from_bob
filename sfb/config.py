@@ -72,7 +72,7 @@ class Config:
     # Timeout before considering a UDP request stale (seconds)
     udp_ephemeral_pending_timeout: float = 5.0
     # Minutes before reusing a UDP source port
-    udp_ephemeral_source_port_reuse_minutes: float = 1.0
+    udp_ephemeral_source_port_reuse_minutes: float = 0.0
 
     # --- TLS ClientHello Transport ---
     # Alice target host:port (IPv4 only)

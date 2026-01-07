@@ -1,6 +1,6 @@
 # Config Python 2 Compatibility Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 - Make `sfb/config.py` valid under Python 2.7 while preserving current defaults
@@ -32,3 +32,8 @@ Status: draft
 ## Validation
 - `python3 -m py_compile sfb/config.py`
 - Optional: user-run Python 2.7 import check (`python2.7 -c "import sfb.config"`).
+
+## Execution Notes
+- Removed dataclass/typing usage in `sfb/config.py`, replaced annotations with
+  plain assignments, added explicit `_FIELDS` + `__init__`, and dropped the
+  type-annotated `make_cipher` signature for Python 2.7 compatibility.

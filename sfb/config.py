@@ -5,19 +5,12 @@ Centralized configuration for Signals from Bob.
 All configurable values in one place with sensible defaults.
 """
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
-
 from .protocol.constants import PACKET_HEADER_SIZE
 
 DNS_STANDARD_SIZE = 512
 
-if TYPE_CHECKING:
-    from .crypto import Plain, RC4, XOR
 
-
-@dataclass
-class Config:
+class Config(object):
     """
     Configuration for SFB tunnels.
 
@@ -27,265 +20,265 @@ class Config:
 
     # --- DNS Transport ---
     # Base domain for DNS tunneling (required for DNS transport)
-    dns_base_domain: str = ""
+    dns_base_domain = ""
     # Default transport for CLI
-    transport_default: str = "dns"
+    transport_default = "dns"
     # Active transport name (None = transport_default)
-    transport: Optional[str] = None
+    transport = None
     # DNS resolver address for Alice (IPv4 only, e.g., '1.1.1.1:53'),
     # None = system default
-    dns_resolver: Optional[str] = None
+    dns_resolver = None
     # Listen address for Bob's DNS server (IPv4 only)
-    dns_listen_addr: str = "0.0.0.0:53"
+    dns_listen_addr = "0.0.0.0:53"
     # EDNS0 buffer size (DNS_STANDARD_SIZE standard, 4096 for larger payloads)
-    dns_edns_size: int = DNS_STANDARD_SIZE
+    dns_edns_size = DNS_STANDARD_SIZE
     # Minimum UDP recv buffer size for DNS responses/queries
-    dns_recv_bufsize_min: int = 4096
+    dns_recv_bufsize_min = 4096
     # Timeout before considering a DNS query stale (seconds)
-    dns_pending_timeout: float = 5.0
+    dns_pending_timeout = 5.0
     # Query type for DNS tunneling (currently fixed to 'A')
-    dns_query_type: str = "A"
+    dns_query_type = "A"
     # Response type for DNS tunneling
-    dns_response_type: str = "CNAME"
+    dns_response_type = "CNAME"
     # Max label length for tunnel subdomains (1-63, default 50)
-    dns_label_max_len: int = 50
+    dns_label_max_len = 50
     # CNAME label appended before base domain (short suffix)
-    dns_cname_label: str = "0"
+    dns_cname_label = "0"
     # IPv4 address returned for CNAME follow-up A queries
-    dns_cname_a_addr: str = "0.0.0.0"
+    dns_cname_a_addr = "0.0.0.0"
 
     # --- ICMP Transport ---
     # Target host/IPv4 for Alice
-    icmp_target: Optional[str] = None
+    icmp_target = None
     # ICMP packet MTU cap in packet bytes (advanced override)
-    icmp_packet_mtu: int = 1350
+    icmp_packet_mtu = 1350
     # Timeout before considering an ICMP request stale (seconds)
-    icmp_pending_timeout: float = 10.0
+    icmp_pending_timeout = 10.0
 
     # --- UDP Ephemeral Transport ---
     # Target host:port for Alice (IPv4 only)
-    udp_ephemeral_target: Optional[str] = None
+    udp_ephemeral_target = None
     # Listen host:port for Bob (IPv4 only)
-    udp_ephemeral_listen_addr: str = "0.0.0.0:53"
+    udp_ephemeral_listen_addr = "0.0.0.0:53"
     # UDP packet MTU cap in packet bytes (advanced override)
-    udp_ephemeral_packet_mtu: int = 1350
+    udp_ephemeral_packet_mtu = 1350
     # Timeout before considering a UDP request stale (seconds)
-    udp_ephemeral_pending_timeout: float = 5.0
+    udp_ephemeral_pending_timeout = 5.0
     # Seconds before reusing a UDP source port
-    udp_ephemeral_source_port_reuse_seconds: float = 0.0
+    udp_ephemeral_source_port_reuse_seconds = 0.0
 
     # --- TLS ClientHello Transport ---
     # Alice target host:port (IPv4 only)
-    tls_target: str = "127.0.0.1:443"
+    tls_target = "127.0.0.1:443"
     # Optional HTTP CONNECT proxy host:port for Alice (IPv4 only)
-    tls_http_proxy: Optional[str] = None
+    tls_http_proxy = None
     # Optional HTTP proxy Basic auth (user:pass) for Alice
-    tls_http_proxy_auth: Optional[str] = None
+    tls_http_proxy_auth = None
     # Bob listen host:port (IPv4 only)
-    tls_listen_addr: str = "0.0.0.0:443"
+    tls_listen_addr = "0.0.0.0:443"
     # Timeout before considering a TLS request stale (seconds)
-    tls_pending_timeout: float = 5.0
+    tls_pending_timeout = 5.0
     # TLS connect timeout (seconds)
-    tls_connect_timeout: float = 3.0
+    tls_connect_timeout = 3.0
     # TLS HTTP proxy handshake timeout (seconds, None = connect timeout)
-    tls_proxy_timeout: Optional[float] = None
+    tls_proxy_timeout = None
     # TLS handshake timeout (seconds)
-    tls_handshake_timeout: float = 5.0
+    tls_handshake_timeout = 5.0
     # Max on-wire ClientHello record size (bytes, includes 5-byte header)
-    tls_max_clienthello_bytes: int = 1400
+    tls_max_clienthello_bytes = 1400
     # Max on-wire ServerHello record size (bytes, includes 5-byte header)
-    tls_max_serverhello_bytes: int = 1400
+    tls_max_serverhello_bytes = 1400
     # Optional SNI cover name
-    tls_sni: Optional[str] = "example.com"
+    tls_sni = "example.com"
     # Optional comma-separated ALPN list
-    tls_alpn: Optional[str] = "h2,http/1.1"
+    tls_alpn = "h2,http/1.1"
     # Target on-wire ClientHello record size for padding (bytes, 0 = disabled)
-    tls_clienthello_padding_target: int = 0
+    tls_clienthello_padding_target = 0
 
     # --- TLS Handshake Bump Transport ---
     # Base domain for TLS bump SNI encoding
-    tls_bump_base_domain: str = "example.com"
+    tls_bump_base_domain = "example.com"
     # TLS bump proxy host:port for Alice (IPv4 only)
-    tls_bump_target: str = "127.0.0.1:443"
+    tls_bump_target = "127.0.0.1:443"
     # Optional HTTP CONNECT proxy host:port for Alice (IPv4 only)
-    tls_bump_http_proxy: Optional[str] = None
+    tls_bump_http_proxy = None
     # Optional HTTP proxy Basic auth (user:pass) for Alice
-    tls_bump_http_proxy_auth: Optional[str] = None
+    tls_bump_http_proxy_auth = None
     # Bob listen host:port (IPv4 only)
-    tls_bump_listen_addr: str = "0.0.0.0:443"
+    tls_bump_listen_addr = "0.0.0.0:443"
     # TLS bump connect timeout (seconds)
-    tls_bump_connect_timeout: float = 3.0
+    tls_bump_connect_timeout = 3.0
     # TLS bump HTTP proxy handshake timeout (seconds, None = connect timeout)
-    tls_bump_proxy_timeout: Optional[float] = None
+    tls_bump_proxy_timeout = None
     # TLS bump handshake timeout (seconds)
-    tls_bump_handshake_timeout: float = 5.0
+    tls_bump_handshake_timeout = 5.0
     # HTTPS request path to trigger proxy error page
-    tls_bump_request_path: str = "/"
+    tls_bump_request_path = "/"
     # Max ClientHello record size (bytes, includes 5-byte header)
-    tls_bump_max_clienthello_bytes: int = 4096
+    tls_bump_max_clienthello_bytes = 4096
     # Optional CN max length override for TLS bump client receive MTU
-    tls_bump_cn_max_len: Optional[int] = None
+    tls_bump_cn_max_len = None
 
     # --- Crypto ---
     # Encryption mode: 'none', 'xor', 'rc4', 'sha256'
-    crypto_mode: str = "none"
+    crypto_mode = "none"
     # Pre-shared key for xor/rc4/sha256 (bytes or string)
-    crypto_psk: Optional[bytes] = None
+    crypto_psk = None
 
     # --- Tunnel ---
     # Alice: seconds between keepalive packets
-    tunnel_keepalive_interval: float = 1.0
+    tunnel_keepalive_interval = 1.0
     # Alice: immediate poll attempts after keepalive-only responses (legacy "pong")
-    tunnel_pong_grace_polls: int = 5
+    tunnel_pong_grace_polls = 5
     # Bob: seconds of inactivity before considering connection dead
-    tunnel_idle_timeout: float = 60.0
+    tunnel_idle_timeout = 60.0
     # Initial window size before negotiation (packets)
-    tunnel_initial_window: int = 1
+    tunnel_initial_window = 1
     # Maximum unacknowledged packets in flight (max 256, SACK bitmap limit)
-    max_in_flight: int = 128
+    max_in_flight = 128
     # Handshake/connection timeout (seconds)
-    tunnel_connect_timeout: float = 10.0
+    tunnel_connect_timeout = 10.0
     # Alice: seconds without response before giving up
-    tunnel_no_response_timeout: float = 60.0
+    tunnel_no_response_timeout = 60.0
     # Alice: max retransmits per tick (RTO + fast retransmit)
-    tunnel_retransmit_cap: int = 2
+    tunnel_retransmit_cap = 2
     # Alice: enable fast retransmit for SACK holes
-    tunnel_fast_retransmit_enabled: bool = True
+    tunnel_fast_retransmit_enabled = True
     # Alice: minimum age ratio of RTO before fast retransmit
-    tunnel_fast_retransmit_min_age_ratio: float = 0.25
+    tunnel_fast_retransmit_min_age_ratio = 0.25
     # Alice: max fast retransmits per sequence number
-    tunnel_fast_retransmit_max_per_seq: int = 2
+    tunnel_fast_retransmit_max_per_seq = 2
     # Enable runtime stats tracking (set by -v)
-    stats_enabled: bool = False
+    stats_enabled = False
     # Enable dynamic window growth on Alice
-    tunnel_window_growth_enabled: bool = True
+    tunnel_window_growth_enabled = True
     # Window growth mode: 'linear' or 'doubling'
-    tunnel_window_growth_mode: str = "linear"
+    tunnel_window_growth_mode = "linear"
     # Window growth step (linear mode)
-    tunnel_window_growth_step: int = 1
+    tunnel_window_growth_step = 1
     # Minimum seconds between window growth requests
-    tunnel_window_growth_interval: float = 2.0
+    tunnel_window_growth_interval = 2.0
     # Background loop stop timeout (seconds)
-    tunnel_bg_stop_timeout: float = 2.0
+    tunnel_bg_stop_timeout = 2.0
     # Bob: poll timeout for serve_forever (seconds)
-    tunnel_bob_poll_interval: float = 1.0
+    tunnel_bob_poll_interval = 1.0
     # Bob: poll timeout for background loop (seconds)
-    tunnel_bob_poll_interval_bg: float = 0.1
+    tunnel_bob_poll_interval_bg = 0.1
     # Bob: min seconds between retransmits of the oldest unacked packet
-    tunnel_bob_retransmit_min_interval: float = 0.02
+    tunnel_bob_retransmit_min_interval = 0.02
     # Bob: max seconds between retransmits of the oldest unacked packet
-    tunnel_bob_retransmit_max_interval: float = 3.0
+    tunnel_bob_retransmit_max_interval = 3.0
     # Bob: multiplier for poll EWMA to derive retransmit cooldown
-    tunnel_bob_retransmit_poll_factor: float = 2.0
+    tunnel_bob_retransmit_poll_factor = 2.0
     # Bob: EWMA alpha for poll interval smoothing (0-1)
-    tunnel_bob_poll_ewma_alpha: float = 0.2
+    tunnel_bob_poll_ewma_alpha = 0.2
     # Alice: sleep between ticks when running (seconds)
-    tunnel_tick_sleep: float = 0.001
+    tunnel_tick_sleep = 0.001
     # Alice: max send rate (packets per second, 0 = unlimited)
-    tunnel_send_rate: float = 0.0
+    tunnel_send_rate = 0.0
     # Alice: burst capacity for send rate (packets, None=rate)
-    tunnel_send_burst: Optional[float] = None
+    tunnel_send_burst = None
     # Alice: adaptive pacing enabled
-    tunnel_adaptive_pacing_enabled: bool = True
+    tunnel_adaptive_pacing_enabled = True
     # Alice: adaptive pacing target inflight ratio
-    tunnel_pace_target_inflight_ratio: float = 1.0
+    tunnel_pace_target_inflight_ratio = 1.0
     # Alice: adaptive pacing minimum inflight target
-    tunnel_pace_min_inflight: int = 1
+    tunnel_pace_min_inflight = 1
     # Alice: adaptive pacing maximum inflight target (None = cap)
-    tunnel_pace_max_inflight: Optional[int] = None
+    tunnel_pace_max_inflight = None
     # Alice: adaptive pacing feedback gain
-    tunnel_pace_feedback_gain: float = 1.25
+    tunnel_pace_feedback_gain = 1.25
     # Alice: adaptive pacing ACK rate EWMA alpha
-    tunnel_pace_ack_ewma_alpha: float = 0.2
+    tunnel_pace_ack_ewma_alpha = 0.2
     # Alice: adaptive pacing RTT floor in milliseconds
-    tunnel_pace_rtt_floor_ms: float = 5.0
+    tunnel_pace_rtt_floor_ms = 5.0
     # Alice: adaptive pacing ACK idle reset seconds
-    tunnel_pace_ack_idle_reset_sec: float = 2.0
+    tunnel_pace_ack_idle_reset_sec = 2.0
     # Alice: pacing summary log interval (seconds, 0 = disabled)
-    tunnel_pacer_summary_interval: float = 0.0
+    tunnel_pacer_summary_interval = 0.0
     # Alice: poll pacing enabled
-    tunnel_poll_pacing_enabled: bool = True
+    tunnel_poll_pacing_enabled = True
     # Alice: minimum seconds between polls
-    tunnel_poll_min_interval: float = 0.0005
+    tunnel_poll_min_interval = 0.0005
     # Alice: maximum seconds between polls
-    tunnel_poll_max_interval: float = 1.0
+    tunnel_poll_max_interval = 1.0
     # Alice: fraction of RTT to distribute target inflight
-    tunnel_poll_rtt_ratio: float = 0.75
+    tunnel_poll_rtt_ratio = 0.75
     # Bob: poll interval while waiting for connection (seconds)
-    tunnel_connect_poll_interval: float = 0.1
+    tunnel_connect_poll_interval = 0.1
     # Small timeout for "non-blocking" polls to prevent busy loops (seconds)
-    non_blocking_poll_timeout: float = 0.0001
+    non_blocking_poll_timeout = 0.0001
 
     # --- Channel ---
     # Maximum bytes to buffer for sending per channel
-    channel_max_send_buf: int = 1048576
+    channel_max_send_buf = 1048576
     # Maximum bytes to buffer for receiving per channel
-    channel_max_recv_buf: int = 1048576
+    channel_max_recv_buf = 1048576
     # Timeout waiting for channel to open (seconds)
-    channel_open_timeout: float = 5.0
+    channel_open_timeout = 5.0
     # Write backoff initial delay (seconds)
-    channel_write_backoff_initial: float = 0.01
+    channel_write_backoff_initial = 0.01
     # Write backoff maximum delay (seconds)
-    channel_write_backoff_max: float = 1.0
+    channel_write_backoff_max = 1.0
     # Control channel read chunk size (bytes)
-    channel_control_read_chunk: int = 4096
+    channel_control_read_chunk = 4096
     # Cooldown before reusing a closed channel ID (seconds, 0 = disabled)
-    channel_id_reuse_cooldown: float = 10.0
+    channel_id_reuse_cooldown = 10.0
 
     # --- File Transfer ---
     # Maximum file size to transfer (bytes), None = unlimited
-    file_transfer_max_size: Optional[int] = None
+    file_transfer_max_size = None
     # Chunk size for file I/O (bytes)
-    file_transfer_chunk_size: int = 4096
+    file_transfer_chunk_size = 4096
     # Timeout waiting for hash verification (seconds)
-    file_transfer_hash_timeout: float = 10.0
+    file_transfer_hash_timeout = 10.0
     # File transfer root for Bob
-    file_transfer_root: str = "."
+    file_transfer_root = "."
     # File transfer command timeout (seconds), None = no timeout
-    file_transfer_timeout: Optional[float] = None
+    file_transfer_timeout = None
     # Maximum concurrent active file transfers (per module instance)
-    file_transfer_max_active: int = 1
+    file_transfer_max_active = 1
 
     # --- NC Linux ---
     # Bind request timeout (seconds)
-    nc_linux_bind_timeout: float = 10.0
+    nc_linux_bind_timeout = 10.0
     # TCP connect timeout for host:port specs (seconds)
-    nc_linux_connect_timeout: float = 10.0
+    nc_linux_connect_timeout = 10.0
     # Pump buffer size (bytes)
-    nc_linux_buffer_size: int = 4096
+    nc_linux_buffer_size = 4096
     # Pump poll timeout (seconds)
-    nc_linux_poll_timeout: float = 0.01
+    nc_linux_poll_timeout = 0.01
 
     # --- Modules ---
     # Module shutdown join timeout (seconds)
-    module_shutdown_timeout: float = 5.0
+    module_shutdown_timeout = 5.0
 
     # --- Logging ---
     # SQLite log path (None = disabled)
-    db_log_path: Optional[str] = None
+    db_log_path = None
     # SQLite log flush interval (seconds)
-    db_log_flush: float = 2.0
+    db_log_flush = 2.0
     # SQLite log queue max size (0 = unbounded)
-    db_log_queue: int = 0
+    db_log_queue = 0
     # Default logging profile name (None = no profile)
-    log_profile: Optional[str] = 'channel_close_debug'
+    log_profile = 'channel_close_debug'
     # Enable DNS transport logging (stdout + SQLite)
-    log_component_transport_dns: bool = False
+    log_component_transport_dns = False
     # Enable ICMP transport logging (stdout + SQLite)
-    log_component_transport_icmp: bool = False
+    log_component_transport_icmp = False
     # Enable TLS transport logging (stdout + SQLite)
-    log_component_transport_tls: bool = False
+    log_component_transport_tls = False
     # Enable tunnel logging (stdout + SQLite)
-    log_component_tunnel: bool = True
+    log_component_tunnel = True
     # Enable channel logging (stdout + SQLite)
-    log_component_channel: bool = False
+    log_component_channel = False
     # Enable protocol logging (stdout + SQLite)
-    log_component_protocol: bool = False
+    log_component_protocol = False
     # Structured event whitelist (empty = allow all events)
-    log_event_whitelist: tuple = ()
+    log_event_whitelist = ()
     # Structured event blacklist (empty = deny none)
     # Default blacklist reduces high-volume debug events.
-    log_event_blacklist: tuple = (
+    log_event_blacklist = (
         'tunnel.packet_*',
         'tunnel.ack',
         'tunnel.send_blocked',
@@ -310,53 +303,205 @@ class Config:
         'tls.recv',
     )
     # Enable relay module logging (stdout + SQLite)
-    log_component_module_relay: bool = True
+    log_component_module_relay = True
     # Enable file transfer module logging (stdout + SQLite)
-    log_component_module_file_transfer: bool = True
+    log_component_module_file_transfer = True
     # Enable nc_linux module logging (stdout + SQLite)
-    log_component_module_nc_linux: bool = True
+    log_component_module_nc_linux = True
 
     # --- Relay ---
     # Relay server listen host
-    relay_listen_host: str = "0.0.0.0"
+    relay_listen_host = "0.0.0.0"
     # Relay server listen port
-    relay_listen_port: int = 1080
+    relay_listen_port = 1080
     # Relay server listen backlog
-    relay_listen_backlog: int = 5
+    relay_listen_backlog = 5
     # Relay accept loop timeout (seconds)
-    relay_accept_timeout: float = 0.5
+    relay_accept_timeout = 0.5
     # Channel open timeout for relay (seconds)
-    relay_channel_open_timeout: float = 10.0
+    relay_channel_open_timeout = 10.0
     # Relay connect request timeout (seconds)
-    relay_connect_timeout: float = 30.0
+    relay_connect_timeout = 30.0
     # Target connect timeout for relay (seconds)
-    relay_target_connect_timeout: float = 30.0
+    relay_target_connect_timeout = 30.0
     # Relay socket timeout during handshake/connect (seconds)
-    relay_socket_timeout: float = 5.0
+    relay_socket_timeout = 5.0
     # Relay channel read poll timeout (seconds)
-    relay_channel_timeout: float = 0.5
+    relay_channel_timeout = 0.5
     # Relay send stall timeout for non-blocking pumps (seconds)
-    relay_write_timeout: Optional[float] = None
+    relay_write_timeout = None
     # Relay buffer size (bytes)
-    relay_buffer_size: int = 2048
+    relay_buffer_size = 2048
     # Relay pump poll timeout (seconds)
-    relay_pump_poll_timeout: float = 0.0001
+    relay_pump_poll_timeout = 0.0001
     # Maximum poll backoff for relay pump select/wait loops (seconds)
-    relay_pump_backoff_max: float = 0.001
+    relay_pump_backoff_max = 0.001
     # Relay thread join timeout (seconds)
-    relay_thread_join_timeout: float = 2.0
+    relay_thread_join_timeout = 2.0
 
     # --- Protocol (rarely need changing) ---
     # Buffer-sizing maximum packet size (bytes), not a transport MTU cap
-    protocol_max_packet_mtu: int = 1450
+    protocol_max_packet_mtu = 1450
     # Initial packet MTU before negotiation (bytes)
-    protocol_initial_packet_mtu: int = PACKET_HEADER_SIZE + 100
+    protocol_initial_packet_mtu = PACKET_HEADER_SIZE + 100
     # Initial retransmission timeout (milliseconds)
-    protocol_initial_rto_ms: int = 1000
+    protocol_initial_rto_ms = 1000
     # Minimum RTO (milliseconds)
-    protocol_min_rto_ms: int = 500
+    protocol_min_rto_ms = 500
     # Maximum RTO (milliseconds)
-    protocol_max_rto_ms: int = 10000
+    protocol_max_rto_ms = 10000
+
+    _FIELDS = (
+        'dns_base_domain',
+        'transport_default',
+        'transport',
+        'dns_resolver',
+        'dns_listen_addr',
+        'dns_edns_size',
+        'dns_recv_bufsize_min',
+        'dns_pending_timeout',
+        'dns_query_type',
+        'dns_response_type',
+        'dns_label_max_len',
+        'dns_cname_label',
+        'dns_cname_a_addr',
+        'icmp_target',
+        'icmp_packet_mtu',
+        'icmp_pending_timeout',
+        'udp_ephemeral_target',
+        'udp_ephemeral_listen_addr',
+        'udp_ephemeral_packet_mtu',
+        'udp_ephemeral_pending_timeout',
+        'udp_ephemeral_source_port_reuse_seconds',
+        'tls_target',
+        'tls_http_proxy',
+        'tls_http_proxy_auth',
+        'tls_listen_addr',
+        'tls_pending_timeout',
+        'tls_connect_timeout',
+        'tls_proxy_timeout',
+        'tls_handshake_timeout',
+        'tls_max_clienthello_bytes',
+        'tls_max_serverhello_bytes',
+        'tls_sni',
+        'tls_alpn',
+        'tls_clienthello_padding_target',
+        'tls_bump_base_domain',
+        'tls_bump_target',
+        'tls_bump_http_proxy',
+        'tls_bump_http_proxy_auth',
+        'tls_bump_listen_addr',
+        'tls_bump_connect_timeout',
+        'tls_bump_proxy_timeout',
+        'tls_bump_handshake_timeout',
+        'tls_bump_request_path',
+        'tls_bump_max_clienthello_bytes',
+        'tls_bump_cn_max_len',
+        'crypto_mode',
+        'crypto_psk',
+        'tunnel_keepalive_interval',
+        'tunnel_pong_grace_polls',
+        'tunnel_idle_timeout',
+        'tunnel_initial_window',
+        'max_in_flight',
+        'tunnel_connect_timeout',
+        'tunnel_no_response_timeout',
+        'tunnel_retransmit_cap',
+        'tunnel_fast_retransmit_enabled',
+        'tunnel_fast_retransmit_min_age_ratio',
+        'tunnel_fast_retransmit_max_per_seq',
+        'stats_enabled',
+        'tunnel_window_growth_enabled',
+        'tunnel_window_growth_mode',
+        'tunnel_window_growth_step',
+        'tunnel_window_growth_interval',
+        'tunnel_bg_stop_timeout',
+        'tunnel_bob_poll_interval',
+        'tunnel_bob_poll_interval_bg',
+        'tunnel_bob_retransmit_min_interval',
+        'tunnel_bob_retransmit_max_interval',
+        'tunnel_bob_retransmit_poll_factor',
+        'tunnel_bob_poll_ewma_alpha',
+        'tunnel_tick_sleep',
+        'tunnel_send_rate',
+        'tunnel_send_burst',
+        'tunnel_adaptive_pacing_enabled',
+        'tunnel_pace_target_inflight_ratio',
+        'tunnel_pace_min_inflight',
+        'tunnel_pace_max_inflight',
+        'tunnel_pace_feedback_gain',
+        'tunnel_pace_ack_ewma_alpha',
+        'tunnel_pace_rtt_floor_ms',
+        'tunnel_pace_ack_idle_reset_sec',
+        'tunnel_pacer_summary_interval',
+        'tunnel_poll_pacing_enabled',
+        'tunnel_poll_min_interval',
+        'tunnel_poll_max_interval',
+        'tunnel_poll_rtt_ratio',
+        'tunnel_connect_poll_interval',
+        'non_blocking_poll_timeout',
+        'channel_max_send_buf',
+        'channel_max_recv_buf',
+        'channel_open_timeout',
+        'channel_write_backoff_initial',
+        'channel_write_backoff_max',
+        'channel_control_read_chunk',
+        'channel_id_reuse_cooldown',
+        'file_transfer_max_size',
+        'file_transfer_chunk_size',
+        'file_transfer_hash_timeout',
+        'file_transfer_root',
+        'file_transfer_timeout',
+        'file_transfer_max_active',
+        'nc_linux_bind_timeout',
+        'nc_linux_connect_timeout',
+        'nc_linux_buffer_size',
+        'nc_linux_poll_timeout',
+        'module_shutdown_timeout',
+        'db_log_path',
+        'db_log_flush',
+        'db_log_queue',
+        'log_profile',
+        'log_component_transport_dns',
+        'log_component_transport_icmp',
+        'log_component_transport_tls',
+        'log_component_tunnel',
+        'log_component_channel',
+        'log_component_protocol',
+        'log_event_whitelist',
+        'log_event_blacklist',
+        'log_component_module_relay',
+        'log_component_module_file_transfer',
+        'log_component_module_nc_linux',
+        'relay_listen_host',
+        'relay_listen_port',
+        'relay_listen_backlog',
+        'relay_accept_timeout',
+        'relay_channel_open_timeout',
+        'relay_connect_timeout',
+        'relay_target_connect_timeout',
+        'relay_socket_timeout',
+        'relay_channel_timeout',
+        'relay_write_timeout',
+        'relay_buffer_size',
+        'relay_pump_poll_timeout',
+        'relay_pump_backoff_max',
+        'relay_thread_join_timeout',
+        'protocol_max_packet_mtu',
+        'protocol_initial_packet_mtu',
+        'protocol_initial_rto_ms',
+        'protocol_min_rto_ms',
+        'protocol_max_rto_ms',
+    )
+
+    def __init__(self, **kwargs):
+        for name in self._FIELDS:
+            setattr(self, name, getattr(self.__class__, name))
+        for key, value in kwargs.items():
+            if key not in self._FIELDS:
+                raise TypeError('Unknown Config field: %s' % key)
+            setattr(self, key, value)
+        self.__post_init__()
 
     def __post_init__(self):
         """Validate configuration values."""
@@ -569,7 +714,8 @@ class Config:
                 return False
         return True
 
-def make_cipher(config: Config):
+
+def make_cipher(config):
     """
     Create a cipher instance from config.
 

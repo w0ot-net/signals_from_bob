@@ -573,7 +573,7 @@ class DnsClient(Transport):
         if self._poll_hint_budget > 0:
             mode = 'response_max'
             target = self._max_response_payload_cap
-            query_payload = self._query_payload_for_target(target)
+            query_payload = self._max_query_payload_for_response_cap(target)
             if query_payload is not None:
                 if query_payload > self._send_packet_mtu:
                     query_payload = self._send_packet_mtu
@@ -597,7 +597,8 @@ class DnsClient(Transport):
         )
         return query_payload
 
-    def _query_payload_for_target(self, target_response_payload):
+    def _max_query_payload_for_response_cap(self, target_response_payload):
+        """Return largest query payload that yields the target response cap."""
         if target_response_payload is None:
             return None
         lookup = self._response_cap_lookup

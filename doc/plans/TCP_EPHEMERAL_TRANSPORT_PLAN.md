@@ -45,6 +45,8 @@ negotiation rules.
   the 16-bit length prefix and enforce `MIN_PACKET_MTU`. Send/recv MTUs are
   symmetric at the transport level but still negotiated asymmetrically by the
   tunnel.
+- Default `tcp_ephemeral_packet_mtu`: 1350 to bias toward single TCP segments
+  on common 1500-MTU paths while remaining conservative.
 - Keepalive/pong suppression remains handled by the tunnel; the transport
   carries packet bytes only and emits no extra traffic.
 - Standard library only; Python 2.7/3 compatible; ASCII source code.

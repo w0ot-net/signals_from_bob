@@ -34,6 +34,7 @@ from ...protocol import (
     FLAG_HAS_SEGMENTS,
     FLAG_POLL_HINT,
 )
+from ...protocol.constants import MIN_PACKET_MTU
 from ...utils import parse_host_port
 from ... import time_provider
 
@@ -644,6 +645,7 @@ class DnsClient(Transport):
         response_caps = [0] * (max_query_payload + 1)
         max_response_payload = 0
         balanced_query_payload = None
+        min_response_query_payload = None
         for payload_len in range(self._min_query_packet_mtu,
                                  max_query_payload + 1):
             try:
@@ -668,6 +670,35 @@ class DnsClient(Transport):
                 max_response_payload = response_cap
             if response_cap >= payload_len:
                 balanced_query_payload = payload_len
+            if response_cap >= MIN_PACKET_MTU:
+                min_response_query_payload = payload_len
+        if min_response_query_payload is None:
+            raise TransportError(
+                'DNS response payload cap below minimum (base_domain=%s, '
+                'label_max_len=%d, edns_size=%d)' % (
+                    self._base_domain,
+                    self._label_max_len,
+                    self._edns_size,
+                )
+            )
+        if min_response_query_payload < self._send_packet_mtu:
+            old_query_mtu = self._send_packet_mtu
+            self._send_packet_mtu = min_response_query_payload
+            max_query_payload = self._send_packet_mtu
+            log_event(
+                _LOG,
+                logging.INFO,
+                'dns.query_mtu_clamp',
+                'DNS query MTU clamped for minimum response cap',
+                lambda: {
+                    'old_query_mtu': old_query_mtu,
+                    'new_query_mtu': self._send_packet_mtu,
+                    'min_response_mtu': MIN_PACKET_MTU,
+                    'base_domain': self._base_domain,
+                    'label_max_len': self._label_max_len,
+                    'edns_size': self._edns_size,
+                },
+            )
         self._max_response_payload_cap = max_response_payload
         self._max_response_packet_mtu = max_response_payload
         if self._max_response_packet_mtu < self._min_response_packet_mtu:

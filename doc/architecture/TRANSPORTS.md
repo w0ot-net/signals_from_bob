@@ -36,6 +36,11 @@ bytes by subtracting `PACKET_HEADER_SIZE`.
 Transport on-wire sizes can exceed `packet_mtu` due to protocol overhead
 (DNS, TLS, TLS bump). Each transport doc separates packet MTU from on-wire size.
 
+DNS note: the DNS client clamps its default `send_packet_mtu` so every query
+allows at least `MIN_PACKET_MTU` bytes in the response. If no query payload
+size can satisfy that minimum (given `base_domain`, `label_max_len`, and
+`edns_size`), DNS transport initialization fails with a TransportError.
+
 ---
 
 ## Transport Interface

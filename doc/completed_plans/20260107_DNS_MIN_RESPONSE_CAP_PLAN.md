@@ -29,3 +29,10 @@
 
 ## Testing
 - Do not run tests here; the user will run needed tests with python3.
+
+## Execution Notes (20260107)
+- Added a minimum response-cap clamp for DNS query MTU in DnsClient and a
+  fail-fast TransportError when the minimum cap cannot be satisfied.
+- Updated DNS transport documentation to describe the minimum-response
+  requirement and configuration failure behavior.
+- Tests not run (per instructions).

@@ -675,11 +675,7 @@ class DnsClient(Transport):
             self._bob_has_data_remaining -= 1
 
     def _reset_poll_hint_budget(self, mode=None):
-        target = self._max_in_flight
-        try:
-            target = int(target)
-        except (TypeError, ValueError):
-            target = 0
+        target = 8
         if target < 1:
             target = 1
         self._poll_hint_budget = target

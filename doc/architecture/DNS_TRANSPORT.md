@@ -299,12 +299,17 @@ clamps the default query packet MTU so that `response_payload_cap` is at least
 `MIN_PACKET_MTU`, ensuring Bob can always return at least one segment. If no
 query payload size can meet that floor, DNS client initialization fails with a
 TransportError that reports `base_domain`, `label_max_len`, and `edns_size`.
+This safe-max value becomes Alice's `send_packet_mtu` for MTU negotiation and
+segment sizing; per-query clamps reduce from that baseline via the send permit.
 
-Alice clamps queries in two stages:
-- default clamp to the minimum response cap (Alice uses the clamped
-  send_packet_mtu)
-- response_max for the next max_in_flight polls after POLL_HINT (Bob requests
-  larger responses)
+Alice selects query payload caps in two modes:
+- Default mode: safe-max query payload (largest payload that still yields a
+  `MIN_PACKET_MTU` response cap).
+- Poll-hint mode (next max_in_flight polls after POLL_HINT):
+  - POLL_HINT + HAS_SEGMENTS => balanced query payload (fallback to
+    max-response clamp if no balanced point exists).
+  - POLL_HINT + KEEPALIVE => max-response clamp (largest query payload that
+    yields the maximum response cap).
 Each poll consumes the clamp budget; another POLL_HINT refreshes it.
 
 Bob should use POLL_HINT when he needs Alice to reduce query size, such as when

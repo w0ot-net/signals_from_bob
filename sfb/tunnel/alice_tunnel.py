@@ -1167,11 +1167,12 @@ class AliceTunnel(BaseTunnel):
         missing_age = now - send_time
         if missing_age < 0:
             missing_age = 0.0
-        min_age = self._rtt.rto_sec * self._fast_retransmit_min_age_ratio
-        if missing_age < min_age:
-            return False
         count = self._fast_retransmit_counts.get(seq, 0)
+        min_age = self._rtt.rto_sec * self._fast_retransmit_min_age_ratio
         if count >= self._fast_retransmit_max_per_seq:
+            # Back off fast retransmits after the per-seq cap to avoid churn.
+            min_age *= (count - self._fast_retransmit_max_per_seq + 2)
+        if missing_age < min_age:
             return False
         if not self._can_send_retransmit(now=now):
             return False

@@ -236,7 +236,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 
 ## Latest findings (2026-01-03, newest logs copied locally)
 - Sources: `logs/client_log.db` (Alice) had 73200 rows (~10:56:22-10:56:36 UTC).
-- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+- `cli.log_startup` shows `log_profile` "all" with `db_log_path`
   "./logs/client_log.db".
 - Alice `tunnel.send_window_distance`: 4 (all at startup). Latest shows
   `distance` 128 (`distance_limit` 128, `effective_cap` 128) with `unacked` 113,
@@ -246,7 +246,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   `max_in_flight` 128.
 - Sources: `logs/server_log.db` (Bob) sampled the most recent 200000 rows
   (ids 33384-233383, ~10:56:28-10:57:14 UTC).
-- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+- `cli.log_startup` shows `log_profile` "all" with `db_log_path`
   "/var/www/html/server_log.db".
 - Bob `tunnel.retransmit`: 1; `tunnel.retransmit_skip`: 22359, mostly
   `reason=cooldown` with `cooldown` ~0.23-0.25s.
@@ -255,7 +255,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 ## Latest findings (2026-01-03, socks startup failed)
 - Sources: `logs/client_log.db` (Alice) ~12:24:30-12:24:47 UTC;
   `logs/server_log.db` (Bob) ~12:24:26-12:24:44 UTC.
-- Transport: ICMP with `log_profile` "all_events" on both sides.
+- Transport: ICMP with `log_profile` "all" on both sides.
 - Bob logged `cli.module_load` and `module_loader.send_load` for
   `socks_relay`, but there is no `cli.module_loaded`,
   `module_loader.remote_loaded`, or `module_loader.remote_failed`.
@@ -277,7 +277,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Sources: `logs/client_log.db` (Alice) had 4463 rows
   (~22:26:46-22:27:05 UTC); `logs/server_log.db` (Bob) had 1733 rows
   (~22:26:37-22:27:02 UTC).
-- Transport: ICMP with `log_profile` "all_events" on both sides.
+- Transport: ICMP with `log_profile` "all" on both sides.
 - Bob logged `tunnel.window_ok` 11 times and `tunnel.control_dispatch` 12
   times; Alice logged `tunnel.window_propose` 11 times but zero
   `tunnel.window_ok`, `tunnel.control_dispatch`, or `tunnel.deliver_segments`.
@@ -292,7 +292,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 
 ## Latest findings (2026-01-03, max-in-flight 256 stall)
 - Sources: `logs/client_log.db` (Alice) had 30200 rows (~11:02:57-11:03:12 UTC).
-- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+- `cli.log_startup` shows `log_profile` "all" with `db_log_path`
   "./logs/client_log.db".
 - Alice `tunnel.send_window_distance`: 7457; `tunnel.send_blocked`: 7962;
   `tunnel.retransmit`: 23; `tunnel.packet_recv`: 2049.
@@ -304,7 +304,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   event shows `missing_in_unacked` False and `missing_age` null while
   `missing_seq` equals `last_cum_ack` 1822 and `unacked` is 0.
 - Sources: `logs/server_log.db` (Bob) had 14501 rows (~11:02:53-11:03:13 UTC).
-- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+- `cli.log_startup` shows `log_profile` "all" with `db_log_path`
   "/var/www/html/server_log.db".
 - Bob `tunnel.retransmit`: 8; `tunnel.retransmit_skip`: 2028
   (`reason=cooldown`, `cooldown` 3.0s); `tunnel.packet_recv`: 2049.
@@ -312,7 +312,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 
 ## Latest findings (2026-01-03, post keepalive-drop instrumentation)
 - Sources: `logs/client_log.db` (Alice) had 18300 rows (~11:32:53-11:32:58 UTC).
-- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+- `cli.log_startup` shows `log_profile` "all" with `db_log_path`
   "./logs/client_log.db".
 - Alice `tunnel.send_window_distance`: 833; `tunnel.send_blocked`: 1400;
   `tunnel.retransmit`: 4; `tunnel.packet_recv`: 2178.
@@ -328,7 +328,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Alice `tunnel.send_blocked` reasons: `window_distance` 833,
   `retransmit_budget` 2; remaining blocks were other reasons.
 - Sources: `logs/server_log.db` (Bob) had 16579 rows (~11:32:46-11:33:03 UTC).
-- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+- `cli.log_startup` shows `log_profile` "all" with `db_log_path`
   "/var/www/html/server_log.db".
 - Bob `tunnel.send_window_distance`: 208; `tunnel.send_blocked`: 208;
   `tunnel.retransmit`: 263; `tunnel.retransmit_skip`: 2147.
@@ -350,7 +350,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 
 ## Latest findings (2026-01-03, post cap-gate change)
 - Sources: `logs/client_log.db` (Alice) had 22474 rows (~11:41:35-11:41:49 UTC).
-- `cli.log_startup` shows `log_profile` "all_events" with `db_log_path`
+- `cli.log_startup` shows `log_profile` "all" with `db_log_path`
   "./logs/client_log.db".
 - Alice `tunnel.send_window_distance`: 3282; `tunnel.send_blocked`: 3883;
   `tunnel.retransmit`: 9; `tunnel.packet_recv`: 2127.
@@ -433,7 +433,7 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
   cooldown ~1.51s; `tunnel.retransmit` count is low (3).
 
 ## Latest findings (2026-01-04, ack silence vs oldest age)
-- Sources: `logs/client_log.db` (Alice), all_events profile.
+- Sources: `logs/client_log.db` (Alice), all profile.
 - No `tunnel.send_window_distance` events in this run; distance guard did not fire.
 - `tunnel.retransmit_skip` is frequent with `ack_silence` near 0.0 and `unacked`
   ~80-90, so RTO retransmits are consistently deferred while ACKs advance.

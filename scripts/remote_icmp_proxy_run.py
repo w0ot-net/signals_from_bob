@@ -479,8 +479,8 @@ def parse_args():
         help='Local SQLite log path (default: <local-root>/logs/client_log.db)'
     )
     parser.add_argument(
-        '--log-profile', default='all_events',
-        help='Log profile for bob/alice (default: all_events)'
+        '--log-profile', default='all',
+        help='Log profile for bob/alice (default: all)'
     )
     parser.add_argument(
         '--module', default='socks',

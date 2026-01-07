@@ -368,7 +368,7 @@ LOG_PROFILES = {
         'log_event_blacklist': (),
     },
     # Log everything from all components without event filtering.
-    'all_events': {
+    'all': {
         'log_component_transport_dns': True,
         'log_component_transport_icmp': True,
         'log_component_transport_tls': True,

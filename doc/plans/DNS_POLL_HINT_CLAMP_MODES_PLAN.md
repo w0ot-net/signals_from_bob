@@ -4,14 +4,19 @@ Status: draft
 
 ## Goal
 
-Implement three DNS clamp scenarios with standardized clamp names:
+Implement the three scenarios A/B/C with standardized clamp names:
 
-1) clamp_safe_max_alice: default safe max (largest query payload that still
-   yields a MIN_PACKET_MTU response cap).
-2) clamp_balanced: poll hint with segments, using the balanced query payload.
-3) clamp_max_bob: poll hint with keepalive (no segments), using the
-   max-response query payload (largest query payload that yields the maximum
-   response cap).
+Scenario A (Bob has nothing to send, Alice sending at max):
+- Use clamp_safe_max_alice: default safe max (largest query payload that still
+  yields a MIN_PACKET_MTU response cap).
+
+Scenario B (Alice sending at max, Bob sends POLL_HINT with segments):
+- Use clamp_balanced: POLL_HINT + HAS_SEGMENTS selects the balanced query
+  payload (fallback to clamp_max_bob if no balanced point exists).
+
+Scenario C (Alice idle but still at max, Bob sends POLL_HINT with keepalive):
+- Use clamp_max_bob: POLL_HINT + KEEPALIVE selects the max-response query
+  payload (largest query payload that yields the maximum response cap).
 
 ## Affected Components
 
@@ -21,11 +26,10 @@ Implement three DNS clamp scenarios with standardized clamp names:
 
 ## Design Notes
 
-- Default mode uses clamp_safe_max_alice (min_response_query_payload).
-- Treat POLL_HINT + HAS_SEGMENTS as clamp_balanced, using the precomputed
-  balanced query payload; fallback to clamp_max_bob if no balanced point exists.
-- Treat POLL_HINT + KEEPALIVE (no segments) as clamp_max_bob (largest query
-  payload that yields the maximum response cap).
+- Scenario A uses clamp_safe_max_alice (min_response_query_payload).
+- Scenario B uses clamp_balanced (POLL_HINT + HAS_SEGMENTS), fallback to
+  clamp_max_bob if no balanced point exists.
+- Scenario C uses clamp_max_bob (POLL_HINT + KEEPALIVE).
 - Do not send control-only poll-hint responses; control segments are treated
   the same as data segments, and poll-hint keepalives are used when nothing fits.
 - POLL_HINT is advisory and may be set whenever Bob needs Alice to clamp,

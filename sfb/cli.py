@@ -12,7 +12,6 @@ from __future__ import absolute_import
 
 import argparse
 import base64
-import cProfile
 import errno
 import logging
 import os
@@ -46,6 +45,7 @@ from .transport import (
 from .tunnel import AliceTunnel, BobTunnel, TunnelError, TunnelState
 from .modules import CLI_MODULES
 from .modules.base_module import ModuleError
+from .profiling import CProfileManager
 from .utils import parse_host_port
 from . import time_provider
 
@@ -1738,7 +1738,7 @@ def _run_main(parsed, cprofile_path):
             logging.INFO,
             'cli.cprofile',
             'cProfile enabled',
-            lambda: {'path': cprofile_path},
+            lambda: {'path': cprofile_path, 'mode': 'threads'},
         )
 
     # Create config and crypto
@@ -1769,14 +1769,20 @@ def main(args=None):
                 (cprofile_path, e)
             )
             return 2
-        profiler = cProfile.Profile()
-        profiler.enable()
+        profiler = CProfileManager()
+        try:
+            profiler.start()
+        except Exception as e:
+            _print_error(
+                'Failed to start cProfile: %s' % e
+            )
+            return 2
     try:
         return _run_main(parsed, cprofile_path)
     finally:
         if profiler is not None:
-            profiler.disable()
             try:
+                profiler.stop()
                 profiler.dump_stats(cprofile_path)
             except Exception as e:
                 _print_error(

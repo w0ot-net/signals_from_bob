@@ -1,6 +1,6 @@
 # CProfile All Threads Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 - Extend `--cprofile` so profiling captures all threads and merges results into
@@ -50,3 +50,7 @@ Status: draft
 - Manual run with `--cprofile` and confirm the output `.prof` includes work
   from background threads (e.g., relay or tunnel threads).
 - Do not run tests/e2e/.
+
+## Execution notes
+- 2026-01-07: Added multi-thread profiling manager in `sfb/profiling.py`,
+  updated CLI integration, and documented the new behavior in README.

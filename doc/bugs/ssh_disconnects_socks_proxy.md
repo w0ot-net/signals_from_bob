@@ -63,6 +63,18 @@ Example SSH outcomes:
   (~17:23:30), so the tunnel-side reason for the half-close is missing from
   `logs/client_log.db` in this run.
 
+## Latest findings (2026-01-07)
+- Sources: `logs/server_log.db` (Bob) and `logs/client_log.db` (Alice).
+- Alice: 133 `dns.error_response` entries from `8.8.8.8:53` with `rcode=2`
+  (SERVFAIL) for `*.ebaysso.com` queries (reason: `rcode`).
+- Alice: `dns.prune_stale` appears 9 times (count=1), clustered around
+  17:42:08-17:42:12.
+- Alice: no `dns.send_blocked` in this run; `tunnel.send_blocked` shows
+  pacing stalls (`reason=pacer`, `inflight=214`, `cap=256`) and
+  `tunnel.retransmit_skip` shows `ack_silence` with 69-73 unacked packets.
+- Bob: normal DNS send/recv traffic with many `dns.cname_followup` events;
+  no WARNING/ERROR entries and a clean shutdown.
+
 ## What we've tried
 - Added SOCKS pump instrumentation (`sock.pump_start`, `sock.pump_stop`,
   `sock.pump_stats`) in `sfb/modules/relay_pump.py`.

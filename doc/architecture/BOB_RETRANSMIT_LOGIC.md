@@ -16,7 +16,7 @@ Primary implementation locations:
   rebuild with fresh ack/sack, send window distance guard.
 - `sfb/config.py`: Bob retransmit cooldown configuration and poll EWMA params.
 - `sfb/crypto.py`: per-packet encryption key derivation (retransmit stability).
-- `doc/ASYMMETRY.md` and `doc/PROTOCOL.md`: asymmetry and retransmit rules.
+- `doc/architecture/ASYMMETRY.md` and `doc/architecture/PROTOCOL.md`: asymmetry and retransmit rules.
 
 Bob is opportunity-driven: he can only transmit in response to an incoming poll
 from Alice. There are no timer-driven retransmits on Bob.

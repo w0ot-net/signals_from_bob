@@ -15,9 +15,9 @@ high delay without relying on test-only transport tweaks.
 - sfb/tunnel/bob_tunnel.py
 - sfb/tunnel/base_tunnel.py
 - sfb/config.py
-- doc/PROTOCOL.md
-- doc/TUNNEL.md
-- doc/ASYMMETRY.md
+- doc/architecture/PROTOCOL.md
+- doc/architecture/TUNNEL.md
+- doc/architecture/ASYMMETRY.md
 - tests/test_tunnel.py
 - integration_tests/test_inmemory_lossy_file_transfer.py
 

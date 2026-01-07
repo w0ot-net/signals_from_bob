@@ -44,7 +44,7 @@ Alice                                       Bob
 ```
 
 Bob only responds to polls (requests). This honors the asymmetry rules in
-`doc/ASYMMETRY.md` and the tunnel behavior around retransmit and timeouts.
+`doc/architecture/ASYMMETRY.md` and the tunnel behavior around retransmit and timeouts.
 The transport itself does not generate keepalive-only packets; keepalive is
 handled by the tunnel.
 

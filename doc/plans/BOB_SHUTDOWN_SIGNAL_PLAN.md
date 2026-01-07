@@ -11,10 +11,10 @@
 - Change transport asymmetry or channel close semantics.
 
 ## Affected Components
-- doc/CONTROL_MESSAGES.md
-- doc/PROTOCOL.md
-- doc/TUNNEL.md
-- doc/LOGGING.md
+- doc/architecture/CONTROL_MESSAGES.md
+- doc/architecture/PROTOCOL.md
+- doc/architecture/TUNNEL.md
+- doc/architecture/LOGGING.md
 - sfb/tunnel/tunnel_control_messages.py
 - sfb/tunnel/base_tunnel.py
 - sfb/tunnel/bob_tunnel.py
@@ -28,10 +28,10 @@
    - Add `tun_shutdown(reason=None)` and `tun_shutdown_ok()` to
      `sfb/tunnel/tunnel_control_messages.py`.
    - Document `{"t":"tun","c":"shutdown","reason":"<text>"}` in
-     doc/CONTROL_MESSAGES.md and doc/PROTOCOL.md.
+     doc/architecture/CONTROL_MESSAGES.md and doc/architecture/PROTOCOL.md.
    - Document the required acknowledgment:
      `{"t":"tun","c":"shutdown_ok"}`.
-   - Clarify behavior in doc/TUNNEL.md: Bob sends on shutdown, Alice closes
+   - Clarify behavior in doc/architecture/TUNNEL.md: Bob sends on shutdown, Alice closes
      after sending shutdown_ok.
 
 2. Add Bob-side shutdown signaling.
@@ -63,7 +63,7 @@
      log events with side/reason fields.
    - Add `tunnel.shutdown_ack` (Bob) and `tunnel.shutdown_ok_send` (Alice)
      for the acknowledgment flow.
-   - Document the new events in doc/LOGGING.md.
+   - Document the new events in doc/architecture/LOGGING.md.
 
 6. Tests (no E2E runs).
    - Add unit coverage in `tests/test_tunnel.py`:

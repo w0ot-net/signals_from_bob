@@ -166,7 +166,7 @@ On violation:
 
 ## Control Messages (Channel 0)
 
-Control messages are JSON objects sent on channel 0. See `doc/CONTROL_MESSAGES.md`
+Control messages are JSON objects sent on channel 0. See `doc/architecture/CONTROL_MESSAGES.md`
 for the complete control message specification including:
 
 - Message format (`t` type field, `c` command field)

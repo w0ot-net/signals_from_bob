@@ -14,10 +14,10 @@
 - sfb/tunnel/tunnel_control_messages.py
 - sfb/tunnel/module_loader.py
 - sfb/cli.py
-- doc/CONTROL_MESSAGES.md
-- doc/PROTOCOL.md
-- doc/MODULES.md
-- doc/LOGGING.md
+- doc/architecture/CONTROL_MESSAGES.md
+- doc/architecture/PROTOCOL.md
+- doc/architecture/MODULES.md
+- doc/architecture/LOGGING.md
 
 ## Plan
 1. Add module loader unload request/response messages:

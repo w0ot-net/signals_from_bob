@@ -27,7 +27,7 @@ removes the stall and transfers complete normally.
 - Tunnel remains connected or closes shortly after the timeout.
 
 ## Why this can still happen
-- Bob can only send when Alice polls (see `doc/ASYMMETRY.md`).
+- Bob can only send when Alice polls (see `doc/architecture/ASYMMETRY.md`).
 - Alice polls "fast" only when the last response contained real data. If Bob
   replies with ack-only packets (no segments) or keepalive-only packets, Alice
   falls back to keepalive cadence after the grace polls.

@@ -18,7 +18,7 @@ Primary implementation locations:
 - `sfb/transport/transport_base.py`: send permits and rate limiter.
 - `sfb/config.py` and `sfb/protocol/constants.py`: default values and limits.
 
-Context: per `doc/ASYMMETRY.md`, Alice is timer-driven and initiates transport
+Context: per `doc/architecture/ASYMMETRY.md`, Alice is timer-driven and initiates transport
 polls; Bob only responds to polls. Alice retransmits based on timers, RTT,
 and SACK-driven fast retransmit for missing ACK holes.
 

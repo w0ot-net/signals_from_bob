@@ -14,7 +14,7 @@ remains.
 
 ## Affected Components
 - `sfb/channel/channel_manager.py` (segment packing logic)
-- `doc/CHANNEL_MANAGER.md` (packing rules documentation)
+- `doc/architecture/CHANNEL_MANAGER.md` (packing rules documentation)
 - `tests/test_channel.py` (collect_segments coverage)
 
 ## Plan
@@ -33,7 +33,7 @@ remains.
      tail; leave it in place so the next active channel can be considered.
    - If a channel is missing from the snapshot, remove it from
      `_active_channels` (existing cleanup behavior).
-4. Update `doc/CHANNEL_MANAGER.md` to describe the new round-robin rules,
+4. Update `doc/architecture/CHANNEL_MANAGER.md` to describe the new round-robin rules,
    including the skip-empty-primary and multi-channel fill behavior.
 5. Update tests in `tests/test_channel.py`:
    - Add a test that an empty primary is skipped.

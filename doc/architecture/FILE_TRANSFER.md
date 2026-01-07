@@ -3,7 +3,7 @@
 This document specifies the file transfer module that runs over tunnel
 channels. Either side (Alice or Bob) can initiate operations.
 
-**Message type**: `file` (see `doc/CONTROL_MESSAGES.md`)
+**Message type**: `file` (see `doc/architecture/CONTROL_MESSAGES.md`)
 
 ---
 

@@ -143,7 +143,7 @@ including module loader messages (`t="mod"`).
 ## Tunnel Messages (t="tun")
 
 Tunnel-level messages handle parameter negotiation. Keepalive is encoded
-as a packet header flag (see `doc/PROTOCOL.md`).
+as a packet header flag (see `doc/architecture/PROTOCOL.md`).
 
 ### Legacy ping / pong (ignored)
 
@@ -271,10 +271,10 @@ closed with `close`/`close_ok`.
 
 Module-specific messages are documented in their respective files:
 
-- **File Transfer** (`t="file"`): See `doc/FILE_TRANSFER.md`
-- **SOCKS Proxy** (`t="sock"`): See `doc/MODULES.md#socks-proxy-module`
-- **Port Forward** (`t="fwd"`): See `doc/PORT_FWD.md`
-- **Shell** (`t="sh"`): See `doc/MODULES.md#shell-module-future`
+- **File Transfer** (`t="file"`): See `doc/architecture/FILE_TRANSFER.md`
+- **SOCKS Proxy** (`t="sock"`): See `doc/architecture/MODULES.md#socks-proxy-module`
+- **Port Forward** (`t="fwd"`): See `doc/architecture/PORT_FWD.md`
+- **Shell** (`t="sh"`): See `doc/architecture/MODULES.md#shell-module-future`
 
 All module messages must include `mid` as a positive integer instance id.
 

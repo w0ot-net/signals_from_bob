@@ -32,7 +32,7 @@ policy. It reflects the implementation in `sfb/channel/channel_manager.py`.
 ## Control Channel
 
 Channel 0 is created at initialization and is always open. It carries control
-messages encoded as JSON lines (see `doc/PROTOCOL.md`).
+messages encoded as JSON lines (see `doc/architecture/PROTOCOL.md`).
 
 Channel 0 handling is special in segment packing:
 - Control data is always prioritized.

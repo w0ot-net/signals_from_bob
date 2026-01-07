@@ -3,7 +3,7 @@
 - Libraries/mentions: standard library only; never mention claude/anthropic or
   use emojis.
 - Protocol: asymmetric MTU negotiation; keepalive pongs suppressed when any
-  channel has pending data; follow doc/ASYMMETRY.md (Alice initiates, RTT
+  channel has pending data; follow doc/architecture/ASYMMETRY.md (Alice initiates, RTT
   retransmit, packet-count timeouts; Bob polls/opportunistic retransmit,
   wall-clock timeouts; Bob throughput bounded by Alice polling).
 - Invocation/tests: use python3; DNS direct tests use port 5353; authoritative

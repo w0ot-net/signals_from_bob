@@ -1,7 +1,7 @@
 # Application Modules
 
 Modules sit above the tunnel and use channels to provide services. Each module
-registers a message type for its control messages (see `doc/CONTROL_MESSAGES.md`).
+registers a message type for its control messages (see `doc/architecture/CONTROL_MESSAGES.md`).
 Module control messages include `mid` as a positive integer instance id; the
 default instance id is `1`. Use `--module-id` to select a specific instance.
 
@@ -159,7 +159,7 @@ Limitations:
 
 **Message type**: `file`
 
-See `doc/FILE_TRANSFER.md` for the complete specification.
+See `doc/architecture/FILE_TRANSFER.md` for the complete specification.
 
 ### Overview
 

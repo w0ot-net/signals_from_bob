@@ -13,8 +13,8 @@
 
 ## Affected Components
 - sfb/transport/dns/dns_client.py
-- doc/DNS_TRANSPORT.md
-- doc/TRANSPORTS.md
+- doc/architecture/DNS_TRANSPORT.md
+- doc/architecture/TRANSPORTS.md
 
 ## Plan
 1. In `DnsClient._init_response_caps`, compute the largest query payload that

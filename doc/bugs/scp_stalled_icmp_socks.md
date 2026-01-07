@@ -18,7 +18,7 @@ root@127.0.0.1's password:
 ## Why it looks stalled
 SCP's progress meter is driven by short-term throughput and the time since the
 last visible update. With the ICMP transport, Alice polls and Bob only responds
-(see doc/ASYMMETRY.md). That makes Bob's throughput bursty and bounded by Alice's
+(see doc/architecture/ASYMMETRY.md). That makes Bob's throughput bursty and bounded by Alice's
 poll cadence. Proxychains plus SOCKS adds buffering and jitter, so SCP sees long
 quiet gaps between bursts and prints "stalled" even though bytes are still moving.
 

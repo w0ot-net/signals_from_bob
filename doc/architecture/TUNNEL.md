@@ -248,7 +248,7 @@ Keepalive remains the upper bound on poll spacing.
 ## Control Message Dispatch
 
 Control messages arrive on channel 0 and are dispatched based on their type
-field. See `doc/CONTROL_MESSAGES.md` for the message format specification.
+field. See `doc/architecture/CONTROL_MESSAGES.md` for the message format specification.
 
 ### Dispatch Architecture
 

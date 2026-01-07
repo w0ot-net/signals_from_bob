@@ -1,7 +1,5 @@
 # DNS Clamp Unsafe Alice Max Plan
 
-Status: draft
-
 ## Goal
 
 Add a `clamp_unsafe_alice_max` mode for DNS clamp selection that maximizes
@@ -51,3 +49,9 @@ needed.
 
 - If tests are requested later, run DNS clamp-related unit tests with
   `python3`; do not run tests under `tests/e2e/`.
+
+## Execution Notes
+- Kept raw query MTU and added safe/unsafe query payload caps in DNS client
+  selection, including unsafe fallback logging.
+- Updated clamp selection logging and unsafe clamp mode conditions.
+- Documented unsafe clamp mode behavior and trade-offs in DNS transport docs.

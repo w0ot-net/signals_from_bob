@@ -295,16 +295,22 @@ if the maximum response packet size is smaller than the minimum packet needed
 to carry one segment.
 
 Alice also enforces a minimum response cap before any POLL_HINT handling. She
-clamps the default query packet MTU so that `response_payload_cap` is at least
-`MIN_PACKET_MTU`, ensuring Bob can always return at least one segment. If no
-query payload size can meet that floor, DNS client initialization fails with a
-TransportError that reports `base_domain`, `label_max_len`, and `edns_size`.
-This safe-max value becomes Alice's `send_packet_mtu` for MTU negotiation and
-segment sizing; per-query clamps reduce from that baseline via the send permit.
+computes a safe-max query payload (largest payload that still yields
+`response_payload_cap >= MIN_PACKET_MTU`), ensuring Bob can always return at
+least one segment. If no query payload size can meet that floor, DNS client
+initialization fails with a TransportError that reports `base_domain`,
+`label_max_len`, and `edns_size`. The transport's negotiated send MTU remains
+the raw query MTU; per-send clamps reduce from that ceiling via the send permit.
 
 Alice selects query payload caps using these clamp modes:
 - `clamp_safe_max_alice` (default): safe-max query payload (largest payload
   that still yields a `MIN_PACKET_MTU` response cap).
+- `clamp_unsafe_alice_max`: when no poll-hint budget is active, Alice has real
+  data pending, and Bob is not believed to have pending real data. Chooses the
+  largest query payload that still yields a `PACKET_HEADER_SIZE` response cap
+  (header-only keepalive). Trade-off: maximizes Alice payloads but can leave
+  Bob unable to send segments until he sends `KEEPALIVE + POLL_HINT` to request
+  a smaller clamp; the next polls switch to `clamp_max_bob`.
 - `clamp_balanced`: for POLL_HINT + HAS_SEGMENTS when Alice has pending data,
   choose the balanced query payload (largest payload where response cap
   >= query payload). If no balanced point exists, fall back to

@@ -34,7 +34,7 @@ from ...protocol import (
     FLAG_HAS_SEGMENTS,
     FLAG_POLL_HINT,
 )
-from ...protocol.constants import MIN_PACKET_MTU
+from ...protocol.constants import MIN_PACKET_MTU, PACKET_HEADER_SIZE
 from ...utils import parse_host_port
 from ... import time_provider
 
@@ -145,8 +145,11 @@ class DnsClient(Transport):
         self._min_response_packet_mtu = min_packet_mtu
         self._response_cap_lookup = None
         self._max_response_payload_cap = None
-        self._balanced_query_payload = None
         self._max_response_packet_mtu = None
+        self._safe_query_payload = None
+        self._unsafe_query_payload = None
+        self._balanced_query_payload = None
+        self._last_unsafe_fallback_log = None
         if self._rtype == codec.QTYPE_CNAME:
             self._init_response_caps()
             effective_recv_mtu = min(
@@ -569,9 +572,13 @@ class DnsClient(Transport):
     def _select_payload_cap(self):
         if self._response_cap_lookup is None:
             return None
+        safe_query_payload = self._safe_query_payload
+        if safe_query_payload is None:
+            safe_query_payload = self._send_packet_mtu
+        unsafe_query_payload = self._unsafe_query_payload
         mode = 'clamp_safe_max_alice'
         target = None
-        query_payload = self._send_packet_mtu
+        query_payload = safe_query_payload
         fallback = None
         if self._poll_hint_budget > 0:
             if self._poll_hint_mode == 'segments' and self._alice_has_data_pending:
@@ -586,11 +593,23 @@ class DnsClient(Transport):
                 target = self._max_response_payload_cap
                 query_payload = self._max_query_payload_for_response_cap(target)
                 if query_payload is None:
-                    query_payload = self._send_packet_mtu
+                    query_payload = safe_query_payload
                     fallback = 'missing_response_cap'
+        else:
+            if (self._alice_has_data_pending and
+                    self._bob_has_data_remaining <= 0):
+                mode = 'clamp_unsafe_alice_max'
+                target = PACKET_HEADER_SIZE
+                query_payload = unsafe_query_payload
+                if (query_payload is None or
+                        query_payload < self._min_query_packet_mtu):
+                    mode = 'clamp_safe_max_alice'
+                    query_payload = safe_query_payload
+                    fallback = 'unsafe_missing_header_cap'
+                    self._log_unsafe_fallback(fallback)
         if query_payload is not None:
-            if query_payload > self._send_packet_mtu:
-                query_payload = self._send_packet_mtu
+            if query_payload > self._raw_query_packet_mtu:
+                query_payload = self._raw_query_packet_mtu
             if query_payload < self._min_query_packet_mtu:
                 query_payload = self._min_query_packet_mtu
         log_event(
@@ -604,6 +623,9 @@ class DnsClient(Transport):
                 'bob_has_data_remaining': self._bob_has_data_remaining,
                 'retransmit_guard': self._retransmit_guard,
                 'recv_window_sack': self._recv_window_sack,
+                'raw_query_packet_mtu': self._raw_query_packet_mtu,
+                'safe_query_payload': safe_query_payload,
+                'unsafe_query_payload': unsafe_query_payload,
                 'target_response_payload': target,
                 'query_payload_cap': query_payload,
                 'poll_hint_budget': self._poll_hint_budget,
@@ -612,6 +634,27 @@ class DnsClient(Transport):
             },
         )
         return query_payload
+
+    def _log_unsafe_fallback(self, reason, now=None):
+        log_now = now
+        if log_now is None:
+            log_now = time_provider.now()
+        last_log = self._last_unsafe_fallback_log
+        if last_log is None or (log_now - last_log) >= 2.0:
+            self._last_unsafe_fallback_log = log_now
+            log_event(
+                _LOG,
+                logging.INFO,
+                'dns.clamp_unsafe_fallback',
+                'DNS unsafe clamp unavailable; using safe max',
+                lambda: {
+                    'reason': reason,
+                    'safe_query_payload': self._safe_query_payload,
+                    'unsafe_query_payload': self._unsafe_query_payload,
+                    'raw_query_mtu': self._raw_query_packet_mtu,
+                    'min_query_mtu': self._min_query_packet_mtu,
+                },
+            )
 
     def _max_query_payload_for_response_cap(self, target_response_payload):
         """Return largest query payload that yields the target response cap."""
@@ -695,17 +738,15 @@ class DnsClient(Transport):
                     self._edns_size,
                 )
             )
-        if min_response_query_payload < self._send_packet_mtu:
-            old_query_mtu = self._send_packet_mtu
-            self._send_packet_mtu = min_response_query_payload
+        self._safe_query_payload = min_response_query_payload
+        if self._safe_query_payload < raw_query_mtu:
             log_event(
                 _LOG,
                 logging.INFO,
-                'dns.query_mtu_clamp',
-                'DNS query MTU clamped for minimum response cap',
+                'dns.query_safe_max',
+                'DNS query safe max computed',
                 lambda: {
-                    'old_query_mtu': old_query_mtu,
-                    'new_query_mtu': self._send_packet_mtu,
+                    'safe_query_payload': self._safe_query_payload,
                     'raw_query_mtu': raw_query_mtu,
                     'min_response_mtu': MIN_PACKET_MTU,
                     'base_domain': self._base_domain,
@@ -713,7 +754,6 @@ class DnsClient(Transport):
                     'edns_size': self._edns_size,
                 },
             )
-        max_query_payload = self._send_packet_mtu
         max_response_payload = 0
         balanced_query_payload = None
         for payload_len in range(self._min_query_packet_mtu,
@@ -760,6 +800,12 @@ class DnsClient(Transport):
             )
         self._response_cap_lookup = lookup
         self._balanced_query_payload = balanced_query_payload
+        unsafe_query_payload = self._max_query_payload_for_response_cap(
+            PACKET_HEADER_SIZE
+        )
+        if (unsafe_query_payload is not None and
+                unsafe_query_payload >= self._min_query_packet_mtu):
+            self._unsafe_query_payload = unsafe_query_payload
 
     def _encode_query(self, data):
         """Encode data into DNS query name with nonce."""

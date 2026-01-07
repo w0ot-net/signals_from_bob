@@ -40,6 +40,8 @@ Scenario C (Alice idle but still at max, Bob sends POLL_HINT):
   the same as data segments, and poll-hint keepalives are used when nothing fits.
 - POLL_HINT is advisory and may be set whenever Bob needs Alice to clamp,
   regardless of the per-request response cap.
+- Retransmit responses always include POLL_HINT (even if no pending data) to
+  simplify clamp signaling; Alice may clamp briefly during retransmits.
 
 ## Implementation Steps
 
@@ -58,16 +60,15 @@ Scenario C (Alice idle but still at max, Bob sends POLL_HINT):
    - clamp_safe_max_alice for default mode,
    and log the selected clamp mode and any fallback used.
 5. Bob tunnel: emit POLL_HINT in the actual send paths:
-   - in `_send_retransmit_response`, send KEEPALIVE + POLL_HINT when the
-     retransmit exceeds the per-request cap.
+   - in `_send_retransmit_response`, always OR FLAG_POLL_HINT onto retransmit
+     packets; when the retransmit exceeds the per-request cap, send KEEPALIVE
+     + POLL_HINT.
    - remove the control-only poll-hint path; when no segments fit but data is
      pending, send KEEPALIVE + POLL_HINT and leave segments queued for a
      larger-cap poll.
-6. Bob tunnel: when responding with segments (new or retransmit), thread
-   `pending_data` through so POLL_HINT is set only when more data remains.
-   For retransmits, compute pending_data via the channel manager and OR
-   FLAG_POLL_HINT into the response flags when needed; update
-   BOB_RETRANSMIT_LOGIC.md to note poll-hint flags may be added on retransmit.
+6. Bob tunnel: when responding with new segments, thread `pending_data`
+   through so POLL_HINT is set only when more data remains.
+   Update BOB_RETRANSMIT_LOGIC.md to note retransmits always include POLL_HINT.
 7. Update DNS_TRANSPORT.md to describe clamp_safe_max_alice, clamp_balanced,
    clamp_max_bob, and the "no control-only poll-hint segments" rule.
 8. Update protocol/transport docs to remove the response-cap gating rule for

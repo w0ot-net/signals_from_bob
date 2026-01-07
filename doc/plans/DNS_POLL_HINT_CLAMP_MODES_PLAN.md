@@ -33,8 +33,9 @@ Implement three DNS clamp scenarios while keeping the MIN_PACKET_MTU rule:
 
 ## Implementation Steps
 
-1. DNS client: keep the safe-max query cap separate from the raw query MTU
-   (so default mode uses safe max, not the raw maximum).
+1. DNS client: keep `send_packet_mtu` as the safe-max cap (so MTU negotiation
+   and segment sizing stay safe) and store the raw query MTU separately for
+   lookup/logging; default mode uses safe max, not the raw maximum.
 2. DNS client: add a poll-hint mode field so `_reset_poll_hint_budget()`
    records whether the last poll hint arrived with segments or keepalive.
 3. DNS client: update `_update_bob_data_from_payload()` to set poll-hint mode

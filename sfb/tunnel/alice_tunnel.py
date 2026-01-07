@@ -1172,8 +1172,16 @@ class AliceTunnel(BaseTunnel):
             return False
         if not self._fast_retransmit_sack_ready():
             return False
+        cap_override = None
+        if self._pacer.enabled:
+            pacer_cap = self._pacer_cap()
+            cap_override = self._pacer.target_inflight(
+                pacer_cap,
+                srtt_ms=self._rtt.srtt_ms,
+            )
         exceeded, distance_info = self._send_window.distance_exceeded(
-            max_window=self.MAX_WINDOW
+            cap_override=cap_override,
+            max_window=self.MAX_WINDOW,
         )
         if not exceeded:
             return False

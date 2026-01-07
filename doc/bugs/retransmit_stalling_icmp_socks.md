@@ -442,3 +442,22 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - Takeaway: ack-silence gating is active but in this slice the oldest unacked
   packets do not age past RTO, so the deferral is expected; no evidence here of
   stale unacked packets blocked past RTO.
+
+## Latest findings (2026-01-07, pacer-target stall)
+- Sources: `logs/client_log.db` (Alice) ended at 20:17:17;
+  `logs/server_log.db` (Bob) continues to ~20:17:42.
+- Alice is repeatedly `tunnel.send_blocked` with `reason=pacer`;
+  `tunnel.pacer_state` shows `action=blocked`, `block_reason=window_distance`,
+  `inflight_count=119`, `target_inflight=119`, `unacked_count=15`.
+- Alice cumulative ACK advanced to 1558 at 20:17:16.909 and then stopped.
+  Final `tunnel.ack_detail` shows `ack=1558`, `send_next_seq=1675`,
+  `send_oldest_seq=1597`, so the distance is 119, matching the pacer target.
+- Bob responses are keepalive-only (`content_flag=keepalive`, `seg_count=0`)
+  with ACK stuck at 1558 and SACK bits set, so cumulative ACK does not advance.
+- Alice retransmitted seq 1558-1573 at 20:17:16 (`reason=rto`); ACK advanced
+  to 1558 but not past it. Subsequent RTO retransmits are skipped because
+  `ack_silence` is ~0.55s while `rto_sec` is 10s, so the next retransmit waits
+  ~10s unless fast retransmit fires.
+- This looks like a short-term lock while pacer gating holds
+  `send_next_seq - last_cum_ack` at the pacer target and RTO retransmits are
+  deferred; a longer log window is needed to confirm recovery after 10s.

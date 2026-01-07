@@ -25,6 +25,7 @@ from .tunnel_control_messages import (
     tun_mtu_ack,
     tun_window,
     tun_window_ok,
+    T_MOD,
 )
 from ..protocol import (
     Packet,
@@ -131,10 +132,12 @@ class BaseTunnel(object):
         self._window_final = False
 
         # Module handlers for control message dispatch
-        # Maps message type (t field) to handler callable
+        # Maps (message type, module_id) to handler callable
         self._module_handlers = {}
         self._module_handlers_lock = threading.Lock()
         self._module_loader = None
+        self._pending_control_lock = threading.Lock()
+        self._pending_control_waiters = 0
 
         # Statistics
         self._packets_sent = 0
@@ -149,6 +152,26 @@ class BaseTunnel(object):
         self._bg_thread = None
         self._bg_stop = False
         self._bg_lock = threading.Lock()
+
+    def _adjust_pending_control(self, delta):
+        if not delta:
+            return
+        with self._pending_control_lock:
+            self._pending_control_waiters += delta
+            if self._pending_control_waiters < 0:
+                self._pending_control_waiters = 0
+
+    def _pending_control_count(self):
+        with self._pending_control_lock:
+            return self._pending_control_waiters
+
+    @staticmethod
+    def _valid_module_id(value):
+        return (
+            isinstance(value, integer_types) and
+            not isinstance(value, bool) and
+            value > 0
+        )
 
     def _init_transport_limits(self, transport):
         """
@@ -804,7 +827,11 @@ class BaseTunnel(object):
                     logging.DEBUG,
                     'tunnel.control_dispatch',
                     'Dispatching control message',
-                    lambda: {'t': msg.get('t'), 'c': msg.get('c')},
+                    lambda: {
+                        't': msg.get('t'),
+                        'c': msg.get('c'),
+                        'mid': msg.get('mid'),
+                    },
                 )
                 self._dispatch_control_message(msg)
             except ChannelError as e:
@@ -826,12 +853,13 @@ class BaseTunnel(object):
                 lambda: {'count': count},
             )
 
-    def register_module(self, type_code, handler):
+    def register_module(self, type_code, module_id, handler):
         """
         Register a module to handle control messages of a given type.
 
         Args:
             type_code: Message type (t field), e.g., 'file', 'sh', 'sock'
+            module_id: Positive instance id (int), or None for module loader
             handler: Callable that takes a message dict
 
         Raises:
@@ -840,36 +868,55 @@ class BaseTunnel(object):
         with self._module_handlers_lock:
             if type_code in self.RESERVED_TYPES:
                 raise ValueError('Cannot register reserved type: %s' % type_code)
-            if type_code in self._module_handlers:
-                raise ValueError('Handler already registered: %s' % type_code)
-            self._module_handlers[type_code] = handler
+            if module_id is None:
+                if type_code != T_MOD:
+                    raise ValueError('module_id required for type: %s' % type_code)
+            elif type_code == T_MOD:
+                raise ValueError('Cannot register instance for type: %s' % type_code)
+            elif not self._valid_module_id(module_id):
+                raise ValueError('Invalid module_id: %r' % module_id)
+            key = (type_code, module_id)
+            if key in self._module_handlers:
+                raise ValueError('Handler already registered: %s/%s' % (
+                    type_code, module_id
+                ))
+            self._module_handlers[key] = handler
         log_event(
             self._logger,
             logging.DEBUG,
             'tunnel.module_register',
             'Registered module handler',
-            lambda: {'type': type_code},
+            lambda: {'type': type_code, 'mid': module_id},
         )
 
-    def unregister_module(self, type_code):
+    def unregister_module(self, type_code, module_id):
         """
         Unregister a module handler.
 
         Args:
             type_code: Message type to unregister
+            module_id: Module instance id (or None for module loader)
 
         Returns:
             bool: True if handler was removed, False if not found
         """
+        if module_id is None:
+            if type_code != T_MOD:
+                raise ValueError('module_id required for type: %s' % type_code)
+        elif type_code == T_MOD:
+            raise ValueError('Cannot unregister instance for type: %s' % type_code)
+        elif not self._valid_module_id(module_id):
+            raise ValueError('Invalid module_id: %r' % module_id)
         with self._module_handlers_lock:
-            if type_code in self._module_handlers:
-                del self._module_handlers[type_code]
+            key = (type_code, module_id)
+            if key in self._module_handlers:
+                del self._module_handlers[key]
                 log_event(
                     self._logger,
                     logging.DEBUG,
                     'tunnel.module_unregister',
                     'Unregistered module handler',
-                    lambda: {'type': type_code},
+                    lambda: {'type': type_code, 'mid': module_id},
                 )
                 return True
         return False
@@ -909,9 +956,37 @@ class BaseTunnel(object):
         elif msg_type == 'ch':
             self._handle_channel_message(cmd, msg)
         else:
+            module_id = msg.get('mid')
+            if module_id is None:
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.control_invalid',
+                    'Invalid control message',
+                    lambda: {
+                        'reason': 'missing_mid',
+                        'type': msg_type,
+                    },
+                )
+                return
+            if not self._valid_module_id(module_id):
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.control_invalid',
+                    'Invalid control message',
+                    lambda: {
+                        'reason': 'invalid_mid',
+                        'type': msg_type,
+                        'mid': module_id,
+                    },
+                )
+                return
             handler = None
             with self._module_handlers_lock:
-                handler = self._module_handlers.get(msg_type)
+                handler = self._module_handlers.get((msg_type, module_id))
+                if handler is None:
+                    handler = self._module_handlers.get((msg_type, None))
             if handler is not None:
                 try:
                     handler(msg)
@@ -921,7 +996,11 @@ class BaseTunnel(object):
                         logging.WARNING,
                         'tunnel.module_error',
                         'Module handler error',
-                        lambda: {'type': msg_type, 'error': str(e)},
+                        lambda: {
+                            'type': msg_type,
+                            'mid': module_id,
+                            'error': str(e),
+                        },
                     )
             else:
                 log_event(
@@ -929,7 +1008,7 @@ class BaseTunnel(object):
                     logging.DEBUG,
                     'tunnel.control_unknown',
                     'Unknown message type',
-                    lambda: {'type': msg_type},
+                    lambda: {'type': msg_type, 'mid': module_id},
                 )
 
     def _handle_tunnel_message(self, cmd, msg):

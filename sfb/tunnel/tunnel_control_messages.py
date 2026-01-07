@@ -162,16 +162,16 @@ def ch_close_err(ch, code, reason):
 T_MOD = 'mod'
 
 
-def mod_load(name):
-    """Request to load a module by name."""
-    return ControlMessage(T_MOD, 'load', name=name)
+def mod_load(name, module_id):
+    """Request to load a module by name and instance id."""
+    return ControlMessage(T_MOD, 'load', name=name, mid=module_id)
 
 
-def mod_load_ok(name):
+def mod_load_ok(name, module_id):
     """Success response after loading a module."""
-    return ControlMessage(T_MOD, 'load_ok', name=name)
+    return ControlMessage(T_MOD, 'load_ok', name=name, mid=module_id)
 
 
-def mod_load_err(name, reason):
+def mod_load_err(name, reason, module_id):
     """Error response when module loading fails."""
-    return ControlMessage(T_MOD, 'load_err', name=name, reason=reason)
+    return ControlMessage(T_MOD, 'load_err', name=name, reason=reason, mid=module_id)

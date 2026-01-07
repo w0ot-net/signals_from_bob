@@ -62,3 +62,10 @@
      behavior.
    - Ensure two instances of the same module type can exchange messages without
      cross-talk.
+
+## Execution Notes (20260106)
+- Enforced `mid` on module messages and routed handlers by `(t, mid)`, reserving
+  `t="mod"` for the module loader (wildcard handler).
+- Updated module loader, module base class, and CLI wiring for instance ids.
+- Updated protocol/control/module docs and module-specific examples for `mid`.
+- Tests not run (per instructions; tests not updated).

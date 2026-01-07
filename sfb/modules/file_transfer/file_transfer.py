@@ -162,7 +162,7 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
     @classmethod
     def run_command(cls, args, tunnel, logger):
         """Execute a file transfer command."""
-        module = cls(tunnel, logger=logger)
+        module = cls(tunnel, logger=logger, module_id=args.module_id)
         timeout = getattr(args, 'timeout', None)
         try:
             if args.command == 'list':
@@ -240,8 +240,10 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         finally:
             module.shutdown()
 
-    def __init__(self, tunnel, logger=None):
-        super(FileTransferModule, self).__init__(tunnel, logger=logger)
+    def __init__(self, tunnel, logger=None, module_id=1):
+        super(FileTransferModule, self).__init__(
+            tunnel, logger=logger, module_id=module_id
+        )
         config = tunnel._config
         self._max_size = config.file_transfer_max_size
         self._chunk_size = config.file_transfer_chunk_size
@@ -262,7 +264,9 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
         self._incoming_hash_state = {}
         self._incoming_hash_expiry = max(
             float(self._hash_timeout or 0.0),
+            float(getattr(config, 'file_transfer_timeout', 0.0) or 0.0),
             float(getattr(config, 'tunnel_no_response_timeout', 0.0) or 0.0),
+            float(getattr(config, 'tunnel_idle_timeout', 0.0) or 0.0),
         )
         if self._incoming_hash_expiry <= 0:
             self._incoming_hash_expiry = None

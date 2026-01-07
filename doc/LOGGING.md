@@ -138,6 +138,10 @@ Indexes:
 
 Current structured events (non-exhaustive):
 
+Module instance ids:
+- `mid` is included on module control events (`module.*`) and module loader
+  events (`module_loader.*`).
+
 - `tunnel.state`
 - `tunnel.init`
 - `tunnel.wait`

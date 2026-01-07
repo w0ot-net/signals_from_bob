@@ -253,7 +253,7 @@ class NcLinuxModule(RequestResponseMixin, BaseModule):
                 lambda: {'side': 'bob'},
             )
             return 1
-        module = cls(tunnel, logger=logger)
+        module = cls(tunnel, logger=logger, module_id=args.module_id)
         timeout = getattr(args, 'timeout', None)
         local_spec = getattr(args, 'local', None)
         remote_spec = getattr(args, 'remote', None)
@@ -265,8 +265,10 @@ class NcLinuxModule(RequestResponseMixin, BaseModule):
         finally:
             module.shutdown()
 
-    def __init__(self, tunnel, logger=None):
-        super(NcLinuxModule, self).__init__(tunnel, logger=logger)
+    def __init__(self, tunnel, logger=None, module_id=1):
+        super(NcLinuxModule, self).__init__(
+            tunnel, logger=logger, module_id=module_id
+        )
         self._config = tunnel._config
         self._connections = {}
         self._connections_lock = threading.Lock()

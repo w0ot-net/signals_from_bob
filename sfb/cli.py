@@ -61,6 +61,16 @@ def _print_error(message):
     sys.stderr.flush()
 
 
+def _positive_int(value):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError('must be a positive integer')
+    if value <= 0:
+        raise argparse.ArgumentTypeError('must be a positive integer')
+    return value
+
+
 def _handle_tls_bump_generate_cert(parsed):
     if not getattr(parsed, 'tls_bump_generate_cert', None):
         return None
@@ -747,6 +757,12 @@ def add_module_args(parser):
         choices=list(AVAILABLE_MODULES.keys()),
         help='Module to load'
     )
+    parser.add_argument(
+        '--module-id',
+        type=_positive_int,
+        default=1,
+        help='Module instance id (default: 1)'
+    )
 
 
 def add_server_args(parser, config):
@@ -1203,6 +1219,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
         )
 
         module_name = args.module
+        module_id = args.module_id
         module_cls = AVAILABLE_MODULES[module_name]
         module_logger = get_logger('sfb.modules.%s' % module_name)
         remote_module = module_cls.REMOTE_MODULE or module_name
@@ -1211,15 +1228,15 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
             logging.INFO,
             'cli.module_load',
             'Loading module on peer',
-            lambda: {'module': remote_module},
+            lambda: {'module': remote_module, 'mid': module_id},
         )
-        module_loader.load_remote(remote_module)
+        module_loader.load_remote(remote_module, module_id)
         log_event(
             logger,
             logging.INFO,
             'cli.module_loaded',
             'Module loaded (module=%s)' % remote_module,
-            lambda: {'module': remote_module},
+            lambda: {'module': remote_module, 'mid': module_id},
         )
 
         # Allow module message type
@@ -1236,7 +1253,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
                         logging.ERROR,
                         'cli.module_command_required',
                         'Module requires a command',
-                        lambda: {'module': module_name},
+                        lambda: {'module': module_name, 'mid': module_id},
                     )
                     return 1
 
@@ -1252,7 +1269,12 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
             logging.ERROR,
             'cli.module_error',
             'Module error',
-            lambda: {'module': module_label, 'code': e.code, 'reason': reason},
+            lambda: {
+                'module': module_label,
+                'mid': getattr(args, 'module_id', None),
+                'code': e.code,
+                'reason': reason,
+            },
         )
         return 1
     except Exception as e:

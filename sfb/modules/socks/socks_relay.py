@@ -43,7 +43,7 @@ class SocksRelayModule(BaseModule):
     @classmethod
     def run_command(cls, args, tunnel, logger):
         """Run the relay (passive - just responds to requests)."""
-        module = cls(tunnel, logger=logger)
+        module = cls(tunnel, logger=logger, module_id=args.module_id)
         log_event(
             logger,
             logging.INFO,
@@ -59,8 +59,10 @@ class SocksRelayModule(BaseModule):
         finally:
             module.shutdown()
 
-    def __init__(self, tunnel, logger=None):
-        super(SocksRelayModule, self).__init__(tunnel, logger=logger)
+    def __init__(self, tunnel, logger=None, module_id=1):
+        super(SocksRelayModule, self).__init__(
+            tunnel, logger=logger, module_id=module_id
+        )
         self._config = tunnel._config
 
         # Active connections: ch -> _RelayConnection

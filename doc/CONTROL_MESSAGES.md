@@ -41,8 +41,12 @@ All control messages are JSON objects with the following fields:
 |-------|----------|-------------|
 | `t`   | Yes      | Message type (string) - identifies which layer handles the message |
 | `c`   | Yes      | Command (string) - the specific operation within that type |
+| `mid` | Modules  | Module instance id (positive integer), required when `t` is not `tun` or `ch` |
 
 Additional fields depend on the specific command.
+
+Module control messages require `mid` and default to instance id `1` unless
+configured otherwise.
 
 Implementation note: use the `ControlMessage` base class in
 `sfb/control_message.py` and the helpers in
@@ -57,8 +61,8 @@ required `t` and `c` fields.
 {"t":"ch","c":"half_close","ch":2}
 {"t":"ch","c":"close","ch":2}
 {"t":"ch","c":"close_err","ch":2,"code":"aborted","reason":"Channel aborted"}
-{"t":"file","c":"get","rid":1,"ch":4,"path":"/etc/passwd"}
-{"t":"sh","c":"open","ch":6,"rows":24,"cols":80}
+{"t":"file","c":"get","mid":1,"rid":1,"ch":4,"path":"/etc/passwd"}
+{"t":"sh","c":"open","mid":1,"ch":6,"rows":24,"cols":80}
 ```
 
 ---
@@ -76,11 +80,12 @@ These types are built-in and cannot be overridden by modules.
 |------|-------|-------------|
 | `tun` | Tunnel | MTU/window negotiation (keepalive is a header flag) |
 | `ch` | Channel | Channel open/close lifecycle |
+| `mod` | Module loader | Module load control messages |
 
 ### Module Types
 
-Modules register handlers for their message types. The tunnel dispatches
-messages to the appropriate module based on the `t` field.
+Modules register handlers for their message types and instance ids. The tunnel
+dispatches messages to the appropriate module based on `(t, mid)`.
 
 | Type | Module | Description |
 |------|--------|-------------|
@@ -103,8 +108,9 @@ When a control message is received:
    - `tun`: Tunnel handles internally (negotiation; keepalive is a header flag;
      legacy ping/pong ignored)
    - `ch`: Channel manager handles (open/close)
-   - Other: Dispatch to registered module handler
-3. Unknown types are logged and dropped
+   - `mod`: Module loader handles (requires `mid`)
+   - Other: Dispatch to registered module handler by `(t, mid)`
+3. Unknown types or instance ids are logged and dropped
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -126,8 +132,11 @@ When a control message is received:
      ┌─────────┐    ┌───────────┐   ┌───────────┐
      │ Tunnel  │    │  Channel  │   │  Module   │
      │ Handler │    │  Manager  │   │  Handler  │
-     └─────────┘    └───────────┘   └───────────┘
+└─────────┘    └───────────┘   └───────────┘
 ```
+
+Module dispatch uses `(t, mid)`; `mid` is required on all module messages,
+including module loader messages (`t="mod"`).
 
 ---
 
@@ -267,15 +276,27 @@ Module-specific messages are documented in their respective files:
 - **Port Forward** (`t="fwd"`): See `doc/PORT_FWD.md`
 - **Shell** (`t="sh"`): See `doc/MODULES.md#shell-module-future`
 
+All module messages must include `mid` as a positive integer instance id.
+
+### Module Loader Messages (t="mod")
+
+The module loader coordinates instance creation on the remote side.
+
+```json
+{"t":"mod","c":"load","mid":1,"name":"file_transfer"}
+{"t":"mod","c":"load_ok","mid":1,"name":"file_transfer"}
+{"t":"mod","c":"load_err","mid":1,"name":"file_transfer","reason":"unknown module"}
+```
+
 ### Port Forward Messages (t="fwd")
 
 Port forwarding negotiates the target over control messages, then uses the
 channel for bidirectional data flow.
 
 ```json
-{"t":"fwd","c":"connect","rid":1,"ch":2,"host":"example.com","port":443}
-{"t":"fwd","c":"connect_ok","rid":1,"ch":2}
-{"t":"fwd","c":"err","rid":1,"ch":2,"code":"refused","reason":"connection refused"}
+{"t":"fwd","c":"connect","mid":1,"rid":1,"ch":2,"host":"example.com","port":443}
+{"t":"fwd","c":"connect_ok","mid":1,"rid":1,"ch":2}
+{"t":"fwd","c":"err","mid":1,"rid":1,"ch":2,"code":"refused","reason":"connection refused"}
 ```
 
 Fields:
@@ -294,16 +315,17 @@ When defining messages for a new module:
 
 1. Choose a short type code (2-4 chars, lowercase)
 2. Use short field names to minimize overhead
-3. Include `ch` field when the message relates to a specific channel
-4. Define both request and response messages
-5. Include error responses with `reason` field
+3. Include `mid` on all module messages
+4. Include `ch` field when the message relates to a specific channel
+5. Define both request and response messages
+6. Include error responses with `reason` field
 
 Example module message pattern:
 
 ```json
-{"t":"mymod","c":"start","ch":4,"param":"value"}
-{"t":"mymod","c":"start_ok","ch":4}
-{"t":"mymod","c":"err","ch":4,"reason":"invalid param"}
+{"t":"mymod","c":"start","mid":1,"ch":4,"param":"value"}
+{"t":"mymod","c":"start_ok","mid":1,"ch":4}
+{"t":"mymod","c":"err","mid":1,"ch":4,"reason":"invalid param"}
 ```
 
 ---

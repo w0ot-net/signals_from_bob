@@ -2,6 +2,8 @@
 
 Modules sit above the tunnel and use channels to provide services. Each module
 registers a message type for its control messages (see `doc/CONTROL_MESSAGES.md`).
+Module control messages include `mid` as a positive integer instance id; the
+default instance id is `1`. Use `--module-id` to select a specific instance.
 
 **Latency note**: Both Alice and Bob can initiate tunnel-level operations (open
 channels, send data, transfer files). However, Bob's transmissions only go out
@@ -45,9 +47,9 @@ User                Bob                    Alice              Target
  │── SOCKS CONNECT ─▶│                       │                   │
  │                   │── {t:ch,c:open} ─────▶│                   │
  │                   │◀── {t:ch,c:open_ok} ──│                   │
- │                   │── {t:sock,c:connect} ▶│                   │
+ │                   │── {t:sock,c:connect,mid:1} ▶│              │
  │                   │                       │── TCP CONNECT ───▶│
- │                   │◀── {t:sock,c:connect_ok}                  │
+ │                   │◀── {t:sock,c:connect_ok,mid:1}             │
  │◀── SOCKS OK ──────│                       │                   │
  │                   │                       │                   │
  │── data ──────────▶│══ ch2 data ══════════▶│── data ──────────▶│
@@ -77,9 +79,9 @@ message type (`sock`) for target negotiation:
 ```json
 {"t":"ch","c":"open","ch":2}
 {"t":"ch","c":"open_ok","ch":2}
-{"t":"sock","c":"connect","rid":1,"ch":2,"host":"93.184.216.34","port":80}
-{"t":"sock","c":"connect_ok","rid":1,"ch":2,"bhost":"0.0.0.0","bport":0}
-{"t":"sock","c":"err","rid":1,"ch":2,"code":"refused","reason":"connection refused"}
+{"t":"sock","c":"connect","mid":1,"rid":1,"ch":2,"host":"93.184.216.34","port":80}
+{"t":"sock","c":"connect_ok","mid":1,"rid":1,"ch":2,"bhost":"0.0.0.0","bport":0}
+{"t":"sock","c":"err","mid":1,"rid":1,"ch":2,"code":"refused","reason":"connection refused"}
 {"t":"ch","c":"close","ch":2}
 {"t":"ch","c":"close_ok","ch":2}
 ```
@@ -121,9 +123,9 @@ Client              Bob                    Alice              Target
  │── TCP CONNECT ───▶│                       │                   │
  │                   │── {t:ch,c:open} ─────▶│                   │
  │                   │◀── {t:ch,c:open_ok} ──│                   │
- │                   │── {t:fwd,c:connect} ▶│                   │
+ │                   │── {t:fwd,c:connect,mid:1} ▶│              │
  │                   │                       │── TCP CONNECT ───▶│
- │                   │◀── {t:fwd,c:connect_ok}                  │
+ │                   │◀── {t:fwd,c:connect_ok,mid:1}             │
  │                   │                       │                   │
  │── data ──────────▶│══ ch data ═══════════▶│── data ──────────▶│
  │◀── data ──────────│◀═ ch data ════════════│◀── data ──────────│
@@ -137,9 +139,9 @@ Client              Bob                    Alice              Target
 ```json
 {"t":"ch","c":"open","ch":2}
 {"t":"ch","c":"open_ok","ch":2}
-{"t":"fwd","c":"connect","rid":1,"ch":2,"host":"example.com","port":443}
-{"t":"fwd","c":"connect_ok","rid":1,"ch":2}
-{"t":"fwd","c":"err","rid":1,"ch":2,"code":"refused","reason":"connection refused"}
+{"t":"fwd","c":"connect","mid":1,"rid":1,"ch":2,"host":"example.com","port":443}
+{"t":"fwd","c":"connect_ok","mid":1,"rid":1,"ch":2}
+{"t":"fwd","c":"err","mid":1,"rid":1,"ch":2,"code":"refused","reason":"connection refused"}
 {"t":"ch","c":"close","ch":2}
 {"t":"ch","c":"close_ok","ch":2}
 ```
@@ -169,20 +171,20 @@ initiate file operations:
 ### Commands
 
 ```json
-{"t":"file","c":"list","rid":1,"path":"/home/user"}
-{"t":"file","c":"list_ok","rid":1,"files":[{"name":"a.txt","size":1024,"dir":false}]}
+{"t":"file","c":"list","mid":1,"rid":1,"path":"/home/user"}
+{"t":"file","c":"list_ok","mid":1,"rid":1,"files":[{"name":"a.txt","size":1024,"dir":false}]}
 
-{"t":"file","c":"get","rid":2,"ch":4,"path":"/home/user/a.txt"}
-{"t":"file","c":"get_ok","rid":2,"ch":4,"size":1024}
-{"t":"file","c":"hash","rid":2,"ch":4,"alg":"sha256","hash":"<hex>"}
-{"t":"file","c":"hash_ok","rid":2,"ch":4}
+{"t":"file","c":"get","mid":1,"rid":2,"ch":4,"path":"/home/user/a.txt"}
+{"t":"file","c":"get_ok","mid":1,"rid":2,"ch":4,"size":1024}
+{"t":"file","c":"hash","mid":1,"rid":2,"ch":4,"alg":"sha256","hash":"<hex>"}
+{"t":"file","c":"hash_ok","mid":1,"rid":2,"ch":4}
 
-{"t":"file","c":"put","rid":3,"ch":4,"path":"/tmp/b.txt","size":2048}
-{"t":"file","c":"put_ok","rid":3,"ch":4}
-{"t":"file","c":"hash","rid":3,"ch":4,"alg":"sha256","hash":"<hex>"}
-{"t":"file","c":"hash_ok","rid":3,"ch":4}
+{"t":"file","c":"put","mid":1,"rid":3,"ch":4,"path":"/tmp/b.txt","size":2048}
+{"t":"file","c":"put_ok","mid":1,"rid":3,"ch":4}
+{"t":"file","c":"hash","mid":1,"rid":3,"ch":4,"alg":"sha256","hash":"<hex>"}
+{"t":"file","c":"hash_ok","mid":1,"rid":3,"ch":4}
 
-{"t":"file","c":"err","rid":3,"ch":4,"reason":"not found"}
+{"t":"file","c":"err","mid":1,"rid":3,"ch":4,"reason":"not found"}
 ```
 
 After `get_ok`, data flows on the specified channel until `size` bytes are

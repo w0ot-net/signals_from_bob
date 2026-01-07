@@ -98,7 +98,7 @@ class PortForwardServerModule(BaseModule):
     @classmethod
     def run_command(cls, args, tunnel, logger):
         """Start the port forward server and run until tunnel closes."""
-        module = cls(tunnel, logger=logger)
+        module = cls(tunnel, logger=logger, module_id=args.module_id)
         try:
             local_spec = getattr(args, 'local', None)
             remote_spec = getattr(args, 'remote', None)
@@ -130,8 +130,10 @@ class PortForwardServerModule(BaseModule):
         finally:
             module.shutdown()
 
-    def __init__(self, tunnel, logger=None):
-        super(PortForwardServerModule, self).__init__(tunnel, logger=logger)
+    def __init__(self, tunnel, logger=None, module_id=1):
+        super(PortForwardServerModule, self).__init__(
+            tunnel, logger=logger, module_id=module_id
+        )
         self._config = tunnel._config
 
         # TCP server

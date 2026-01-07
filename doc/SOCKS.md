@@ -59,10 +59,10 @@ No application-specific data. The channel layer only handles:
 The SOCKS module uses its own message type for connection negotiation:
 
 ```json
-{"t":"sock","c":"connect","ch":1,"atype":"ipv4","addr":"10.0.0.5","port":443}
-{"t":"sock","c":"connect","ch":3,"atype":"domain","addr":"internal.corp","port":80}
-{"t":"sock","c":"connect_ok","ch":1}
-{"t":"sock","c":"connect_fail","ch":1,"err":"refused"}
+{"t":"sock","c":"connect","mid":1,"ch":1,"atype":"ipv4","addr":"10.0.0.5","port":443}
+{"t":"sock","c":"connect","mid":1,"ch":3,"atype":"domain","addr":"internal.corp","port":80}
+{"t":"sock","c":"connect_ok","mid":1,"ch":1}
+{"t":"sock","c":"connect_fail","mid":1,"ch":1,"err":"refused"}
 ```
 
 Only `ipv4` and `domain` address types are supported; `ipv6` is unsupported.
@@ -71,9 +71,9 @@ Only `ipv4` and `domain` address types are supported; `ipv6` is unsupported.
 
 1. Server opens channel: `{"t":"ch","c":"open","ch":1}`
 2. Relay accepts channel: `{"t":"ch","c":"open_ok","ch":1}`
-3. Server sends target info: `{"t":"sock","c":"connect","ch":1,"atype":"...","addr":"...","port":...}`
+3. Server sends target info: `{"t":"sock","c":"connect","mid":1,"ch":1,"atype":"...","addr":"...","port":...}`
 4. Relay makes TCP connection to target
-5. Relay responds: `{"t":"sock","c":"connect_ok","ch":1}` or `{"t":"sock","c":"connect_fail","ch":1,"err":"..."}`
+5. Relay responds: `{"t":"sock","c":"connect_ok","mid":1,"ch":1}` or `{"t":"sock","c":"connect_fail","mid":1,"ch":1,"err":"..."}`
 6. On success: data flows bidirectionally on channel 1
 7. On failure: server closes channel with `{"t":"ch","c":"close","ch":1}`
 

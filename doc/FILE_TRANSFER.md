@@ -38,19 +38,19 @@ All messages include a request ID (`rid`) to correlate requests and responses.
 Request a directory listing.
 
 ```json
-{"t":"file","c":"list","rid":1,"path":"/home/user"}
+{"t":"file","c":"list","mid":1,"rid":1,"path":"/home/user"}
 ```
 
 Response:
 
 ```json
-{"t":"file","c":"list_ok","rid":1,"files":[{"name":"a.txt","size":1024,"dir":false}]}
+{"t":"file","c":"list_ok","mid":1,"rid":1,"files":[{"name":"a.txt","size":1024,"dir":false}]}
 ```
 
 If the request fails:
 
 ```json
-{"t":"file","c":"err","rid":1,"code":"not_found","reason":"not found"}
+{"t":"file","c":"err","mid":1,"rid":1,"code":"not_found","reason":"not found"}
 ```
 
 `code` is typically `not_found` (missing or inaccessible path) or `io`.
@@ -60,19 +60,19 @@ If the request fails:
 Request to receive a file from the peer.
 
 ```json
-{"t":"file","c":"get","rid":2,"ch":4,"path":"/home/user/a.txt"}
+{"t":"file","c":"get","mid":1,"rid":2,"ch":4,"path":"/home/user/a.txt"}
 ```
 
 Response on success:
 
 ```json
-{"t":"file","c":"get_ok","rid":2,"ch":4,"size":1024}
+{"t":"file","c":"get_ok","mid":1,"rid":2,"ch":4,"size":1024}
 ```
 
 Response on failure:
 
 ```json
-{"t":"file","c":"err","rid":2,"ch":4,"code":"not_found","reason":"not found"}
+{"t":"file","c":"err","mid":1,"rid":2,"ch":4,"code":"not_found","reason":"not found"}
 ```
 
 After `get_ok`, the sender transmits exactly `size` bytes on channel `ch`.
@@ -83,19 +83,19 @@ The receiver reads until `size` bytes are received, then waits for the hash.
 Request to send a file to the peer.
 
 ```json
-{"t":"file","c":"put","rid":3,"ch":4,"path":"/tmp/b.txt","size":2048}
+{"t":"file","c":"put","mid":1,"rid":3,"ch":4,"path":"/tmp/b.txt","size":2048}
 ```
 
 Response on success:
 
 ```json
-{"t":"file","c":"put_ok","rid":3,"ch":4}
+{"t":"file","c":"put_ok","mid":1,"rid":3,"ch":4}
 ```
 
 Response on failure:
 
 ```json
-{"t":"file","c":"err","rid":3,"ch":4,"code":"io","reason":"permission denied"}
+{"t":"file","c":"err","mid":1,"rid":3,"ch":4,"code":"io","reason":"permission denied"}
 ```
 
 After `put_ok`, the sender transmits exactly `size` bytes on channel `ch`.
@@ -106,7 +106,7 @@ The receiver reads until `size` bytes are received, then waits for the hash.
 After all file bytes are sent, the sender computes a SHA-256 digest and sends:
 
 ```json
-{"t":"file","c":"hash","rid":2,"ch":4,"alg":"sha256","hash":"<hex>"}
+{"t":"file","c":"hash","mid":1,"rid":2,"ch":4,"alg":"sha256","hash":"<hex>"}
 ```
 
 The receiver computes its own SHA-256 over the received bytes, compares, and:
@@ -115,8 +115,8 @@ The receiver computes its own SHA-256 over the received bytes, compares, and:
 - Only `sha256` is supported; other algorithms return `err` with `code="hash"`
 
 ```json
-{"t":"file","c":"hash_ok","rid":2,"ch":4}
-{"t":"file","c":"err","rid":2,"ch":4,"code":"hash","reason":"hash mismatch"}
+{"t":"file","c":"hash_ok","mid":1,"rid":2,"ch":4}
+{"t":"file","c":"err","mid":1,"rid":2,"ch":4,"code":"hash","reason":"hash mismatch"}
 ```
 
 The sender treats `hash_ok` as transfer success and `err` as failure.
@@ -153,11 +153,11 @@ the file data on channel 4.
 ```
 Bob                                 Alice
  │                                     │
- │── {t:file,c:get,ch:4,path:/x} ─────▶│  Bob opens ch:4, requests file
- │◀─ {t:file,c:get_ok,ch:4,size:N} ────│  Alice confirms
+ │── {t:file,c:get,mid:1,ch:4,path:/x} ─▶│ Bob opens ch:4, requests file
+ │◀─ {t:file,c:get_ok,mid:1,ch:4,size:N} │ Alice confirms
  │◀═ channel 4: N bytes ═══════════════│  Alice sends data TO Bob
- │◀─ {t:file,c:hash,...} ──────────────│  Alice sends hash
- │── {t:file,c:hash_ok} ──────────────▶│  Bob confirms hash
+ │◀─ {t:file,c:hash,mid:1,...} ────────│  Alice sends hash
+ │── {t:file,c:hash_ok,mid:1} ────────▶│  Bob confirms hash
  │                                     │
 ```
 
@@ -168,11 +168,11 @@ Bob opens channel 4 and sends the file data on it.
 ```
 Bob                                 Alice
  │                                     │
- │── {t:file,c:put,ch:4,path:/y,...} ─▶│  Bob opens ch:4, announces upload
- │◀─ {t:file,c:put_ok,ch:4} ───────────│  Alice confirms
+ │── {t:file,c:put,mid:1,ch:4,path:/y,...} ▶│ Bob opens ch:4, announces upload
+ │◀─ {t:file,c:put_ok,mid:1,ch:4} ────────│ Alice confirms
  │═▶ channel 4: N bytes ═══════════════│  Bob sends data TO Alice
- │── {t:file,c:hash,...} ─────────────▶│  Bob sends hash
- │◀─ {t:file,c:hash_ok} ──────────────│  Alice confirms hash
+ │── {t:file,c:hash,mid:1,...} ─────────▶│  Bob sends hash
+ │◀─ {t:file,c:hash_ok,mid:1} ──────────│  Alice confirms hash
  │                                     │
 ```
 
@@ -184,11 +184,11 @@ the file data on channel 3.
 ```
 Alice                               Bob
  │                                     │
- │── {t:file,c:get,ch:3,path:/x} ─────▶│  Alice opens ch:3, requests file
- │◀─ {t:file,c:get_ok,ch:3,size:N} ────│  Bob confirms
+ │── {t:file,c:get,mid:1,ch:3,path:/x} ─▶│ Alice opens ch:3, requests file
+ │◀─ {t:file,c:get_ok,mid:1,ch:3,size:N} │ Bob confirms
  │◀═ channel 3: N bytes ═══════════════│  Bob sends data TO Alice
- │◀─ {t:file,c:hash,...} ──────────────│  Bob sends hash
- │── {t:file,c:hash_ok} ──────────────▶│  Alice confirms hash
+ │◀─ {t:file,c:hash,mid:1,...} ────────│  Bob sends hash
+ │── {t:file,c:hash_ok,mid:1} ────────▶│  Alice confirms hash
  │                                     │
 ```
 

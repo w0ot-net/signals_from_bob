@@ -114,7 +114,7 @@ class SocksServerModule(BaseModule):
     @classmethod
     def run_command(cls, args, tunnel, logger):
         """Start the SOCKS server and run until tunnel closes."""
-        module = cls(tunnel, logger=logger)
+        module = cls(tunnel, logger=logger, module_id=args.module_id)
         try:
             host = getattr(args, 'socks_host', None)
             port = getattr(args, 'socks_port', None)
@@ -131,8 +131,10 @@ class SocksServerModule(BaseModule):
         finally:
             module.shutdown()
 
-    def __init__(self, tunnel, logger=None):
-        super(SocksServerModule, self).__init__(tunnel, logger=logger)
+    def __init__(self, tunnel, logger=None, module_id=1):
+        super(SocksServerModule, self).__init__(
+            tunnel, logger=logger, module_id=module_id
+        )
         self._config = tunnel._config
 
         # TCP server

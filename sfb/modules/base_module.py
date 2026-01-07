@@ -14,6 +14,7 @@ from __future__ import absolute_import
 import logging
 import threading
 
+from ..compat import integer_types
 from ..logging_util import get_logger, log_event
 
 
@@ -120,25 +121,34 @@ class BaseModule(object):
         )
         return 1
 
-    def __init__(self, tunnel, logger=None):
+    def __init__(self, tunnel, logger=None, module_id=1):
         """
         Initialize module and register with tunnel.
 
         Args:
             tunnel: The tunnel instance to register with.
             logger: Optional logger. Defaults to module class name.
+            module_id: Module instance id (positive integer).
         """
         if self.TYPE is None:
             raise ValueError('Subclass must define TYPE')
+        if (not isinstance(module_id, integer_types) or
+                isinstance(module_id, bool) or module_id <= 0):
+            raise ValueError('module_id must be a positive integer')
 
         self._tunnel = tunnel
         self._logger = logger or get_logger(self.__class__.__module__)
+        self._module_id = module_id
         self._threads = []
         self._threads_lock = threading.Lock()
         self._shutdown = False
 
-        tunnel.register_module(self.TYPE, self._dispatch)
+        tunnel.register_module(self.TYPE, module_id, self._dispatch)
         self._pending_lock = threading.Lock()
+
+    @property
+    def module_id(self):
+        return self._module_id
 
     def shutdown(self):
         """
@@ -155,7 +165,7 @@ class BaseModule(object):
                 logging.ERROR,
                 'module.unregister_failed',
                 'Failed to unregister module',
-                lambda: {'type': self.TYPE},
+                lambda: {'type': self.TYPE, 'mid': self._module_id},
                 exc_info=True,
             )
         with self._threads_lock:
@@ -166,7 +176,7 @@ class BaseModule(object):
 
     def unregister(self):
         """Unregister from tunnel."""
-        self._tunnel.unregister_module(self.TYPE)
+        self._tunnel.unregister_module(self.TYPE, self._module_id)
 
     def send_message(self, msg):
         """
@@ -175,12 +185,25 @@ class BaseModule(object):
         Args:
             msg: Dict or ControlMessage to send on channel 0.
         """
+        if hasattr(msg, 'to_dict'):
+            msg = msg.to_dict()
+        elif isinstance(msg, dict):
+            msg = dict(msg)
+        else:
+            raise ValueError('msg must be dict or ControlMessage')
+        msg_mid = msg.get('mid')
+        if msg_mid is None:
+            msg['mid'] = self._module_id
+        elif msg_mid != self._module_id:
+            raise ValueError('message mid mismatch: %s != %s' % (
+                msg_mid, self._module_id
+            ))
         log_event(
             self._logger,
             logging.DEBUG,
             'module.send',
             'Module send',
-            lambda: {'type': self.TYPE, 'msg': msg},
+            lambda: {'type': self.TYPE, 'mid': self._module_id, 'msg': msg},
         )
         self._tunnel.control.send_message(msg)
 
@@ -197,7 +220,7 @@ class BaseModule(object):
             logging.DEBUG,
             'module.recv',
             'Module recv',
-            lambda: {'type': self.TYPE, 'msg': msg},
+            lambda: {'type': self.TYPE, 'mid': self._module_id, 'msg': msg},
         )
         cmd = msg.get('c')
         if not cmd:
@@ -213,7 +236,7 @@ class BaseModule(object):
                 logging.DEBUG,
                 'module.command_unknown',
                 'No handler for command',
-                lambda: {'type': self.TYPE, 'cmd': cmd},
+                lambda: {'type': self.TYPE, 'mid': self._module_id, 'cmd': cmd},
             )
             return
 
@@ -254,7 +277,11 @@ class BaseModule(object):
                 logging.ERROR,
                 'module.handler_error',
                 'Handler error',
-                lambda: {'type': self.TYPE, 'error': str(e)},
+                lambda: {
+                    'type': self.TYPE,
+                    'mid': self._module_id,
+                    'error': str(e),
+                },
                 exc_info=True,
             )
 
@@ -279,6 +306,23 @@ class RequestResponseMixin(object):
         self._next_rid = 1
         self._pending = {}  # rid -> _PendingRequest
 
+    def shutdown(self):
+        self._clear_pending_requests()
+        return super(RequestResponseMixin, self).shutdown()
+
+    def _notify_pending_control(self, delta):
+        adjust = getattr(self._tunnel, '_adjust_pending_control', None)
+        if adjust is None:
+            return
+        adjust(delta)
+
+    def _clear_pending_requests(self):
+        with self._pending_lock:
+            pending = list(self._pending.keys())
+            self._pending.clear()
+        if pending:
+            self._notify_pending_control(-len(pending))
+
     def _alloc_rid(self):
         """Allocate a unique request ID."""
         with self._rid_lock:
@@ -299,6 +343,7 @@ class RequestResponseMixin(object):
         pending = _PendingRequest()
         with self._pending_lock:
             self._pending[rid] = pending
+        self._notify_pending_control(1)
         return pending
 
     def _wait_response(self, rid, pending, timeout=None):
@@ -319,6 +364,7 @@ class RequestResponseMixin(object):
         if not pending.event.wait(timeout=timeout):
             with self._pending_lock:
                 self._pending.pop(rid, None)
+            self._notify_pending_control(-1)
             raise ModuleError('timeout', 'request timed out')
         return pending.response or {}
 
@@ -342,5 +388,6 @@ class RequestResponseMixin(object):
         if pending is not None:
             pending.response = msg
             pending.event.set()
+            self._notify_pending_control(-1)
             return True
         return False

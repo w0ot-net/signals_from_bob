@@ -32,9 +32,9 @@ Client              Bob                    Alice              Target
  │── TCP CONNECT ───▶│                       │                   │
  │                   │── {t:ch,c:open} ─────▶│                   │
  │                   │◀── {t:ch,c:open_ok} ──│                   │
- │                   │── {t:fwd,c:connect} ▶│                   │
+ │                   │── {t:fwd,c:connect,mid:1} ▶│              │
  │                   │                       │── TCP CONNECT ───▶│
- │                   │◀── {t:fwd,c:connect_ok}                  │
+ │                   │◀── {t:fwd,c:connect_ok,mid:1}             │
  │                   │                       │                   │
  │── data ──────────▶│══ ch data ═══════════▶│── data ──────────▶│
  │◀── data ──────────│◀═ ch data ════════════│◀── data ──────────│
@@ -46,9 +46,9 @@ Client              Bob                    Alice              Target
 ## Control Messages
 
 ```json
-{"t":"fwd","c":"connect","rid":1,"ch":2,"host":"example.com","port":443}
-{"t":"fwd","c":"connect_ok","rid":1,"ch":2}
-{"t":"fwd","c":"err","rid":1,"ch":2,"code":"refused","reason":"connection refused"}
+{"t":"fwd","c":"connect","mid":1,"rid":1,"ch":2,"host":"example.com","port":443}
+{"t":"fwd","c":"connect_ok","mid":1,"rid":1,"ch":2}
+{"t":"fwd","c":"err","mid":1,"rid":1,"ch":2,"code":"refused","reason":"connection refused"}
 ```
 
 `connect_ok` may include `bhost`/`bport` for the bound address on Alice.

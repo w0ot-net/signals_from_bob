@@ -191,12 +191,16 @@ Keepalive is a header flag with zero segments, not a channel 0 message.
 Address types labeled `ipv4` are the only supported address type in the
 protocol; IPv6 is unsupported.
 
+Module control messages (all `t` values except `tun` and `ch`) must include
+`mid` as a positive integer module instance id. The default instance id is `1`.
+
 ### Message Types
 
 | Type | Description |
 |------|-------------|
 | `tun` | Tunnel: mtu/window negotiation (keepalive is a header flag) |
 | `ch` | Channel: open/close lifecycle |
+| `mod` | Module loader: load module instances |
 | `file` | File transfer module |
 | `sock` | SOCKS proxy module |
 | `sh` | Shell module |

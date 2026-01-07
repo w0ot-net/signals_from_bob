@@ -1,30 +1,19 @@
-Project Rules
-- Maintain Python 2.7 and 3 compatibility in all code changes.
-- Use ASCII only for code and scripts. Non-ASCII is allowed in .md files.
-- Must support windows and linux
-- ICMP transport is Linux-only for now; Windows support is deferred.
-- never mention claude, anthropic, or use emojis
-- must use only python standard library
-- Tunnel supports asymmetric MTU: negotiate independent send and receive MTUs per side.
-- Keepalive pongs are suppressed when any channel has pending data.
-- Asymmetry rules (doc/ASYMMETRY.md): Alice initiates transport, Bob only responds to polls; Alice uses RTT-based retransmit, Bob retransmits opportunistically; Alice timeouts by packet count, Bob by wall-clock silence; throughput for Bob is bounded by Alice's polling rate.
-- invoke python using  `python3`
-- all end to ends tests for dns transport in direct mode should use port 5353
-- for authoritative DNS mode we should use port 53
-- E2E tests are in tests/e2e/ - do NOT run them yourself; only the user will run them
-- always commit and push after making code changes, including documentation updates
-- Never use `git add .` or `git add -A`. Always stage explicit paths.
-- always commit only the files you touched; do not commit the whole project
-- breaking changes are acceptable when they improve cleanliness or performance; make the clean change and update all call sites in the same change, and avoid compatibility shims or transitional signatures for internal APIs
-- for code reviews, try to answer your own questions; if that is not possible, suggest likely best options when posing questions, grounded in observed facts
-- for code reviews or plan reviews, ignore any changes to tests unless I explicitly ask about tests
-- for code/document reviews, ignore anything under doc/completed_plans and doc/abandoned_plans
-- when asked to evaluate a <plan>.md, perform a full code review of all affected components
-- when asked to draft a <plan>.md, include a section that lists all affected components
-- when executing a <plan>.md, add notes about how it was executed and then move it into doc/completed_plans
-- files moved into doc/completed_plans must be prefixed with a YYYYMMDD_ datestamp
-- when executing a <plan>.md, do not update any code under ./tests; we will fix tests later
-- if unrelated changes are present, only commit the changes you made and ignore the other changes
-- when asked to look at logs, default to logs/server_log.db and logs/client_log.db unless otherwise specified
-- when inspecting any .db file, use the sqlite3 command line utility unless it expressly needs python
-- after inspecting logs for a bug listed under doc/bugs, summarize any new findings in the corresponding .md file
+- Compatibility: Python 2.7 + 3; ASCII-only code/scripts (Unicode allowed in .md); Windows + Linux support; ICMP transport stays
+    Linux-only.
+- Libraries/mentions: standard library only; never mention claude/anthropic or use emojis.
+- Protocol: asymmetric MTU negotiation; keepalive pongs suppressed when any channel has pending data; follow doc/ASYMMETRY.md (Alice
+initiates, RTT retransmit, packet-count timeouts; Bob polls/opportunistic retransmit, wall-clock timeouts; Bob throughput bounded
+by Alice polling).
+- Invocation/tests: use python3; DNS direct tests use port 5353; authoritative DNS uses port 53; never run tests/e2e/ (user only).
+- Git workflow: always commit + push after code/doc changes; never git add . or git add -A; stage explicit paths; commit only
+touched files; ignore unrelated changes.
+- Breaking changes: prefer clean breaks over compatibility shims; update all call sites in the same change.
+- Reviews: answer your own questions when possible; otherwise propose best options grounded in facts; ignore tests unless explicitly
+asked; ignore doc/completed_plans and doc/abandoned_plans.
+- Plans: drafting a <plan>.md must list affected components; evaluating a plan requires full code review of all affected components;
+executing a plan adds execution notes and moves it to doc/completed_plans with YYYYMMDD_ prefix; do not modify code under ./tests.
+- Logs/db: default logs logs/server_log.db + logs/client_log.db; inspect .db with sqlite3; if a bug is listed in doc/bugs, summarize
+new findings in that bug’s .md.
+- Coding: minimize code and complexity while maximizing performance, readability, logging, and correctness.
+- when coding always optimize for the least amount of code and least amount of complexity with the highest performance, while also maintaing readability, logging, and correctness
+- Never recommend changes that make too much of an effort to maintain API compatibility when a breaking change would cleaner/better for the long term, we can update callsites

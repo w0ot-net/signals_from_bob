@@ -51,3 +51,10 @@
 - Prefer segment-presence checks over keepalive flags for pacing decisions to reduce false "data received" signals.
 - Enforce a transport-level minimum response payload for POLL_HINT responses
   so Bob can always send at least 1 byte of data when advertising pending.
+
+## Execution Notes
+- 2026-01-07: Marked complete after Phases 1-3 were implemented
+  (`doc/completed_plans/20260106_TUNNEL_PERFORMANCE_IMPROVEMENTS_PHASE_1_PLAN.md`,
+  `doc/completed_plans/20260106_TUNNEL_PERFORMANCE_IMPROVEMENTS_PHASE_2_PLAN.md`,
+  `doc/completed_plans/20260106_TUNNEL_PERFORMANCE_IMPROVEMENTS_PHASE_3_PLAN.md`).
+  Tests not run (per instructions).

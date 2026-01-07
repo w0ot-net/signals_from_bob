@@ -1,5 +1,7 @@
 # RC4 Throughput and CPU Plan
 
+Status: abandoned
+
 ## Goal
 - Reduce RC4 CPU usage and its impact on throughput while preserving packet-
   scoped encryption (seq + direction) and Python 2.7/3 compatibility.
@@ -52,3 +54,6 @@
      standard-library hashing (C-backed) rather than silently changing RC4.
    - Document and expose the new mode via config/CLI, leaving RC4 intact for
      compatibility.
+
+## Abandonment notes
+- 2026-01-07: Abandoned per request; no implementation work recorded.

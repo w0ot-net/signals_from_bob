@@ -364,3 +364,15 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Takeaways:
   - The pacer change did not remove the stalls; Alice still sees ~1s gaps while Bob stays under ~0.35s.
   - Pacer gating dominates Alice send blocks and drives `target_inflight` down to the low teens; the idle-reset path is not firing in this window, so feedback remains active.
+
+## Log Review: Pacer SACK Stall (Jan 7, 2026, latest)
+- Logs: `logs/client_log.db`, `logs/server_log.db` (udp_ephemeral transport).
+- Pacer feedback flapping on Alice: repeated `tunnel.pacer_feedback_freeze` freeze/unfreeze with `reason=sack_stall` and `missing_age` ~0.51-0.79s; `ack_miss_count` ~98k; `missing_in_unacked=true`.
+- Pacer clamp: `tunnel.pacer_state`/`tunnel.pacer_summary` show `block_reason=window_distance` and `target_inflight` dropping into the 16-36 range; send_rate swings ~70-325 pps and recv_rate ~70-330 pps per 1s interval.
+- Send gating: `tunnel.send_blocked` is `reason=pacer` with `unacked` ~29-33; `tunnel.send_window_distance` shows a persistent missing seq (e.g., 7207) with `buffered` ~126-127 and `distance=128`.
+- Loss signals: frequent `tunnel.retransmit` fast retransmits (seq 7204-7207, 5912-5915, 4786-4788) plus at least one RTO (seq 3055) with send ages ~0.39-0.85s.
+- Sock pump variability: `sock.pump_stats` target_to_channel bytes vary ~0.20-0.43 MB per interval with `buffer_full` ~1370-1950 and `sleep_time` ~0.93-0.97s; aligns with bursty drain.
+- Bob side: `tunnel.retransmit_skip` dominates; `tunnel.send_window_distance` shows missing seq 10012 in unacked with `ack_miss_count` ~19k-21k.
+- Takeaways:
+  - Choppiness aligns with SACK hole stalls: missing seqs freeze feedback and enforce window_distance block penalties, shrinking inflight and pacing rate.
+  - Loss/retransmit bursts plus SACK stalls create the pacing oscillation; smoothing likely needs more aggressive hole retransmit or adjusted feedback freeze behavior.

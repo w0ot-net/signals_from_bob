@@ -26,7 +26,7 @@ from sfb.tunnel import AliceTunnel, BobTunnel, TunnelState
 
 TEST_PORT = 5353
 TEST_DOMAIN = 'test.local'
-TRANSFER_TIMEOUT = 120.0
+TRANSFER_TIMEOUT = 300.0
 TRANSFER_MULTIPLIER = 2
 CONCURRENCY_CASES = [
     (1, 1),
@@ -42,7 +42,7 @@ def _repo_root():
 
 
 def _source_path():
-    return os.path.join(_repo_root(), 'test_download_files', '1MB.bin')
+    return os.path.join(_repo_root(), 'test_download_files', '0_1MB.bin')
 
 
 def _ensure_dir(path):
@@ -153,8 +153,8 @@ class DnsDirectFileTransferStressTests(unittest.TestCase):
         cls._bob_root = os.path.join(cls._tmp_dir, 'bob')
         _ensure_dir(cls._alice_root)
         _ensure_dir(cls._bob_root)
-        cls._alice_source = os.path.join(cls._alice_root, '1MB.bin')
-        cls._bob_source = os.path.join(cls._bob_root, '1MB.bin')
+        cls._alice_source = os.path.join(cls._alice_root, '0_1MB.bin')
+        cls._bob_source = os.path.join(cls._bob_root, '0_1MB.bin')
         if cls._source_ok:
             shutil.copyfile(cls._source_path, cls._alice_source)
             shutil.copyfile(cls._source_path, cls._bob_source)

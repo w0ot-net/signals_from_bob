@@ -47,3 +47,14 @@ def file_hash(rid, ch, digest, alg='sha256'):
 
 def file_hash_ok(rid, ch):
     return ControlMessage(T_FILE, 'hash_ok', rid=rid, ch=ch)
+
+
+def file_hash_get(rid, path):
+    return ControlMessage(T_FILE, 'hash_get', rid=rid, path=path)
+
+
+def file_hash_get_ok(rid, digest, size=None, alg='sha256'):
+    fields = {'rid': rid, 'hash': digest, 'alg': alg}
+    if size is not None:
+        fields['size'] = size
+    return ControlMessage(T_FILE, 'hash_get_ok', **fields)

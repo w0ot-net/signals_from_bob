@@ -1,6 +1,6 @@
 # DNS Codec Hotspots Phase 3 Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 - Wire DNS codec caches into client/server initialization and document the
@@ -40,3 +40,9 @@ Status: draft
 - `python3 -m py_compile sfb/transport/dns/codec.py`
 - `python3 -m py_compile sfb/transport/dns/dns_client.py`
 - `python3 -m py_compile sfb/transport/dns/dns_server.py`
+
+## Execution Notes
+- Added a codec cache warmup helper and invoked it during client/server init
+  after config normalization.
+- Documented DNS codec caching in DNS transport architecture notes.
+- Tests not run (per instructions).

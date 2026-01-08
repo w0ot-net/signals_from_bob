@@ -322,6 +322,18 @@ def _get_cname_suffix_entry(cname_suffix, label_max_len):
     )
 
 
+def warm_codec_caches(base_domain, cname_suffix=None, label_max_len=None):
+    """
+    Warm DNS codec caches for suffix encodings.
+    """
+    label_max_len = _normalize_label_max_len(label_max_len)
+    base_domain = _normalize_domain(base_domain)
+    _get_base_domain_entry(base_domain, label_max_len)
+    if cname_suffix is not None:
+        cname_suffix = _normalize_domain(cname_suffix)
+        _get_cname_suffix_entry(cname_suffix, label_max_len)
+
+
 def _get_nonce_label(nonce):
     nonce = nonce & 0xFFFF
     cached = _NONCE_LABEL_CACHE.get(nonce)

@@ -879,6 +879,13 @@ This section describes techniques to maximize throughput over the DNS transport.
 | MTU (label_max_len=50) | 132-151 bytes (query), 134-153 bytes (response) | Depends on domain and cname_label |
 | CNAME response cap (512) | 76-94 bytes | Depends on domain and cname_label |
 
+### Codec Caching
+
+The DNS codec caches suffix encodings for `base_domain` and `cname_suffix`, and
+reuses cached nonce label encodings to reduce per-packet overhead. Caches are
+bounded and warmed during client/server initialization after config
+normalization. Wire format and transport semantics are unchanged.
+
 ### Optimal Domain Selection
 
 Shorter base domains and shorter `dns_cname_label` values provide higher MTU

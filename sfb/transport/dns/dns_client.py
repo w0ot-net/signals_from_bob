@@ -83,6 +83,11 @@ class DnsClient(Transport):
             config.dns_cname_label.strip('.'),
             self._base_domain
         )
+        codec.warm_codec_caches(
+            self._base_domain,
+            self._cname_suffix,
+            self._label_max_len,
+        )
         self._nonce = random.randint(0, 0xFFFF)
         self._query_id = random.randint(0, 0xFFFF)
         self._alice_has_data_pending = False

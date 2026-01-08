@@ -75,6 +75,11 @@ class DnsServer(Server):
             self._base_domain
         )
         self._cname_suffix_lower = self._cname_suffix.lower()
+        codec.warm_codec_caches(
+            self._base_domain,
+            self._cname_suffix,
+            self._label_max_len,
+        )
         self._cname_a_addr = config.dns_cname_a_addr
 
         # Parse listen address

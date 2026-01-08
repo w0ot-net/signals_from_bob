@@ -19,16 +19,9 @@
 - sfb.py (entrypoint adjustments, if needed)
 
 ## Design Proposal
-- **Manifest-first ordering**: add `doc/flatten_manifest.txt` as the primary
-  source of truth for module ordering, entrypoint, and excludes. The file is
-  ASCII, line-oriented, and easy to review in diffs.
-- **Optional per-file annotations**: allow lightweight comments to reduce
-  manifest churn when adding a new module. Proposed pragma format:
-  - `# FLATTEN: after=sfb.compat,sfb.time_provider`
-  - `# FLATTEN: before=sfb.cli`
-  - `# FLATTEN: skip`
-  The flattener treats annotations as constraints layered on top of the
-  manifest order (manifest wins on conflicts).
+- **Manifest-only ordering**: add `doc/flatten_manifest.txt` as the sole source
+  of truth for module ordering, entrypoint, and excludes. The file is ASCII,
+  line-oriented, and easy to review in diffs.
 - **Concatenation strategy**: emit a single file that pre-creates module
   objects in `sys.modules`, then executes each module's source into its own
   module dict in manifest order. This avoids custom import hooks while keeping
@@ -49,10 +42,9 @@
    package paths so the temp-root behavior is sufficient.
 2. Define `doc/flatten_manifest.txt` format (entrypoint, include roots, excludes,
    ordered module list).
-3. Define and document the `# FLATTEN:` annotation rules and conflict handling.
-4. Specify the bootstrap sequence (pre-register modules, temp root creation,
+3. Specify the bootstrap sequence (pre-register modules, temp root creation,
    exec order) and document expected runtime behavior.
-5. Update README with usage and workflow guidelines once the script exists.
+4. Update README with usage and workflow guidelines once the script exists.
 
 ## Testing
 - Do not run tests here. The user will run tests as needed with python3.

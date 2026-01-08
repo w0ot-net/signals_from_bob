@@ -5,22 +5,6 @@ Adaptive pacing for Alice sends.
 
 from __future__ import absolute_import
 
-from collections import namedtuple
-
-
-_PacerState = namedtuple('_PacerState', [
-    'cap',
-    'base_target',
-    'feedback_target',
-    'baseline_target',
-    'blocked_target',
-    'probe_target',
-    'target_inflight',
-    'target_mode',
-    'feedback_floor',
-    'feedback_floor_active',
-    'block_target',
-])
 
 class AdaptivePacer(object):
     """
@@ -192,15 +176,15 @@ class AdaptivePacer(object):
     def on_blocked(self, reason, now, cap, srtt_ms=None, unacked_count=None):
         if not self._enabled:
             return False
+        cap = self._normalize_cap(cap)
         if reason == 'window_distance':
             self._last_window_distance_time = now
         cooldown = self._block_cooldown(srtt_ms)
         if (self._last_block_time is not None and
                 now - self._last_block_time < cooldown):
             return False
-        state = self._target_state(cap, srtt_ms=srtt_ms, now=now)
-        baseline_target = state.baseline_target
-        current_target = state.target_inflight
+        _, _, baseline_target, _, _, _ = self._baseline_target(cap, srtt_ms)
+        current_target = self.target_inflight(cap, srtt_ms=srtt_ms)
         reduction = self._blocked_reduction(
             reason, current_target, unacked_count
         )
@@ -278,11 +262,7 @@ class AdaptivePacer(object):
         return cap
 
     def _resolve_now(self, now):
-        if self._last_ack_time is None:
-            return None
-        if now is None:
-            return self._last_ack_time
-        if now < self._last_ack_time:
+        if now is not None:
             return now
         return self._last_ack_time
 
@@ -409,11 +389,36 @@ class AdaptivePacer(object):
         return (base_target, feedback_target, baseline_target,
                 target_mode, feedback_floor, feedback_floor_active)
 
-    def _target_state(self, cap, srtt_ms=None, now=None):
+    def _apply_block_floor(self, blocked_target, feedback_target):
+        if self._block_reason != 'window_distance':
+            return blocked_target
+        if feedback_target is None:
+            return blocked_target
+        if blocked_target < feedback_target:
+            return feedback_target
+        return blocked_target
+
+    def target_inflight(self, cap, srtt_ms=None):
+        cap = self._normalize_cap(cap)
+        _, feedback_target, baseline_target, _, _, _ = self._baseline_target(
+            cap, srtt_ms
+        )
+        blocked_target = baseline_target - self._block_penalty
+        blocked_target = self._apply_block_floor(blocked_target, feedback_target)
+        target = blocked_target + self._probe_extra
+        return self._clamp_target(target, cap)
+
+    def can_send(self, unacked_count, cap, srtt_ms=None):
+        if not self._enabled:
+            return True
+        target = self.target_inflight(cap, srtt_ms=srtt_ms)
+        return unacked_count < target
+
+    def state_fields(self, unacked_count, cap, rate_limit=None, srtt_ms=None):
         cap = self._normalize_cap(cap)
         (base_target, feedback_target, baseline_target, target_mode,
          feedback_floor, feedback_floor_active) = self._baseline_target(
-            cap, srtt_ms, now
+            cap, srtt_ms
         )
         blocked_target = baseline_target - self._block_penalty
         blocked_target = self._apply_block_floor(blocked_target, feedback_target)
@@ -424,67 +429,22 @@ class AdaptivePacer(object):
         block_target = None
         if self._block_penalty:
             block_target = self._clamp_target(blocked_target, cap)
-        return _PacerState(
-            cap=cap,
-            base_target=base_target,
-            feedback_target=feedback_target,
-            baseline_target=baseline_target,
-            blocked_target=blocked_target,
-            probe_target=probe_target,
-            target_inflight=target,
-            target_mode=target_mode,
-            feedback_floor=feedback_floor,
-            feedback_floor_active=feedback_floor_active,
-            block_target=block_target,
-        )
-
-    def _apply_block_floor(self, blocked_target, feedback_target):
-        if self._block_reason != 'window_distance':
-            return blocked_target
-        if feedback_target is None:
-            return blocked_target
-        if blocked_target < feedback_target:
-            return feedback_target
-        return blocked_target
-
-    def target_state(self, cap, srtt_ms=None, now=None):
-        return self._target_state(cap, srtt_ms=srtt_ms, now=now)
-
-    def target_inflight(self, cap, srtt_ms=None, now=None, state=None):
-        if state is None:
-            state = self._target_state(cap, srtt_ms=srtt_ms, now=now)
-        return state.target_inflight
-
-    def can_send(self, unacked_count, cap, srtt_ms=None, now=None, state=None):
-        if not self._enabled:
-            return True
-        if state is None:
-            state = self._target_state(cap, srtt_ms=srtt_ms, now=now)
-        return unacked_count < state.target_inflight
-
-    def state_fields(self, unacked_count, cap, rate_limit=None, srtt_ms=None,
-                     now=None, state=None):
-        if state is None:
-            state = self._target_state(cap, srtt_ms=srtt_ms, now=now)
-        target = state.target_inflight
         fields = {
             'target_inflight': target,
-            'base_target': state.base_target,
-            'feedback_target': state.feedback_target,
-            'baseline_target': state.baseline_target,
-            'feedback_floor': state.feedback_floor,
-            'feedback_floor_active': state.feedback_floor_active,
+            'base_target': base_target,
+            'feedback_target': feedback_target,
+            'baseline_target': baseline_target,
+            'feedback_floor': feedback_floor,
+            'feedback_floor_active': feedback_floor_active,
             'feedback_reduction_gain': self._FEEDBACK_REDUCTION_GAIN,
             'block_penalty': self._block_penalty,
             'block_reason': self._block_reason,
-            'block_target': state.block_target,
+            'block_target': block_target,
             'probe_extra': self._probe_extra,
-            'probe_target': (
-                state.probe_target if self._probe_extra else None
-            ),
-            'target_mode': state.target_mode,
+            'probe_target': probe_target if self._probe_extra else None,
+            'target_mode': target_mode,
             'unacked_count': unacked_count,
-            'cap': state.cap,
+            'cap': cap,
             'ack_rate_ewma': self._ack_rate_ewma,
             'ack_samples': self._ack_samples,
             'srtt_ms': srtt_ms,

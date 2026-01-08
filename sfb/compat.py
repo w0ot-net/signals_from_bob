@@ -10,13 +10,16 @@ import sys
 
 PY2 = sys.version_info[0] == 2
 
+if hasattr(memoryview, 'tobytes'):
+    _VIEW_TO_BYTES = memoryview.tobytes
+else:
+    _VIEW_TO_BYTES = memoryview.tostring
+
 def bytes_from_view(view):
     """
-    Return bytes from a memoryview-like object with Py2/Py3 method handling.
+    Return bytes from a memoryview-like object.
     """
-    if hasattr(view, 'tobytes'):
-        return view.tobytes()
-    return view.tostring()
+    return _VIEW_TO_BYTES(view)
 
 if PY2:
     text_type = unicode

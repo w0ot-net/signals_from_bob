@@ -1,6 +1,6 @@
 # CLI Complexity Reduction Phase 2
 
-Status: draft
+Status: completed
 
 Parent Plan: CLI_COMPLEXITY_REDUCTION_PLAN.md
 
@@ -64,3 +64,8 @@ Parent Plan: CLI_COMPLEXITY_REDUCTION_PLAN.md
 ## Testing
 - Do not run tests here. If needed, use `radon cc sfb/cli.py` to verify the
   complexity drop after the refactor.
+
+## Execution Notes
+- 20260108: Extracted transport/role/logging/crypto config helpers, added lossy
+  transport rate/impairment helpers, and reassembled `create_config` with the
+  same merge order; no tests run.

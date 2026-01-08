@@ -1066,149 +1066,163 @@ def parse_args(args=None):
     return parsed
 
 
-def create_config(args):
-    """Create Config from parsed arguments."""
-    config_kwargs = {
-        'dns_base_domain': args.domain,
-        'transport': args.transport,
-    }
-    config_kwargs['max_in_flight'] = getattr(args, 'max_in_flight', None)
-
-    # DNS transport args
-    if args.transport == 'dns':
-        if args.role == 'server':
-            listen_addr = getattr(args, 'listen_addr', None)
-            if not listen_addr:
-                listen_addr = Config().dns_listen_addr
-            host, port = parse_host_port(listen_addr, default_port=53)
-            config_kwargs['dns_listen_addr'] = '%s:%d' % (host, port)
-            config_kwargs['tunnel_idle_timeout'] = float(args.idle_timeout)
-        else:
-            config_kwargs['dns_resolver'] = getattr(args, 'target', None)
-    elif args.transport == 'icmp':
-        config_kwargs['icmp_packet_mtu'] = getattr(args, 'icmp_packet_mtu', None)
-        if args.role == 'client':
-            config_kwargs['icmp_target'] = getattr(args, 'target', None)
-    elif args.transport == 'udp_ephemeral':
-        config_kwargs['udp_ephemeral_packet_mtu'] = getattr(
-            args, 'udp_ephemeral_packet_mtu', None
-        )
-        if args.role == 'client':
-            config_kwargs['udp_ephemeral_target'] = getattr(args, 'target', None)
-            config_kwargs['udp_ephemeral_pending_timeout'] = getattr(
-                args, 'udp_ephemeral_pending_timeout', None
-            )
-            config_kwargs['udp_ephemeral_source_port_reuse_seconds'] = getattr(
-                args, 'udp_ephemeral_source_port_reuse_seconds', None
-            )
-        else:
-            listen_addr = getattr(args, 'listen_addr', None)
-            if listen_addr:
-                config_kwargs['udp_ephemeral_listen_addr'] = listen_addr
-    elif args.transport == 'tls_handshake':
-        if args.role == 'client':
-            config_kwargs['tls_target'] = getattr(args, 'target', None)
-            config_kwargs['tls_http_proxy'] = getattr(args, 'tls_http_proxy', None)
-            config_kwargs['tls_http_proxy_auth'] = getattr(args, 'tls_http_proxy_auth', None)
-            config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
-            config_kwargs['tls_alpn'] = getattr(args, 'tls_alpn', None)
-            config_kwargs['tls_clienthello_padding_target'] = getattr(
-                args, 'tls_clienthello_padding_target', None)
-            config_kwargs['tls_max_clienthello_bytes'] = getattr(
-                args, 'tls_max_record_bytes', None
-            )
-            config_kwargs['tls_max_serverhello_bytes'] = getattr(
-                args, 'tls_max_record_bytes', None
-            )
-        else:
-            listen_addr = getattr(args, 'listen_addr', None)
-            if listen_addr:
-                config_kwargs['tls_listen_addr'] = listen_addr
-            else:
-                config_kwargs['tls_listen_addr'] = getattr(args, 'tls_listen_addr', None)
-            config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
-            config_kwargs['tls_clienthello_padding_target'] = getattr(
-                args, 'tls_clienthello_padding_target', None)
-            config_kwargs['tls_max_clienthello_bytes'] = getattr(
-                args, 'tls_max_record_bytes', None
-            )
-            config_kwargs['tls_max_serverhello_bytes'] = getattr(
-                args, 'tls_max_record_bytes', None
-            )
-    elif args.transport == 'tls_handshake_bump':
-        config_kwargs['tls_bump_base_domain'] = getattr(args, 'tls_bump_base_domain', None)
-        if args.role == 'client':
-            config_kwargs['tls_bump_target'] = getattr(args, 'target', None)
-            config_kwargs['tls_bump_http_proxy'] = getattr(args, 'tls_http_proxy', None)
-            config_kwargs['tls_bump_http_proxy_auth'] = getattr(
-                args, 'tls_http_proxy_auth', None)
-            config_kwargs['tls_bump_request_path'] = getattr(
-                args, 'tls_bump_request_path', None)
-            config_kwargs['tls_bump_cn_max_len'] = getattr(
-                args, 'tls_bump_cn_max_len', None)
-        else:
-            listen_addr = getattr(args, 'listen_addr', None)
-            if listen_addr:
-                config_kwargs['tls_bump_listen_addr'] = listen_addr
-            else:
-                config_kwargs['tls_bump_listen_addr'] = getattr(
-                    args, 'tls_bump_listen_addr', None)
-            config_kwargs['tls_bump_max_clienthello_bytes'] = getattr(
-                args, 'tls_bump_max_clienthello_bytes', None)
-
-    if args.role == 'client':
-        config_kwargs['tunnel_send_rate'] = getattr(args, 'send_rate', None)
-        config_kwargs['tunnel_send_burst'] = getattr(args, 'send_burst', None)
-        config_kwargs['tunnel_fast_retransmit_enabled'] = getattr(
-            args, 'fast_retransmit', None)
-        config_kwargs['tunnel_fast_retransmit_min_age_ratio'] = getattr(
-            args, 'fast_retransmit_min_age_ratio', None)
-        config_kwargs['tunnel_fast_retransmit_max_per_seq'] = getattr(
-            args, 'fast_retransmit_max_per_seq', None)
-        config_kwargs['tunnel_adaptive_pacing_enabled'] = getattr(
-            args, 'adaptive_pacing', None)
-        config_kwargs['tunnel_pace_target_inflight_ratio'] = getattr(
-            args, 'pace_target_inflight_ratio', None)
-        config_kwargs['tunnel_pace_min_inflight'] = getattr(
-            args, 'pace_min_inflight', None)
-        config_kwargs['tunnel_pace_max_inflight'] = getattr(
-            args, 'pace_max_inflight', None)
-        config_kwargs['tunnel_pace_feedback_gain'] = getattr(
-            args, 'pace_feedback_gain', None)
-        config_kwargs['tunnel_pace_ack_ewma_alpha'] = getattr(
-            args, 'pace_ack_ewma_alpha', None)
-        config_kwargs['tunnel_pace_rtt_floor_ms'] = getattr(
-            args, 'pace_rtt_floor_ms', None)
-        config_kwargs['tunnel_pace_ack_idle_reset_sec'] = getattr(
-            args, 'pace_ack_idle_reset_sec', None)
-        config_kwargs['tunnel_poll_pacing_enabled'] = getattr(
-            args, 'poll_pacing', None)
-        config_kwargs['tunnel_poll_min_interval'] = getattr(
-            args, 'poll_min_interval', None)
-        config_kwargs['tunnel_poll_max_interval'] = getattr(
-            args, 'poll_max_interval', None)
-        config_kwargs['tunnel_poll_rtt_ratio'] = getattr(
-            args, 'poll_rtt_ratio', None)
-
-    # Server-specific
+def _build_dns_config(args):
+    config_kwargs = {}
     if args.role == 'server':
-        config_kwargs['file_transfer_root'] = getattr(args, 'root', None)
-        config_kwargs['file_transfer_max_size'] = getattr(args, 'max_size', None)
+        listen_addr = getattr(args, 'listen_addr', None)
+        if not listen_addr:
+            listen_addr = Config().dns_listen_addr
+        host, port = parse_host_port(listen_addr, default_port=53)
+        config_kwargs['dns_listen_addr'] = '%s:%d' % (host, port)
+        config_kwargs['tunnel_idle_timeout'] = float(args.idle_timeout)
+    else:
+        config_kwargs['dns_resolver'] = getattr(args, 'target', None)
+    return config_kwargs
 
-    # Logging
-    config_kwargs['stats_enabled'] = bool(getattr(args, 'verbose', False))
-    config_kwargs['db_log_path'] = getattr(args, 'db_log', None)
-    config_kwargs['db_log_flush'] = getattr(args, 'db_log_flush', None)
-    config_kwargs['db_log_queue'] = getattr(args, 'db_log_queue', None)
-    config_kwargs['log_profile'] = getattr(args, 'log_profile', None)
-    config_kwargs['relay_buffer_size'] = getattr(
-        args, 'relay_buffer_size', None)
-    config_kwargs['channel_max_send_buf'] = getattr(
-        args, 'channel_max_send_buf', None)
-    config_kwargs['relay_pump_backoff_max'] = getattr(
-        args, 'relay_pump_backoff_max', None)
-    config_kwargs['non_blocking_poll_timeout'] = getattr(
-        args, 'non_blocking_poll_timeout', None)
+
+def _build_icmp_config(args):
+    config_kwargs = {
+        'icmp_packet_mtu': getattr(args, 'icmp_packet_mtu', None),
+    }
+    if args.role == 'client':
+        config_kwargs['icmp_target'] = getattr(args, 'target', None)
+    return config_kwargs
+
+
+def _build_udp_ephemeral_config(args):
+    config_kwargs = {
+        'udp_ephemeral_packet_mtu': getattr(
+            args, 'udp_ephemeral_packet_mtu', None
+        ),
+    }
+    if args.role == 'client':
+        config_kwargs['udp_ephemeral_target'] = getattr(args, 'target', None)
+        config_kwargs['udp_ephemeral_pending_timeout'] = getattr(
+            args, 'udp_ephemeral_pending_timeout', None
+        )
+        config_kwargs['udp_ephemeral_source_port_reuse_seconds'] = getattr(
+            args, 'udp_ephemeral_source_port_reuse_seconds', None
+        )
+    else:
+        listen_addr = getattr(args, 'listen_addr', None)
+        if listen_addr:
+            config_kwargs['udp_ephemeral_listen_addr'] = listen_addr
+    return config_kwargs
+
+
+def _build_tls_handshake_config(args):
+    config_kwargs = {}
+    max_record_bytes = getattr(args, 'tls_max_record_bytes', None)
+    if args.role == 'client':
+        config_kwargs['tls_target'] = getattr(args, 'target', None)
+        config_kwargs['tls_http_proxy'] = getattr(args, 'tls_http_proxy', None)
+        config_kwargs['tls_http_proxy_auth'] = getattr(
+            args, 'tls_http_proxy_auth', None)
+        config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
+        config_kwargs['tls_alpn'] = getattr(args, 'tls_alpn', None)
+        config_kwargs['tls_clienthello_padding_target'] = getattr(
+            args, 'tls_clienthello_padding_target', None)
+        config_kwargs['tls_max_clienthello_bytes'] = max_record_bytes
+        config_kwargs['tls_max_serverhello_bytes'] = max_record_bytes
+    else:
+        listen_addr = getattr(args, 'listen_addr', None)
+        if listen_addr:
+            config_kwargs['tls_listen_addr'] = listen_addr
+        else:
+            config_kwargs['tls_listen_addr'] = getattr(args, 'tls_listen_addr', None)
+        config_kwargs['tls_sni'] = getattr(args, 'tls_sni', None)
+        config_kwargs['tls_clienthello_padding_target'] = getattr(
+            args, 'tls_clienthello_padding_target', None)
+        config_kwargs['tls_max_clienthello_bytes'] = max_record_bytes
+        config_kwargs['tls_max_serverhello_bytes'] = max_record_bytes
+    return config_kwargs
+
+
+def _build_tls_bump_config(args):
+    config_kwargs = {
+        'tls_bump_base_domain': getattr(args, 'tls_bump_base_domain', None),
+    }
+    if args.role == 'client':
+        config_kwargs['tls_bump_target'] = getattr(args, 'target', None)
+        config_kwargs['tls_bump_http_proxy'] = getattr(args, 'tls_http_proxy', None)
+        config_kwargs['tls_bump_http_proxy_auth'] = getattr(
+            args, 'tls_http_proxy_auth', None)
+        config_kwargs['tls_bump_request_path'] = getattr(
+            args, 'tls_bump_request_path', None)
+        config_kwargs['tls_bump_cn_max_len'] = getattr(
+            args, 'tls_bump_cn_max_len', None)
+    else:
+        listen_addr = getattr(args, 'listen_addr', None)
+        if listen_addr:
+            config_kwargs['tls_bump_listen_addr'] = listen_addr
+        else:
+            config_kwargs['tls_bump_listen_addr'] = getattr(
+                args, 'tls_bump_listen_addr', None)
+        config_kwargs['tls_bump_max_clienthello_bytes'] = getattr(
+            args, 'tls_bump_max_clienthello_bytes', None)
+    return config_kwargs
+
+
+def _build_client_config(args):
+    return {
+        'tunnel_send_rate': getattr(args, 'send_rate', None),
+        'tunnel_send_burst': getattr(args, 'send_burst', None),
+        'tunnel_fast_retransmit_enabled': getattr(
+            args, 'fast_retransmit', None),
+        'tunnel_fast_retransmit_min_age_ratio': getattr(
+            args, 'fast_retransmit_min_age_ratio', None),
+        'tunnel_fast_retransmit_max_per_seq': getattr(
+            args, 'fast_retransmit_max_per_seq', None),
+        'tunnel_adaptive_pacing_enabled': getattr(
+            args, 'adaptive_pacing', None),
+        'tunnel_pace_target_inflight_ratio': getattr(
+            args, 'pace_target_inflight_ratio', None),
+        'tunnel_pace_min_inflight': getattr(
+            args, 'pace_min_inflight', None),
+        'tunnel_pace_max_inflight': getattr(
+            args, 'pace_max_inflight', None),
+        'tunnel_pace_feedback_gain': getattr(
+            args, 'pace_feedback_gain', None),
+        'tunnel_pace_ack_ewma_alpha': getattr(
+            args, 'pace_ack_ewma_alpha', None),
+        'tunnel_pace_rtt_floor_ms': getattr(
+            args, 'pace_rtt_floor_ms', None),
+        'tunnel_pace_ack_idle_reset_sec': getattr(
+            args, 'pace_ack_idle_reset_sec', None),
+        'tunnel_poll_pacing_enabled': getattr(
+            args, 'poll_pacing', None),
+        'tunnel_poll_min_interval': getattr(
+            args, 'poll_min_interval', None),
+        'tunnel_poll_max_interval': getattr(
+            args, 'poll_max_interval', None),
+        'tunnel_poll_rtt_ratio': getattr(
+            args, 'poll_rtt_ratio', None),
+    }
+
+
+def _build_server_config(args):
+    return {
+        'file_transfer_root': getattr(args, 'root', None),
+        'file_transfer_max_size': getattr(args, 'max_size', None),
+    }
+
+
+def _build_logging_config(args):
+    return {
+        'stats_enabled': bool(getattr(args, 'verbose', False)),
+        'db_log_path': getattr(args, 'db_log', None),
+        'db_log_flush': getattr(args, 'db_log_flush', None),
+        'db_log_queue': getattr(args, 'db_log_queue', None),
+        'log_profile': getattr(args, 'log_profile', None),
+        'relay_buffer_size': getattr(args, 'relay_buffer_size', None),
+        'channel_max_send_buf': getattr(args, 'channel_max_send_buf', None),
+        'relay_pump_backoff_max': getattr(args, 'relay_pump_backoff_max', None),
+        'non_blocking_poll_timeout': getattr(args, 'non_blocking_poll_timeout', None),
+    }
+
+
+def _build_crypto_config(args):
+    config_kwargs = {}
     if getattr(args, 'xor', None) is not None:
         config_kwargs['crypto_mode'] = 'xor'
         config_kwargs['crypto_psk'] = _normalize_psk(args.xor)
@@ -1218,6 +1232,34 @@ def create_config(args):
     elif getattr(args, 'sha256', None) is not None:
         config_kwargs['crypto_mode'] = 'sha256'
         config_kwargs['crypto_psk'] = _normalize_psk(args.sha256)
+    return config_kwargs
+
+
+def create_config(args):
+    """Create Config from parsed arguments."""
+    config_kwargs = {
+        'dns_base_domain': args.domain,
+        'transport': args.transport,
+        'max_in_flight': getattr(args, 'max_in_flight', None),
+    }
+    transport_builders = {
+        'dns': _build_dns_config,
+        'icmp': _build_icmp_config,
+        'udp_ephemeral': _build_udp_ephemeral_config,
+        'tls_handshake': _build_tls_handshake_config,
+        'tls_handshake_bump': _build_tls_bump_config,
+    }
+    transport_builder = transport_builders.get(args.transport)
+    if transport_builder:
+        config_kwargs.update(transport_builder(args))
+
+    if args.role == 'client':
+        config_kwargs.update(_build_client_config(args))
+    elif args.role == 'server':
+        config_kwargs.update(_build_server_config(args))
+
+    config_kwargs.update(_build_logging_config(args))
+    config_kwargs.update(_build_crypto_config(args))
 
     config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
     return Config(**config_kwargs)
@@ -1307,20 +1349,18 @@ def _resolve_corrupt_percents(args):
     )
 
 
-def _wrap_lossy_transport(transport, args, role, logger):
-    tx_loss_percent, rx_loss_percent = _resolve_loss_percents(args)
-    tx_dup_percent, rx_dup_percent = _resolve_dup_percents(args)
-    tx_corrupt_percent, rx_corrupt_percent = _resolve_corrupt_percents(args)
-    if (tx_loss_percent <= 0 and rx_loss_percent <= 0 and
-            tx_dup_percent <= 0 and rx_dup_percent <= 0 and
-            tx_corrupt_percent <= 0 and rx_corrupt_percent <= 0):
-        return transport
-    tx_loss_rate = tx_loss_percent / 100.0
-    rx_loss_rate = rx_loss_percent / 100.0
-    tx_dup_rate = tx_dup_percent / 100.0
-    rx_dup_rate = rx_dup_percent / 100.0
-    tx_corrupt_rate = tx_corrupt_percent / 100.0
-    rx_corrupt_rate = rx_corrupt_percent / 100.0
+def _percent_pair_to_rates(tx_percent, rx_percent):
+    return tx_percent / 100.0, rx_percent / 100.0
+
+
+def _build_lossy_impairments(
+        tx_loss_rate,
+        rx_loss_rate,
+        tx_dup_rate,
+        rx_dup_rate,
+        tx_corrupt_rate,
+        rx_corrupt_rate,
+):
     if (tx_loss_rate == rx_loss_rate and
             tx_dup_rate == rx_dup_rate and
             tx_corrupt_rate == rx_corrupt_rate):
@@ -1329,19 +1369,45 @@ def _wrap_lossy_transport(transport, args, role, logger):
             dup_rate=tx_dup_rate,
             corrupt_rate=tx_corrupt_rate,
         )
-        send_impairment = impairment
-        recv_impairment = impairment
-    else:
-        send_impairment = NetworkImpairment(
-            loss_rate=tx_loss_rate,
-            dup_rate=tx_dup_rate,
-            corrupt_rate=tx_corrupt_rate,
-        )
-        recv_impairment = NetworkImpairment(
-            loss_rate=rx_loss_rate,
-            dup_rate=rx_dup_rate,
-            corrupt_rate=rx_corrupt_rate,
-        )
+        return impairment, impairment
+    send_impairment = NetworkImpairment(
+        loss_rate=tx_loss_rate,
+        dup_rate=tx_dup_rate,
+        corrupt_rate=tx_corrupt_rate,
+    )
+    recv_impairment = NetworkImpairment(
+        loss_rate=rx_loss_rate,
+        dup_rate=rx_dup_rate,
+        corrupt_rate=rx_corrupt_rate,
+    )
+    return send_impairment, recv_impairment
+
+
+def _wrap_lossy_transport(transport, args, role, logger):
+    tx_loss_percent, rx_loss_percent = _resolve_loss_percents(args)
+    tx_dup_percent, rx_dup_percent = _resolve_dup_percents(args)
+    tx_corrupt_percent, rx_corrupt_percent = _resolve_corrupt_percents(args)
+    if (tx_loss_percent <= 0 and rx_loss_percent <= 0 and
+            tx_dup_percent <= 0 and rx_dup_percent <= 0 and
+            tx_corrupt_percent <= 0 and rx_corrupt_percent <= 0):
+        return transport
+    tx_loss_rate, rx_loss_rate = _percent_pair_to_rates(
+        tx_loss_percent, rx_loss_percent
+    )
+    tx_dup_rate, rx_dup_rate = _percent_pair_to_rates(
+        tx_dup_percent, rx_dup_percent
+    )
+    tx_corrupt_rate, rx_corrupt_rate = _percent_pair_to_rates(
+        tx_corrupt_percent, rx_corrupt_percent
+    )
+    send_impairment, recv_impairment = _build_lossy_impairments(
+        tx_loss_rate,
+        rx_loss_rate,
+        tx_dup_rate,
+        rx_dup_rate,
+        tx_corrupt_rate,
+        rx_corrupt_rate,
+    )
     stats_enabled = bool(args.verbose)
     if role == 'client':
         wrapped = LossyTransport(

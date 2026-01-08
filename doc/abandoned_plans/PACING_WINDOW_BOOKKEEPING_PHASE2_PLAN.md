@@ -1,6 +1,6 @@
 # Pacing And Window Bookkeeping Phase 2 Plan
 
-Status: draft
+Status: abandoned
 
 ## Goal
 
@@ -43,3 +43,7 @@ SACK bitmap handling and SACK ACK processing.
 - Manual run with python3 and existing profiling helpers to compare window CPU
   before/after (no tests/e2e/).
 - Confirm ACK/SACK behavior is unchanged via logs.
+
+## Abandonment notes
+
+- 2026-01-07: Abandoned per request; no implementation work recorded.

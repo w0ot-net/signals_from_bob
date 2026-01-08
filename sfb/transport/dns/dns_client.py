@@ -21,7 +21,7 @@ from ..transport_base import (
     prune_and_count,
 )
 from ..mtu_limits import resolve_mtu_limits
-from . import codec
+from . import dns_codec as codec
 from .dns_utils import load_system_resolvers
 from ...compat import require_bytes_like
 from ...config import Config

@@ -51,7 +51,7 @@ def resolve_mtu_limits(transport, config, role, send_packet_mtu=None,
 
 
 def _resolve_dns_limits(config, role):
-    from .dns import codec as dns_codec
+    from .dns import dns_codec
 
     base_domain = config.dns_base_domain.lower().rstrip('.')
     label_max_len = config.dns_label_max_len

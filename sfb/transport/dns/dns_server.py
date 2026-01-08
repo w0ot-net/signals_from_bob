@@ -14,7 +14,7 @@ import struct
 
 from ..transport_base import Server, TransportError, raise_bind_error
 from ..mtu_limits import resolve_mtu_limits
-from . import codec
+from . import dns_codec as codec
 from ...config import Config
 from ...logging_util import get_logger, log_event
 from ...protocol.constants import MIN_PACKET_MTU

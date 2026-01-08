@@ -413,77 +413,11 @@ class AliceTunnel(BaseTunnel):
         self._retransmit_budget = self._retransmit_cap
         packets_sent_before = self._packets_sent
         serial_window = self._serial_window_negotiation()
-        pending_event = self._channel_manager.pending_send_event
-        control_send_event = self._channel_manager.control.send_event
-        data_send_event = self._channel_manager.data_send_event
-        def pending_mode_set(mode):
-            if mode == 'control':
-                return control_send_event.is_set()
-            if mode == 'data':
-                return data_send_event.is_set()
-            return pending_event.is_set()
-
         # 1. Receive all available responses
-        received_any = False
-        received_valid = False
-        last_resp_kind = None
-        while True:
-            corr_id, data = self._transport.recv(timeout=self._config.non_blocking_poll_timeout)
-            if corr_id is None:
-                break
-            valid, resp_kind = self._handle_response(data, now)
-            if valid:
-                received_valid = True
-                if resp_kind is not None:
-                    last_resp_kind = resp_kind
-            received_any = True
+        received_any = self._drain_responses(now)
 
-        # If pending is high and we didn't receive anything, wait briefly for responses
-        # This avoids busy-polling when the pending queue is near capacity
-        if not received_any and hasattr(self._transport, 'pending_count'):
-            pending = self._transport.pending_count()
-            cap = getattr(self._transport, 'max_in_flight', None)
-            if cap is None:
-                cap = self._send_window._max_in_flight
-            threshold = int(cap * 0.75)
-            if pending >= threshold:
-                corr_id, data = self._transport.recv(timeout=0.05)
-                if corr_id is not None:
-                    valid, resp_kind = self._handle_response(data, now)
-                    if valid:
-                        received_valid = True
-                        if resp_kind is not None:
-                            last_resp_kind = resp_kind
-                    received_any = True
-
-        if received_valid:
-            # Clear pending data flag if all data has been acked
-            if self._send_window.data_unacked_count() == 0:
-                self._has_pending_data_acks = False
-            if last_resp_kind is not None:
-                self._last_was_pong_only = (last_resp_kind == 'keepalive')
-                if last_resp_kind == 'has_segments':
-                    self._pong_grace_remaining = self._pong_grace_polls
-
-        # Check connection timeout (no response from Bob)
-        if self._last_recv_time:
-            silence = now - self._last_recv_time
-            if silence < 0:
-                silence = 0.0
-            if silence >= self._no_response_timeout:
-                self._set_state(TunnelState.CLOSED)
-                log_event(
-                    self._logger,
-                    logging.ERROR,
-                    'tunnel.timeout_no_response',
-                    'Connection timeout after no response',
-                    lambda: {
-                        'elapsed': round(silence, 3),
-                        'timeout': self._no_response_timeout,
-                        'side': 'alice',
-                    },
-                )
-                return False
+        if not self._check_no_response_timeout(now):
+            return False
 
         if self._fast_retransmit_enabled:
             self._prune_fast_retransmit_counts()
@@ -543,11 +477,158 @@ class AliceTunnel(BaseTunnel):
         self._maybe_fast_retransmit(now, ack_silence)
 
         # 3. Send new packets if we can
+        tick_slept = False
+        pacing_blocked = self._send_pending_or_poll(now, serial_window)
+
+        # 4. Opportunistically grow window after ACK progress or retry negotiation
+        if self._window_growth_enabled:
+            self._maybe_request_window(now)
+
+        self._maybe_log_pacer_summary(time_provider.now())
+
+        paced_sleep = False
+        if pacing_blocked and self._packets_sent == packets_sent_before:
+            paced_sleep = self._sleep_for_poll_pacing(time_provider.now())
+            if paced_sleep:
+                tick_slept = True
+
+        if (not paced_sleep and not received_any and
+                self._packets_sent == packets_sent_before and
+                not self._channel_manager.pending_send_event.is_set() and
+                not self._got_data and not self._has_pending_data_acks):
+            idle_sleep = max(self._config.tunnel_tick_sleep, 0.01)
+            time_provider.sleep(idle_sleep)
+            tick_slept = True
+
+        if received_any or self._packets_sent != packets_sent_before or tick_slept:
+            self._tick_sleep_hint = 0.0
+        else:
+            self._tick_sleep_hint = self._config.tunnel_tick_sleep
+        return True
+
+    def _drain_responses(self, now):
+        """Receive all available responses and update state."""
+        received_any = False
+        received_valid = False
+        last_resp_kind = None
+        while True:
+            corr_id, data = self._transport.recv(
+                timeout=self._config.non_blocking_poll_timeout
+            )
+            if corr_id is None:
+                break
+            valid, resp_kind = self._handle_response(data, now)
+            if valid:
+                received_valid = True
+                if resp_kind is not None:
+                    last_resp_kind = resp_kind
+            received_any = True
+
+        # If pending is high and we didn't receive anything, wait briefly.
+        if not received_any and hasattr(self._transport, 'pending_count'):
+            pending = self._transport.pending_count()
+            cap = getattr(self._transport, 'max_in_flight', None)
+            if cap is None:
+                cap = self._send_window._max_in_flight
+            threshold = int(cap * 0.75)
+            if pending >= threshold:
+                corr_id, data = self._transport.recv(timeout=0.05)
+                if corr_id is not None:
+                    valid, resp_kind = self._handle_response(data, now)
+                    if valid:
+                        received_valid = True
+                        if resp_kind is not None:
+                            last_resp_kind = resp_kind
+                    received_any = True
+
+        if received_valid:
+            # Clear pending data flag if all data has been acked.
+            if self._send_window.data_unacked_count() == 0:
+                self._has_pending_data_acks = False
+            if last_resp_kind is not None:
+                self._last_was_pong_only = (last_resp_kind == 'keepalive')
+                if last_resp_kind == 'has_segments':
+                    self._pong_grace_remaining = self._pong_grace_polls
+
+        return received_any
+
+    def _check_no_response_timeout(self, now):
+        """Return False if a no-response timeout closes the tunnel."""
+        if not self._last_recv_time:
+            return True
+        silence = now - self._last_recv_time
+        if silence < 0:
+            silence = 0.0
+        if silence < self._no_response_timeout:
+            return True
+        self._set_state(TunnelState.CLOSED)
+        log_event(
+            self._logger,
+            logging.ERROR,
+            'tunnel.timeout_no_response',
+            'Connection timeout after no response',
+            lambda: {
+                'elapsed': round(silence, 3),
+                'timeout': self._no_response_timeout,
+                'side': 'alice',
+            },
+        )
+        return False
+
+    def _send_pending_or_poll(self, now, serial_window):
+        """Send pending segments or keepalive polls."""
         send_payload_limit = self._payload_mtu_from_packet(
             self._send_packet_mtu
         )
         pacing_blocked = False
-        tick_slept = False
+        pending_event = self._channel_manager.pending_send_event
+        control_send_event = self._channel_manager.control.send_event
+        data_send_event = self._channel_manager.data_send_event
+
+        def pending_mode_set(mode):
+            if mode == 'control':
+                return control_send_event.is_set()
+            if mode == 'data':
+                return data_send_event.is_set()
+            return pending_event.is_set()
+
+        def try_send_segments(permit, payload_cap, mark_pending_acks):
+            segments = self._collect_segments(
+                send_payload_limit,
+                control_only=control_only,
+                payload_cap=payload_cap,
+            )
+            if not segments:
+                return False
+            if mark_pending_acks:
+                self._has_pending_data_acks = True
+            self._send_new_packet(segments, now, permit=permit)
+            return True
+
+        def send_keepalive(permit, window_full, consume_pong_grace):
+            if window_full:
+                dropped_seq = self._send_window.drop_oldest_keepalive(
+                    reason='window_full', now=now
+                )
+                if dropped_seq is not None:
+                    self._log_reliability_state(
+                        logging.DEBUG,
+                        'tunnel.keepalive_drop',
+                        'Dropped keepalive due to window full',
+                        now=now,
+                        extra_fields={
+                            'seq': dropped_seq,
+                            'reason': 'window_full',
+                        },
+                    )
+                if dropped_seq is None:
+                    self._transport.release_send(permit)
+                    return False
+            self._send_new_packet([], now, flags=FLAG_KEEPALIVE, permit=permit)
+            if consume_pong_grace and self._pong_grace_remaining > 0:
+                self._pong_grace_remaining -= 1
+            return True
+
         pending_mode = 'control' if serial_window else 'control_or_data'
         control_only = serial_window
         break_on_empty = not serial_window
@@ -568,14 +649,10 @@ class AliceTunnel(BaseTunnel):
                 if permit is None:
                     break
                 payload_cap = self._transport.payload_cap_for_send(permit)
-                segments = self._collect_segments(
-                    send_payload_limit,
-                    control_only=control_only,
-                    payload_cap=payload_cap,
-                )
-                if segments:
-                    self._has_pending_data_acks = True
-                    self._send_new_packet(segments, now, permit=permit)
+                if try_send_segments(
+                        permit,
+                        payload_cap,
+                        mark_pending_acks=True):
                     continue
                 self._transport.release_send(permit)
                 if break_on_empty:
@@ -605,73 +682,19 @@ class AliceTunnel(BaseTunnel):
             if permit is None:
                 break
             payload_cap = self._transport.payload_cap_for_send(permit)
-            if window_full:
-                dropped_seq = self._send_window.drop_oldest_keepalive(
-                    reason='window_full', now=now
-                )
-                if dropped_seq is not None:
-                    self._log_reliability_state(
-                        logging.DEBUG,
-                        'tunnel.keepalive_drop',
-                        'Dropped keepalive due to window full',
-                        now=now,
-                        extra_fields={
-                            'seq': dropped_seq,
-                            'reason': 'window_full',
-                        },
-                    )
-                if dropped_seq is None:
-                    self._transport.release_send(permit)
-                    break
-                self._send_new_packet(
-                    [],
-                    now,
-                    flags=FLAG_KEEPALIVE,
-                    permit=permit,
-                )
-                if consume_pong_grace and self._pong_grace_remaining > 0:
-                    self._pong_grace_remaining -= 1
-                continue
-            segments = self._collect_segments(
-                send_payload_limit,
-                control_only=control_only,
-                payload_cap=payload_cap,
-            )
-            if segments:
-                self._send_new_packet(segments, now, permit=permit)
+            if try_send_segments(
+                    permit,
+                    payload_cap,
+                    mark_pending_acks=False):
                 continue
             if break_on_empty and pending_mode_set(pending_mode):
                 self._transport.release_send(permit)
                 break
-            self._send_new_packet([], now, flags=FLAG_KEEPALIVE, permit=permit)
-            if consume_pong_grace and self._pong_grace_remaining > 0:
-                self._pong_grace_remaining -= 1
+            if not send_keepalive(permit, window_full, consume_pong_grace):
+                break
+            continue
 
-        # 4. Opportunistically grow window after ACK progress or retry negotiation
-        if self._window_growth_enabled:
-            self._maybe_request_window(now)
-
-        self._maybe_log_pacer_summary(time_provider.now())
-
-        paced_sleep = False
-        if pacing_blocked and self._packets_sent == packets_sent_before:
-            paced_sleep = self._sleep_for_poll_pacing(time_provider.now())
-            if paced_sleep:
-                tick_slept = True
-
-        if (not paced_sleep and not received_any and
-                self._packets_sent == packets_sent_before and
-                not pending_mode_set('control_or_data') and
-                not self._got_data and not self._has_pending_data_acks):
-            idle_sleep = max(self._config.tunnel_tick_sleep, 0.01)
-            time_provider.sleep(idle_sleep)
-            tick_slept = True
-
-        if received_any or self._packets_sent != packets_sent_before or tick_slept:
-            self._tick_sleep_hint = 0.0
-        else:
-            self._tick_sleep_hint = self._config.tunnel_tick_sleep
-        return True
+        return pacing_blocked
 
     def _check_serial_window_block(self):
         if self._serial_window_negotiation():

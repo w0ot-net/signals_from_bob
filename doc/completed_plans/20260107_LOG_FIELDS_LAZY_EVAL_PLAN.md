@@ -1,6 +1,6 @@
 # Lazy Log Fields Evaluation Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 - Avoid calling `fields()` for structured logs that are filtered out, while
@@ -37,3 +37,8 @@ Status: draft
 - `python3 -m py_compile sfb/logging_util.py`
 - Manual sanity: run a profile with a narrow whitelist and confirm the
   filtered events no longer evaluate their `fields()` functions.
+
+## Execution Notes
+- Added `_resolve_fields(record)` to lazily evaluate/caches callable fields.
+- Updated `log_event` to store callables, and both formatter/SQLite handler to
+  resolve fields at emission time.

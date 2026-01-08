@@ -33,7 +33,7 @@ class StructuredLogFormatter(logging.Formatter):
     def format(self, record):
         message = logging.Formatter.format(self, record)
         event = getattr(record, 'event', None)
-        fields = getattr(record, 'fields', None)
+        fields = _resolve_fields(record)
         extras = []
         if event:
             extras.append('event=%s' % _coerce_text(event))
@@ -74,7 +74,7 @@ def log_event(logger, level, event, message, fields, **kwargs):
         raise TypeError('fields must be callable')
     extra = {
         'event': event,
-        'fields': fields(),
+        'fields': fields,
     }
     logger.log(level, message, extra=extra, **kwargs)
 
@@ -272,7 +272,7 @@ class SQLiteLogHandler(logging.Handler):
             return
 
         event_name = _coerce_text(getattr(record, 'event', None))
-        fields = _encode_fields(getattr(record, 'fields', None))
+        fields = _encode_fields(_resolve_fields(record))
         event = (
             float(record.created),
             _coerce_text(record.levelname),
@@ -399,6 +399,14 @@ def _coerce_text(value):
         return text_type(value)
     except Exception:
         return text_type(repr(value))
+
+
+def _resolve_fields(record):
+    fields = getattr(record, 'fields', None)
+    if callable(fields):
+        fields = fields()
+        setattr(record, 'fields', fields)
+    return fields
 
 
 def _encode_fields(fields):

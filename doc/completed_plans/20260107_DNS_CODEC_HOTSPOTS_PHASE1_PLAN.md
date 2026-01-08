@@ -1,6 +1,6 @@
 # DNS Codec Hotspots Phase 1 Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 - Land low-risk caching for suffix encodings and tighten the
@@ -35,3 +35,10 @@ Status: draft
 - `python3 -m py_compile sfb/transport/dns/codec.py`
 - Manual sanity: encode a fixed payload/domain pair and confirm output is
   unchanged.
+
+## Execution Notes
+- Added bounded suffix caches for base_domain and cname_suffix with cached
+  label lengths and optional wire encodings.
+- Reused cached base_domain labels and precomputed lengths in
+  `encode_query_name` to avoid repeated validation while preserving output.
+- Tests not run (per instructions).

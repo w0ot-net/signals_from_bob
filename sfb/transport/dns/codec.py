@@ -10,6 +10,7 @@ from __future__ import absolute_import
 
 import base64
 import struct
+from collections import OrderedDict
 
 from ..base32 import base32_decode as shared_base32_decode
 from ..base32 import base32_encode as shared_base32_encode
@@ -46,6 +47,10 @@ MAX_LABEL_LEN = 63
 DEFAULT_LABEL_MAX_LEN = 50
 MAX_NAME_LEN = 253
 NONCE_LEN = 4
+_SUFFIX_CACHE_MAX = 64
+
+_BASE_DOMAIN_CACHE = OrderedDict()
+_CNAME_SUFFIX_CACHE = OrderedDict()
 
 RECORD_TYPES = {
     'A': QTYPE_A,
@@ -223,6 +228,63 @@ def _normalize_label_max_len(label_max_len):
     return label_max_len
 
 
+def _encode_labels_wire(labels):
+    if not labels:
+        return b'\x00'
+    try:
+        parts = []
+        for label in labels:
+            encoded = label.encode('ascii')
+            parts.append(struct.pack('B', len(encoded)))
+            parts.append(encoded)
+        parts.append(b'\x00')
+        return b''.join(parts)
+    except UnicodeEncodeError:
+        return None
+
+
+def _build_suffix_cache_entry(domain, require_non_empty):
+    labels = tuple(label for label in domain.split('.') if label)
+    if require_non_empty and not labels:
+        raise ValueError('base_domain required')
+    _validate_labels(labels)
+    label_lengths = tuple(len(label) for label in labels)
+    total_len = 0
+    if labels:
+        total_len = sum(label_lengths) + (len(labels) - 1)
+    return {
+        'labels': labels,
+        'label_lengths': label_lengths,
+        'label_count': len(labels),
+        'total_len': total_len,
+        'wire': _encode_labels_wire(labels),
+    }
+
+
+def _get_suffix_cache_entry(cache, domain, label_max_len, require_non_empty):
+    key = (domain, label_max_len)
+    entry = cache.get(key)
+    if entry is not None:
+        return entry
+    entry = _build_suffix_cache_entry(domain, require_non_empty)
+    cache[key] = entry
+    if len(cache) > _SUFFIX_CACHE_MAX:
+        cache.popitem(last=False)
+    return entry
+
+
+def _get_base_domain_entry(base_domain, label_max_len):
+    return _get_suffix_cache_entry(
+        _BASE_DOMAIN_CACHE, base_domain, label_max_len, True
+    )
+
+
+def _get_cname_suffix_entry(cname_suffix, label_max_len):
+    return _get_suffix_cache_entry(
+        _CNAME_SUFFIX_CACHE, cname_suffix, label_max_len, False
+    )
+
+
 def encode_query_name(data, base_domain, nonce, label_max_len=None):
     """
     Encode tunnel data into DNS query name.
@@ -238,10 +300,8 @@ def encode_query_name(data, base_domain, nonce, label_max_len=None):
     """
     label_max_len = _normalize_label_max_len(label_max_len)
     base_domain = _normalize_domain(base_domain)
-    base_labels = [label for label in base_domain.split('.') if label]
-    if not base_labels:
-        raise ValueError('base_domain required')
-    _validate_labels(base_labels)
+    base_entry = _get_base_domain_entry(base_domain, label_max_len)
+    base_labels = base_entry['labels']
 
     # Generate nonce label
     nonce_label = base32_encode(struct.pack('>H', nonce & 0xFFFF))[:NONCE_LEN]
@@ -251,13 +311,24 @@ def encode_query_name(data, base_domain, nonce, label_max_len=None):
 
     # Split into labels respecting max length
     labels = [nonce_label]
+    data_label_count = 1
+    data_len_sum = len(nonce_label)
     while b32:
-        labels.append(b32[:label_max_len])
+        label = b32[:label_max_len]
+        labels.append(label)
+        data_label_count += 1
+        data_len_sum += len(label)
         b32 = b32[label_max_len:]
 
     # Append base domain
     labels.extend(base_labels)
-    _validate_name_length(labels)
+    total_len = data_len_sum
+    if data_label_count > 1:
+        total_len += data_label_count - 1
+    if base_entry['label_count']:
+        total_len += 1 + base_entry['total_len']
+    if total_len > MAX_NAME_LEN:
+        raise ValueError('Name exceeds max length')
     return '.'.join(labels)
 
 

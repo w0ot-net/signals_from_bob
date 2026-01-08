@@ -30,8 +30,9 @@ any transport: `--corrupt` (both directions), `--rx-corrupt`, and
   - Client: tx = requests (Alice -> Bob), rx = responses (Bob -> Alice).
   - Server: tx = responses (Bob -> Alice), rx = requests (Alice -> Bob).
 - Implement by wrapping the transport with `LossyTransport` (client) or
-  `LossyServer` (server) using `NetworkImpairment(corrupt_rate=rate,
-  corrupt_mode='mutate')`; only wrap when any rate is non-zero.
+  `LossyServer` (server) using `NetworkImpairment(corrupt_rate=rate)`; only
+  wrap when any rate is non-zero.
+- Corruption always mutates bytes; use loss flags for drop simulation.
 - Log the effective rates at startup; using the flags on both sides compounds
   impairment (document this explicitly).
 

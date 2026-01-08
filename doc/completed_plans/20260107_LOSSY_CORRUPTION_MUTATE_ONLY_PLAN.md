@@ -1,6 +1,6 @@
 # Lossy Corruption Mutate-Only Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -40,3 +40,9 @@ instead of dropping packets.
 - Manual smoke check: use a small in-memory transport run with non-zero
   `corrupt_rate` and confirm packets are delivered but altered.
 - Do not run tests/e2e/.
+
+## Execution Notes
+
+- Removed `corrupt_mode` from `NetworkImpairment` and lossy send/recv logic.
+- Documented mutate-only corruption in lossy transport docs and corruption plan.
+- Validation not run (not requested).

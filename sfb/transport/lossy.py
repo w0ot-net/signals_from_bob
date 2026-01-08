@@ -38,7 +38,6 @@ class NetworkImpairment(object):
                  reorder_wait_ms=50,
                  corrupt_rate=0.0,
                  corrupt_bytes=(1, 3),
-                 corrupt_mode='drop',
                  seed=None):
         """
         Configure network impairment.
@@ -52,14 +51,10 @@ class NetworkImpairment(object):
             dup_rate: Probability of duplicating a packet
             reorder_rate: Probability of holding packet for reordering
             reorder_wait_ms: How long to hold reordered packets
-            corrupt_rate: Probability of corrupting packet bytes
+            corrupt_rate: Probability of corrupting packet bytes (mutate only)
             corrupt_bytes: (min, max) bytes to corrupt per packet
-            corrupt_mode: 'drop' to discard corrupted packets,
-                          'mutate' to flip bytes and deliver
             seed: Random seed for reproducibility
         """
-        if corrupt_mode not in ('drop', 'mutate'):
-            raise ValueError('corrupt_mode must be drop or mutate')
         self.loss_rate = loss_rate
         self.burst_loss_prob = burst_loss_prob
         self.burst_loss_len = burst_loss_len
@@ -70,7 +65,6 @@ class NetworkImpairment(object):
         self.reorder_wait_ms = reorder_wait_ms
         self.corrupt_rate = corrupt_rate
         self.corrupt_bytes = corrupt_bytes
-        self.corrupt_mode = corrupt_mode
         self.seed = seed
 
 
@@ -393,11 +387,7 @@ class LossyTransport(Transport):
             self._release_inner_permit(permit)
             return wrapper_id
 
-        if decision.corrupt and self._send_imp.corrupt_mode == 'drop':
-            self._release_inner_permit(permit)
-            return wrapper_id
-
-        if decision.corrupt and self._send_imp.corrupt_mode == 'mutate':
+        if decision.corrupt:
             data = self._send_engine.corrupt_bytes(data)
 
         inner_permit = permit.data.get('inner_permit')
@@ -507,11 +497,7 @@ class LossyTransport(Transport):
             entry.ghost_count += 1
             return None
 
-        if decision.corrupt and self._recv_imp.corrupt_mode == 'drop':
-            entry.ghost_count += 1
-            return None
-
-        if decision.corrupt and self._recv_imp.corrupt_mode == 'mutate':
+        if decision.corrupt:
             data = self._recv_engine.corrupt_bytes(data)
 
         delay_sec = decision.delay_sec
@@ -739,9 +725,7 @@ class LossyServer(Server):
 
             if decision.drop:
                 continue
-            if decision.corrupt and self._recv_imp.corrupt_mode == 'drop':
-                continue
-            if decision.corrupt and self._recv_imp.corrupt_mode == 'mutate':
+            if decision.corrupt:
                 data = self._recv_engine.corrupt_bytes(data)
 
             wrapped_responder = self._wrap_responder(responder)
@@ -773,9 +757,7 @@ class LossyServer(Server):
 
             if decision.drop:
                 return
-            if decision.corrupt and send_imp.corrupt_mode == 'drop':
-                return
-            if decision.corrupt and send_imp.corrupt_mode == 'mutate':
+            if decision.corrupt:
                 data_mut = send_engine.corrupt_bytes(data)
             else:
                 data_mut = data

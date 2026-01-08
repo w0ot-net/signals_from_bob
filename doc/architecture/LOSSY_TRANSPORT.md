@@ -26,10 +26,11 @@ Parameters (all rates are probabilities in [0.0, 1.0]):
 - `dup_rate`: probability of duplicating a packet
 - `reorder_rate`: probability of holding a packet for reordering
 - `reorder_wait_ms`: extra hold time for reordered packets
-- `corrupt_rate`: probability of corrupting packet bytes
+- `corrupt_rate`: probability of mutating packet bytes
 - `corrupt_bytes`: `(min, max)` bytes to flip per packet
-- `corrupt_mode`: `drop` (discard corrupted packet) or `mutate`
 - `seed`: RNG seed for deterministic runs
+
+Corruption always mutates packet bytes; use `loss_rate` to drop packets.
 
 `LossyTransport` adds `pending_timeout_sec` to control how long synthetic
 pending entries (drops or stale requests) linger before pruning.
@@ -63,7 +64,7 @@ and can amplify traffic.
 Each packet gets a single decision with deterministic RNG usage:
 
 - Drop (including burst loss)
-- Corrupt (drop or mutate)
+- Corrupt (mutate bytes)
 - Delay and jitter
 - Reorder (adds `reorder_wait_ms` to delay)
 - Duplicate count (at most one duplicate)
@@ -80,7 +81,7 @@ capacity.
 - Allocates a wrapper correlation ID immediately and marks it as pending.
 - Applies impairment in this order:
   - Drop: do not call the inner transport; pending remains until timeout.
-  - Corrupt: drop or mutate depending on `corrupt_mode`.
+  - Corrupt: mutate bytes; use loss for drops.
   - Delay/reorder: schedule the send for later with a held inner permit.
   - Duplicate: schedule one extra send if an extra inner permit is available.
 
@@ -96,7 +97,7 @@ Scheduled sends are dispatched during `reserve_send()` and `recv()`.
 - Polls the inner transport and maps inner IDs to wrapper IDs.
 - Applies receive impairment decisions:
   - Drop: response is discarded; pending remains until timeout.
-  - Corrupt: drop or mutate depending on `corrupt_mode`.
+  - Corrupt: mutate bytes; use loss for drops.
   - Delay/reorder: response is queued for later delivery.
   - Duplicate: schedules one extra delivery of the same response.
 
@@ -117,7 +118,7 @@ wrapper timer, not the inner transport's timeout.
 
 Incoming requests are impaired before handing data to the tunnel:
 
-- Drop and corrupt decisions occur before delivery.
+- Drop decisions occur before delivery; corruption mutates bytes.
 - Delay/reorder requests are queued and delivered later.
 - Duplicates are delivered as additional requests on subsequent `recv()` calls.
 
@@ -125,7 +126,7 @@ Incoming requests are impaired before handing data to the tunnel:
 
 The responder is wrapped to apply send impairment:
 
-- Drop and corrupt decisions discard the response or mutate it.
+- Drop decisions discard responses; corruption mutates bytes.
 - Delay/reorder/duplicate responses are queued and flushed during `recv()`.
 
 This preserves the asymmetric constraint that Bob only sends responses in

@@ -31,3 +31,8 @@
 
 ## Notes
 - Keep helper bodies small to avoid hiding control flow.
+
+## Execution Notes
+- Added `_new_channel`, `_log_ctx`, and `_reject_control_channel` helpers and
+  rewired channel creation/logging/control-close checks to use them.
+- Tests not run (not requested).

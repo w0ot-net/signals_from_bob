@@ -1,6 +1,6 @@
 # Alice Tick Send Refactor Phase 2 Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -90,3 +90,14 @@ send path, reducing code size while keeping semantics unchanged.
 ## Testing
 
 - Do not run tests here. The user can run tests with python3 if needed.
+
+## Execution Notes
+
+- Added `_try_send_segments` and `_send_keepalive_or_break` helpers in
+  `sfb/tunnel/alice_tunnel.py` to consolidate the segment send and keepalive
+  paths without changing permit handling.
+- Updated `_send_pending_or_poll` to use the helpers and return
+  `(pacing_blocked, sent_any)` so `tick()` can decide on sleeps without
+  rechecking packet counters.
+- Updated `tick()` to consume the new tuple return and keep existing sleep
+  behavior.

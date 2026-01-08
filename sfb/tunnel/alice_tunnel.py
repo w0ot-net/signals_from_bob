@@ -583,12 +583,66 @@ class AliceTunnel(BaseTunnel):
         )
         return False
 
-    def _send_pending_or_poll(self, now, serial_window):
+    def _try_send_segments(self, now, send_payload_limit, control_only,
+                           has_data_pending=None, mark_pending_acks=False,
+                           permit=None, keep_permit_on_empty=False):
+        """Collect segments and send if available."""
+        if permit is None:
+            permit = self._reserve_transport_permit(
+                now,
+                has_data_pending=has_data_pending,
+            )
+        if permit is None:
+            return False, None
+        payload_cap = self._transport.payload_cap_for_send(permit)
+        segments = self._collect_segments(
+            send_payload_limit,
+            control_only=control_only,
+            payload_cap=payload_cap,
+        )
+        if not segments:
+            if not keep_permit_on_empty:
+                self._transport.release_send(permit)
+                return False, None
+            return False, permit
+        if mark_pending_acks:
+            self._has_pending_data_acks = True
+        self._send_new_packet(segments, now, permit=permit)
+        return True, None
+
+    def _send_keepalive_or_break(self, now, permit, window_full,
+                                 consume_pong_grace):
+        """Send a keepalive or release the permit on failure."""
+        if window_full:
+            dropped_seq = self._send_window.drop_oldest_keepalive(
+                reason='window_full', now=now
+            )
+            if dropped_seq is not None:
+                self._log_reliability_state(
+                    logging.DEBUG,
+                    'tunnel.keepalive_drop',
+                    'Dropped keepalive due to window full',
+                    now=now,
+                    extra_fields={
+                        'seq': dropped_seq,
+                        'reason': 'window_full',
+                    },
+                )
+            if dropped_seq is None:
+                self._transport.release_send(permit)
+                return False
+        self._send_new_packet([], now, flags=FLAG_KEEPALIVE, permit=permit)
+        if consume_pong_grace and self._pong_grace_remaining > 0:
+            self._pong_grace_remaining -= 1
+        return True
+
+    def _send_pending_or_poll(self, now, serial_window, packets_sent_before):
         """Send pending segments or keepalive polls."""
         send_payload_limit = self._payload_mtu_from_packet(
             self._send_packet_mtu
         )
         pacing_blocked = False
+        sent_any = (self._packets_sent != packets_sent_before)
         pending_event = self._channel_manager.pending_send_event
         control_send_event = self._channel_manager.control.send_event
         data_send_event = self._channel_manager.data_send_event
@@ -599,43 +653,6 @@ class AliceTunnel(BaseTunnel):
             if mode == 'data':
                 return data_send_event.is_set()
             return pending_event.is_set()
-
-        def try_send_segments(permit, payload_cap, mark_pending_acks):
-            segments = self._collect_segments(
-                send_payload_limit,
-                control_only=control_only,
-                payload_cap=payload_cap,
-            )
-            if not segments:
-                return False
-            if mark_pending_acks:
-                self._has_pending_data_acks = True
-            self._send_new_packet(segments, now, permit=permit)
-            return True
-
-        def send_keepalive(permit, window_full, consume_pong_grace):
-            if window_full:
-                dropped_seq = self._send_window.drop_oldest_keepalive(
-                    reason='window_full', now=now
-                )
-                if dropped_seq is not None:
-                    self._log_reliability_state(
-                        logging.DEBUG,
-                        'tunnel.keepalive_drop',
-                        'Dropped keepalive due to window full',
-                        now=now,
-                        extra_fields={
-                            'seq': dropped_seq,
-                            'reason': 'window_full',
-                        },
-                    )
-                if dropped_seq is None:
-                    self._transport.release_send(permit)
-                    return False
-            self._send_new_packet([], now, flags=FLAG_KEEPALIVE, permit=permit)
-            if consume_pong_grace and self._pong_grace_remaining > 0:
-                self._pong_grace_remaining -= 1
-            return True
 
         pending_mode = 'control' if serial_window else 'control_or_data'
         control_only = serial_window
@@ -649,19 +666,19 @@ class AliceTunnel(BaseTunnel):
                 if not self._poll_pacing_allows_send(now):
                     pacing_blocked = True
                     break
-                has_data_pending = data_send_event.is_set()
-                permit = self._reserve_transport_permit(
+                sent, permit = self._try_send_segments(
                     now,
-                    has_data_pending=has_data_pending,
+                    send_payload_limit,
+                    control_only,
+                    has_data_pending=data_send_event.is_set(),
+                    mark_pending_acks=True,
+                    keep_permit_on_empty=True,
                 )
+                if sent:
+                    sent_any = True
+                    continue
                 if permit is None:
                     break
-                payload_cap = self._transport.payload_cap_for_send(permit)
-                if try_send_segments(
-                        permit,
-                        payload_cap,
-                        mark_pending_acks=True):
-                    continue
                 self._transport.release_send(permit)
                 if break_on_empty:
                     break
@@ -686,23 +703,30 @@ class AliceTunnel(BaseTunnel):
             if not self._poll_pacing_allows_send(now):
                 pacing_blocked = True
                 break
-            permit = self._reserve_transport_permit(now)
+            sent, permit = self._try_send_segments(
+                now,
+                send_payload_limit,
+                control_only,
+                mark_pending_acks=False,
+                keep_permit_on_empty=True,
+            )
+            if sent:
+                sent_any = True
+                continue
             if permit is None:
                 break
-            payload_cap = self._transport.payload_cap_for_send(permit)
-            if try_send_segments(
-                    permit,
-                    payload_cap,
-                    mark_pending_acks=False):
-                continue
             if break_on_empty and pending_mode_set(pending_mode):
                 self._transport.release_send(permit)
                 break
-            if not send_keepalive(permit, window_full, consume_pong_grace):
+            if not self._send_keepalive_or_break(
+                    now,
+                    permit,
+                    window_full,
+                    consume_pong_grace):
                 break
-            continue
+            sent_any = True
 
-        return pacing_blocked
+        return pacing_blocked, sent_any
 
     def _check_serial_window_block(self):
         if self._serial_window_negotiation():

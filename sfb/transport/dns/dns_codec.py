@@ -524,32 +524,6 @@ def calc_cname_response_payload_cap(qname_wire_len, edns_size, cname_suffix,
     return response_payload, max_packet_size
 
 
-def calc_cname_payload_cap(base_domain, cname_suffix, label_max_len=None,
-                           max_packet_size=512):
-    if max_packet_size is None or max_packet_size <= 0:
-        return 0
-    label_max_len = _normalize_label_max_len(label_max_len)
-    base_domain = _normalize_domain(base_domain)
-    cname_suffix = _normalize_domain(cname_suffix)
-
-    max_query_payload = calc_query_mtu(base_domain, label_max_len)
-    def fits_fn(mid):
-        try:
-            qname_wire_len = _qname_wire_len_for_payload(
-                mid, base_domain, label_max_len
-            )
-        except ValueError:
-            return False
-        fixed_len = 12 + (qname_wire_len + 4) + qname_wire_len + 10
-        if fixed_len >= max_packet_size:
-            return False
-        response_payload = _max_cname_payload_for_response(
-            fixed_len, cname_suffix, label_max_len, max_packet_size
-        )
-        return response_payload >= mid
-    return _binary_search_max(0, max_query_payload, fits_fn)
-
-
 def encode_cname_target(data, cname_suffix, label_max_len=None):
     """
     Encode tunnel data into a CNAME target name.

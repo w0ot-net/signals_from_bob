@@ -248,16 +248,7 @@ def _b32_labels(data, label_max_len):
     return labels
 
 
-def _binary_search_max(low, high, fits_fn):
-    best = 0
-    while low <= high:
-        mid = (low + high) // 2
-        if fits_fn(mid):
-            best = mid
-            low = mid + 1
-        else:
-            high = mid - 1
-    return best
+_CNAME_PAYLOAD_LOOKUP_CACHE = {}
 
 
 def _decode_b32_labels(name, suffix, label_max_len, skip_first=False,
@@ -464,23 +455,45 @@ def calc_qname_wire_len(payload_len, base_domain, label_max_len=None):
     return _qname_wire_len_for_payload(payload_len, base_domain, label_max_len)
 
 
+def _get_cname_payload_lookup(cname_suffix, label_max_len, max_packet_size):
+    key = (cname_suffix, label_max_len, max_packet_size)
+    cached = _CNAME_PAYLOAD_LOOKUP_CACHE.get(key)
+    if cached is not None:
+        return cached
+    upper = calc_response_mtu(QTYPE_CNAME, max_packet_size,
+                              cname_suffix, label_max_len)
+    rdata_lens = []
+    for payload_len in range(upper + 1):
+        try:
+            cname_target = encode_cname_target(
+                b'\x00' * payload_len, cname_suffix, label_max_len
+            )
+            rdata_len = len(encode_name(cname_target))
+        except ValueError:
+            rdata_len = None
+        rdata_lens.append(rdata_len)
+    payload_for_available = [0] * (max_packet_size + 1)
+    for payload_len, rdata_len in enumerate(rdata_lens):
+        if rdata_len is None or rdata_len > max_packet_size:
+            continue
+        if payload_len > payload_for_available[rdata_len]:
+            payload_for_available[rdata_len] = payload_len
+    for available in range(1, max_packet_size + 1):
+        if payload_for_available[available] < payload_for_available[available - 1]:
+            payload_for_available[available] = payload_for_available[available - 1]
+    _CNAME_PAYLOAD_LOOKUP_CACHE[key] = payload_for_available
+    return payload_for_available
+
+
 def _max_cname_payload_for_response(fixed_len, cname_suffix, label_max_len,
                                     max_packet_size):
     if fixed_len >= max_packet_size:
         return 0
-    upper = calc_response_mtu(QTYPE_CNAME, max_packet_size,
-                              cname_suffix, label_max_len)
-    def fits_fn(mid):
-        try:
-            cname_target = encode_cname_target(
-                b'\x00' * mid, cname_suffix, label_max_len
-            )
-        except ValueError:
-            return False
-        rdata_len = len(encode_name(cname_target))
-        total_len = fixed_len + rdata_len
-        return total_len <= max_packet_size
-    return _binary_search_max(0, upper, fits_fn)
+    payload_for_available = _get_cname_payload_lookup(
+        cname_suffix, label_max_len, max_packet_size
+    )
+    available = max_packet_size - fixed_len
+    return payload_for_available[available]
 
 
 def calc_cname_response_payload_cap(qname_wire_len, edns_size, cname_suffix,

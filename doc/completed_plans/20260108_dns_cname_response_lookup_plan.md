@@ -50,3 +50,9 @@ in `dns_codec`, so both client and server reuse the same centralized logic.
 - `calc_cname_response_payload_cap` outputs remain unchanged.
 - The lookup cache lives in `dns_codec` and is reused by both client and
   server without additional wiring.
+
+## Execution Notes
+- 20260108: Implemented the lookup cache in `sfb/transport/dns/dns_codec.py`,
+  removed the binary search helper, and verified equivalence with a local
+  `python3` script using embedded old binary-search logic
+  (comparisons=1440, mismatches=0).

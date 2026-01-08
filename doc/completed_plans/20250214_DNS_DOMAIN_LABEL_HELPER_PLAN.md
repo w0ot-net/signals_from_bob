@@ -43,3 +43,8 @@
 ## Notes
 - Keep `_normalize_domain` for other callers; the helper stays a thin wrapper
   to reduce duplication.
+
+## Execution Notes
+- Added `_split_domain_labels` and replaced repeated normalization/split/label
+  validation in query/CNAME encode/decode paths.
+- Tests not run (not requested).

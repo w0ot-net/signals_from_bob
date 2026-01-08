@@ -199,6 +199,20 @@ def _normalize_domain(name):
     return name
 
 
+def _split_domain_labels(name, lower=False, require_non_empty=False,
+                         empty_error=None):
+    name = _normalize_domain(name)
+    if lower:
+        name = name.lower()
+    labels = [label for label in name.split('.') if label]
+    if require_non_empty and not labels:
+        if empty_error is None:
+            empty_error = 'domain required'
+        raise ValueError(empty_error)
+    _validate_labels(labels)
+    return labels
+
+
 def _validate_labels(labels, max_len=MAX_LABEL_LEN):
     for label in labels:
         if len(label) > max_len:
@@ -237,11 +251,11 @@ def encode_query_name(data, base_domain, nonce, label_max_len=None):
         str: complete query name
     """
     label_max_len = _normalize_label_max_len(label_max_len)
-    base_domain = _normalize_domain(base_domain)
-    base_labels = [label for label in base_domain.split('.') if label]
-    if not base_labels:
-        raise ValueError('base_domain required')
-    _validate_labels(base_labels)
+    base_labels = _split_domain_labels(
+        base_domain,
+        require_non_empty=True,
+        empty_error='base_domain required',
+    )
 
     # Generate nonce label
     nonce_label = base32_encode(struct.pack('>H', nonce & 0xFFFF))[:NONCE_LEN]
@@ -274,14 +288,13 @@ def decode_query_name(query_name, base_domain, label_max_len=None):
         bytes: decoded tunnel data
     """
     # Remove base domain suffix
-    base_domain = _normalize_domain(base_domain).lower()
-    query_name = _normalize_domain(query_name).lower()
-    base_parts = [label for label in base_domain.split('.') if label]
-    name_parts = [label for label in query_name.split('.') if label]
-    if not base_parts:
-        raise ValueError('base_domain required')
-    _validate_labels(base_parts)
-    _validate_labels(name_parts)
+    base_parts = _split_domain_labels(
+        base_domain,
+        lower=True,
+        require_non_empty=True,
+        empty_error='base_domain required',
+    )
+    name_parts = _split_domain_labels(query_name, lower=True)
 
     # Verify suffix matches
     if name_parts[-len(base_parts):] != base_parts:
@@ -530,7 +543,6 @@ def encode_cname_target(data, cname_suffix, label_max_len=None):
         str: CNAME target name
     """
     label_max_len = _normalize_label_max_len(label_max_len)
-    cname_suffix = _normalize_domain(cname_suffix)
 
     b32 = base32_encode(data)
     labels = []
@@ -538,8 +550,7 @@ def encode_cname_target(data, cname_suffix, label_max_len=None):
         labels.append(b32[:label_max_len])
         b32 = b32[label_max_len:]
 
-    suffix_labels = [label for label in cname_suffix.split('.') if label]
-    _validate_labels(suffix_labels)
+    suffix_labels = _split_domain_labels(cname_suffix)
     labels.extend(suffix_labels)
     _validate_name_length(labels)
     return '.'.join(labels)
@@ -559,12 +570,8 @@ def decode_cname_target(target_name, cname_suffix, label_max_len=None):
     """
     label_max_len = _normalize_label_max_len(label_max_len)
 
-    cname_suffix = _normalize_domain(cname_suffix).lower()
-    target_name = _normalize_domain(target_name).lower()
-    suffix_parts = [label for label in cname_suffix.split('.') if label]
-    name_parts = [label for label in target_name.split('.') if label]
-    _validate_labels(suffix_parts)
-    _validate_labels(name_parts)
+    suffix_parts = _split_domain_labels(cname_suffix, lower=True)
+    name_parts = _split_domain_labels(target_name, lower=True)
 
     if suffix_parts:
         if name_parts[-len(suffix_parts):] != suffix_parts:

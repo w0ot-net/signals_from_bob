@@ -18,8 +18,8 @@ from ..base32 import base32_decode as shared_base32_decode
 from ..base32 import base32_decode_bytes as shared_base32_decode_bytes
 from ..base32 import base32_encode as shared_base32_encode
 from ...compat import (
-    PY2,
     byte_at,
+    bytearray_to_bytes,
     require_bytes_like_or_bytearray,
     text_type,
     to_bytes,
@@ -170,8 +170,8 @@ def scan_response_payload(data, max_payload_len=None, max_token_len=None,
         scan_bytes = data
     else:
         scan_bytes = to_bytes(data)
-    if PY2 and isinstance(scan_bytes, bytearray):
-        scan_bytes = bytes(scan_bytes)
+    if isinstance(scan_bytes, bytearray):
+        scan_bytes = bytearray_to_bytes(scan_bytes)
     if start_offset is None or start_offset < 0:
         start_offset = 0
     min_len = SFB_BUMP_RESPONSE_TOKEN_MIN_LEN

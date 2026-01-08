@@ -7,7 +7,7 @@ from __future__ import absolute_import
 
 import base64
 
-from ..compat import PY2, require_bytes_like, text_type, to_bytes
+from ..compat import bytearray_to_bytes, require_bytes_like, text_type, to_bytes
 
 
 def base32_encode(data, lowercase=True):
@@ -40,7 +40,7 @@ def base32_decode_bytes(value):
     if isinstance(value, bytes):
         raw = value
     elif isinstance(value, bytearray):
-        raw = bytes(value) if PY2 else value
+        raw = bytearray_to_bytes(value)
     else:
         raw = to_bytes(value)
     pad = (8 - len(raw) % 8) % 8

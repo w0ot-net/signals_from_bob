@@ -15,11 +15,23 @@ if hasattr(memoryview, 'tobytes'):
 else:
     _VIEW_TO_BYTES = memoryview.tostring
 
+if PY2:
+    _BYTEARRAY_TO_BYTES = bytes
+else:
+    def _BYTEARRAY_TO_BYTES(value):
+        return value
+
 def bytes_from_view(view):
     """
     Return bytes from a memoryview-like object.
     """
     return _VIEW_TO_BYTES(view)
+
+def bytearray_to_bytes(value):
+    """
+    Return bytes for bytearray on Python 2, no-op on Python 3.
+    """
+    return _BYTEARRAY_TO_BYTES(value)
 
 if PY2:
     text_type = unicode

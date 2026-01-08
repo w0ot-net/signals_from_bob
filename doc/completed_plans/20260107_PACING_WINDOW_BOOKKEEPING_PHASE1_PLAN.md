@@ -1,6 +1,6 @@
 # Pacing And Window Bookkeeping Phase 1 Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -45,3 +45,14 @@ threading `now` through pacing and send window call sites in tunnel loops.
 - Manual run with python3 and existing profiling helpers to compare pacer CPU
   before/after (no tests/e2e/).
 - Confirm pacing targets and block reasons are unchanged via logs.
+
+## Execution Notes
+
+- Added `_PacerState` plus `_target_state()` and `target_state()` helpers to
+  consolidate pacer target computations; `target_inflight()` and
+  `state_fields()` now reuse the shared helper.
+- Reused precomputed pacer state in Alice send gating/logging to avoid
+  duplicate target calculations during `_check_send_pacer()`.
+- Threaded `now` through pacer state/logging call sites while keeping feedback
+  floor timing anchored to the last ACK time for behavior parity.
+- Tests not run (per instructions).

@@ -237,6 +237,44 @@ def _normalize_label_max_len(label_max_len):
     return label_max_len
 
 
+def _decode_b32_labels(name, suffix, label_max_len, skip_first=False,
+                       err_suffix=None, err_no_data=None,
+                       require_suffix=False, err_empty_suffix=None,
+                       normalize_first=True):
+    if normalize_first:
+        label_max_len = _normalize_label_max_len(label_max_len)
+
+    suffix_parts = _split_domain_labels(
+        suffix,
+        lower=True,
+        require_non_empty=require_suffix,
+        empty_error=err_empty_suffix,
+    )
+    name_parts = _split_domain_labels(name, lower=True)
+
+    if suffix_parts:
+        if name_parts[-len(suffix_parts):] != suffix_parts:
+            raise ValueError(err_suffix)
+        data_parts = name_parts[:-len(suffix_parts)]
+    else:
+        data_parts = name_parts
+
+    if skip_first:
+        data_parts = data_parts[1:]
+
+    if not normalize_first:
+        label_max_len = _normalize_label_max_len(label_max_len)
+
+    for label in data_parts:
+        if len(label) > label_max_len:
+            raise ValueError('Label exceeds max length')
+
+    b32 = ''.join(data_parts)
+    if not b32:
+        raise ValueError(err_no_data)
+    return base32_decode(b32)
+
+
 def encode_query_name(data, base_domain, nonce, label_max_len=None):
     """
     Encode tunnel data into DNS query name.
@@ -287,32 +325,17 @@ def decode_query_name(query_name, base_domain, label_max_len=None):
     Returns:
         bytes: decoded tunnel data
     """
-    # Remove base domain suffix
-    base_parts = _split_domain_labels(
+    return _decode_b32_labels(
+        query_name,
         base_domain,
-        lower=True,
-        require_non_empty=True,
-        empty_error='base_domain required',
+        label_max_len,
+        skip_first=True,
+        err_suffix='Query name does not match base domain',
+        err_no_data='No data labels in query name',
+        require_suffix=True,
+        err_empty_suffix='base_domain required',
+        normalize_first=False,
     )
-    name_parts = _split_domain_labels(query_name, lower=True)
-
-    # Verify suffix matches
-    if name_parts[-len(base_parts):] != base_parts:
-        raise ValueError('Query name does not match base domain')
-
-    label_max_len = _normalize_label_max_len(label_max_len)
-
-    # Get data labels (skip nonce at index 0, skip base domain at end)
-    data_labels = name_parts[1:-len(base_parts)]
-    for label in data_labels:
-        if len(label) > label_max_len:
-            raise ValueError('Label exceeds max length')
-
-    # Concatenate and decode
-    b32 = ''.join(data_labels)
-    if not b32:
-        raise ValueError('No data labels in query name')
-    return base32_decode(b32)
 
 
 def encode_txt_rdata(data):
@@ -568,26 +591,13 @@ def decode_cname_target(target_name, cname_suffix, label_max_len=None):
     Returns:
         bytes: decoded tunnel data
     """
-    label_max_len = _normalize_label_max_len(label_max_len)
-
-    suffix_parts = _split_domain_labels(cname_suffix, lower=True)
-    name_parts = _split_domain_labels(target_name, lower=True)
-
-    if suffix_parts:
-        if name_parts[-len(suffix_parts):] != suffix_parts:
-            raise ValueError('CNAME target does not match suffix')
-        data_parts = name_parts[:-len(suffix_parts)]
-    else:
-        data_parts = name_parts
-
-    for label in data_parts:
-        if len(label) > label_max_len:
-            raise ValueError('Label exceeds max length')
-
-    b32 = ''.join(data_parts)
-    if not b32:
-        raise ValueError('No data labels in CNAME target')
-    return base32_decode(b32)
+    return _decode_b32_labels(
+        target_name,
+        cname_suffix,
+        label_max_len,
+        err_suffix='CNAME target does not match suffix',
+        err_no_data='No data labels in CNAME target',
+    )
 
 
 def calc_response_mtu(rtype, edns_size=512, cname_suffix=None,

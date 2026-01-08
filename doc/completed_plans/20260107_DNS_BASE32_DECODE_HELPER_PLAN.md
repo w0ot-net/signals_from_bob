@@ -43,3 +43,8 @@
 
 ## Testing
 - Do not run tests here. The user can run python3 tests if needed.
+
+## Execution Notes
+- Added `_decode_b32_labels` helper and routed query/CNAME decode paths through
+  it while preserving error ordering for the query-name base-domain checks.
+- Tests not run (not requested).

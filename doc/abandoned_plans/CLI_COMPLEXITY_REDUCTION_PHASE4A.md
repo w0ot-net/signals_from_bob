@@ -1,6 +1,6 @@
 # CLI Complexity Reduction Phase 4A
 
-Status: draft
+Status: abandoned
 
 Parent Plan: CLI_COMPLEXITY_REDUCTION_PLAN.md
 
@@ -13,6 +13,10 @@ Parent Plan: CLI_COMPLEXITY_REDUCTION_PLAN.md
 - Change CLI flags, defaults, or transport behaviors.
 - Modify logging fields or crypto behavior.
 - Run tests here.
+
+## Decision
+- Abandoned per request; defer further parsing/config complexity work until
+  a new CLI complexity plan is prioritized.
 
 ## Affected Components
 - sfb/cli.py

@@ -1,6 +1,6 @@
 # CLI Complexity Reduction Phase 4C
 
-Status: draft
+Status: abandoned
 
 Parent Plan: CLI_COMPLEXITY_REDUCTION_PLAN.md
 
@@ -13,6 +13,10 @@ Parent Plan: CLI_COMPLEXITY_REDUCTION_PLAN.md
 - Change TLS bump certificate semantics or output template format.
 - Modify error messages, exit codes, or logging fields.
 - Run tests here.
+
+## Decision
+- Abandoned per request; defer TLS bump/ASN.1 complexity work until a new
+  CLI complexity plan is prioritized.
 
 ## Affected Components
 - sfb/cli.py

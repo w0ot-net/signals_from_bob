@@ -1,6 +1,6 @@
 # CLI Complexity Reduction Phase 4B
 
-Status: draft
+Status: abandoned
 
 Parent Plan: CLI_COMPLEXITY_REDUCTION_PLAN.md
 
@@ -13,6 +13,10 @@ Parent Plan: CLI_COMPLEXITY_REDUCTION_PLAN.md
 - Change module loading semantics, tunnel behavior, or shutdown handling.
 - Alter log payloads or log event names.
 - Run tests here.
+
+## Decision
+- Abandoned per request; defer runtime/logging complexity work until a new
+  CLI complexity plan is prioritized.
 
 ## Affected Components
 - sfb/cli.py

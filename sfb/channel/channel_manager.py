@@ -81,6 +81,15 @@ class ChannelManager(object):
         self._id_reuse_cooldown = config.channel_id_reuse_cooldown
         self._id_reuse_until = {}
         self._channel_request_handler = None
+        self._control_handlers = {
+            'open': self._handle_open,
+            'open_ok': self._handle_open_ok,
+            'open_fail': self._handle_open_fail,
+            'close': self._handle_close,
+            'close_ok': self._handle_close_ok,
+            'close_err': self._handle_close_err,
+            'half_close': self._handle_half_close,
+        }
 
         # Channel ID allocation
         # Alice uses odd IDs (1, 3, 5...), Bob uses even (2, 4, 6...)
@@ -448,21 +457,42 @@ class ChannelManager(object):
         if not cmd:
             return
 
-        if cmd == 'open':
-            self._handle_open(msg)
-        elif cmd == 'open_ok':
-            self._handle_open_ok(msg)
-        elif cmd == 'open_fail':
-            self._handle_open_fail(msg)
-        elif cmd == 'close':
-            self._handle_close(msg)
-        elif cmd == 'close_ok':
-            self._handle_close_ok(msg)
-        elif cmd == 'close_err':
-            self._handle_close_err(msg)
-        elif cmd == 'half_close':
-            self._handle_half_close(msg)
+        handler = self._control_handlers.get(cmd)
+        if handler is None:
+            return
+        handler(msg)
         # Tunnel messages handled by tunnel
+
+    def _snapshot_active_channels(self):
+        active_channels = []
+        inactive_ids = []
+        channel_snapshot = {}
+        with self._lock:
+            for cid in self._active_channels:
+                channel = self._channels.get(cid)
+                channel_snapshot[cid] = channel
+                if channel is None:
+                    inactive_ids.append(cid)
+                else:
+                    active_channels.append(cid)
+        return active_channels, channel_snapshot, inactive_ids
+
+    def _take_segment(self, channel_id, channel, remaining, segments):
+        if channel is None or remaining <= SEGMENT_HEADER_SIZE:
+            return remaining
+        data = channel._take_send_data(remaining - SEGMENT_HEADER_SIZE)
+        if not data:
+            return remaining
+        segments.append(Segment(channel_id, data))
+        return remaining - SEGMENT_HEADER_SIZE - len(data)
+
+    def _drain_channels(self, channel_ids, channel_snapshot, remaining, segments):
+        for cid in channel_ids:
+            if remaining <= SEGMENT_HEADER_SIZE:
+                break
+            channel = channel_snapshot.get(cid)
+            remaining = self._take_segment(cid, channel, remaining, segments)
+        return remaining
 
     def collect_segments(self, max_payload, return_pending=False,
                          control_only=False):
@@ -488,29 +518,17 @@ class ChannelManager(object):
         # Step 1: Channel 0 data first (priority)
         if self._control.send_event.is_set():
             pending_data = True
-        if remaining > SEGMENT_HEADER_SIZE:
-            ctrl_data = self._control._take_send_data(
-                remaining - SEGMENT_HEADER_SIZE
-            )
-            if ctrl_data:
-                segments.append(Segment(CHANNEL_CONTROL, ctrl_data))
-                remaining -= SEGMENT_HEADER_SIZE + len(ctrl_data)
+        remaining = self._take_segment(
+            CHANNEL_CONTROL,
+            self._control,
+            remaining,
+            segments,
+        )
 
         # Step 2: Snapshot active data channels and filter to those with data
-        with self._lock:
-            active_ids = list(self._active_channels)
-            channel_snapshot = dict(
-                (cid, self._channels.get(cid)) for cid in active_ids
-            )
-
-        active_channels = []
-        inactive_ids = []
-        for cid in active_ids:
-            channel = channel_snapshot.get(cid)
-            if channel is None:
-                inactive_ids.append(cid)
-                continue
-            active_channels.append(cid)
+        active_channels, channel_snapshot, inactive_ids = (
+            self._snapshot_active_channels()
+        )
 
         if active_channels:
             pending_data = True
@@ -526,15 +544,12 @@ class ChannelManager(object):
             # Step 3: Primary channel fill (round-robin selection)
             if active_channels and remaining > SEGMENT_HEADER_SIZE:
                 primary_id = active_channels[0]
-
-                channel = channel_snapshot.get(primary_id)
-                if channel is not None:
-                    data = channel._take_send_data(
-                        remaining - SEGMENT_HEADER_SIZE
-                    )
-                    if data:
-                        segments.append(Segment(primary_id, data))
-                        remaining -= SEGMENT_HEADER_SIZE + len(data)
+                remaining = self._drain_channels(
+                    [primary_id],
+                    channel_snapshot,
+                    remaining,
+                    segments,
+                )
 
                 # Advance round-robin pointer (move primary to tail)
                 with self._lock:
@@ -544,20 +559,12 @@ class ChannelManager(object):
 
                 # Step 4: Fill remaining space from other channels (round-robin)
                 if remaining > SEGMENT_HEADER_SIZE:
-                    # Start from the channel after primary
-                    for cid in active_channels[1:]:
-                        if remaining <= SEGMENT_HEADER_SIZE:
-                            break
-                        channel = channel_snapshot.get(cid)
-                        if channel is None:
-                            continue
-
-                        data = channel._take_send_data(
-                            remaining - SEGMENT_HEADER_SIZE
-                        )
-                        if data:
-                            segments.append(Segment(cid, data))
-                            remaining -= SEGMENT_HEADER_SIZE + len(data)
+                    remaining = self._drain_channels(
+                        active_channels[1:],
+                        channel_snapshot,
+                        remaining,
+                        segments,
+                    )
 
         if segments:
             payload_bytes = 0

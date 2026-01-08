@@ -32,3 +32,8 @@
 ## Notes
 - Preserve the `CHANNEL_MANAGER.md` packing rules exactly; this is refactoring
   only.
+
+## Execution Notes
+- Added control handler dispatch table plus snapshot/drain helpers and rewired
+  segment collection to reuse them without changing packing order.
+- Tests not run (not requested).

@@ -23,7 +23,8 @@ in `dns_codec`, so both client and server reuse the same centralized logic.
 2. In `_get_cname_payload_lookup(...)`, build the lookup list by:
    - Computing `upper` with `calc_response_mtu(QTYPE_CNAME, ...)`.
    - Building `rdata_lens[payload_len]` for `payload_len` in `0..upper` using
-     `encode_cname_target` + `encode_name`.
+     `encode_cname_target` + `encode_name` (treat `ValueError` as no-fit so
+     invalid payloads map to 0, matching the current binary-search behavior).
    - Building `payload_for_available[available]` for `available` in
      `0..max_packet_size` by scanning `rdata_lens` once and tracking the
      largest payload that fits each `available` byte count.
@@ -31,11 +32,12 @@ in `dns_codec`, so both client and server reuse the same centralized logic.
    - Return 0 when `fixed_len >= max_packet_size`.
    - Otherwise compute `available = max_packet_size - fixed_len` and return
      `payload_for_available[available]`.
-4. Remove `_binary_search_max` from `dns_codec.py` since it is no longer used.
-5. Validate equivalence by running a small local script that compares the old
+4. Validate equivalence by running a small local script that compares the old
    and new outputs for a representative set of `(qname_wire_len, edns_size,
-   cname_suffix, label_max_len)` combinations, and record the results in the
-   execution notes when the plan is executed.
+   cname_suffix, label_max_len)` combinations; do this before removing the
+   helper or embed the old binary-search logic in the script, and record the
+   results in the execution notes when the plan is executed.
+5. Remove `_binary_search_max` from `dns_codec.py` since it is no longer used.
 
 ## Success Criteria
 - `_max_cname_payload_for_response` no longer uses binary search.

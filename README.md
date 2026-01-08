@@ -23,4 +23,6 @@ python3 -m sfb.cli --cprofile /tmp/sfb_run.prof --role client --transport dns --
 ```
 Default output: `/tmp/sfb_<role>_<transport>_<YYYYMMDD_HHMMSS>_<pid>.prof`
 (falls back to `tempfile.gettempdir()` when `/tmp` is unavailable).
-Note: cProfile merges stats from threads started after profiling begins.
+Note: Thread profiling uses the standard library `profile` module to capture
+threads (cProfile cannot be active in multiple threads at once) and is slower
+than cProfile.

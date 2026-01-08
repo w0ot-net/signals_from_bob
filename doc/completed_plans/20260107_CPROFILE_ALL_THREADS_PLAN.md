@@ -18,11 +18,13 @@ Status: completed
 - README.md
 
 ## Design Notes
-- Implement the cProfile manager in `sfb/profiling.py` to keep CLI logic
+- Implement the profile manager in `sfb/profiling.py` to keep CLI logic
   minimal and reusable.
-- Use per-thread `cProfile.Profile()` instances and merge with `pstats.Stats`.
+- Use per-thread `profile.Profile()` instances and merge with `pstats.Stats`
+  because cProfile cannot be active in multiple threads at once.
 - Install a thread wrapper by patching `threading.Thread.run` so each thread
-  enables its own profiler and disables it on exit.
+  sets its own profile dispatcher and restores the previous hook on exit.
+- Use a small resync wrapper to tolerate starting profiling mid-stack.
 - Enable profiling for the main thread before running the CLI so all threads
   spawned by sfb are covered.
 - Restore the original `threading.Thread.run` after completion.
@@ -54,3 +56,7 @@ Status: completed
 ## Execution notes
 - 2026-01-07: Added multi-thread profiling manager in `sfb/profiling.py`,
   updated CLI integration, and documented the new behavior in README.
+- 2026-01-07: Switched to `profile.Profile()` per thread after confirming
+  cProfile cannot run concurrently across threads.
+- 2026-01-07: Added a resyncing profile wrapper to avoid stack assertion
+  failures when threads start profiling mid-stack.

@@ -1,6 +1,6 @@
 # DNS Base32 Label Chunking Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -39,3 +39,9 @@ without changing behavior.
 - Compare label lists for empty, single-label, and multi-label payloads to
   confirm the output matches the previous behavior.
 - Confirm label and name length validation still runs on assembled labels.
+
+## Execution Notes
+
+- Added _b32_labels helper and routed query/CNAME encoding through it to remove
+  the duplicated chunking loops.
+- Tests not run (not requested).

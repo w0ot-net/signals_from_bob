@@ -237,6 +237,17 @@ def _normalize_label_max_len(label_max_len):
     return label_max_len
 
 
+def _b32_labels(data, label_max_len):
+    """Return base32-encoded labels split to label_max_len."""
+    label_max_len = _normalize_label_max_len(label_max_len)
+    b32 = base32_encode(data)
+    labels = []
+    while b32:
+        labels.append(b32[:label_max_len])
+        b32 = b32[label_max_len:]
+    return labels
+
+
 def _binary_search_max(low, high, fits_fn):
     best = 0
     while low <= high:
@@ -300,7 +311,6 @@ def encode_query_name(data, base_domain, nonce, label_max_len=None):
     Returns:
         str: complete query name
     """
-    label_max_len = _normalize_label_max_len(label_max_len)
     base_labels = _split_domain_labels(
         base_domain,
         require_non_empty=True,
@@ -310,14 +320,8 @@ def encode_query_name(data, base_domain, nonce, label_max_len=None):
     # Generate nonce label
     nonce_label = base32_encode(struct.pack('>H', nonce & 0xFFFF))[:NONCE_LEN]
 
-    # Base32 encode data
-    b32 = base32_encode(data)
-
-    # Split into labels respecting max length
     labels = [nonce_label]
-    while b32:
-        labels.append(b32[:label_max_len])
-        b32 = b32[label_max_len:]
+    labels.extend(_b32_labels(data, label_max_len))
 
     # Append base domain
     labels.extend(base_labels)
@@ -558,14 +562,7 @@ def encode_cname_target(data, cname_suffix, label_max_len=None):
     Returns:
         str: CNAME target name
     """
-    label_max_len = _normalize_label_max_len(label_max_len)
-
-    b32 = base32_encode(data)
-    labels = []
-    while b32:
-        labels.append(b32[:label_max_len])
-        b32 = b32[label_max_len:]
-
+    labels = _b32_labels(data, label_max_len)
     suffix_labels = _split_domain_labels(cname_suffix)
     labels.extend(suffix_labels)
     _validate_name_length(labels)

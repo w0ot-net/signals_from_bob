@@ -926,45 +926,6 @@ def add_server_args(parser, config):
     )
 
 
-def _insert_default_command(arg_list, default_cmd, unknown_token):
-    new_args = list(arg_list)
-    insert_at = None
-    for index, token in enumerate(arg_list):
-        if token == unknown_token:
-            insert_at = index
-            break
-    if insert_at is None:
-        new_args.append(default_cmd)
-    else:
-        new_args.insert(insert_at, default_cmd)
-    return new_args
-
-
-def _maybe_parse_with_default_command(parser, arg_list, parsed, unknown,
-                                      generate_cert):
-    if generate_cert or not unknown:
-        return None
-    module_name = getattr(parsed, 'module', None)
-    if not module_name:
-        return None
-    module_cls = CLI_MODULES.get(module_name)
-    if module_cls is None:
-        return None
-    if not getattr(module_cls, 'USES_SUBCOMMANDS', True):
-        return None
-    default_cmd = getattr(module_cls, 'DEFAULT_COMMAND', None)
-    if not default_cmd:
-        return None
-    if getattr(parsed, 'command', None) is not None:
-        return None
-    new_args = _insert_default_command(
-        arg_list,
-        default_cmd,
-        unknown[0],
-    )
-    return parser.parse_args(new_args)
-
-
 def parse_args(args=None):
     """
     Parse command-line arguments.
@@ -1058,19 +1019,7 @@ def parse_args(args=None):
             else:
                 module_cls.register_commands(parser, role_for_args, config=config_defaults)
 
-    parsed, unknown = parser.parse_known_args(arg_list)
-    if unknown:
-        parsed_with_default = _maybe_parse_with_default_command(
-            parser,
-            arg_list,
-            parsed,
-            unknown,
-            generate_cert,
-        )
-        if parsed_with_default is None:
-            parsed = parser.parse_args(arg_list)
-        else:
-            parsed = parsed_with_default
+    parsed = parser.parse_args(arg_list)
     if parsed.role is not None:
         parsed.role = normalize_role(parsed.role)  # Normalize in final result
     parsed.log_profile_explicit = log_profile_explicit

@@ -10,6 +10,7 @@ from __future__ import absolute_import
 from .rtt import RttEstimator
 from .fast_retransmit import FastRetransmitController
 from .pacing import AdaptivePacer, compute_poll_pacing_interval
+from .pacer_gate import PacerGateController
 from .pacer_logging import PacerLoggingHelper
 from .send_window import SendWindow
 from .recv_window import RecvWindow
@@ -20,6 +21,7 @@ __all__ = [
     'FastRetransmitController',
     'AdaptivePacer',
     'compute_poll_pacing_interval',
+    'PacerGateController',
     'PacerLoggingHelper',
     'SendWindow',
     'RecvWindow',

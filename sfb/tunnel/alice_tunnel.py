@@ -19,6 +19,7 @@ from ..reliability import (
     AdaptivePacer,
     compute_poll_pacing_interval,
     FastRetransmitController,
+    PacerGateController,
     PacerLoggingHelper,
     RttEstimator,
 )
@@ -125,6 +126,7 @@ class AliceTunnel(BaseTunnel):
         self._pacer_logger = PacerLoggingHelper(
             config.tunnel_pacer_summary_interval
         )
+        self._pacer_gate = PacerGateController()
 
         # Poll pacing (Alice only)
         self._poll_pacing_enabled = config.tunnel_poll_pacing_enabled
@@ -754,28 +756,6 @@ class AliceTunnel(BaseTunnel):
             'max_in_flight': self._send_window._max_in_flight,
         }
 
-    def _check_send_window_distance(self, now, pacer_cap, keepalive_only):
-        exceeded, distance_info = self._send_window.distance_exceeded(
-            max_window=self.MAX_WINDOW
-        )
-        if not exceeded:
-            self._maybe_unfreeze_pacer_feedback(now, reason='distance_clear')
-            return None
-        distance_details = self._send_window.distance_details(now=now)
-        self._update_pacer_feedback_freeze(
-            now,
-            distance_info,
-            distance_details,
-            keepalive_only,
-        )
-        return {
-            'reason': 'window_distance',
-            'keepalive_only': keepalive_only,
-            'distance_info': distance_info,
-            'distance_details': distance_details,
-            'pacer_cap': pacer_cap,
-        }
-
     def _check_send_rate_limit(self, now, keepalive_only):
         if self._send_limiter is None:
             return None
@@ -788,27 +768,6 @@ class AliceTunnel(BaseTunnel):
             'burst': self._config.tunnel_send_burst,
         }
 
-    def _check_send_pacer(self, keepalive_only, cap):
-        if not self._pacer.enabled:
-            return None
-        if cap is None:
-            cap = self._pacer_cap()
-        self._maybe_log_pacer_target_change(cap, reason='gate_check')
-        if keepalive_only:
-            return None
-        unacked, inflight = self._pacer_inflight_counts()
-        if inflight is None:
-            inflight = unacked
-        if self._pacer.can_send(inflight, cap, srtt_ms=self._rtt.srtt_ms):
-            return None
-        return {
-            'reason': 'pacer',
-            'keepalive_only': keepalive_only,
-            'unacked': unacked,
-            'inflight': inflight,
-            'cap': cap,
-        }
-
     def _pacer_inflight_counts(self):
         unacked = self._send_window.unacked_count
         distance_info = self._send_window.distance_info()
@@ -818,75 +777,6 @@ class AliceTunnel(BaseTunnel):
         if distance < unacked:
             distance = unacked
         return unacked, distance
-
-    def _should_freeze_pacer_feedback(self, distance_info, details):
-        if not self._pacer.enabled:
-            return False
-        if details is None:
-            return False
-        if not details.get('missing_in_unacked'):
-            return False
-        missing_age = details.get('missing_age')
-        if missing_age is None:
-            return False
-        min_age = self._rtt.rto_sec * self._fast_retransmit.min_age_ratio
-        if missing_age < min_age:
-            return False
-        (distance, max_in_flight, effective_cap, unacked,
-         _distance_limit, _last_cum_ack, _next_seq) = distance_info
-        buffered = distance - unacked
-        cap = effective_cap
-        if cap is None:
-            cap = max_in_flight
-        if cap is None:
-            cap = self._send_window._max_in_flight
-        if cap < 1:
-            cap = 1
-        low_unacked = max(2, int(cap * 0.25))
-        high_buffered = max(4, int(cap * 0.5))
-        if unacked > low_unacked:
-            return False
-        if buffered < high_buffered:
-            return False
-        return True
-
-    def _update_pacer_feedback_freeze(self, now, distance_info, details,
-                                      keepalive_only):
-        if not self._pacer.enabled:
-            return
-        if keepalive_only:
-            return
-        should_freeze = self._should_freeze_pacer_feedback(
-            distance_info,
-            details,
-        )
-        if should_freeze:
-            if self._pacer.freeze_feedback(now, reason='sack_stall'):
-                self._log_pacer_feedback_freeze(
-                    action='freeze',
-                    reason='sack_stall',
-                    distance_info=distance_info,
-                    details=details,
-                )
-            return
-        if self._pacer.unfreeze_feedback(now):
-            self._log_pacer_feedback_freeze(
-                action='unfreeze',
-                reason='stall_clear',
-                distance_info=distance_info,
-                details=details,
-            )
-
-    def _maybe_unfreeze_pacer_feedback(self, now, reason):
-        if not self._pacer.enabled:
-            return
-        if self._pacer.unfreeze_feedback(now):
-            self._log_pacer_feedback_freeze(
-                action='unfreeze',
-                reason=reason,
-                distance_info=None,
-                details=None,
-            )
 
     def _log_pacer_feedback_freeze(self, action, reason, distance_info,
                                    details):
@@ -1146,21 +1036,59 @@ class AliceTunnel(BaseTunnel):
                     srtt_ms=self._rtt.srtt_ms,
                 ),
             )
-        decision = self._check_send_window_distance(
-            now,
-            pacer_cap,
-            keepalive_only,
+        decision = self._pacer_gate.check_send(
+            send_window=self._send_window,
+            pacer=self._pacer,
+            now=now,
+            srtt_ms=self._rtt.srtt_ms,
+            rto_sec=self._rtt.rto_sec,
+            min_age_ratio=self._fast_retransmit.min_age_ratio,
+            keepalive_only=keepalive_only,
+            pacer_cap=pacer_cap,
+            max_window=self.MAX_WINDOW,
+            pacer_gate_cap=pacer_gate_cap,
+            check_pacer=False,
         )
-        if decision is not None:
-            self._log_send_blocked(decision, now)
+        freeze_action = decision.get('freeze_action')
+        if freeze_action is not None:
+            freeze_details = decision.get('freeze_details') or {}
+            self._log_pacer_feedback_freeze(
+                action=freeze_action,
+                reason=decision.get('freeze_reason'),
+                distance_info=freeze_details.get('distance_info'),
+                details=freeze_details.get('details'),
+            )
+        if not decision.get('can_send'):
+            blocked = dict(decision.get('block_details') or {})
+            blocked['reason'] = decision.get('block_reason')
+            self._log_send_blocked(blocked, now)
             return False
         decision = self._check_send_rate_limit(now, keepalive_only)
         if decision is not None:
             self._log_send_blocked(decision, now)
             return False
-        decision = self._check_send_pacer(keepalive_only, pacer_gate_cap)
-        if decision is not None:
-            self._log_send_blocked(decision, now)
+        if self._pacer.enabled:
+            self._maybe_log_pacer_target_change(
+                pacer_gate_cap,
+                reason='gate_check',
+            )
+        decision = self._pacer_gate.check_send(
+            send_window=self._send_window,
+            pacer=self._pacer,
+            now=now,
+            srtt_ms=self._rtt.srtt_ms,
+            rto_sec=self._rtt.rto_sec,
+            min_age_ratio=self._fast_retransmit.min_age_ratio,
+            keepalive_only=keepalive_only,
+            pacer_cap=pacer_cap,
+            max_window=self.MAX_WINDOW,
+            pacer_gate_cap=pacer_gate_cap,
+            check_distance=False,
+        )
+        if not decision.get('can_send'):
+            blocked = dict(decision.get('block_details') or {})
+            blocked['reason'] = decision.get('block_reason')
+            self._log_send_blocked(blocked, now)
             return False
         return True
 

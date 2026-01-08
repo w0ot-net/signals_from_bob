@@ -55,3 +55,11 @@ Status: draft
 
 ## Testing
 - Do not run tests here. The user can run python3 tests if needed.
+
+## Execution Notes
+- Added `PacerGateController` in `sfb/reliability/pacer_gate.py` and routed
+  window-distance/pacer gating decisions through it from `AliceTunnel`.
+- Kept logging in `AliceTunnel`, including pacer feedback-freeze logs, driven
+  by controller output.
+- Exported the controller from `sfb/reliability/__init__.py`.
+- Tests not run (not requested).

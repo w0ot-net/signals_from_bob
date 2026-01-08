@@ -17,6 +17,7 @@ from .tunnel_control_messages import (
 )
 from ..reliability import (
     AdaptivePacer,
+    compute_poll_pacing_interval,
     FastRetransmitController,
     PacerLoggingHelper,
     RttEstimator,
@@ -1338,26 +1339,15 @@ class AliceTunnel(BaseTunnel):
         if target_inflight < 1:
             target_inflight = 1
         srtt_ms = self._rtt.srtt_ms
-        if srtt_ms is None:
-            srtt_sec = self._keepalive_interval
-        else:
-            rtt_ms = srtt_ms
-            if rtt_ms < self._config.tunnel_pace_rtt_floor_ms:
-                rtt_ms = self._config.tunnel_pace_rtt_floor_ms
-            srtt_sec = rtt_ms / 1000.0
-            if srtt_sec <= 0:
-                srtt_sec = self._keepalive_interval
-        interval = (srtt_sec * self._poll_rtt_ratio) / float(target_inflight)
-        min_interval = self._poll_min_interval
-        max_interval = self._poll_max_interval
-        if max_interval > self._keepalive_interval:
-            max_interval = self._keepalive_interval
-        if max_interval < min_interval:
-            min_interval = max_interval
-        if interval < min_interval:
-            interval = min_interval
-        if interval > max_interval:
-            interval = max_interval
+        interval, target_inflight = compute_poll_pacing_interval(
+            srtt_ms=srtt_ms,
+            keepalive_interval=self._keepalive_interval,
+            rtt_floor_ms=self._config.tunnel_pace_rtt_floor_ms,
+            poll_rtt_ratio=self._poll_rtt_ratio,
+            min_interval=self._poll_min_interval,
+            max_interval=self._poll_max_interval,
+            target_inflight=target_inflight,
+        )
         self._maybe_log_poll_pace(interval, target_inflight, srtt_ms)
         return interval, target_inflight
 

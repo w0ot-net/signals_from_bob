@@ -6,6 +6,33 @@ Adaptive pacing for Alice sends.
 from __future__ import absolute_import
 
 
+def compute_poll_pacing_interval(srtt_ms, keepalive_interval, rtt_floor_ms,
+                                 poll_rtt_ratio, min_interval, max_interval,
+                                 target_inflight):
+    """
+    Compute poll pacing interval for Alice.
+    """
+    if srtt_ms is None:
+        srtt_sec = keepalive_interval
+    else:
+        rtt_ms = srtt_ms
+        if rtt_ms < rtt_floor_ms:
+            rtt_ms = rtt_floor_ms
+        srtt_sec = rtt_ms / 1000.0
+        if srtt_sec <= 0:
+            srtt_sec = keepalive_interval
+    interval = (srtt_sec * poll_rtt_ratio) / float(target_inflight)
+    if max_interval > keepalive_interval:
+        max_interval = keepalive_interval
+    if max_interval < min_interval:
+        min_interval = max_interval
+    if interval < min_interval:
+        interval = min_interval
+    if interval > max_interval:
+        interval = max_interval
+    return interval, target_inflight
+
+
 class AdaptivePacer(object):
     """
     Adaptive pacing controller driven by inflight targets.

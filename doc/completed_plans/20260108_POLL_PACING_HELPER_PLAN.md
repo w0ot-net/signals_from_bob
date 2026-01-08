@@ -59,3 +59,11 @@ Extract the poll pacing interval/target computation from
 
 - No automated tests here. Manual inspection to confirm the helper preserves
   the existing interval math and clamping behavior.
+
+## Execution Notes
+
+- Added `compute_poll_pacing_interval` in `sfb/reliability/pacing.py` and
+  routed `AliceTunnel._poll_pacing_interval` through it while keeping logging
+  in `AliceTunnel`.
+- Exported the helper from `sfb/reliability/__init__.py`.
+- Tests not run (not requested).

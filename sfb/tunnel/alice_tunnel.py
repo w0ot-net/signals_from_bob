@@ -481,7 +481,11 @@ class AliceTunnel(BaseTunnel):
 
         # 3. Send new packets if we can
         tick_slept = False
-        pacing_blocked = self._send_pending_or_poll(now, serial_window)
+        pacing_blocked, sent_any = self._send_pending_or_poll(
+            now,
+            serial_window,
+            packets_sent_before,
+        )
 
         # 4. Opportunistically grow window after ACK progress or retry negotiation
         if self._window_growth_enabled:
@@ -490,20 +494,19 @@ class AliceTunnel(BaseTunnel):
         self._maybe_log_pacer_summary(time_provider.now())
 
         paced_sleep = False
-        if pacing_blocked and self._packets_sent == packets_sent_before:
+        if pacing_blocked and not sent_any:
             paced_sleep = self._sleep_for_poll_pacing(time_provider.now())
             if paced_sleep:
                 tick_slept = True
 
-        if (not paced_sleep and not received_any and
-                self._packets_sent == packets_sent_before and
+        if (not paced_sleep and not received_any and not sent_any and
                 not self._channel_manager.pending_send_event.is_set() and
                 not self._got_data and not self._has_pending_data_acks):
             idle_sleep = max(self._config.tunnel_tick_sleep, 0.01)
             time_provider.sleep(idle_sleep)
             tick_slept = True
 
-        if received_any or self._packets_sent != packets_sent_before or tick_slept:
+        if received_any or sent_any or tick_slept:
             self._tick_sleep_hint = 0.0
         else:
             self._tick_sleep_hint = self._config.tunnel_tick_sleep
@@ -1392,7 +1395,7 @@ class AliceTunnel(BaseTunnel):
             return fields
         log_event(
             self._logger,
-            logging.INFO,
+            logging.DEBUG,
             'tunnel.poll_pace',
             'Poll pacing interval updated',
             build_fields,

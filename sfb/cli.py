@@ -1557,6 +1557,92 @@ def run_server_passive(args, tunnel, logger):
     return 0
 
 
+def _wait_for_client(tunnel, args, logger, shutdown_requested):
+    if args.transport == 'dns':
+        host, port = parse_host_port(tunnel._config.dns_listen_addr, default_port=53)
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.wait_client',
+            'Waiting for client',
+            lambda: {'transport': 'dns', 'host': host, 'port': port},
+        )
+    elif args.transport == 'icmp':
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.wait_client',
+            'Waiting for client',
+            lambda: {'transport': 'icmp'},
+        )
+    while tunnel._state != TunnelState.CONNECTED:
+        if shutdown_requested[0]:
+            return False
+        time_provider.sleep(tunnel._config.tunnel_connect_poll_interval)
+
+    log_event(
+        logger,
+        logging.INFO,
+        'cli.client_connected',
+        'Client connected',
+        lambda: None,
+    )
+    return True
+
+
+def _load_remote_module(tunnel, args, logger, module_loader):
+    module_name = args.module
+    module_id = args.module_id
+    module_cls = CLI_MODULES[module_name]
+    module_logger = get_logger('sfb.modules.%s' % module_name)
+    remote_module = module_cls.REMOTE_MODULE or module_name
+    log_event(
+        logger,
+        logging.INFO,
+        'cli.module_load',
+        'Loading module on peer',
+        lambda: {'module': remote_module, 'mid': module_id},
+    )
+    module_loader.load_remote(remote_module, module_id)
+    log_event(
+        logger,
+        logging.INFO,
+        'cli.module_loaded',
+        'Module loaded (module=%s)' % remote_module,
+        lambda: {'module': remote_module, 'mid': module_id},
+    )
+    return module_cls, module_logger
+
+
+def _resolve_module_command(args, module_cls, logger):
+    if getattr(module_cls, 'USES_SUBCOMMANDS', True):
+        if getattr(args, 'command', None) is None:
+            default_cmd = getattr(module_cls, 'DEFAULT_COMMAND', None)
+            if default_cmd:
+                args.command = default_cmd
+            elif getattr(module_cls, 'REQUIRES_COMMAND', False):
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    'cli.module_command_required',
+                    'Module requires a command',
+                    lambda: {'module': args.module, 'mid': args.module_id},
+                )
+                return False
+    return True
+
+
+def _unload_remote_module(tunnel, args, module_loader):
+    module_name = args.module
+    module_id = args.module_id
+    module_cls = CLI_MODULES[module_name]
+    remote_module = module_cls.REMOTE_MODULE or module_name
+    try:
+        module_loader.unload_remote(remote_module, module_id)
+    except ModuleLoadError:
+        pass
+
+
 def run_server_command(args, tunnel, logger, shutdown_requested):
     """Run server in command mode - wait for client, load module, execute."""
     try:
@@ -1566,84 +1652,23 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
         tunnel.start_background()
 
         # Wait for client to connect
-        if args.transport == 'dns':
-            host, port = parse_host_port(tunnel._config.dns_listen_addr, default_port=53)
-            log_event(
-                logger,
-                logging.INFO,
-                'cli.wait_client',
-                'Waiting for client',
-                lambda: {'transport': 'dns', 'host': host, 'port': port},
-            )
-        elif args.transport == 'icmp':
-            log_event(
-                logger,
-                logging.INFO,
-                'cli.wait_client',
-                'Waiting for client',
-                lambda: {'transport': 'icmp'},
-            )
-        while tunnel._state != TunnelState.CONNECTED:
-            if shutdown_requested[0]:
-                return 1
-            time_provider.sleep(tunnel._config.tunnel_connect_poll_interval)
+        if not _wait_for_client(tunnel, args, logger, shutdown_requested):
+            return 1
 
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.client_connected',
-            'Client connected',
-            lambda: None,
-        )
-
-        module_name = args.module
-        module_id = args.module_id
-        module_cls = CLI_MODULES[module_name]
-        module_logger = get_logger('sfb.modules.%s' % module_name)
-        remote_module = module_cls.REMOTE_MODULE or module_name
-        remote_loaded = False
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.module_load',
-            'Loading module on peer',
-            lambda: {'module': remote_module, 'mid': module_id},
-        )
-        module_loader.load_remote(remote_module, module_id)
-        remote_loaded = True
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.module_loaded',
-            'Module loaded (module=%s)' % remote_module,
-            lambda: {'module': remote_module, 'mid': module_id},
+        module_cls, module_logger = _load_remote_module(
+            tunnel, args, logger, module_loader
         )
 
         # Allow module message type
         tunnel.allow_message_type(module_cls.TYPE)
 
-        if getattr(module_cls, 'USES_SUBCOMMANDS', True):
-            if getattr(args, 'command', None) is None:
-                default_cmd = getattr(module_cls, 'DEFAULT_COMMAND', None)
-                if default_cmd:
-                    args.command = default_cmd
-                elif getattr(module_cls, 'REQUIRES_COMMAND', False):
-                    log_event(
-                        logger,
-                        logging.ERROR,
-                        'cli.module_command_required',
-                        'Module requires a command',
-                        lambda: {'module': module_name, 'mid': module_id},
-                    )
-                    return 1
+        if not _resolve_module_command(args, module_cls, logger):
+            return 1
 
         # Run module command
         exit_code = module_cls.run_command(args, tunnel, module_logger)
-        if remote_loaded and tunnel._state == TunnelState.CONNECTED:
-            try:
-                module_loader.unload_remote(remote_module, module_id)
-            except ModuleLoadError:
-                pass
+        if tunnel._state == TunnelState.CONNECTED:
+            _unload_remote_module(tunnel, args, module_loader)
         return exit_code
 
     except ModuleError as e:
@@ -1801,28 +1826,28 @@ def run_client(args, config, crypto, logger):
         )
 
 
-def _run_main(parsed, cprofile_path):
-    """Run the CLI with parsed args."""
-    cert_result = _handle_tls_bump_generate_cert(parsed)
-    if cert_result is not None:
-        return cert_result
-    if parsed.db_log is _DB_LOG_DEFAULT:
-        # --db-log passed without a path, use default
-        parsed.db_log = './logs/%s_log.db' % parsed.role
-    if getattr(parsed, 'log_profile_explicit', False):
-        parsed.verbose = True
-
-    config = create_config(parsed)
-    if parsed.log_profile:
+def _ensure_db_log_path(parsed):
+    if not parsed.db_log:
+        return
+    db_dir = os.path.dirname(parsed.db_log)
+    if os.path.exists(parsed.db_log):
+        if os.path.isfile(parsed.db_log):
+            try:
+                os.remove(parsed.db_log)
+            except OSError as e:
+                if e.errno != errno.ENOENT:
+                    raise
+        else:
+            raise OSError(errno.EEXIST, 'db log path is not a file', parsed.db_log)
+    if db_dir:
         try:
-            apply_log_profile(config, parsed.log_profile)
-        except ValueError as e:
-            _print_error(str(e))
-            return 2
-    if parsed.verbose and config.tunnel_pacer_summary_interval <= 0:
-        config.tunnel_pacer_summary_interval = 1.0
+            os.makedirs(db_dir)
+        except OSError as e:
+            if e.errno != errno.EEXIST or not os.path.isdir(db_dir):
+                raise
 
-    # Setup logging
+
+def _configure_root_logging(parsed, cprofile_path):
     level = logging.DEBUG if parsed.verbose else logging.INFO
     logging.basicConfig(
         level=level,
@@ -1842,33 +1867,20 @@ def _run_main(parsed, cprofile_path):
             if isinstance(handler, logging.StreamHandler):
                 handler.setFormatter(stdout_formatter)
     if parsed.db_log:
-        db_dir = os.path.dirname(parsed.db_log)
-        if os.path.exists(parsed.db_log):
-            if os.path.isfile(parsed.db_log):
-                try:
-                    os.remove(parsed.db_log)
-                except OSError as e:
-                    if e.errno != errno.ENOENT:
-                        raise
-            else:
-                raise OSError(errno.EEXIST, 'db log path is not a file', parsed.db_log)
-        if db_dir:
-            try:
-                os.makedirs(db_dir)
-            except OSError as e:
-                if e.errno != errno.EEXIST or not os.path.isdir(db_dir):
-                    raise
+        _ensure_db_log_path(parsed)
         formatter = logging.Formatter('%(name)s %(levelname)s %(message)s')
         add_sqlite_handler(
-            logging.getLogger(),
+            root_logger,
             parsed.db_log,
             level=level,
             formatter=formatter,
             flush_interval=parsed.db_log_flush,
             queue_maxsize=parsed.db_log_queue,
         )
-    add_component_filters(logging.getLogger(), config)
-    logger = logging.getLogger('sfb')
+    return root_logger
+
+
+def _log_startup(logger, parsed, cprofile_path, config):
     log_event(
         logger,
         logging.INFO,
@@ -1910,6 +1922,34 @@ def _run_main(parsed, cprofile_path):
             'cProfile enabled',
             lambda: {'path': cprofile_path, 'mode': 'threads'},
         )
+
+
+def _run_main(parsed, cprofile_path):
+    """Run the CLI with parsed args."""
+    cert_result = _handle_tls_bump_generate_cert(parsed)
+    if cert_result is not None:
+        return cert_result
+    if parsed.db_log is _DB_LOG_DEFAULT:
+        # --db-log passed without a path, use default
+        parsed.db_log = './logs/%s_log.db' % parsed.role
+    if getattr(parsed, 'log_profile_explicit', False):
+        parsed.verbose = True
+
+    config = create_config(parsed)
+    if parsed.log_profile:
+        try:
+            apply_log_profile(config, parsed.log_profile)
+        except ValueError as e:
+            _print_error(str(e))
+            return 2
+    if parsed.verbose and config.tunnel_pacer_summary_interval <= 0:
+        config.tunnel_pacer_summary_interval = 1.0
+
+    # Setup logging
+    root_logger = _configure_root_logging(parsed, cprofile_path)
+    add_component_filters(root_logger, config)
+    logger = logging.getLogger('sfb')
+    _log_startup(logger, parsed, cprofile_path, config)
 
     # Create config and crypto
     crypto = create_crypto(parsed, logger)

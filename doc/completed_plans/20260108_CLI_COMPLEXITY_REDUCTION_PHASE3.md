@@ -1,6 +1,6 @@
 # CLI Complexity Reduction Phase 3
 
-Status: draft
+Status: completed
 
 Parent Plan: CLI_COMPLEXITY_REDUCTION_PLAN.md
 
@@ -60,3 +60,8 @@ Parent Plan: CLI_COMPLEXITY_REDUCTION_PLAN.md
 ## Testing
 - Do not run tests here. If needed, use `radon cc sfb/cli.py` to verify the
   complexity drop after the refactor.
+
+## Execution Notes
+- 20260108: Added module lifecycle and logging helpers, refactored
+  `run_server_command` and `_run_main` to use them, and preserved logging/event
+  ordering by inspection; no tests run.

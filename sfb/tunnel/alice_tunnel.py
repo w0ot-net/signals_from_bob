@@ -583,6 +583,14 @@ class AliceTunnel(BaseTunnel):
         )
         return False
 
+    def _pending_mode_set(self, mode, pending_event, control_send_event,
+                          data_send_event):
+        if mode == 'control':
+            return control_send_event.is_set()
+        if mode == 'data':
+            return data_send_event.is_set()
+        return pending_event.is_set()
+
     def _try_send_segments(self, now, send_payload_limit, control_only,
                            has_data_pending=None, mark_pending_acks=False,
                            permit=None, keep_permit_on_empty=False):
@@ -647,18 +655,15 @@ class AliceTunnel(BaseTunnel):
         control_send_event = self._channel_manager.control.send_event
         data_send_event = self._channel_manager.data_send_event
 
-        def pending_mode_set(mode):
-            if mode == 'control':
-                return control_send_event.is_set()
-            if mode == 'data':
-                return data_send_event.is_set()
-            return pending_event.is_set()
-
         pending_mode = 'control' if serial_window else 'control_or_data'
         control_only = serial_window
         break_on_empty = not serial_window
         while True:
-            if pending_mode_set(pending_mode):
+            if self._pending_mode_set(
+                    pending_mode,
+                    pending_event,
+                    control_send_event,
+                    data_send_event):
                 if not self._can_send_new(
                         now=now,
                         keepalive_only=False):
@@ -686,7 +691,11 @@ class AliceTunnel(BaseTunnel):
             should_poll, keepalive_due, consume_pong_grace = self._poll_decision(now)
             if not should_poll:
                 break
-            if pending_mode_set(pending_mode):
+            if self._pending_mode_set(
+                    pending_mode,
+                    pending_event,
+                    control_send_event,
+                    data_send_event):
                 continue
             window_full = not self._send_window.can_send
             if window_full:
@@ -715,7 +724,11 @@ class AliceTunnel(BaseTunnel):
                 continue
             if permit is None:
                 break
-            if break_on_empty and pending_mode_set(pending_mode):
+            if break_on_empty and self._pending_mode_set(
+                    pending_mode,
+                    pending_event,
+                    control_send_event,
+                    data_send_event):
                 self._transport.release_send(permit)
                 break
             if not self._send_keepalive_or_break(

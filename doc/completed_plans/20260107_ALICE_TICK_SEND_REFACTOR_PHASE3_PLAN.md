@@ -1,6 +1,6 @@
 # Alice Tick Send Refactor Phase 3 Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -67,3 +67,10 @@ shrinking the method and improving scanability.
 ## Testing
 
 - Do not run tests here. The user can run tests with python3 if needed.
+
+## Execution Notes
+
+- Added `_pending_mode_set` to remove the inline `pending_mode_set` closure and
+  reused it inside `_send_pending_or_poll` in `sfb/tunnel/alice_tunnel.py`.
+- Kept `tick()` as a linear sequence of helper calls while using the existing
+  `(pacing_blocked, sent_any)` return values for sleep decisions.

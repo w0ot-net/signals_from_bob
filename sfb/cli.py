@@ -931,6 +931,77 @@ def add_server_args(parser, config):
     )
 
 
+def _build_base_parser(config_defaults, require_domain, require_role, add_help=True):
+    parser = argparse.ArgumentParser(
+        description='sfb - Signals From Bob tunnel',
+        add_help=add_help,
+    )
+    add_common_args(
+        parser,
+        config_defaults,
+        require_domain=require_domain,
+        require_role=require_role,
+    )
+    add_module_args(parser)
+    return parser
+
+
+def _add_transport_args(parser, config_defaults, transport, role_for_args, generate_cert):
+    if generate_cert:
+        return
+
+    def add_dns_args(parser, config_defaults, role_for_args):
+        if role_for_args == 'server':
+            add_dns_server_args(parser, config_defaults)
+        else:
+            add_dns_client_args(parser, config_defaults)
+
+    def add_icmp_args(parser, config_defaults, role_for_args):
+        add_icmp_common_args(parser, config_defaults)
+        if role_for_args == 'client':
+            add_icmp_client_args(parser, config_defaults, require_target=True)
+
+    def add_udp_ephemeral_args(parser, config_defaults, role_for_args):
+        add_udp_ephemeral_common_args(parser, config_defaults)
+        if role_for_args == 'server':
+            add_udp_ephemeral_server_args(parser, config_defaults)
+        else:
+            add_udp_ephemeral_client_args(
+                parser, config_defaults, require_target=True
+            )
+
+    def add_tls_args(parser, config_defaults, role_for_args):
+        if role_for_args == 'server':
+            add_tls_server_args(parser, config_defaults)
+        else:
+            add_tls_client_args(parser, config_defaults)
+
+    def add_tls_bump_args(parser, config_defaults, role_for_args):
+        if role_for_args == 'server':
+            add_tls_bump_server_args(parser, config_defaults)
+        else:
+            add_tls_bump_client_args(parser, config_defaults)
+
+    dispatch = {
+        'dns': add_dns_args,
+        'icmp': add_icmp_args,
+        'udp_ephemeral': add_udp_ephemeral_args,
+        'tls_handshake': add_tls_args,
+        'tls_handshake_bump': add_tls_bump_args,
+    }
+    handler = dispatch.get(transport)
+    if handler:
+        handler(parser, config_defaults, role_for_args)
+
+
+def _add_module_commands(parser, module_cls, role_for_args, config_defaults):
+    if getattr(module_cls, 'USES_SUBCOMMANDS', True):
+        subparsers = parser.add_subparsers(dest='command', help='Module commands')
+        module_cls.register_commands(subparsers, role_for_args, config=config_defaults)
+    else:
+        module_cls.register_commands(parser, role_for_args, config=config_defaults)
+
+
 def parse_args(args=None):
     """
     Parse command-line arguments.
@@ -947,18 +1018,13 @@ def parse_args(args=None):
     generate_cert = _has_arg_prefix(arg_list, '--tls-bump-generate-cert')
 
     # First pass: get basic options
-    parser = argparse.ArgumentParser(
-        description='sfb - Signals From Bob tunnel',
-        add_help=False,  # Add help in second pass
-    )
     config_defaults = Config()
-    add_common_args(
-        parser,
+    parser = _build_base_parser(
         config_defaults,
         require_domain=False,
         require_role=False,
+        add_help=False,
     )
-    add_module_args(parser)
 
     partial_args, remaining = parser.parse_known_args(arg_list)
     role = None
@@ -968,46 +1034,19 @@ def parse_args(args=None):
     role_for_args = role or 'client'
 
     # Second pass: full parser with role/transport/module-specific args
-    parser = argparse.ArgumentParser(
-        description='sfb - Signals From Bob tunnel'
-    )
-    add_common_args(
-        parser,
+    parser = _build_base_parser(
         config_defaults,
         require_domain=(transport == 'dns' and not generate_cert),
         require_role=not generate_cert,
     )
-    add_module_args(parser)
-
+    _add_transport_args(
+        parser,
+        config_defaults,
+        transport,
+        role_for_args,
+        generate_cert,
+    )
     if not generate_cert:
-        # Transport-specific args
-        if transport == 'dns':
-            if role_for_args == 'server':
-                add_dns_server_args(parser, config_defaults)
-            else:
-                add_dns_client_args(parser, config_defaults)
-        elif transport == 'icmp':
-            add_icmp_common_args(parser, config_defaults)
-            if role_for_args == 'client':
-                add_icmp_client_args(parser, config_defaults, require_target=True)
-        elif transport == 'udp_ephemeral':
-            add_udp_ephemeral_common_args(parser, config_defaults)
-            if role_for_args == 'server':
-                add_udp_ephemeral_server_args(parser, config_defaults)
-            else:
-                add_udp_ephemeral_client_args(
-                    parser, config_defaults, require_target=True
-                )
-        elif transport == 'tls_handshake':
-            if role_for_args == 'server':
-                add_tls_server_args(parser, config_defaults)
-            else:
-                add_tls_client_args(parser, config_defaults)
-        elif transport == 'tls_handshake_bump':
-            if role_for_args == 'server':
-                add_tls_bump_server_args(parser, config_defaults)
-            else:
-                add_tls_bump_client_args(parser, config_defaults)
         if role_for_args == 'client':
             add_client_pacing_args(parser, config_defaults)
 
@@ -1018,11 +1057,7 @@ def parse_args(args=None):
         # Module subcommands or module-specific args
         if partial_args.module:
             module_cls = CLI_MODULES[partial_args.module]
-            if getattr(module_cls, 'USES_SUBCOMMANDS', True):
-                subparsers = parser.add_subparsers(dest='command', help='Module commands')
-                module_cls.register_commands(subparsers, role_for_args, config=config_defaults)
-            else:
-                module_cls.register_commands(parser, role_for_args, config=config_defaults)
+            _add_module_commands(parser, module_cls, role_for_args, config_defaults)
 
     parsed = parser.parse_args(arg_list)
     if parsed.role is not None:

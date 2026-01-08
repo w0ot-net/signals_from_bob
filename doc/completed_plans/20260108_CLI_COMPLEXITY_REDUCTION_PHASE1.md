@@ -1,6 +1,6 @@
 # CLI Complexity Reduction Phase 1
 
-Status: draft
+Status: completed
 
 Parent Plan: CLI_COMPLEXITY_REDUCTION_PLAN.md
 
@@ -58,3 +58,8 @@ Parent Plan: CLI_COMPLEXITY_REDUCTION_PLAN.md
 ## Testing
 - Do not run tests here. If needed, use `radon cc sfb/cli.py` to verify the
   complexity drop after the refactor.
+
+## Execution Notes
+- 20260108: Added base-parser and module/transport helpers, replaced the
+  transport chain with a dispatch table, and verified two-pass parsing and
+  generate-cert gating by inspection; no tests run.

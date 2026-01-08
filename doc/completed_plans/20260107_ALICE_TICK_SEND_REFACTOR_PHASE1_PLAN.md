@@ -1,6 +1,6 @@
 # Alice Tick Send Refactor Phase 1 Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -71,3 +71,10 @@ repeated code while keeping behavior and performance the same.
 ## Testing
 
 - Do not run tests here. The user can run tests with python3 if needed.
+
+## Execution Notes
+
+- Replaced the inline recv handling in `tick()` with `_drain_transport_responses`
+  and `_update_response_state` in `sfb/tunnel/alice_tunnel.py`.
+- `_drain_transport_responses` now returns `(received_any, received_valid,
+  last_resp_kind)` and `_update_response_state` owns the response-state updates.

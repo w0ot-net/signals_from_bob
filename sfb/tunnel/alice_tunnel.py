@@ -414,7 +414,10 @@ class AliceTunnel(BaseTunnel):
         packets_sent_before = self._packets_sent
         serial_window = self._serial_window_negotiation()
         # 1. Receive all available responses
-        received_any = self._drain_responses(now)
+        received_any, received_valid, last_resp_kind = (
+            self._drain_transport_responses(now)
+        )
+        self._update_response_state(received_valid, last_resp_kind)
 
         if not self._check_no_response_timeout(now):
             return False
@@ -506,8 +509,8 @@ class AliceTunnel(BaseTunnel):
             self._tick_sleep_hint = self._config.tunnel_tick_sleep
         return True
 
-    def _drain_responses(self, now):
-        """Receive all available responses and update state."""
+    def _drain_transport_responses(self, now):
+        """Receive all available responses from the transport."""
         received_any = False
         received_valid = False
         last_resp_kind = None
@@ -541,16 +544,18 @@ class AliceTunnel(BaseTunnel):
                             last_resp_kind = resp_kind
                     received_any = True
 
-        if received_valid:
-            # Clear pending data flag if all data has been acked.
-            if self._send_window.data_unacked_count() == 0:
-                self._has_pending_data_acks = False
-            if last_resp_kind is not None:
-                self._last_was_pong_only = (last_resp_kind == 'keepalive')
-                if last_resp_kind == 'has_segments':
-                    self._pong_grace_remaining = self._pong_grace_polls
+        return received_any, received_valid, last_resp_kind
 
-        return received_any
+    def _update_response_state(self, received_valid, last_resp_kind):
+        if not received_valid:
+            return
+        # Clear pending data flag if all data has been acked.
+        if self._send_window.data_unacked_count() == 0:
+            self._has_pending_data_acks = False
+        if last_resp_kind is not None:
+            self._last_was_pong_only = (last_resp_kind == 'keepalive')
+            if last_resp_kind == 'has_segments':
+                self._pong_grace_remaining = self._pong_grace_polls
 
     def _check_no_response_timeout(self, now):
         """Return False if a no-response timeout closes the tunnel."""

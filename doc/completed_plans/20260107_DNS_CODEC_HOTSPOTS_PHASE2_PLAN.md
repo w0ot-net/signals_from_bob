@@ -1,6 +1,6 @@
 # DNS Codec Hotspots Phase 2 Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 - Reduce CPU overhead in DNS `decode_name` and base32 usage without changing
@@ -37,3 +37,12 @@ Status: draft
 - `python3 -m py_compile sfb/transport/dns/codec.py`
 - Manual sanity: round-trip encode/decode with a fixed payload and confirm
   wire format is unchanged.
+
+## Execution Notes
+- Added a decode helper that returns both the name string and raw label slices,
+  and tightened `decode_name` length validation during parsing.
+- Reused cached suffix labels in query/CNAME decode paths to avoid revalidating
+  known suffix portions on every call.
+- Added a bounded cache for nonce label base32 encoding to reuse constant
+  overhead prefixes.
+- Tests not run (per instructions).

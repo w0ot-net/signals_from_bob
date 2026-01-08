@@ -48,9 +48,11 @@ DEFAULT_LABEL_MAX_LEN = 50
 MAX_NAME_LEN = 253
 NONCE_LEN = 4
 _SUFFIX_CACHE_MAX = 64
+_NONCE_LABEL_CACHE_MAX = 256
 
 _BASE_DOMAIN_CACHE = OrderedDict()
 _CNAME_SUFFIX_CACHE = OrderedDict()
+_NONCE_LABEL_CACHE = OrderedDict()
 
 RECORD_TYPES = {
     'A': QTYPE_A,
@@ -105,23 +107,14 @@ def encode_name(name):
     return b''.join(parts)
 
 
-def decode_name(data, offset, allow_compression=True):
-    """
-    Decode DNS name from wire format.
-
-    Args:
-        data: bytes containing DNS message
-        offset: starting offset
-        allow_compression: True to allow compression pointers
-
-    Returns:
-        tuple: (name_string, new_offset)
-    """
+def _decode_name_labels(data, offset, allow_compression=True):
     data = to_bytes(data)
     labels = []
     jumped = False
     end_offset = None
     seen_offsets = set()
+    total_len = 0
+    label_count = 0
 
     while True:
         if offset >= len(data):
@@ -159,15 +152,59 @@ def decode_name(data, offset, allow_compression=True):
         offset += 1
         if offset + length > len(data):
             raise ValueError('Label exceeds data')
-        labels.append(data[offset:offset + length].decode('ascii'))
+        labels.append(data[offset:offset + length])
+        if label_count:
+            total_len += 1
+        total_len += length
+        if total_len > MAX_NAME_LEN:
+            raise ValueError('Name exceeds max length')
+        label_count += 1
         offset += length
         if not jumped:
             end_offset = offset
 
-    _validate_name_length(labels)
-    name = '.'.join(labels)
     if end_offset is None:
         end_offset = offset
+    return labels, end_offset
+
+
+def decode_name_with_labels(data, offset, allow_compression=True):
+    """
+    Decode DNS name from wire format.
+
+    Args:
+        data: bytes containing DNS message
+        offset: starting offset
+        allow_compression: True to allow compression pointers
+
+    Returns:
+        tuple: (name_string, label_slices, new_offset)
+    """
+    labels, end_offset = _decode_name_labels(
+        data, offset, allow_compression=allow_compression
+    )
+    if labels:
+        name = b'.'.join(labels).decode('ascii')
+    else:
+        name = ''
+    return name, labels, end_offset
+
+
+def decode_name(data, offset, allow_compression=True):
+    """
+    Decode DNS name from wire format.
+
+    Args:
+        data: bytes containing DNS message
+        offset: starting offset
+        allow_compression: True to allow compression pointers
+
+    Returns:
+        tuple: (name_string, new_offset)
+    """
+    name, _labels, end_offset = decode_name_with_labels(
+        data, offset, allow_compression=allow_compression
+    )
     return name, end_offset
 
 
@@ -285,6 +322,18 @@ def _get_cname_suffix_entry(cname_suffix, label_max_len):
     )
 
 
+def _get_nonce_label(nonce):
+    nonce = nonce & 0xFFFF
+    cached = _NONCE_LABEL_CACHE.get(nonce)
+    if cached is not None:
+        return cached
+    label = base32_encode(struct.pack('>H', nonce))[:NONCE_LEN]
+    _NONCE_LABEL_CACHE[nonce] = label
+    if len(_NONCE_LABEL_CACHE) > _NONCE_LABEL_CACHE_MAX:
+        _NONCE_LABEL_CACHE.popitem(last=False)
+    return label
+
+
 def encode_query_name(data, base_domain, nonce, label_max_len=None):
     """
     Encode tunnel data into DNS query name.
@@ -304,7 +353,7 @@ def encode_query_name(data, base_domain, nonce, label_max_len=None):
     base_labels = base_entry['labels']
 
     # Generate nonce label
-    nonce_label = base32_encode(struct.pack('>H', nonce & 0xFFFF))[:NONCE_LEN]
+    nonce_label = _get_nonce_label(nonce)
 
     # Base32 encode data
     b32 = base32_encode(data)
@@ -344,24 +393,25 @@ def decode_query_name(query_name, base_domain, label_max_len=None):
     Returns:
         bytes: decoded tunnel data
     """
+    label_max_len = _normalize_label_max_len(label_max_len)
+
     # Remove base domain suffix
     base_domain = _normalize_domain(base_domain).lower()
     query_name = _normalize_domain(query_name).lower()
-    base_parts = [label for label in base_domain.split('.') if label]
+    base_entry = _get_base_domain_entry(base_domain, label_max_len)
+    base_labels = base_entry['labels']
+    base_count = base_entry['label_count']
     name_parts = [label for label in query_name.split('.') if label]
-    if not base_parts:
-        raise ValueError('base_domain required')
-    _validate_labels(base_parts)
-    _validate_labels(name_parts)
 
     # Verify suffix matches
-    if name_parts[-len(base_parts):] != base_parts:
+    if base_count and tuple(name_parts[-base_count:]) != base_labels:
         raise ValueError('Query name does not match base domain')
 
-    label_max_len = _normalize_label_max_len(label_max_len)
+    if name_parts and len(name_parts[0]) > MAX_LABEL_LEN:
+        raise ValueError('Label exceeds max length')
 
     # Get data labels (skip nonce at index 0, skip base domain at end)
-    data_labels = name_parts[1:-len(base_parts)]
+    data_labels = name_parts[1:-base_count]
     for label in data_labels:
         if len(label) > label_max_len:
             raise ValueError('Label exceeds max length')
@@ -632,15 +682,15 @@ def decode_cname_target(target_name, cname_suffix, label_max_len=None):
 
     cname_suffix = _normalize_domain(cname_suffix).lower()
     target_name = _normalize_domain(target_name).lower()
-    suffix_parts = [label for label in cname_suffix.split('.') if label]
+    suffix_entry = _get_cname_suffix_entry(cname_suffix, label_max_len)
+    suffix_labels = suffix_entry['labels']
+    suffix_count = suffix_entry['label_count']
     name_parts = [label for label in target_name.split('.') if label]
-    _validate_labels(suffix_parts)
-    _validate_labels(name_parts)
 
-    if suffix_parts:
-        if name_parts[-len(suffix_parts):] != suffix_parts:
+    if suffix_count:
+        if tuple(name_parts[-suffix_count:]) != suffix_labels:
             raise ValueError('CNAME target does not match suffix')
-        data_parts = name_parts[:-len(suffix_parts)]
+        data_parts = name_parts[:-suffix_count]
     else:
         data_parts = name_parts
 

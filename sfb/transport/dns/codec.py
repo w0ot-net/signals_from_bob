@@ -190,7 +190,10 @@ def skip_name(data, offset):
 
 def _normalize_domain(name):
     if not isinstance(name, text_type):
-        raise TypeError('Expected text domain name')
+        try:
+            name = name.decode('ascii')
+        except (AttributeError, UnicodeDecodeError):
+            raise TypeError('Expected text domain name')
     if name.endswith('.'):
         name = name[:-1]
     return name

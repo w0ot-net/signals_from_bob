@@ -1,6 +1,6 @@
 # DNS Domain Python 2 Compatibility Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 - Fix Python 2 DNS transport initialization when `dns_base_domain` is a byte
@@ -34,3 +34,8 @@ Status: draft
 - `python3 -m py_compile sfb/transport/dns/codec.py`
 - Optional: `python2.7 -m py_compile sfb/transport/dns/codec.py`
 - Manual sanity: `python2 -m sfb.cli --role alice --domain ebaysso.com --max-in-flight 256`
+
+## Execution Notes
+- Updated `_normalize_domain` in `sfb/transport/dns/codec.py` to accept byte
+  strings by ASCII-decoding them before validation, preserving existing
+  behavior for text input.

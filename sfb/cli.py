@@ -510,6 +510,10 @@ def add_common_args(parser, config, require_domain=True, require_role=True):
         help='Enable debug logging'
     )
     parser.add_argument(
+        '--no-stdout-log', action='store_true',
+        help='Disable stdout logging (DB logging still applies)'
+    )
+    parser.add_argument(
         '--db-log',
         nargs='?',
         const=_DB_LOG_DEFAULT,
@@ -1723,13 +1727,19 @@ def _run_main(parsed, cprofile_path):
         level=level,
         format='%(levelname)s %(message)s'
     )
-    stdout_formatter = StructuredLogFormatter(
-        '%(levelname)s %(message)s',
-        max_line_length=160,
-    )
-    for handler in logging.getLogger().handlers:
-        if isinstance(handler, logging.StreamHandler):
-            handler.setFormatter(stdout_formatter)
+    root_logger = logging.getLogger()
+    if parsed.no_stdout_log:
+        for handler in list(root_logger.handlers):
+            if isinstance(handler, logging.StreamHandler):
+                root_logger.removeHandler(handler)
+    else:
+        stdout_formatter = StructuredLogFormatter(
+            '%(levelname)s %(message)s',
+            max_line_length=160,
+        )
+        for handler in root_logger.handlers:
+            if isinstance(handler, logging.StreamHandler):
+                handler.setFormatter(stdout_formatter)
     if parsed.db_log:
         db_dir = os.path.dirname(parsed.db_log)
         if os.path.exists(parsed.db_log):
@@ -1774,6 +1784,7 @@ def _run_main(parsed, cprofile_path):
             'db_log_path': parsed.db_log,
             'db_log_flush': parsed.db_log_flush,
             'db_log_queue': parsed.db_log_queue,
+            'stdout_logging': not parsed.no_stdout_log,
             'cwd': os.getcwd(),
             'log_event_whitelist': config.log_event_whitelist,
             'log_event_blacklist': config.log_event_blacklist,

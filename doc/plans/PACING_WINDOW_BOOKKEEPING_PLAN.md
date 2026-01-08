@@ -43,17 +43,22 @@ cutting recomputation and threading `now` through hot paths.
 
 ## Implementation Steps
 
+## Phase 1: Pacer And Now Threading
+
 1. Add a pacing helper that returns baseline/target state (base, feedback,
    baseline, blocked, target, modes) and accepts `now`; refactor
    `target_inflight()` and `state_fields()` to reuse it.
 2. Update Alice/Bob tunnel call sites to compute `now` once per tick and pass
    it into pacing and send window methods that currently default to
    `time_provider.now()`.
-3. Implement a cached SACK bitmap in `RecvWindow` with a dirty flag; set dirty
+
+## Phase 2: Window Bookkeeping Hot Paths
+
+1. Implement a cached SACK bitmap in `RecvWindow` with a dirty flag; set dirty
    on buffer changes and `ack` movement, recompute only when needed.
-4. Replace the `for offset in range(1, SACK_BITS + 1)` loop in
+2. Replace the `for offset in range(1, SACK_BITS + 1)` loop in
    `SendWindow._ack_sack()` with a set-bit iteration to skip zero bits.
-5. Profile again; if `seq_diff()` is still hot, add a minimal helper or local
+3. Profile again; if `seq_diff()` is still hot, add a minimal helper or local
    binding and recheck.
 
 ## Validation

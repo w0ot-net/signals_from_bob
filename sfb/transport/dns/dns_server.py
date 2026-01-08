@@ -76,6 +76,9 @@ class DnsServer(Server):
         )
         self._cname_suffix_lower = self._cname_suffix.lower()
         self._cname_a_addr = config.dns_cname_a_addr
+        self._response_ttl = int(config.dns_response_ttl)
+        if self._response_ttl < 0:
+            raise ValueError('dns_response_ttl must be >= 0')
 
         # Parse listen address
         listen_addr = config.dns_listen_addr
@@ -175,6 +178,7 @@ class DnsServer(Server):
                 'edns_size': self._edns_size,
                 'label_max_len': self._label_max_len,
                 'cname_suffix': self._cname_suffix,
+                'response_ttl': self._response_ttl,
             },
         )
         try:
@@ -406,7 +410,7 @@ class DnsServer(Server):
         answer += struct.pack('>HHIH',
             self._rtype,
             codec.QCLASS_IN,
-            0,  # TTL
+            self._response_ttl,
             len(rdata)
         )
         answer += rdata
@@ -499,7 +503,7 @@ class DnsServer(Server):
         answer += struct.pack('>HHIH',
             codec.QTYPE_A,
             codec.QCLASS_IN,
-            0,  # TTL
+            self._response_ttl,
             len(rdata)
         )
         answer += rdata

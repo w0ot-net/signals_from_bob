@@ -40,6 +40,8 @@ class Config(object):
     dns_query_type = "A"
     # Response type for DNS tunneling
     dns_response_type = "CNAME"
+    # TTL for DNS answers (seconds)
+    dns_response_ttl = 3600
     # Max label length for tunnel subdomains (1-63, default 50)
     dns_label_max_len = 50
     # CNAME label appended before base domain (short suffix)

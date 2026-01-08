@@ -175,3 +175,24 @@ def mod_load_ok(name, module_id):
 def mod_load_err(name, reason, module_id):
     """Error response when module loading fails."""
     return ControlMessage(T_MOD, 'load_err', name=name, reason=reason, mid=module_id)
+
+
+def mod_unload(name, module_id):
+    """Request to unload a module by name and instance id."""
+    return ControlMessage(T_MOD, 'unload', name=name, mid=module_id)
+
+
+def mod_unload_ok(name, module_id):
+    """Success response after unloading a module."""
+    return ControlMessage(T_MOD, 'unload_ok', name=name, mid=module_id)
+
+
+def mod_unload_err(name, module_id, reason):
+    """Error response when module unloading fails."""
+    return ControlMessage(
+        T_MOD,
+        'unload_err',
+        name=name,
+        mid=module_id,
+        reason=reason,
+    )

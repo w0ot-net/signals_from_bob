@@ -43,6 +43,7 @@ from .transport import (
     get_transport_class,
 )
 from .tunnel import AliceTunnel, BobTunnel, TunnelError, TunnelState
+from .tunnel.module_loader import ModuleLoadError
 from .modules import CLI_MODULES
 from .modules.base_module import ModuleError
 from .profiling import CProfileManager
@@ -1495,6 +1496,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
         module_cls = CLI_MODULES[module_name]
         module_logger = get_logger('sfb.modules.%s' % module_name)
         remote_module = module_cls.REMOTE_MODULE or module_name
+        remote_loaded = False
         log_event(
             logger,
             logging.INFO,
@@ -1503,6 +1505,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
             lambda: {'module': remote_module, 'mid': module_id},
         )
         module_loader.load_remote(remote_module, module_id)
+        remote_loaded = True
         log_event(
             logger,
             logging.INFO,
@@ -1530,7 +1533,13 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
                     return 1
 
         # Run module command
-        return module_cls.run_command(args, tunnel, module_logger)
+        exit_code = module_cls.run_command(args, tunnel, module_logger)
+        if remote_loaded and tunnel._state == TunnelState.CONNECTED:
+            try:
+                module_loader.unload_remote(remote_module, module_id)
+            except ModuleLoadError:
+                pass
+        return exit_code
 
     except ModuleError as e:
         module_label = getattr(args, 'module', None) or 'module'

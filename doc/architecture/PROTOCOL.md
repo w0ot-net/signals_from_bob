@@ -200,7 +200,7 @@ Module control messages (all `t` values except `tun` and `ch`) must include
 |------|-------------|
 | `tun` | Tunnel: mtu/window negotiation (keepalive is a header flag) |
 | `ch` | Channel: open/close lifecycle |
-| `mod` | Module loader: load module instances |
+| `mod` | Module loader: load/unload module instances |
 | `file` | File transfer module |
 | `sock` | SOCKS proxy module |
 | `sh` | Shell module |

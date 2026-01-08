@@ -53,3 +53,8 @@
 ## Notes
 - If long-lived modules need more graceful teardown than `module.shutdown()`,
   add module-specific stop commands in a separate change.
+
+## Execution Notes
+- Added module unload control messages and loader handling with remote tracking.
+- CLI now unloads remote modules after command completion when connected.
+- Updated module loader and logging documentation for unload semantics.

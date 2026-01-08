@@ -11,6 +11,11 @@ when Alice polls. In idle mode (1-5s polling), Bob-initiated operations have
 additional latency equal to the polling interval. Once active (100ms polling),
 this latency is minimal.
 
+Remote module instances are created and destroyed via module loader control
+messages (`t="mod"`). The controller sends explicit unload requests when the
+module is no longer needed; `BaseModule.shutdown()` does not implicitly unload
+the remote instance.
+
 ---
 
 ## SOCKS Proxy Module

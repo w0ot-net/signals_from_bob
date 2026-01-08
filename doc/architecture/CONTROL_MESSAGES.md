@@ -286,6 +286,9 @@ The module loader coordinates instance creation on the remote side.
 {"t":"mod","c":"load","mid":1,"name":"file_transfer"}
 {"t":"mod","c":"load_ok","mid":1,"name":"file_transfer"}
 {"t":"mod","c":"load_err","mid":1,"name":"file_transfer","reason":"unknown module"}
+{"t":"mod","c":"unload","mid":1,"name":"file_transfer"}
+{"t":"mod","c":"unload_ok","mid":1,"name":"file_transfer"}
+{"t":"mod","c":"unload_err","mid":1,"name":"file_transfer","reason":"not loaded"}
 ```
 
 ### Port Forward Messages (t="fwd")

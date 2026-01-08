@@ -2,7 +2,7 @@
 """
 Module loader service for dynamic module loading.
 
-Handles 'mod' message type to load modules on demand.
+Handles 'mod' message type to load and unload modules on demand.
 This is not a regular module (doesn't inherit from BaseModule) -
 it's a tunnel service that manages other modules.
 """
@@ -12,7 +12,15 @@ from __future__ import absolute_import
 import logging
 import threading
 
-from .tunnel_control_messages import T_MOD, mod_load, mod_load_ok, mod_load_err
+from .tunnel_control_messages import (
+    T_MOD,
+    mod_load,
+    mod_load_ok,
+    mod_load_err,
+    mod_unload,
+    mod_unload_ok,
+    mod_unload_err,
+)
 from ..compat import integer_types, to_native_str
 from ..logging_util import get_logger, log_event
 
@@ -24,13 +32,14 @@ class ModuleLoadError(Exception):
 
 class ModuleLoader(object):
     """
-    Handles module loading requests from the remote side.
+    Handles module load and unload requests from the remote side.
 
     Registers with tunnel for 'mod' message type and handles:
     - load: Load a module by name from AVAILABLE_MODULES
+    - unload: Unload a module by name and instance id
 
     On the controller side (Bob), also provides load_remote() to request
-    module loading on the agent side (Alice).
+    module loading and unloading on the agent side (Alice).
     """
 
     def __init__(self, tunnel, logger=None):
@@ -44,10 +53,12 @@ class ModuleLoader(object):
         self._tunnel = tunnel
         self._logger = logger or get_logger(__name__)
         self._loaded_modules = {}  # (name, module_id) -> module
+        self._remote_modules = {}  # (name, module_id) -> True
 
         # For controller side: track pending load requests
         self._pending_lock = threading.Lock()
         self._pending = {}  # (name, module_id) -> {'waiters': [], 'in_flight': bool}
+        self._pending_unload = {}  # (name, module_id) -> {'waiters': [], 'in_flight': bool}
 
         tunnel.register_module(T_MOD, None, self._dispatch)
 
@@ -64,10 +75,16 @@ class ModuleLoader(object):
         cmd = msg.get('c')
         if cmd == 'load':
             self._handle_load(msg)
+        elif cmd == 'unload':
+            self._handle_unload(msg)
         elif cmd == 'load_ok':
             self._handle_load_ok(msg)
         elif cmd == 'load_err':
             self._handle_load_err(msg)
+        elif cmd == 'unload_ok':
+            self._handle_unload_ok(msg)
+        elif cmd == 'unload_err':
+            self._handle_unload_err(msg)
         else:
             log_event(
                 self._logger,
@@ -142,10 +159,64 @@ class ModuleLoader(object):
             )
             self._send(mod_load_err(name, to_native_str(e), module_id))
 
+    def _handle_unload(self, msg):
+        """Handle module unload request."""
+        name = msg.get('name')
+        module_id = msg.get('mid')
+        if not name:
+            self._send(mod_unload_err('', module_id, 'missing module name'))
+            return
+        if not self._valid_module_id(module_id):
+            self._send(mod_unload_err(name, module_id, 'invalid module id'))
+            return
+
+        key = (name, module_id)
+        module = self._loaded_modules.get(key)
+        if module is None:
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'module_loader.unload_failed',
+                'Module not loaded',
+                lambda: {'module': name, 'mid': module_id, 'reason': 'not loaded'},
+            )
+            self._send(mod_unload_err(name, module_id, 'not loaded'))
+            return
+
+        try:
+            module.shutdown()
+        except Exception as e:
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'module_loader.unload_failed',
+                'Failed to unload module',
+                lambda: {
+                    'module': name,
+                    'mid': module_id,
+                    'reason': to_native_str(e),
+                },
+                exc_info=True,
+            )
+            self._send(mod_unload_err(name, module_id, to_native_str(e)))
+            return
+
+        self._loaded_modules.pop(key, None)
+        log_event(
+            self._logger,
+            logging.INFO,
+            'module_loader.local_unload',
+            'Unloaded local module',
+            lambda: {'module': name, 'mid': module_id},
+        )
+        self._send(mod_unload_ok(name, module_id))
+
     def _handle_load_ok(self, msg):
         """Handle successful load response (for controller side)."""
         name = msg.get('name')
         module_id = msg.get('mid')
+        if name and self._valid_module_id(module_id):
+            self._remote_modules[(name, module_id)] = True
         log_event(
             self._logger,
             logging.DEBUG,
@@ -160,6 +231,8 @@ class ModuleLoader(object):
         name = msg.get('name')
         module_id = msg.get('mid')
         reason = msg.get('reason', 'unknown error')
+        if name and self._valid_module_id(module_id):
+            self._remote_modules.pop((name, module_id), None)
         log_event(
             self._logger,
             logging.ERROR,
@@ -169,10 +242,52 @@ class ModuleLoader(object):
         )
         self._signal_pending(name, module_id, success=False, reason=reason)
 
-    def _signal_pending(self, name, module_id, success, reason=None):
-        """Signal a pending load request."""
+    def _handle_unload_ok(self, msg):
+        """Handle successful unload response (for controller side)."""
+        name = msg.get('name')
+        module_id = msg.get('mid')
+        if name and self._valid_module_id(module_id):
+            self._remote_modules.pop((name, module_id), None)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'module_loader.remote_unload',
+            'Module unloaded on remote',
+            lambda: {'module': name, 'mid': module_id},
+        )
+        self._signal_pending(
+            name,
+            module_id,
+            success=True,
+            pending_map=self._pending_unload,
+        )
+
+    def _handle_unload_err(self, msg):
+        """Handle failed unload response (for controller side)."""
+        name = msg.get('name')
+        module_id = msg.get('mid')
+        reason = msg.get('reason', 'unknown error')
+        log_event(
+            self._logger,
+            logging.ERROR,
+            'module_loader.unload_failed',
+            'Failed to unload module on remote',
+            lambda: {'module': name, 'mid': module_id, 'reason': reason},
+        )
+        self._signal_pending(
+            name,
+            module_id,
+            success=False,
+            reason=reason,
+            pending_map=self._pending_unload,
+        )
+
+    def _signal_pending(self, name, module_id, success, reason=None, pending_map=None):
+        """Signal a pending request."""
+        if pending_map is None:
+            pending_map = self._pending
         with self._pending_lock:
-            pending = self._pending.get((name, module_id))
+            pending = pending_map.get((name, module_id))
             if pending is None:
                 return
             pending['in_flight'] = False
@@ -181,7 +296,7 @@ class ModuleLoader(object):
                 waiter['reason'] = reason
                 waiter['event'].set()
             if not pending['waiters']:
-                self._pending.pop((name, module_id), None)
+                pending_map.pop((name, module_id), None)
 
     def load_remote(self, name, module_id, timeout=30.0):
         """
@@ -255,6 +370,80 @@ class ModuleLoader(object):
                 if not pending['in_flight'] and not pending['waiters']:
                     self._pending.pop(key, None)
 
+    def unload_remote(self, name, module_id, timeout=30.0):
+        """
+        Request module unload on the remote side and wait for response.
+
+        Args:
+            name: Module name to unload (e.g., 'file_transfer')
+            module_id: Module instance id
+            timeout: Seconds to wait for response
+
+        Returns:
+            True if module was unloaded successfully
+
+        Raises:
+            ModuleLoadError: If unloading failed or timed out
+        """
+        if not self._valid_module_id(module_id):
+            raise ValueError('module_id must be a positive integer')
+        waiter = {
+            'event': threading.Event(),
+            'success': False,
+            'reason': None,
+        }
+        key = (name, module_id)
+        send_request = False
+        with self._pending_lock:
+            pending = self._pending_unload.get(key)
+            if pending is None:
+                pending = {
+                    'waiters': [],
+                    'in_flight': False,
+                }
+                self._pending_unload[key] = pending
+            pending['waiters'].append(waiter)
+            if not pending['in_flight']:
+                pending['in_flight'] = True
+                send_request = True
+
+        try:
+            if send_request:
+                self._send(mod_unload(name, module_id))
+
+            if not waiter['event'].wait(timeout=timeout):
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'module_loader.unload_failed',
+                    'Timeout waiting for module unload',
+                    lambda: {
+                        'module': name,
+                        'mid': module_id,
+                        'reason': 'timeout',
+                    },
+                )
+                raise ModuleLoadError(
+                    'Timeout waiting for module unload: %s/%s' % (
+                        name, module_id
+                    )
+                )
+
+            if not waiter['success']:
+                raise ModuleLoadError('Failed to unload module %s/%s: %s' % (
+                    name, module_id, waiter['reason'] or 'unknown error'))
+
+            return True
+        finally:
+            with self._pending_lock:
+                pending = self._pending_unload.get(key)
+                if pending is None:
+                    return
+                if waiter in pending['waiters']:
+                    pending['waiters'].remove(waiter)
+                if not pending['in_flight'] and not pending['waiters']:
+                    self._pending_unload.pop(key, None)
+
     def _send(self, msg):
         """Send a control message."""
         self._tunnel.control.send_message(msg)
@@ -278,6 +467,7 @@ class ModuleLoader(object):
                     exc_info=True,
                 )
         self._loaded_modules.clear()
+        self._remote_modules.clear()
         try:
             self._tunnel.unregister_module(T_MOD, None)
         except Exception:

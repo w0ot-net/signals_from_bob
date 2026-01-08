@@ -14,19 +14,6 @@ Enable the pre-commit hook to enforce ASCII-only files:
 git config core.hooksPath .githooks
 ```
 
-## Flattening
-Generate a single-file bundle with embedded sources:
-```
-python3 scripts/flatten.py --output dist/sfb_flat.py
-```
-Run the flattened file:
-```
-python3 dist/sfb_flat.py --role client --transport dns --domain t.example.com
-```
-The output uses an embedded source map and a small import hook so it can run on
-Python 2.7 and Python 3. Set `SFB_FLAT_ROOT` to control the temporary root used
-for module file paths.
-
 ## Profiling
 Use `--cprofile` to write a cProfile output file.
 Examples:

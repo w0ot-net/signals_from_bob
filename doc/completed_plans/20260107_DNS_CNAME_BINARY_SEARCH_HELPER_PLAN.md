@@ -29,3 +29,7 @@
 
 ## Testing
 - Do not run tests here. The user will run tests with python3 if needed.
+
+## Execution Notes
+- Added `_binary_search_max` and refactored CNAME cap search loops to use it.
+- Tests not run (not requested).

@@ -237,6 +237,18 @@ def _normalize_label_max_len(label_max_len):
     return label_max_len
 
 
+def _binary_search_max(low, high, fits_fn):
+    best = 0
+    while low <= high:
+        mid = (low + high) // 2
+        if fits_fn(mid):
+            best = mid
+            low = mid + 1
+        else:
+            high = mid - 1
+    return best
+
+
 def _decode_b32_labels(name, suffix, label_max_len, skip_first=False,
                        err_suffix=None, err_no_data=None,
                        require_suffix=False, err_empty_suffix=None,
@@ -454,26 +466,17 @@ def _max_cname_payload_for_response(fixed_len, cname_suffix, label_max_len,
         return 0
     upper = calc_response_mtu(QTYPE_CNAME, max_packet_size,
                               cname_suffix, label_max_len)
-    low = 0
-    high = upper
-    best = 0
-    while low <= high:
-        mid = (low + high) // 2
+    def fits_fn(mid):
         try:
             cname_target = encode_cname_target(
                 b'\x00' * mid, cname_suffix, label_max_len
             )
         except ValueError:
-            high = mid - 1
-            continue
+            return False
         rdata_len = len(encode_name(cname_target))
         total_len = fixed_len + rdata_len
-        if total_len <= max_packet_size:
-            best = mid
-            low = mid + 1
-        else:
-            high = mid - 1
-    return best
+        return total_len <= max_packet_size
+    return _binary_search_max(0, upper, fits_fn)
 
 
 def calc_cname_response_payload_cap(qname_wire_len, edns_size, cname_suffix,
@@ -526,31 +529,21 @@ def calc_cname_payload_cap(base_domain, cname_suffix, label_max_len=None,
     cname_suffix = _normalize_domain(cname_suffix)
 
     max_query_payload = calc_query_mtu(base_domain, label_max_len)
-    low = 0
-    high = max_query_payload
-    best = 0
-    while low <= high:
-        mid = (low + high) // 2
+    def fits_fn(mid):
         try:
             qname_wire_len = _qname_wire_len_for_payload(
                 mid, base_domain, label_max_len
             )
         except ValueError:
-            high = mid - 1
-            continue
+            return False
         fixed_len = 12 + (qname_wire_len + 4) + qname_wire_len + 10
         if fixed_len >= max_packet_size:
-            high = mid - 1
-            continue
+            return False
         response_payload = _max_cname_payload_for_response(
             fixed_len, cname_suffix, label_max_len, max_packet_size
         )
-        if response_payload >= mid:
-            best = mid
-            low = mid + 1
-        else:
-            high = mid - 1
-    return best
+        return response_payload >= mid
+    return _binary_search_max(0, max_query_payload, fits_fn)
 
 
 def encode_cname_target(data, cname_suffix, label_max_len=None):

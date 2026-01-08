@@ -81,6 +81,10 @@ class SendWindow(object):
         """Number of unacked packets."""
         return len(self._unacked)
 
+    def unacked_seqs(self):
+        """Return list of unacked sequence numbers."""
+        return list(self._unacked.keys())
+
     def data_unacked_count(self):
         """Number of unacked packets carrying segments."""
         return self._data_unacked_count

@@ -15,7 +15,7 @@ from .tunnel_control_messages import (
     tun_mtu,
     tun_window,
 )
-from ..reliability import AdaptivePacer
+from ..reliability import AdaptivePacer, FastRetransmitController, RttEstimator
 from ..protocol import (
     Packet,
     FLAG_SYN,
@@ -23,7 +23,6 @@ from ..protocol import (
     FLAG_KEEPALIVE,
     FLAG_HAS_SEGMENTS,
 )
-from ..reliability import RttEstimator
 from ..transport.transport_base import RateLimiter
 from ..logging_util import log_event
 from .. import time_provider
@@ -65,14 +64,14 @@ class AliceTunnel(BaseTunnel):
         )
         self._retransmit_cap = config.tunnel_retransmit_cap
         self._retransmit_budget = self._retransmit_cap
-        self._fast_retransmit_enabled = config.tunnel_fast_retransmit_enabled
-        self._fast_retransmit_min_age_ratio = (
-            config.tunnel_fast_retransmit_min_age_ratio
+        self._fast_retransmit = FastRetransmitController(
+            self._send_window,
+            self._rtt,
+            enabled=config.tunnel_fast_retransmit_enabled,
+            min_age_ratio=config.tunnel_fast_retransmit_min_age_ratio,
+            max_per_seq=config.tunnel_fast_retransmit_max_per_seq,
+            min_rto_ms=config.protocol_min_rto_ms,
         )
-        self._fast_retransmit_max_per_seq = (
-            config.tunnel_fast_retransmit_max_per_seq
-        )
-        self._fast_retransmit_counts = {}
         self._tick_epoch = 0
         self._backoff_epoch = None
 
@@ -422,8 +421,8 @@ class AliceTunnel(BaseTunnel):
         if not self._check_no_response_timeout(now):
             return False
 
-        if self._fast_retransmit_enabled:
-            self._prune_fast_retransmit_counts()
+        if self._fast_retransmit.enabled:
+            self._fast_retransmit.prune()
 
         # 2. Check for retransmits
         # Avoid RTO retransmits while ACKs are still advancing.
@@ -834,7 +833,7 @@ class AliceTunnel(BaseTunnel):
         missing_age = details.get('missing_age')
         if missing_age is None:
             return False
-        min_age = self._rtt.rto_sec * self._fast_retransmit_min_age_ratio
+        min_age = self._rtt.rto_sec * self._fast_retransmit.min_age_ratio
         if missing_age < min_age:
             return False
         (distance, max_in_flight, effective_cap, unacked,
@@ -1222,32 +1221,8 @@ class AliceTunnel(BaseTunnel):
             return False
         return True
 
-    def _fast_retransmit_sack_ready(self):
-        return self._send_window.sack_progress_ready()
-
-    def _prune_fast_retransmit_counts(self):
-        if not self._fast_retransmit_counts:
-            return
-        unacked = self._send_window._unacked
-        if not unacked:
-            self._fast_retransmit_counts.clear()
-            return
-        valid = set(unacked.keys())
-        stale = [
-            seq for seq in self._fast_retransmit_counts
-            if seq not in valid
-        ]
-        for seq in stale:
-            del self._fast_retransmit_counts[seq]
-
     def _maybe_fast_retransmit(self, now, ack_silence):
-        if not self._fast_retransmit_enabled:
-            return False
-        if ack_silence is None:
-            return False
-        if ack_silence >= self._rtt.rto_sec:
-            return False
-        if not self._fast_retransmit_sack_ready():
+        if not self._fast_retransmit.enabled:
             return False
         cap_override = None
         if self._pacer.enabled:
@@ -1256,35 +1231,17 @@ class AliceTunnel(BaseTunnel):
                 pacer_cap,
                 srtt_ms=self._rtt.srtt_ms,
             )
-        exceeded, distance_info = self._send_window.distance_exceeded(
-            cap_override=cap_override,
+        candidate = self._fast_retransmit.select_candidate(
+            now,
+            ack_silence,
             max_window=self.MAX_WINDOW,
+            cap_override=cap_override,
         )
-        if not exceeded:
-            return False
-        last_cum_ack = distance_info[5]
-        missing_info = self._send_window.get_unacked_info(last_cum_ack)
-        if missing_info is None:
-            return False
-        (seq, segments, flags, encrypted_body,
-         send_time, _retransmit_count) = missing_info
-        if send_time is None:
-            return False
-        missing_age = now - send_time
-        if missing_age < 0:
-            missing_age = 0.0
-        count = self._fast_retransmit_counts.get(seq, 0)
-        min_age = self._rtt.rto_sec * self._fast_retransmit_min_age_ratio
-        min_rto_sec = self._config.protocol_min_rto_ms / 1000.0
-        if min_age > min_rto_sec:
-            min_age = min_rto_sec
-        if count >= self._fast_retransmit_max_per_seq:
-            # Back off fast retransmits after the per-seq cap to avoid churn.
-            min_age *= (count - self._fast_retransmit_max_per_seq + 2)
-        if missing_age < min_age:
+        if candidate is None:
             return False
         if not self._can_send_retransmit(now=now):
             return False
+        (seq, segments, flags, encrypted_body, _send_time) = candidate
         sent = self._send_retransmit(
             seq,
             segments,
@@ -1294,7 +1251,7 @@ class AliceTunnel(BaseTunnel):
             reason='fast_retransmit',
         )
         if sent:
-            self._fast_retransmit_counts[seq] = count + 1
+            self._fast_retransmit.note_sent(seq)
         return sent
 
     def _serial_window_negotiation(self):

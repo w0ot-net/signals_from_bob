@@ -54,3 +54,10 @@ keeping policy close to the reliability layer.
 - `AliceTunnel` no longer owns fast-retransmit selection/bookkeeping state.
 - Fast-retransmit selection resides under `sfb/reliability`.
 - No new protocol or pacing behavior changes.
+
+## Execution Notes
+- Added `FastRetransmitController` under `sfb/reliability/fast_retransmit.py`.
+- Added `SendWindow.unacked_seqs()` for safe pruning.
+- Updated `AliceTunnel` to delegate fast-retransmit selection/pruning to the
+  controller and removed local bookkeeping.
+- Exported the controller from `sfb/reliability/__init__.py`.

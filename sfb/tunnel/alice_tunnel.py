@@ -1951,12 +1951,10 @@ class AliceTunnel(BaseTunnel):
         elif response_kind not in ('keepalive',):
             response_kind = None
 
-        prev_unacked = self._send_window.unacked_count
         rtt_samples, acked_count, data_acked_count = self._process_incoming_packet(
             packet, now=now, packet_size=packet_size
         )
         self._transport.notify_recv_window_sack(self._recv_window.sack)
-        new_unacked = self._send_window.unacked_count
         if rtt_samples or acked_count > 0:
             self._ack_progressed = True
         for sample in rtt_samples:

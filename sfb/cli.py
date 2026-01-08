@@ -520,7 +520,8 @@ def add_common_args(parser, config, require_domain=True, require_role=True):
         '--log-profile',
         default=config.log_profile,
         metavar='<log_profile>',
-        help='Logging profile name (default: %s)' % config.log_profile
+        help='Logging profile name (default: %s)' %
+             (config.log_profile if config.log_profile else 'none')
     )
     parser.add_argument(
         '--cprofile',

@@ -57,7 +57,7 @@ example, `tunnel_pacer_summary_interval`).
 
 Available profiles (current):
 - `all`
-- `channel_close_debug` (default)
+- `channel_close_debug`
 - `dns_socks_stall_debug`
 - `dns_transport`
 - `dns_troubleshoot`

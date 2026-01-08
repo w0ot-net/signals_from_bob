@@ -261,7 +261,7 @@ class Config(object):
     # SQLite log queue max size (0 = unbounded)
     db_log_queue = 0
     # Default logging profile name (None = no profile)
-    log_profile = 'channel_close_debug'
+    log_profile = None
     # Enable DNS transport logging (stdout + SQLite)
     log_component_transport_dns = False
     # Enable ICMP transport logging (stdout + SQLite)

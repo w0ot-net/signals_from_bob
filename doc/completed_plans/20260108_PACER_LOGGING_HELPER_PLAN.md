@@ -46,3 +46,8 @@ Status: draft
 
 ## Testing
 - Do not run tests here. The user can run python3 tests if needed.
+
+## Execution Notes
+- Added `PacerLoggingHelper` in reliability and routed pacer target/state/
+  summary logging through it.
+- Kept log event names/fields intact; tests not run (not requested).

@@ -15,7 +15,14 @@ import collections
 import logging
 import threading
 
-from ..compat import PY2, require_bytes_like, text_type, to_bytes, to_native_str
+from ..compat import (
+    PY2,
+    bytes_from_view,
+    require_bytes_like,
+    text_type,
+    to_bytes,
+    to_native_str,
+)
 from ..logging_util import get_logger, log_event
 from .. import time_provider
 
@@ -51,7 +58,7 @@ def _slice_view(value, offset, length):
     if PY2:
         base = value
         if isinstance(base, memoryview):
-            base = base.tobytes() if hasattr(base, 'tobytes') else base.tostring()
+            base = bytes_from_view(base)
         elif isinstance(base, bytearray):
             base = bytes(base)
         if _buffer_type is not None and isinstance(base, _buffer_type):

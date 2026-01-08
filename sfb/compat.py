@@ -10,6 +10,14 @@ import sys
 
 PY2 = sys.version_info[0] == 2
 
+def bytes_from_view(view):
+    """
+    Return bytes from a memoryview-like object with Py2/Py3 method handling.
+    """
+    if hasattr(view, 'tobytes'):
+        return view.tobytes()
+    return view.tostring()
+
 if PY2:
     text_type = unicode
     integer_types = (int, long)
@@ -52,7 +60,7 @@ if PY2:
             return buffer(data, 0, length)
         except TypeError:
             if isinstance(data, memoryview):
-                data = data.tobytes() if hasattr(data, 'tobytes') else data.tostring()
+                data = bytes_from_view(data)
             else:
                 data = require_bytes_like(data)
             if length is None:
@@ -73,7 +81,7 @@ if PY2:
         if isinstance(data, bytearray):
             return bytes(data)
         if isinstance(data, memoryview):
-            return data.tobytes() if hasattr(data, 'tobytes') else data.tostring()
+            return bytes_from_view(data)
         try:
             if isinstance(data, buffer):
                 return str(data)
@@ -139,7 +147,7 @@ else:
         immutable queues).
         """
         data = require_bytes_like(data)
-        return data if isinstance(data, bytes) else data.tobytes()
+        return data if isinstance(data, bytes) else bytes_from_view(data)
 
 
 def byte_at(data, offset):

@@ -41,3 +41,10 @@ remains outside compat.
 
 ## Testing
 - Do not run tests here.
+
+## Execution Notes
+- 20260108: Added `bytes_from_view` in `sfb/compat.py`, routed memoryview
+  conversions in compat and channel through it, and updated the TLS bump cert
+  builder to use `to_bytes`. Confirmed `tobytes`/`tostring` usage exists only
+  in `sfb/compat.py` and the helper is referenced by the former ad-hoc call
+  sites.

@@ -8,7 +8,7 @@ from __future__ import absolute_import
 import base64
 
 from . import tls_handshake_bump_cert_template as cert_template
-from ...compat import PY2, text_type
+from ...compat import text_type, to_bytes
 
 
 def _load_cert_template():
@@ -39,6 +39,4 @@ def build_cert_der(cn_text):
     template = bytearray(_CERT_TEMPLATE_DER)
     for offset in cert_template.CN_OFFSETS:
         template[offset:offset + cert_template.CN_LEN] = cn_bytes
-    if PY2:
-        return template.tostring()
-    return bytes(template)
+    return to_bytes(template)

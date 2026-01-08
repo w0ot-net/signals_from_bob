@@ -219,10 +219,11 @@ so there is no separate transport-specific limit.
 
 ---
 
-## Loss/Dup Simulation Wrapper
+## Loss/Dup/Corrupt Simulation Wrapper
 
 The CLI can wrap any transport with `LossyTransport`/`LossyServer` to inject
-packet loss or duplication without changing the underlying transport. Use:
+packet loss, duplication, or corruption without changing the underlying
+transport. Use:
 
 - `--loss <percent>` for both directions.
 - `--rx-loss <percent>` for incoming packets.
@@ -230,16 +231,19 @@ packet loss or duplication without changing the underlying transport. Use:
 - `--dup <percent>` for both directions.
 - `--rx-dup <percent>` for incoming packets.
 - `--tx-dup <percent>` for outgoing packets.
+- `--corrupt <percent>` for both directions (mutates bytes only).
+- `--rx-corrupt <percent>` for incoming packets (mutates bytes only).
+- `--tx-corrupt <percent>` for outgoing packets (mutates bytes only).
 
 Direction mapping is local:
 
 - Client: tx=requests (Alice -> Bob), rx=responses (Bob -> Alice).
 - Server: tx=responses (Bob -> Alice), rx=requests (Alice -> Bob).
 
-Loss and duplication are configured as a percent in [0, 100] and converted to
-`loss_rate`/`dup_rate` in [0.0, 1.0]. Enabling loss on both sides compounds the
-loss rate for each direction. Enabling duplication on both sides compounds
-duplicates and can amplify traffic.
+Loss, duplication, and corruption are configured as a percent in [0, 100] and
+converted to rates in [0.0, 1.0]. Enabling loss or corruption on both sides
+compounds the chance of impairment in at least one direction. Enabling
+duplication on both sides compounds duplicates and can amplify traffic.
 
 ---
 

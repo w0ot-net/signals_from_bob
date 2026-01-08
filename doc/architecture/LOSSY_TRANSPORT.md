@@ -35,7 +35,7 @@ Corruption always mutates packet bytes; use `loss_rate` to drop packets.
 `LossyTransport` adds `pending_timeout_sec` to control how long synthetic
 pending entries (drops or stale requests) linger before pruning.
 
-## CLI Loss/Dup Flags
+## CLI Loss/Dup/Corrupt Flags
 
 The CLI can wrap any transport with `LossyTransport` or `LossyServer` using
 loss and duplication flags:
@@ -46,18 +46,20 @@ loss and duplication flags:
 - `--dup <percent>`: apply to both directions.
 - `--rx-dup <percent>`: incoming direction override.
 - `--tx-dup <percent>`: outgoing direction override.
+- `--corrupt <percent>`: apply to both directions (mutates bytes only).
+- `--rx-corrupt <percent>`: incoming direction override (mutates bytes only).
+- `--tx-corrupt <percent>`: outgoing direction override (mutates bytes only).
 
 Direction mapping is local:
 
 - Client: tx=requests (Alice -> Bob), rx=responses (Bob -> Alice).
 - Server: tx=responses (Bob -> Alice), rx=requests (Alice -> Bob).
 
-Loss and duplication are configured as a percent in [0, 100] and converted to
-`loss_rate`/`dup_rate` in [0.0, 1.0]. The wrapper is only enabled when any rate
-is non-zero. Enabling loss on both sides compounds the rate; for example
-10 percent on both ends yields about 19 percent end-to-end
-(1 - (1 - 0.10)^2). Enabling duplication on both sides compounds duplicates
-and can amplify traffic.
+Loss, duplication, and corruption are configured as a percent in [0, 100] and
+converted to rates in [0.0, 1.0]. The wrapper is only enabled when any rate is
+non-zero. Enabling loss or corruption on both sides compounds the chance of a
+packet being impaired in at least one direction; enabling duplication on both
+sides compounds duplicates and can amplify traffic.
 
 ## Impairment Decisions
 

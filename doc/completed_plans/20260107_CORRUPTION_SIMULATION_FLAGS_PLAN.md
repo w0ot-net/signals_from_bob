@@ -1,6 +1,6 @@
 # Corruption Simulation Flags Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -55,3 +55,13 @@ any transport: `--corrupt` (both directions), `--rx-corrupt`, and
 - Verify `--rx-corrupt`/`--tx-corrupt` override behavior and that `0` disables
   corruption.
 - Do not run tests/e2e/.
+
+## Execution Notes
+
+- Added `--corrupt`, `--rx-corrupt`, and `--tx-corrupt` CLI flags with percent
+  validation and direction-aware help text in `sfb/cli.py`.
+- Extended the lossy wrapper to apply corruption rates per direction and log
+  the effective percent/rate values.
+- Documented the new flags and compounding behavior in
+  `doc/architecture/LOSSY_TRANSPORT.md` and
+  `doc/architecture/TRANSPORTS.md`.

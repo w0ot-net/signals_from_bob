@@ -459,6 +459,33 @@ def add_common_args(parser, config, require_domain=True, require_role=True):
              'Client tx=requests; server tx=responses. Overrides --dup.'
     )
     parser.add_argument(
+        '--corrupt',
+        type=_percent_in_range,
+        default=0.0,
+        metavar='<percent>',
+        help='Packet corruption percent for both directions (0-100). '
+             'Corruption mutates bytes; use loss for drops. '
+             'Overridden by --rx-corrupt/--tx-corrupt.'
+    )
+    parser.add_argument(
+        '--rx-corrupt',
+        type=_percent_in_range,
+        default=None,
+        metavar='<percent>',
+        help='Packet corruption percent for incoming packets (0-100). '
+             'Corruption mutates bytes; use loss for drops. '
+             'Client rx=responses; server rx=requests. Overrides --corrupt.'
+    )
+    parser.add_argument(
+        '--tx-corrupt',
+        type=_percent_in_range,
+        default=None,
+        metavar='<percent>',
+        help='Packet corruption percent for outgoing packets (0-100). '
+             'Corruption mutates bytes; use loss for drops. '
+             'Client tx=requests; server tx=responses. Overrides --corrupt.'
+    )
+    parser.add_argument(
         '--domain',
         required=require_domain,
         default=config.dns_base_domain,
@@ -1232,20 +1259,35 @@ def _resolve_dup_percents(args):
     )
 
 
+def _resolve_corrupt_percents(args):
+    return _resolve_directional_percents(
+        getattr(args, 'corrupt', 0.0),
+        getattr(args, 'tx_corrupt', None),
+        getattr(args, 'rx_corrupt', None),
+    )
+
+
 def _wrap_lossy_transport(transport, args, role, logger):
     tx_loss_percent, rx_loss_percent = _resolve_loss_percents(args)
     tx_dup_percent, rx_dup_percent = _resolve_dup_percents(args)
+    tx_corrupt_percent, rx_corrupt_percent = _resolve_corrupt_percents(args)
     if (tx_loss_percent <= 0 and rx_loss_percent <= 0 and
-            tx_dup_percent <= 0 and rx_dup_percent <= 0):
+            tx_dup_percent <= 0 and rx_dup_percent <= 0 and
+            tx_corrupt_percent <= 0 and rx_corrupt_percent <= 0):
         return transport
     tx_loss_rate = tx_loss_percent / 100.0
     rx_loss_rate = rx_loss_percent / 100.0
     tx_dup_rate = tx_dup_percent / 100.0
     rx_dup_rate = rx_dup_percent / 100.0
-    if tx_loss_rate == rx_loss_rate and tx_dup_rate == rx_dup_rate:
+    tx_corrupt_rate = tx_corrupt_percent / 100.0
+    rx_corrupt_rate = rx_corrupt_percent / 100.0
+    if (tx_loss_rate == rx_loss_rate and
+            tx_dup_rate == rx_dup_rate and
+            tx_corrupt_rate == rx_corrupt_rate):
         impairment = NetworkImpairment(
             loss_rate=tx_loss_rate,
             dup_rate=tx_dup_rate,
+            corrupt_rate=tx_corrupt_rate,
         )
         send_impairment = impairment
         recv_impairment = impairment
@@ -1253,10 +1295,12 @@ def _wrap_lossy_transport(transport, args, role, logger):
         send_impairment = NetworkImpairment(
             loss_rate=tx_loss_rate,
             dup_rate=tx_dup_rate,
+            corrupt_rate=tx_corrupt_rate,
         )
         recv_impairment = NetworkImpairment(
             loss_rate=rx_loss_rate,
             dup_rate=rx_dup_rate,
+            corrupt_rate=rx_corrupt_rate,
         )
     stats_enabled = bool(args.verbose)
     if role == 'client':
@@ -1289,6 +1333,10 @@ def _wrap_lossy_transport(transport, args, role, logger):
             'rx_dup_percent': rx_dup_percent,
             'tx_dup_rate': tx_dup_rate,
             'rx_dup_rate': rx_dup_rate,
+            'tx_corrupt_percent': tx_corrupt_percent,
+            'rx_corrupt_percent': rx_corrupt_percent,
+            'tx_corrupt_rate': tx_corrupt_rate,
+            'rx_corrupt_rate': rx_corrupt_rate,
         },
     )
     return wrapped

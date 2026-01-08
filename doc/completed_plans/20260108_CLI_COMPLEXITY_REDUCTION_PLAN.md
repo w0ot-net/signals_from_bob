@@ -7,6 +7,7 @@ Status: draft
   `create_config`, `_run_main`, `run_server_command`, `_wrap_lossy_transport`)
   without changing CLI behavior, defaults, logging fields, or error handling.
 - Keep Python 2.7 + 3 compatibility and standard-library-only constraints.
+- decrease lines of code without hurting performance or readability
 
 ## Non-Goals
 - Add or remove CLI flags, defaults, or transport behaviors.
@@ -43,3 +44,10 @@ Status: draft
 ## Testing
 - Do not run tests here. If needed, re-run `radon cc sfb/cli.py` to verify
   complexity improvements.
+
+## Execution Notes
+- Marked complete; CLI complexity reduction work is tracked in
+  `doc/completed_plans/20260108_CLI_COMPLEXITY_REDUCTION_PHASE1.md`,
+  `doc/completed_plans/20260108_CLI_COMPLEXITY_REDUCTION_PHASE2.md`, and
+  `doc/completed_plans/20260108_CLI_COMPLEXITY_REDUCTION_PHASE3.md`.
+- No additional code changes in this completion step.

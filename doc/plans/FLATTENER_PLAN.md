@@ -22,6 +22,28 @@
 - **Manifest-only ordering**: add `doc/flatten_manifest.txt` as the sole source
   of truth for module ordering, entrypoint, and excludes. The file is ASCII,
   line-oriented, and easy to review in diffs.
+- **Manifest format (proposed)**:
+  ```
+  # entrypoint
+  entry sfb.cli:main
+
+  # roots to scan for completeness checks
+  root sfb
+
+  # exclude paths (relative to repo root)
+  exclude tests
+  exclude integration_tests
+  exclude scripts
+
+  # explicit execution order (fully-qualified module names)
+  module sfb
+  module sfb.compat
+  module sfb.time_provider
+  module sfb.config
+  ...
+  ```
+  The flattener should verify that every module under each `root` appears in
+  the `module` list (after applying excludes), failing fast on omissions.
 - **Concatenation strategy**: emit a single file that pre-creates module
   objects in `sys.modules`, then executes each module's source into its own
   module dict in manifest order. This avoids custom import hooks while keeping

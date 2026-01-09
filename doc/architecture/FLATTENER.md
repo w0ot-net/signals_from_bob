@@ -30,6 +30,8 @@ filters. Validation runs against the filtered set, and `allow_late` pairs are
 ignored when either module is filtered out.
 The default manifest intentionally excludes the in-memory and lossy
 transports, so flat bundles cannot use them.
+Module packages under `sfb.modules` are tagged `role=common` because their
+`__init__` modules import both server and relay classes.
 
 ## Order Validation
 The flattener parses top-level import statements using `ast` and checks that

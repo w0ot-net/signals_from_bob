@@ -5,6 +5,7 @@ Flatten sfb into a single-file bundle via literal concatenation.
 
 Usage:
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py
+  python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify
 """
 
 from __future__ import absolute_import, print_function
@@ -14,6 +15,8 @@ import ast
 import io
 import os
 import sys
+import token
+import tokenize
 
 
 class ManifestError(Exception):
@@ -22,6 +25,14 @@ class ManifestError(Exception):
 
 class ValidationError(Exception):
     pass
+
+
+_ASYNC_FUNCTION_DEF = getattr(ast, 'AsyncFunctionDef', None)
+_AST_CONSTANT = getattr(ast, 'Constant', None)
+try:
+    _STRING_TYPES = (basestring,)
+except NameError:
+    _STRING_TYPES = (str,)
 
 
 class _ImportCollector(ast.NodeVisitor):
@@ -66,6 +77,78 @@ def _read_text(path):
     except UnicodeDecodeError:
         raise ManifestError('Non-ASCII content in %s' % path)
 
+
+def _is_docstring_expr(node):
+    if not isinstance(node, ast.Expr):
+        return False
+    value = getattr(node, 'value', None)
+    if isinstance(value, ast.Str):
+        return True
+    if _AST_CONSTANT is not None:
+        if isinstance(value, _AST_CONSTANT) and isinstance(value.value, _STRING_TYPES):
+            return True
+    return False
+
+
+def _collect_docstring_positions(tree):
+    positions = set()
+    nodes = (ast.Module, ast.ClassDef, ast.FunctionDef)
+    if _ASYNC_FUNCTION_DEF is not None:
+        nodes = nodes + (_ASYNC_FUNCTION_DEF,)
+    for node in ast.walk(tree):
+        if not isinstance(node, nodes):
+            continue
+        body = getattr(node, 'body', None)
+        if not body:
+            continue
+        first = body[0]
+        if _is_docstring_expr(first):
+            lineno = getattr(first, 'lineno', None)
+            col = getattr(first, 'col_offset', None)
+            if lineno is not None and col is not None:
+                positions.add((lineno, col))
+    return positions
+
+
+def _token_values(token_info):
+    if hasattr(token_info, 'type'):
+        return (
+            token_info.type,
+            token_info.string,
+            token_info.start,
+            token_info.end,
+            token_info.line,
+        )
+    return token_info
+
+
+def _generate_tokens(source):
+    if sys.version_info[0] < 3:
+        return tokenize.generate_tokens(
+            io.BytesIO(source.encode('ascii')).readline
+        )
+    return tokenize.generate_tokens(io.StringIO(source).readline)
+
+
+def _minify_source(source, name):
+    tree = ast.parse(source, filename=name)
+    docstrings = _collect_docstring_positions(tree)
+    out_tokens = []
+    for token_info in _generate_tokens(source):
+        tok_type, tok_str, start, end, line = _token_values(token_info)
+        if tok_type == token.COMMENT:
+            continue
+        if tok_type == token.STRING and start in docstrings:
+            continue
+        out_tokens.append((tok_type, tok_str, start, end, line))
+    output = tokenize.untokenize(out_tokens)
+    if isinstance(output, bytes):
+        output = output.decode('ascii')
+    try:
+        output.encode('ascii')
+    except UnicodeEncodeError:
+        raise ManifestError('Non-ASCII minify output for %s' % name)
+    return output
 
 
 def _normalize_path(path):
@@ -383,6 +466,11 @@ def main(argv):
         default=None,
         help='Repository root (default: inferred from scripts/)',
     )
+    parser.add_argument(
+        '--minify',
+        action='store_true',
+        help='Minify module sources before bundling (strip comments/docstrings)',
+    )
     args = parser.parse_args(argv)
 
     repo_root = args.repo_root
@@ -406,10 +494,22 @@ def main(argv):
 
     entries = []
     for name in manifest['modules']:
-        source = _read_text(module_paths[name])
-        entries.append((name, is_package[name], source))
+        path = module_paths[name]
+        source = _read_text(path)
+        entries.append((name, is_package[name], source, path))
 
-    _validate_order(entries, manifest['allow_late'])
+    _validate_order(
+        [(name, is_pkg, source) for name, is_pkg, source, _ in entries],
+        manifest['allow_late'],
+    )
+    if args.minify:
+        minified = []
+        for name, is_pkg, source, _ in entries:
+            source = _minify_source(source, name)
+            minified.append((name, is_pkg, source))
+        entries = minified
+    else:
+        entries = [(name, is_pkg, source) for name, is_pkg, source, _ in entries]
 
     output_path = args.output
     if not os.path.isabs(output_path):

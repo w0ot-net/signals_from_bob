@@ -26,6 +26,10 @@ bodies are ignored because all modules execute before the entrypoint, and those
 imports run only after startup. Use `allow_late` for intentional out-of-order
 relationships or dynamic imports.
 
+## Minify
+Use `--minify` to strip comments and docstrings from module sources before
+bundling. Identifier names are not rewritten.
+
 ## Runtime Bootstrap
 The generated bundle:
 1. Creates a flat on-disk root (temporary by default, or `SFB_FLAT_ROOT`).

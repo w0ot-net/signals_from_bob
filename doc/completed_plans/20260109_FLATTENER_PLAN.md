@@ -76,3 +76,11 @@
 
 ## Testing
 - Do not run tests here. The user will run tests as needed with python3.
+
+## Execution Notes
+- 20260109: Inventory complete; `__file__` is used in `sfb/cli.py` to derive the
+  TLS bump template path, and no other modules depend on `__file__`.
+- 20260109: Added `scripts/flatten.py` and `doc/flatten_manifest.txt` with
+  manifest-only ordering and best-effort order validation.
+- 20260109: Documented flattener behavior in `doc/architecture/FLATTENER.md`
+  and updated `README.md` usage.

@@ -14,6 +14,18 @@ Enable the pre-commit hook to enforce ASCII-only files:
 git config core.hooksPath .githooks
 ```
 
+## Single-file Bundle
+Generate a single-file bundle from the manifest:
+```
+python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py
+```
+Run it the same way as the normal entrypoint:
+```
+python3 sfb_flat.py --role client --transport dns --domain t.example.com
+```
+Set `SFB_FLAT_ROOT` to control the temporary on-disk root used for `__file__`
+paths in the flattened bundle.
+
 ## Profiling
 Use `--cprofile` to write a cProfile output file.
 Examples:

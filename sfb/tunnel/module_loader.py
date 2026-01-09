@@ -35,7 +35,7 @@ class ModuleLoader(object):
     Handles module load and unload requests from the remote side.
 
     Registers with tunnel for 'mod' message type and handles:
-    - load: Load a module by name from AVAILABLE_MODULES
+    - load: Load a module by name from the module registry
     - unload: Unload a module by name and instance id
 
     On the controller side (Bob), also provides load_remote() to request
@@ -97,7 +97,7 @@ class ModuleLoader(object):
     def _handle_load(self, msg):
         """Handle module load request."""
         # Late import to avoid circular dependency
-        from ..modules import AVAILABLE_MODULES
+        from ..modules import get_available_module_class
 
         name = msg.get('name')
         module_id = msg.get('mid')
@@ -120,7 +120,7 @@ class ModuleLoader(object):
             self._send(mod_load_ok(name, module_id))
             return
 
-        module_class = AVAILABLE_MODULES.get(name)
+        module_class = get_available_module_class(name)
         if module_class is None:
             log_event(
                 self._logger,

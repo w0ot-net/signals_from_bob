@@ -11,13 +11,25 @@ Directives:
 - `entry <module:function>`: entrypoint function invoked after loading.
 - `root <path>`: directory roots (relative to repo) to scan for completeness.
 - `exclude <path>`: paths (relative to repo) excluded from completeness checks.
-- `module <module.name>`: explicit execution order.
+- `module <module.name> [role=ROLE transport=TRANSPORT]`: explicit execution
+  order with optional tags. `role` is one of `common`, `alice`, or `bob`.
+  `transport` is one of `common`, `dns`, `icmp`, `udp_ephemeral`,
+  `tls_handshake`, or `tls_handshake_bump`. Omitted tags default to `common`.
 - `allow_late <module.name> <dependency.name>`: allow a module to appear before
   a dependency when the import is intentionally deferred.
 
 The manifest is the sole ordering source. The flattener fails if any module
 under `root` is missing from the manifest or if the manifest lists a module
 that does not exist.
+
+## Filtering
+Use `--alice` to include only modules tagged `role=common` or `role=alice`.
+Use `--transport <name>` to include only modules tagged `transport=common` or
+`transport=<name>`. When both flags are set, a module must satisfy both
+filters. Validation runs against the filtered set, and `allow_late` pairs are
+ignored when either module is filtered out.
+The default manifest intentionally excludes the in-memory and lossy
+transports, so flat bundles cannot use them.
 
 ## Order Validation
 The flattener parses top-level import statements using `ast` and checks that
@@ -30,8 +42,9 @@ relationships or dynamic imports.
 Use `--minify` to run `python-minifier` (external dependency) on each module
 before bundling. The flattener tries the `python_minifier` module first and
 falls back to the `pyminify` CLI if needed (`--minify-bin` controls the binary
-path). By default, only locals are renamed to avoid breaking cross-module
-imports.
+path). `scripts/flatten.py` is the only file allowed to import
+`python_minifier` directly. By default, only locals are renamed to avoid
+breaking cross-module imports.
 Use `--strip-logs` to remove `log_event(...)` and logger method calls (for
 example, `logging.info(...)` or `self._logger.error(...)`) before
 minification/bundling.

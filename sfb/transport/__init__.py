@@ -9,36 +9,22 @@ the responder callback.
 
 from __future__ import absolute_import
 
+import importlib
+
 from .transport_base import (
     Transport,
     Server,
     TransportError,
 )
 
-from .lossy import (
-    NetworkImpairment,
-    LossyTransport,
-    LossyServer,
-    # Presets
-    no_impairment,
-    high_latency,
-    moderate_loss,
-    heavy_loss,
-    burst_loss,
-    extreme_conditions,
-    chaos,
-)
-from .memory import (
-    InMemoryTransport,
-    InMemoryServer,
-    create_inmemory_transport_pair,
-)
+_LOSSY_CACHE = None
 
-from .dns import DnsClient, DnsServer
-from .icmp import IcmpClient, IcmpServer
-from .udp_ephemeral import UdpEphemeralClient, UdpEphemeralServer
-from .tls_handshake import TlsClient, TlsServer
-from .tls_handshake_bump import TlsHandshakeBumpClient, TlsHandshakeBumpServer
+def _load_symbol(module_name, symbol_name):
+    module = importlib.import_module(module_name)
+    try:
+        return getattr(module, symbol_name)
+    except AttributeError:
+        raise ImportError('Unable to load %s from %s' % (symbol_name, module_name))
 
 
 def get_transport_class(name, role):
@@ -61,34 +47,64 @@ def get_transport_class(name, role):
     transport = TRANSPORTS[name]
     if role not in transport:
         raise ValueError('Transport %s does not support role: %s' % (name, role))
-    return transport[role]
+    module_name, symbol_name = transport[role]
+    try:
+        return _load_symbol(module_name, symbol_name)
+    except ImportError as exc:
+        raise TransportError('Transport %s unavailable: %s' % (name, exc))
 
 
-# Transport registry: name -> {role -> class}
+def get_transport_names():
+    return sorted(TRANSPORTS.keys())
+
+
+def create_inmemory_transport_pair(config, send_packet_mtu=None,
+                                   recv_packet_mtu=None):
+    module = importlib.import_module('sfb.transport.memory')
+    return module.create_inmemory_transport_pair(
+        config,
+        send_packet_mtu=send_packet_mtu,
+        recv_packet_mtu=recv_packet_mtu,
+    )
+
+
+def load_lossy():
+    global _LOSSY_CACHE
+    if _LOSSY_CACHE is None:
+        module = importlib.import_module('sfb.transport.lossy')
+        _LOSSY_CACHE = (
+            module.NetworkImpairment,
+            module.LossyTransport,
+            module.LossyServer,
+        )
+    return _LOSSY_CACHE
+
+
+# Transport registry: name -> {role -> (module, class)}
 TRANSPORTS = {
     'dns': {
-        'client': DnsClient,
-        'server': DnsServer,
+        'client': ('sfb.transport.dns', 'DnsClient'),
+        'server': ('sfb.transport.dns', 'DnsServer'),
     },
     'icmp': {
-        'client': IcmpClient,
-        'server': IcmpServer,
+        'client': ('sfb.transport.icmp', 'IcmpClient'),
+        'server': ('sfb.transport.icmp', 'IcmpServer'),
     },
     'udp_ephemeral': {
-        'client': UdpEphemeralClient,
-        'server': UdpEphemeralServer,
+        'client': ('sfb.transport.udp_ephemeral', 'UdpEphemeralClient'),
+        'server': ('sfb.transport.udp_ephemeral', 'UdpEphemeralServer'),
     },
     'tls_handshake': {
-        'client': TlsClient,
-        'server': TlsServer,
+        'client': ('sfb.transport.tls_handshake', 'TlsClient'),
+        'server': ('sfb.transport.tls_handshake', 'TlsServer'),
     },
     'tls_handshake_bump': {
-        'client': TlsHandshakeBumpClient,
-        'server': TlsHandshakeBumpServer,
+        'client': ('sfb.transport.tls_handshake_bump', 'TlsHandshakeBumpClient'),
+        'server': ('sfb.transport.tls_handshake_bump', 'TlsHandshakeBumpServer'),
     },
     'memory': {
-        'client': InMemoryTransport,
-        'server': InMemoryServer,
+        'client': ('sfb.transport.memory', 'InMemoryTransport'),
+        'server': ('sfb.transport.memory', 'InMemoryServer'),
     },
 }
 
@@ -97,27 +113,9 @@ __all__ = [
     'Transport',
     'Server',
     'TransportError',
-    'NetworkImpairment',
-    'LossyTransport',
-    'LossyServer',
-    'no_impairment',
-    'high_latency',
-    'moderate_loss',
-    'heavy_loss',
-    'burst_loss',
-    'extreme_conditions',
-    'chaos',
-    'InMemoryTransport',
-    'InMemoryServer',
     'create_inmemory_transport_pair',
-    'IcmpClient',
-    'IcmpServer',
-    'UdpEphemeralClient',
-    'UdpEphemeralServer',
-    'TlsClient',
-    'TlsServer',
-    'TlsHandshakeBumpClient',
-    'TlsHandshakeBumpServer',
+    'load_lossy',
     'TRANSPORTS',
     'get_transport_class',
+    'get_transport_names',
 ]

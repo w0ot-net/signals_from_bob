@@ -13,14 +13,10 @@ from .base_tunnel import (
     TunnelError,
     TunnelState,
 )
-from .alice_tunnel import AliceTunnel
-from .bob_tunnel import BobTunnel
 from .module_loader import ModuleLoader, ModuleLoadError
 
 __all__ = [
     'BaseTunnel',
-    'AliceTunnel',
-    'BobTunnel',
     'TunnelError',
     'TunnelState',
     'ModuleLoader',

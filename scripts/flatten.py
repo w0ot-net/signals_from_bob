@@ -8,6 +8,8 @@ Usage:
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify --minify-bin /path/to/pyminify
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify --strip-logs
+  python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --alice
+  python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --transport dns
 """
 
 from __future__ import absolute_import, print_function
@@ -38,6 +40,19 @@ _MINIFY_CLI_ARGS = (
     '--remove-class-attribute-annotations',
     '--no-remove-object-base',
 )
+
+_ALLOWED_ROLE_TAGS = ('common', 'alice', 'bob')
+_ALLOWED_TRANSPORT_TAGS = (
+    'common',
+    'dns',
+    'icmp',
+    'udp_ephemeral',
+    'tls_handshake',
+    'tls_handshake_bump',
+)
+_TRANSPORT_FILTER_CHOICES = [
+    name for name in _ALLOWED_TRANSPORT_TAGS if name != 'common'
+]
 
 _LOG_CALL_NAMES = set(['log_event'])
 _LOG_METHOD_NAMES = set([
@@ -307,11 +322,40 @@ def _is_excluded(rel_path, excludes):
 
 
 
+def _parse_module_tags(tokens, line_no):
+    role = 'common'
+    transport = 'common'
+    seen = set()
+    for token in tokens:
+        if '=' not in token:
+            raise ManifestError('module tag expects key=value at line %d' % line_no)
+        key, value = token.split('=', 1)
+        if key not in ('role', 'transport'):
+            raise ManifestError('unknown module tag %s at line %d' % (key, line_no))
+        if key in seen:
+            raise ManifestError('duplicate module tag %s at line %d' % (key, line_no))
+        seen.add(key)
+        if key == 'role':
+            if value not in _ALLOWED_ROLE_TAGS:
+                raise ManifestError('invalid role tag %s at line %d' % (value, line_no))
+            role = value
+        else:
+            if value not in _ALLOWED_TRANSPORT_TAGS:
+                raise ManifestError('invalid transport tag %s at line %d' % (
+                    value,
+                    line_no,
+                ))
+            transport = value
+    return {'role': role, 'transport': transport}
+
+
+
 def _parse_manifest(path):
     entry = None
     roots = []
     excludes = []
     modules = []
+    module_tags = {}
     allow_late = set()
     seen_modules = set()
 
@@ -337,7 +381,7 @@ def _parse_manifest(path):
                 raise ManifestError('exclude expects 1 value at line %d' % line_no)
             excludes.append(parts[1])
         elif key == 'module':
-            if len(parts) != 2:
+            if len(parts) < 2:
                 raise ManifestError('module expects 1 value at line %d' % line_no)
             module = parts[1]
             if module in seen_modules:
@@ -347,6 +391,7 @@ def _parse_manifest(path):
                 ))
             seen_modules.add(module)
             modules.append(module)
+            module_tags[module] = _parse_module_tags(parts[2:], line_no)
         elif key == 'allow_late':
             if len(parts) != 3:
                 raise ManifestError('allow_late expects 2 values at line %d' % line_no)
@@ -368,6 +413,7 @@ def _parse_manifest(path):
         'roots': roots,
         'excludes': excludes,
         'modules': modules,
+        'module_tags': module_tags,
         'allow_late': allow_late,
     }
 
@@ -471,14 +517,17 @@ def _collect_import_deps(source, name, is_pkg, module_set):
 
 
 
-def _validate_manifest(manifest, module_paths, allow_late):
-    missing = [name for name in module_paths if name not in manifest]
+def _validate_manifest(manifest, module_paths, allow_late, enforce_complete):
     unknown = [name for name in manifest if name not in module_paths]
-    if missing:
-        raise ManifestError('manifest missing module(s): %s' % ', '.join(sorted(missing)))
     if unknown:
         raise ManifestError('manifest lists unknown module(s): %s' %
                             ', '.join(sorted(unknown)))
+    if enforce_complete:
+        missing = [name for name in module_paths if name not in manifest]
+        if missing:
+            raise ManifestError(
+                'manifest missing module(s): %s' % ', '.join(sorted(missing))
+            )
     for module, dep in sorted(allow_late):
         if module not in manifest:
             raise ManifestError('allow_late module not in manifest: %s' % module)
@@ -502,6 +551,30 @@ def _validate_order(entries, allow_late):
         raise ValidationError(
             'manifest order violations:\n' + '\n'.join(errors)
         )
+
+
+
+def _filter_modules(modules, module_tags, alice_only, transport):
+    filtered = []
+    for name in modules:
+        tags = module_tags.get(name)
+        if tags is None:
+            tags = {'role': 'common', 'transport': 'common'}
+        if alice_only and tags.get('role') not in ('common', 'alice'):
+            continue
+        if transport and tags.get('transport') not in ('common', transport):
+            continue
+        filtered.append(name)
+    return filtered
+
+
+
+def _filter_allow_late(allow_late, module_set):
+    return set([
+        (module, dep)
+        for module, dep in allow_late
+        if module in module_set and dep in module_set
+    ])
 
 
 
@@ -610,6 +683,17 @@ def main(argv):
         help='Repository root (default: inferred from scripts/)',
     )
     parser.add_argument(
+        '--alice',
+        action='store_true',
+        help='Include common + Alice-only modules from the manifest',
+    )
+    parser.add_argument(
+        '--transport',
+        default=None,
+        choices=_TRANSPORT_FILTER_CHOICES,
+        help='Include common + transport-specific modules from the manifest',
+    )
+    parser.add_argument(
         '--minify',
         action='store_true',
         help='Minify module sources before bundling (python-minifier or pyminify)',
@@ -639,14 +723,23 @@ def main(argv):
         manifest['roots'],
         excludes,
     )
-    _validate_manifest(manifest['modules'], module_paths, manifest['allow_late'])
+    selected_modules = _filter_modules(
+        manifest['modules'],
+        manifest['module_tags'],
+        args.alice,
+        args.transport,
+    )
+    selected_set = set(selected_modules)
+    filtered_allow_late = _filter_allow_late(manifest['allow_late'], selected_set)
+    enforce_complete = not (args.alice or args.transport)
+    _validate_manifest(selected_modules, module_paths, filtered_allow_late, enforce_complete)
 
     entry_module = manifest['entry'].split(':', 1)[0]
-    if entry_module not in manifest['modules']:
+    if entry_module not in selected_set:
         raise ManifestError('entry module not listed in manifest: %s' % entry_module)
 
     entries = []
-    for name in manifest['modules']:
+    for name in selected_modules:
         path = module_paths[name]
         source = _read_text(path)
         if args.strip_logs:
@@ -655,7 +748,7 @@ def main(argv):
 
     _validate_order(
         [(name, is_pkg, source) for name, is_pkg, source, _ in entries],
-        manifest['allow_late'],
+        filtered_allow_late,
     )
     if args.minify:
         minified = []

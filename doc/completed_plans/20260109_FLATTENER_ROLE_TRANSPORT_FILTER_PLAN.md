@@ -63,3 +63,14 @@
 
 ## Testing
 - Do not run tests here. The user will run tests as needed with python3.
+
+## Execution Notes
+- Date: 2026-01-09
+- Added manifest tags, `--alice`, and `--transport` filtering with filtered
+  validation and allow_late pruning.
+- Switched transport/module registries to lazy imports and updated CLI/module
+  loader call sites.
+- Updated `sfb/tunnel/__init__.py` to avoid eager Alice/Bob imports so role
+  filtering can exclude unused tunnel modules.
+- Documented filtering and the `python_minifier` exception in README and
+  architecture docs.

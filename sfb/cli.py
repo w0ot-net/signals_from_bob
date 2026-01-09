@@ -35,16 +35,14 @@ from .logging_util import (
 )
 from .log_profiles import LOG_PROFILES, apply_log_profile
 from .transport import (
-    TRANSPORTS,
-    LossyServer,
-    LossyTransport,
-    NetworkImpairment,
     TransportError,
     get_transport_class,
+    get_transport_names,
+    load_lossy,
 )
-from .tunnel import AliceTunnel, BobTunnel, TunnelError, TunnelState
+from .tunnel.base_tunnel import TunnelError, TunnelState
 from .tunnel.module_loader import ModuleLoadError
-from .modules import CLI_MODULES
+from .modules import get_cli_module_class, list_cli_modules
 from .modules.base_module import ModuleError
 from .profiling import CProfileManager
 from .utils import parse_host_port
@@ -402,7 +400,7 @@ def add_common_args(parser, config, require_domain=True, require_role=True):
     )
     parser.add_argument(
         '--transport', default=config.transport_default,
-        choices=list(TRANSPORTS.keys()),
+        choices=get_transport_names(),
         help='Transport type (default: %s)' % config.transport_default
     )
     parser.add_argument(
@@ -908,7 +906,7 @@ def add_module_args(parser):
     """Add module selection argument."""
     parser.add_argument(
         '--module',
-        choices=list(CLI_MODULES.keys()),
+        choices=list_cli_modules(),
         help='Module to load'
     )
     parser.add_argument(
@@ -1056,7 +1054,9 @@ def parse_args(args=None):
 
         # Module subcommands or module-specific args
         if partial_args.module:
-            module_cls = CLI_MODULES[partial_args.module]
+            module_cls = get_cli_module_class(partial_args.module)
+            if module_cls is None:
+                raise SystemExit('Unknown module: %s' % partial_args.module)
             _add_module_commands(parser, module_cls, role_for_args, config_defaults)
 
     parsed = parser.parse_args(arg_list)
@@ -1354,6 +1354,7 @@ def _percent_pair_to_rates(tx_percent, rx_percent):
 
 
 def _build_lossy_impairments(
+        impairment_cls,
         tx_loss_rate,
         rx_loss_rate,
         tx_dup_rate,
@@ -1364,18 +1365,18 @@ def _build_lossy_impairments(
     if (tx_loss_rate == rx_loss_rate and
             tx_dup_rate == rx_dup_rate and
             tx_corrupt_rate == rx_corrupt_rate):
-        impairment = NetworkImpairment(
+        impairment = impairment_cls(
             loss_rate=tx_loss_rate,
             dup_rate=tx_dup_rate,
             corrupt_rate=tx_corrupt_rate,
         )
         return impairment, impairment
-    send_impairment = NetworkImpairment(
+    send_impairment = impairment_cls(
         loss_rate=tx_loss_rate,
         dup_rate=tx_dup_rate,
         corrupt_rate=tx_corrupt_rate,
     )
-    recv_impairment = NetworkImpairment(
+    recv_impairment = impairment_cls(
         loss_rate=rx_loss_rate,
         dup_rate=rx_dup_rate,
         corrupt_rate=rx_corrupt_rate,
@@ -1391,6 +1392,10 @@ def _wrap_lossy_transport(transport, args, role, logger):
             tx_dup_percent <= 0 and rx_dup_percent <= 0 and
             tx_corrupt_percent <= 0 and rx_corrupt_percent <= 0):
         return transport
+    try:
+        impairment_cls, lossy_transport_cls, lossy_server_cls = load_lossy()
+    except ImportError:
+        raise TransportError('Lossy transport is not available in this build')
     tx_loss_rate, rx_loss_rate = _percent_pair_to_rates(
         tx_loss_percent, rx_loss_percent
     )
@@ -1401,6 +1406,7 @@ def _wrap_lossy_transport(transport, args, role, logger):
         tx_corrupt_percent, rx_corrupt_percent
     )
     send_impairment, recv_impairment = _build_lossy_impairments(
+        impairment_cls,
         tx_loss_rate,
         rx_loss_rate,
         tx_dup_rate,
@@ -1410,14 +1416,14 @@ def _wrap_lossy_transport(transport, args, role, logger):
     )
     stats_enabled = bool(args.verbose)
     if role == 'client':
-        wrapped = LossyTransport(
+        wrapped = lossy_transport_cls(
             transport,
             send_impairment=send_impairment,
             recv_impairment=recv_impairment,
             stats_enabled=stats_enabled,
         )
     else:
-        wrapped = LossyServer(
+        wrapped = lossy_server_cls(
             transport,
             recv_impairment=recv_impairment,
             send_impairment=send_impairment,
@@ -1472,6 +1478,7 @@ def run_server(args, config, crypto, logger):
 
     # Create transport and tunnel
     try:
+        from .tunnel.bob_tunnel import BobTunnel
         transport_cls = get_transport_class(args.transport, 'server')
         transport = transport_cls(config)
         transport = _wrap_lossy_transport(transport, args, 'server', logger)
@@ -1593,7 +1600,9 @@ def _wait_for_client(tunnel, args, logger, shutdown_requested):
 def _load_remote_module(tunnel, args, logger, module_loader):
     module_name = args.module
     module_id = args.module_id
-    module_cls = CLI_MODULES[module_name]
+    module_cls = get_cli_module_class(module_name)
+    if module_cls is None:
+        raise ModuleError('invalid_module', 'unknown module: %s' % module_name)
     module_logger = get_logger('sfb.modules.%s' % module_name)
     remote_module = module_cls.REMOTE_MODULE or module_name
     log_event(
@@ -1635,7 +1644,9 @@ def _resolve_module_command(args, module_cls, logger):
 def _unload_remote_module(tunnel, args, module_loader):
     module_name = args.module
     module_id = args.module_id
-    module_cls = CLI_MODULES[module_name]
+    module_cls = get_cli_module_class(module_name)
+    if module_cls is None:
+        return
     remote_module = module_cls.REMOTE_MODULE or module_name
     try:
         module_loader.unload_remote(remote_module, module_id)
@@ -1722,6 +1733,7 @@ def run_client(args, config, crypto, logger):
     """Run in client role."""
     # Create transport and tunnel
     try:
+        from .tunnel.alice_tunnel import AliceTunnel
         transport_cls = get_transport_class(args.transport, 'client')
         transport = transport_cls(config)
         transport = _wrap_lossy_transport(transport, args, 'client', logger)

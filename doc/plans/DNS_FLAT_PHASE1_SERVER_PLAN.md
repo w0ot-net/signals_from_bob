@@ -47,8 +47,8 @@ metadata/chunks via CNAME responses in DNS.
 3. Auto-generate OS-specific stager one-liners on every `--stager` invocation.
    - Generate `linux_dns_stager.txt` and `windows_dns_stager.txt` with the
      base domain (from Bob's `--domain`) and passthrough args embedded.
-   - Write one-liners to a deterministic path (repo root by default) so they
-     can be copied and run directly.
+   - Write one-liners to the repo root so they can be copied and run
+     directly.
 
 4. Add stager query handling in `sfb/transport/dns/dns_server.py`.
    - Detect `flat0.count.<base_domain>` and `flat0.%05d.<base_domain>` before

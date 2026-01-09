@@ -69,6 +69,7 @@ Phase 1: server packaging, stager generation, and DNS serving
   - Generate `linux_dns_stager.txt` and `windows_dns_stager.txt` on every
     `--stager` invocation with the base domain and passthrough args
     embedded in the one-liner, and force Alice role in the stager args.
+  - Write the one-liners into the repo root.
 - Serve stager chunks from the DNS server:
   - In `sfb/transport/dns/dns_server.py`, intercept stager query names
     before `decode_query_name()` to avoid base32 parsing of stager labels.

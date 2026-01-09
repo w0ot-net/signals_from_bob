@@ -85,7 +85,6 @@ def _repo_root():
             os.path.dirname(__file__),
             os.pardir,
             os.pardir,
-            os.pardir,
         )
     )
 

@@ -8,6 +8,7 @@ All configurable values in one place with sensible defaults.
 from .protocol.constants import PACKET_HEADER_SIZE
 
 DNS_STANDARD_SIZE = 512
+DNS_EDNS_MAX_SIZE = 4096
 
 
 class Config(object):
@@ -30,8 +31,8 @@ class Config(object):
     dns_resolver = None
     # Listen address for Bob's DNS server (IPv4 only)
     dns_listen_addr = "0.0.0.0:53"
-    # EDNS0 buffer size (DNS_STANDARD_SIZE standard, 4096 for larger payloads)
-    dns_edns_size = DNS_STANDARD_SIZE
+    # EDNS0 buffer size (default 1024, 4096 max)
+    dns_edns_size = 1024
     # Minimum UDP recv buffer size for DNS responses/queries
     dns_recv_bufsize_min = 4096
     # Timeout before considering a DNS query stale (seconds)
@@ -518,8 +519,8 @@ class Config(object):
             raise ValueError("dns_query_type must be 'A'")
         if self.dns_response_type not in ("CNAME",):
             raise ValueError("dns_response_type must be 'CNAME'")
-        if self.dns_edns_size > DNS_STANDARD_SIZE:
-            raise ValueError("dns_edns_size must be <= %d" % DNS_STANDARD_SIZE)
+        if self.dns_edns_size > DNS_EDNS_MAX_SIZE:
+            raise ValueError("dns_edns_size must be <= %d" % DNS_EDNS_MAX_SIZE)
         if self.dns_recv_bufsize_min < DNS_STANDARD_SIZE:
             raise ValueError("dns_recv_bufsize_min must be >= %d" % DNS_STANDARD_SIZE)
         if self.dns_label_max_len < 4 or self.dns_label_max_len > 63:

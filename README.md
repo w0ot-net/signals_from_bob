@@ -24,6 +24,8 @@ Add `--minify` to use `python-minifier` (external dependency) and rename locals:
 python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify
 ```
 Use `--minify-globals` to allow renaming module-level globals (unsafe across modules).
+If the module import is unavailable, the flattener will invoke the `pyminify`
+CLI instead; use `--minify-bin` to point at a custom binary.
 Run it the same way as the normal entrypoint:
 ```
 python3 sfb_flat.py --role client --transport dns --domain t.example.com

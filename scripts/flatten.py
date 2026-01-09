@@ -7,6 +7,7 @@ Usage:
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify --minify-globals
+  python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify --minify-bin /path/to/pyminify
 """
 
 from __future__ import absolute_import, print_function
@@ -16,6 +17,7 @@ import ast
 import io
 import inspect
 import os
+import subprocess
 import sys
 
 
@@ -25,6 +27,16 @@ class ManifestError(Exception):
 
 class ValidationError(Exception):
     pass
+
+
+_MINIFY_CLI_ARGS = (
+    '--prefer-single-line',
+    '--remove-literal-statements',
+    '--remove-asserts',
+    '--remove-debug',
+    '--remove-class-attribute-annotations',
+    '--no-remove-object-base',
+)
 
 
 class _ImportCollector(ast.NodeVisitor):
@@ -79,16 +91,43 @@ def _minify_arg_names(func):
         return set(argspec.args)
 
 
-def _minify_source(source, name, rename_globals):
+def _minify_with_cli(path, minify_bin, rename_globals):
+    cmd = [minify_bin]
+    cmd.extend(_MINIFY_CLI_ARGS)
+    if rename_globals:
+        cmd.append('--rename-globals')
+    cmd.append(path)
+    try:
+        output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+    except OSError as exc:
+        raise ManifestError('Unable to run %s: %s' % (minify_bin, exc))
+    except subprocess.CalledProcessError as exc:
+        detail = exc.output
+        if isinstance(detail, bytes):
+            detail = detail.decode('ascii', 'replace')
+        if detail is None:
+            detail = ''
+        detail = detail.strip()
+        if detail:
+            raise ManifestError('minify failed for %s: %s' % (path, detail))
+        raise ManifestError('minify failed for %s' % path)
+    if isinstance(output, bytes):
+        output = output.decode('ascii')
+    try:
+        output.encode('ascii')
+    except UnicodeEncodeError:
+        raise ManifestError('Non-ASCII minify output for %s' % path)
+    return output
+
+
+def _minify_source(source, name, path, rename_globals, minify_bin):
     try:
         import python_minifier
     except ImportError:
-        raise ManifestError(
-            'python-minifier is required for --minify; install it and retry'
-        )
+        return _minify_with_cli(path, minify_bin, rename_globals)
     minify = getattr(python_minifier, 'minify', None)
     if minify is None:
-        raise ManifestError('python_minifier.minify not found')
+        return _minify_with_cli(path, minify_bin, rename_globals)
 
     args = _minify_arg_names(minify)
     options = {
@@ -444,6 +483,11 @@ def main(argv):
         help='Minify module sources before bundling (requires python-minifier)',
     )
     parser.add_argument(
+        '--minify-bin',
+        default='pyminify',
+        help='pyminify executable (default: pyminify)',
+    )
+    parser.add_argument(
         '--minify-globals',
         action='store_true',
         help='Allow minifier to rename module-level globals (unsafe across modules)',
@@ -481,8 +525,14 @@ def main(argv):
     )
     if args.minify:
         minified = []
-        for name, is_pkg, source, _ in entries:
-            source = _minify_source(source, name, args.minify_globals)
+        for name, is_pkg, source, path in entries:
+            source = _minify_source(
+                source,
+                name,
+                path,
+                args.minify_globals,
+                args.minify_bin,
+            )
             minified.append((name, is_pkg, source))
         entries = minified
     else:

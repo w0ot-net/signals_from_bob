@@ -26,9 +26,13 @@ class StructuredLogFormatter(logging.Formatter):
     Formatter that appends event fields when present.
     """
 
-    def __init__(self, fmt=None, datefmt=None, max_line_length=None):
+    def __init__(self, fmt=None, datefmt=None, max_line_length=None,
+                 include_message=True, label_event=True, label_fields=True):
         logging.Formatter.__init__(self, fmt=fmt, datefmt=datefmt)
         self._max_line_length = max_line_length
+        self._include_message = bool(include_message)
+        self._label_event = bool(label_event)
+        self._label_fields = bool(label_fields)
 
     def format(self, record):
         message = logging.Formatter.format(self, record)
@@ -36,11 +40,22 @@ class StructuredLogFormatter(logging.Formatter):
         fields = _resolve_fields(record)
         extras = []
         if event:
-            extras.append('event=%s' % _coerce_text(event))
+            event_text = _coerce_text(event)
+            if self._label_event:
+                extras.append('event=%s' % event_text)
+            else:
+                extras.append(event_text)
         if fields:
-            extras.append('fields=%s' % _encode_fields(fields))
+            fields_text = _encode_fields(fields)
+            if self._label_fields:
+                extras.append('fields=%s' % fields_text)
+            else:
+                extras.append(fields_text)
         if extras:
-            message = '%s | %s' % (message, ' '.join(extras))
+            if self._include_message:
+                message = '%s | %s' % (message, ' '.join(extras))
+            else:
+                message = ' '.join(extras)
         if self._max_line_length:
             return _truncate_lines(message, self._max_line_length)
         return message

@@ -1860,8 +1860,11 @@ def _configure_root_logging(parsed, cprofile_path):
                 root_logger.removeHandler(handler)
     else:
         stdout_formatter = StructuredLogFormatter(
-            '%(levelname)s %(message)s',
+            '%(message)s',
             max_line_length=160,
+            include_message=False,
+            label_event=False,
+            label_fields=False,
         )
         for handler in root_logger.handlers:
             if isinstance(handler, logging.StreamHandler):

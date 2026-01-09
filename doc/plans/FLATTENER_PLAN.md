@@ -22,6 +22,10 @@
 - **Manifest-only ordering**: add `doc/flatten_manifest.txt` as the sole source
   of truth for module ordering, entrypoint, and excludes. The file is ASCII,
   line-oriented, and easy to review in diffs.
+- **Best-effort order validation**: parse each module with `ast` to extract
+  direct imports (absolute and relative where resolvable) and warn or fail if a
+  module appears before a required dependency. Allow explicit overrides for
+  dynamic imports or intentionally deferred imports.
 - **Manifest format (proposed)**:
   ```
   # entrypoint
@@ -66,7 +70,9 @@
    ordered module list).
 3. Specify the bootstrap sequence (pre-register modules, temp root creation,
    exec order) and document expected runtime behavior.
-4. Update README with usage and workflow guidelines once the script exists.
+4. Define best-effort dependency validation rules (import parsing, relative
+   resolution, override mechanism) and failure/warning behavior.
+5. Update README with usage and workflow guidelines once the script exists.
 
 ## Testing
 - Do not run tests here. The user will run tests as needed with python3.

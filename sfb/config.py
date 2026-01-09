@@ -31,8 +31,8 @@ class Config(object):
     dns_resolver = None
     # Listen address for Bob's DNS server (IPv4 only)
     dns_listen_addr = "0.0.0.0:53"
-    # EDNS0 buffer size (default 1024, 4096 max)
-    dns_edns_size = 1024
+    # EDNS0 buffer size (default 4096, 4096 max)
+    dns_edns_size = 4096
     # Minimum UDP recv buffer size for DNS responses/queries
     dns_recv_bufsize_min = 4096
     # Timeout before considering a DNS query stale (seconds)

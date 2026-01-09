@@ -119,14 +119,18 @@ def _build_sfb_flat(transport):
     script_path = os.path.join(root, 'scripts', 'flatten.py')
     manifest_path = os.path.join(root, 'doc', 'flatten_manifest.txt')
     output_path = os.path.join(root, 'sfb_flat.py')
+    python_bin = sys.executable
     if not os.path.isfile(script_path):
         _print_error('flatten script not found: %s' % script_path)
         return None
     if not os.path.isfile(manifest_path):
         _print_error('flatten manifest not found: %s' % manifest_path)
         return None
+    if not python_bin:
+        _print_error('Unable to resolve Python executable for --sfb-flat')
+        return None
     cmd = [
-        'python3',
+        python_bin,
         script_path,
         '--manifest',
         manifest_path,

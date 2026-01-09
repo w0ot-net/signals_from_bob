@@ -11,7 +11,7 @@ metadata/chunks via CNAME responses in DNS.
 - Add `--sfb-flat <path>` for the server role and package the file into
   gzipped chunks.
 - Add `--passthrough ...` to embed args in generated stagers so they pass
-  through to `sfb_flat.py`.
+  through to `sfb_flat.py` (stagers enforce Alice role).
 - Serve `flat0.count.<base_domain>` and `flat0.%05d.<base_domain>` CNAME
   responses without affecting normal tunnel queries.
 - Keep stager responses at standard DNS size (512) and omit OPT.

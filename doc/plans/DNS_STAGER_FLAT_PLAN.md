@@ -4,10 +4,10 @@ Status: draft
 
 ## Summary
 Add very thin, OS-specific DNS stagers that download `sfb_flat.py` over
-DNS CNAME responses, assemble it in memory, and launch it with
-pass-through flags embedded in the stager source. Bob will automatically
-generate the stagers and serve gzipped payload chunks in CNAME responses
-when `sfb.cli` is started with `--sfb-flat`.
+DNS CNAME responses, assemble it in memory, and launch it in Alice mode
+with pass-through flags embedded in the stager source. Bob will
+automatically generate the stagers and serve gzipped payload chunks in
+CNAME responses when `sfb.cli` is started with `--sfb-flat`.
 
 ## Goals
 - Provide minimal, Python 2/3-compatible `linux_dns_stager.py` and
@@ -20,7 +20,8 @@ when `sfb.cli` is started with `--sfb-flat`.
   gzipped bytes and serves chunks via DNS CNAME responses (base32 on the
   wire via CNAME encoding).
 - Add a `--passthrough` CLI flag for Bob to capture args that will be
-  embedded into generated stagers and passed to `sfb_flat.py`.
+  embedded into generated stagers and passed to `sfb_flat.py` (Alice
+  role is enforced by the stager).
 - Define a reliable, retry-until-complete download loop that fetches all
   pieces and verifies assembly before launching `sfb_flat.py`.
 - Keep the DNS behavior aligned with Alice-initiated polling (stager queries
@@ -67,7 +68,7 @@ when `sfb.cli` is started with `--sfb-flat`.
      to serve (e.g., `config.dns_flat_chunks`, `config.dns_flat_meta`).
    - Generate `linux_dns_stager.py` and `windows_dns_stager.py` on every
      `--sfb-flat` invocation with the base domain and passthrough args
-     embedded in the source.
+     embedded in the source, and force Alice role in the stager args.
 
 3. Serve stager chunks from the DNS server.
    - In `sfb/transport/dns/dns_server.py`, intercept stager query names
@@ -92,7 +93,8 @@ when `sfb.cli` is started with `--sfb-flat`.
    - Assemble decoded chunks in index order, then gunzip in memory
      (`zlib.decompress(data, 16 + zlib.MAX_WBITS)`).
    - Launch `sfb_flat.py` by `exec` in a `__main__` context, replacing
-     `sys.argv` with the embedded passthrough args list.
+     `sys.argv` with an args list that always includes Alice role plus
+     the embedded passthrough args.
    - Linux resolver detection: parse `/etc/resolv.conf`.
    - Windows resolver detection: parse `nslookup` output (minimal).
 

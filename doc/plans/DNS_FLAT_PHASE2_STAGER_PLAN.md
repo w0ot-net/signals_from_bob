@@ -4,8 +4,8 @@ Status: draft
 
 ## Summary
 Implement minimal, OS-specific DNS stagers that fetch the gzipped payload
-via CNAME responses, assemble it in memory, and exec `sfb_flat.py` with
-args embedded by the server during stager generation.
+via CNAME responses, assemble it in memory, and exec `sfb_flat.py` in
+Alice mode with args embedded by the server during stager generation.
 
 ## Goals
 - Add `linux_dns_stager.py` and `windows_dns_stager.py` (Python 2/3, ASCII).
@@ -42,7 +42,7 @@ args embedded by the server during stager generation.
 
 4. Launch `sfb_flat.py`.
    - `exec` the payload in a `__main__` context and set `sys.argv` to the
-     embedded args list.
+     args list that always includes Alice role plus embedded args.
 
 ## Testing
 - Do not run tests here.

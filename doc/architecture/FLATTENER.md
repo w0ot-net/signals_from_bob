@@ -31,8 +31,7 @@ Use `--minify` to run `python-minifier` (external dependency) on each module
 before bundling. The flattener tries the `python_minifier` module first and
 falls back to the `pyminify` CLI if needed (`--minify-bin` controls the binary
 path). By default, only locals are renamed to avoid breaking cross-module
-imports. Use `--minify-globals` to allow global renaming when you accept the
-compatibility risk.
+imports.
 Use `--strip-logs` to remove `log_event(...)` and logger method calls (for
 example, `logging.info(...)` or `self._logger.error(...)`) before
 minification/bundling.

@@ -6,7 +6,6 @@ Flatten sfb into a single-file bundle via literal concatenation.
 Usage:
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify
-  python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify --minify-globals
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify --minify-bin /path/to/pyminify
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify --strip-logs
 """
@@ -106,11 +105,9 @@ def _minify_arg_names(func):
         return set(argspec.args)
 
 
-def _minify_with_cli(path, minify_bin, rename_globals):
+def _minify_with_cli(path, minify_bin):
     cmd = [minify_bin]
     cmd.extend(_MINIFY_CLI_ARGS)
-    if rename_globals:
-        cmd.append('--rename-globals')
     cmd.append(path)
     try:
         output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
@@ -135,20 +132,19 @@ def _minify_with_cli(path, minify_bin, rename_globals):
     return output
 
 
-def _minify_source(source, name, path, rename_globals, minify_bin):
+def _minify_source(source, name, path, minify_bin):
     try:
         import python_minifier
     except ImportError:
-        return _minify_with_cli(path, minify_bin, rename_globals)
+        return _minify_with_cli(path, minify_bin)
     minify = getattr(python_minifier, 'minify', None)
     if minify is None:
-        return _minify_with_cli(path, minify_bin, rename_globals)
+        return _minify_with_cli(path, minify_bin)
 
     args = _minify_arg_names(minify)
     options = {
         'remove_literal_statements': True,
         'rename_locals': True,
-        'rename_globals': rename_globals,
         'remove_annotations': True,
         'remove_pass': True,
         'remove_object_base': True,
@@ -628,11 +624,6 @@ def main(argv):
         default='pyminify',
         help='pyminify executable (default: pyminify)',
     )
-    parser.add_argument(
-        '--minify-globals',
-        action='store_true',
-        help='Allow minifier to rename module-level globals (unsafe across modules)',
-    )
     args = parser.parse_args(argv)
 
     repo_root = args.repo_root
@@ -673,7 +664,6 @@ def main(argv):
                 source,
                 name,
                 path,
-                args.minify_globals,
                 args.minify_bin,
             )
             minified.append((name, is_pkg, source))

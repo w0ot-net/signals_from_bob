@@ -33,6 +33,9 @@ falls back to the `pyminify` CLI if needed (`--minify-bin` controls the binary
 path). By default, only locals are renamed to avoid breaking cross-module
 imports. Use `--minify-globals` to allow global renaming when you accept the
 compatibility risk.
+Use `--strip-logs` to remove `log_event(...)` and logger method calls (for
+example, `logging.info(...)` or `self._logger.error(...)`) before
+minification/bundling.
 
 ## Runtime Bootstrap
 The generated bundle:

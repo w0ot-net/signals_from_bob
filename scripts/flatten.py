@@ -8,6 +8,7 @@ Usage:
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify --minify-globals
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify --minify-bin /path/to/pyminify
+  python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify --strip-logs
 """
 
 from __future__ import absolute_import, print_function
@@ -19,6 +20,7 @@ import inspect
 import os
 import subprocess
 import sys
+import tokenize
 
 
 class ManifestError(Exception):
@@ -37,6 +39,19 @@ _MINIFY_CLI_ARGS = (
     '--remove-class-attribute-annotations',
     '--no-remove-object-base',
 )
+
+_LOG_CALL_NAMES = set(['log_event'])
+_LOG_METHOD_NAMES = set([
+    'debug',
+    'info',
+    'warning',
+    'warn',
+    'error',
+    'exception',
+    'critical',
+    'log',
+])
+_LOG_BASE_NAMES = set(['logger', 'logging'])
 
 
 class _ImportCollector(ast.NodeVisitor):
@@ -160,6 +175,127 @@ def _minify_source(source, name, path, rename_globals, minify_bin):
     except UnicodeEncodeError:
         raise ManifestError('Non-ASCII minify output for %s' % name)
     return output
+
+
+def _generate_tokens(source):
+    if sys.version_info[0] < 3:
+        return tokenize.generate_tokens(
+            io.BytesIO(source.encode('ascii')).readline
+        )
+    return tokenize.generate_tokens(io.StringIO(source).readline)
+
+
+def _is_log_call(call_node):
+    func = call_node.func
+    if isinstance(func, ast.Name):
+        return func.id in _LOG_CALL_NAMES
+    if isinstance(func, ast.Attribute):
+        if func.attr not in _LOG_METHOD_NAMES:
+            return False
+        base = func.value
+        if isinstance(base, ast.Name):
+            name = base.id.lower()
+            return name in _LOG_BASE_NAMES or name.endswith('logger') or name == 'log'
+        if isinstance(base, ast.Attribute):
+            attr = base.attr.lower()
+            return attr.endswith('logger') or attr == 'log'
+    return False
+
+
+def _statement_end_line(tokens, start_index):
+    depth = 0
+    for token_info in tokens[start_index:]:
+        tok_type = token_info[0]
+        tok_str = token_info[1]
+        tok_start = token_info[2]
+        if tok_type == tokenize.OP:
+            if tok_str in '([{':
+                depth += 1
+            elif tok_str in ')]}':
+                depth = max(depth - 1, 0)
+            elif tok_str == ';' and depth == 0:
+                return tok_start[0]
+        if tok_type == tokenize.NEWLINE and depth == 0:
+            return tok_start[0]
+    return tokens[-1][2][0] if tokens else 1
+
+
+def _line_ending(line):
+    if line.endswith('\r\n'):
+        return '\r\n'
+    if line.endswith('\n'):
+        return '\n'
+    if line.endswith('\r'):
+        return '\r'
+    return ''
+
+
+def _strip_logging_statements(source, name):
+    tree = ast.parse(source, filename=name)
+    parents = {}
+
+    class _ParentVisitor(ast.NodeVisitor):
+        def generic_visit(self, node):
+            for child in ast.iter_child_nodes(node):
+                parents[child] = node
+            ast.NodeVisitor.generic_visit(self, node)
+
+    _ParentVisitor().visit(tree)
+
+    def _needs_pass(node):
+        parent = parents.get(node)
+        if parent is None:
+            return False
+        for field in ('body', 'orelse', 'finalbody'):
+            seq = getattr(parent, field, None)
+            if isinstance(seq, list) and node in seq:
+                return len(seq) == 1
+        return False
+
+    log_starts = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Expr):
+            continue
+        call = getattr(node, 'value', None)
+        if not isinstance(call, ast.Call):
+            continue
+        if _is_log_call(call):
+            log_starts.append((node.lineno, node.col_offset, _needs_pass(node)))
+
+    if not log_starts:
+        return source
+
+    tokens = list(_generate_tokens(source))
+    lines = source.splitlines(True)
+    ranges = []
+    for lineno, col, needs_pass in log_starts:
+        start_index = None
+        for index, token_info in enumerate(tokens):
+            if token_info[2] == (lineno, col):
+                start_index = index
+                break
+        if start_index is None:
+            continue
+        end_line = _statement_end_line(tokens, start_index)
+        indent = lines[lineno - 1][:col]
+        ranges.append((lineno, end_line, indent, needs_pass))
+
+    if not ranges:
+        return source
+
+    ranges.sort()
+    out_lines = []
+    current_line = 1
+    for start_line, end_line, indent, needs_pass in ranges:
+        if start_line < current_line:
+            continue
+        out_lines.extend(lines[current_line - 1:start_line - 1])
+        if needs_pass:
+            line_end = _line_ending(lines[end_line - 1]) if end_line - 1 < len(lines) else '\n'
+            out_lines.append(indent + 'pass' + line_end)
+        current_line = end_line + 1
+    out_lines.extend(lines[current_line - 1:])
+    return ''.join(out_lines)
 
 
 def _normalize_path(path):
@@ -480,7 +616,12 @@ def main(argv):
     parser.add_argument(
         '--minify',
         action='store_true',
-        help='Minify module sources before bundling (requires python-minifier)',
+        help='Minify module sources before bundling (python-minifier or pyminify)',
+    )
+    parser.add_argument(
+        '--strip-logs',
+        action='store_true',
+        help='Remove log statements before minifying/bundling',
     )
     parser.add_argument(
         '--minify-bin',
@@ -517,6 +658,8 @@ def main(argv):
     for name in manifest['modules']:
         path = module_paths[name]
         source = _read_text(path)
+        if args.strip_logs:
+            source = _strip_logging_statements(source, name)
         entries.append((name, is_package[name], source, path))
 
     _validate_order(

@@ -6,6 +6,7 @@ Flatten sfb into a single-file bundle via literal concatenation.
 Usage:
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py
   python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify
+  python3 scripts/flatten.py --manifest doc/flatten_manifest.txt --output sfb_flat.py --minify --minify-globals
 """
 
 from __future__ import absolute_import, print_function
@@ -13,10 +14,9 @@ from __future__ import absolute_import, print_function
 import argparse
 import ast
 import io
+import inspect
 import os
 import sys
-import token
-import tokenize
 
 
 class ManifestError(Exception):
@@ -25,14 +25,6 @@ class ManifestError(Exception):
 
 class ValidationError(Exception):
     pass
-
-
-_ASYNC_FUNCTION_DEF = getattr(ast, 'AsyncFunctionDef', None)
-_AST_CONSTANT = getattr(ast, 'Constant', None)
-try:
-    _STRING_TYPES = (basestring,)
-except NameError:
-    _STRING_TYPES = (str,)
 
 
 class _ImportCollector(ast.NodeVisitor):
@@ -78,70 +70,50 @@ def _read_text(path):
         raise ManifestError('Non-ASCII content in %s' % path)
 
 
-def _is_docstring_expr(node):
-    if not isinstance(node, ast.Expr):
-        return False
-    value = getattr(node, 'value', None)
-    if isinstance(value, ast.Str):
-        return True
-    if _AST_CONSTANT is not None:
-        if isinstance(value, _AST_CONSTANT) and isinstance(value.value, _STRING_TYPES):
-            return True
-    return False
+def _minify_arg_names(func):
+    try:
+        argspec = inspect.getfullargspec(func)
+        return set(argspec.args)
+    except AttributeError:
+        argspec = inspect.getargspec(func)
+        return set(argspec.args)
 
 
-def _collect_docstring_positions(tree):
-    positions = set()
-    nodes = (ast.Module, ast.ClassDef, ast.FunctionDef)
-    if _ASYNC_FUNCTION_DEF is not None:
-        nodes = nodes + (_ASYNC_FUNCTION_DEF,)
-    for node in ast.walk(tree):
-        if not isinstance(node, nodes):
-            continue
-        body = getattr(node, 'body', None)
-        if not body:
-            continue
-        first = body[0]
-        if _is_docstring_expr(first):
-            lineno = getattr(first, 'lineno', None)
-            col = getattr(first, 'col_offset', None)
-            if lineno is not None and col is not None:
-                positions.add((lineno, col))
-    return positions
-
-
-def _token_values(token_info):
-    if hasattr(token_info, 'type'):
-        return (
-            token_info.type,
-            token_info.string,
-            token_info.start,
-            token_info.end,
-            token_info.line,
+def _minify_source(source, name, rename_globals):
+    try:
+        import python_minifier
+    except ImportError:
+        raise ManifestError(
+            'python-minifier is required for --minify; install it and retry'
         )
-    return token_info
+    minify = getattr(python_minifier, 'minify', None)
+    if minify is None:
+        raise ManifestError('python_minifier.minify not found')
 
+    args = _minify_arg_names(minify)
+    options = {
+        'remove_literal_statements': True,
+        'rename_locals': True,
+        'rename_globals': rename_globals,
+        'remove_annotations': True,
+        'remove_pass': True,
+        'remove_object_base': True,
+        'remove_asserts': True,
+        'remove_debug': True,
+        'hoist_literals': True,
+        'combine_imports': True,
+    }
+    kwargs = {}
+    for key, value in options.items():
+        if key in args:
+            kwargs[key] = value
+    if 'filename' in args:
+        kwargs['filename'] = name
 
-def _generate_tokens(source):
-    if sys.version_info[0] < 3:
-        return tokenize.generate_tokens(
-            io.BytesIO(source.encode('ascii')).readline
-        )
-    return tokenize.generate_tokens(io.StringIO(source).readline)
-
-
-def _minify_source(source, name):
-    tree = ast.parse(source, filename=name)
-    docstrings = _collect_docstring_positions(tree)
-    out_tokens = []
-    for token_info in _generate_tokens(source):
-        tok_type, tok_str, start, end, line = _token_values(token_info)
-        if tok_type == token.COMMENT:
-            continue
-        if tok_type == token.STRING and start in docstrings:
-            continue
-        out_tokens.append((tok_type, tok_str, start, end, line))
-    output = tokenize.untokenize(out_tokens)
+    try:
+        output = minify(source, **kwargs)
+    except Exception as exc:
+        raise ManifestError('minify failed for %s: %s' % (name, exc))
     if isinstance(output, bytes):
         output = output.decode('ascii')
     try:
@@ -469,7 +441,12 @@ def main(argv):
     parser.add_argument(
         '--minify',
         action='store_true',
-        help='Minify module sources before bundling (strip comments/docstrings)',
+        help='Minify module sources before bundling (requires python-minifier)',
+    )
+    parser.add_argument(
+        '--minify-globals',
+        action='store_true',
+        help='Allow minifier to rename module-level globals (unsafe across modules)',
     )
     args = parser.parse_args(argv)
 
@@ -505,7 +482,7 @@ def main(argv):
     if args.minify:
         minified = []
         for name, is_pkg, source, _ in entries:
-            source = _minify_source(source, name)
+            source = _minify_source(source, name, args.minify_globals)
             minified.append((name, is_pkg, source))
         entries = minified
     else:

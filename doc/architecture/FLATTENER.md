@@ -27,8 +27,10 @@ imports run only after startup. Use `allow_late` for intentional out-of-order
 relationships or dynamic imports.
 
 ## Minify
-Use `--minify` to strip comments and docstrings from module sources before
-bundling. Identifier names are not rewritten.
+Use `--minify` to run `python-minifier` (external dependency) on each module
+before bundling. By default, only locals are renamed to avoid breaking
+cross-module imports. Use `--minify-globals` to allow global renaming when you
+accept the compatibility risk.
 
 ## Runtime Bootstrap
 The generated bundle:

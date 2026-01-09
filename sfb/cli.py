@@ -57,6 +57,7 @@ ROLE_ALIASES = {
 
 _DB_LOG_DEFAULT = object()
 _CPROFILE_DEFAULT = object()
+_SFB_FLAT_DEFAULT = object()
 
 
 def _print_error(message):
@@ -107,6 +108,45 @@ def _ensure_parent_dir(path):
     except OSError as e:
         if e.errno != errno.EEXIST or not os.path.isdir(parent):
             raise
+
+
+def _repo_root():
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+
+
+def _build_sfb_flat(transport):
+    root = _repo_root()
+    script_path = os.path.join(root, 'scripts', 'flatten.py')
+    manifest_path = os.path.join(root, 'doc', 'flatten_manifest.txt')
+    output_path = os.path.join(root, 'sfb_flat.py')
+    if not os.path.isfile(script_path):
+        _print_error('flatten script not found: %s' % script_path)
+        return None
+    if not os.path.isfile(manifest_path):
+        _print_error('flatten manifest not found: %s' % manifest_path)
+        return None
+    cmd = [
+        'python3',
+        script_path,
+        '--manifest',
+        manifest_path,
+        '--output',
+        output_path,
+        '--minify',
+        '--strip-logs',
+        '--alice',
+        '--transport',
+        transport,
+    ]
+    try:
+        subprocess.check_call(cmd)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        _print_error('Failed to generate sfb_flat.py: %s' % exc)
+        return None
+    if not os.path.isfile(output_path):
+        _print_error('sfb_flat.py was not created: %s' % output_path)
+        return None
+    return output_path
 
 
 def _positive_int(value):
@@ -924,6 +964,14 @@ def add_server_args(parser, config):
     parser.add_argument(
         '--max-size', type=int, default=config.file_transfer_max_size,
         help=argparse.SUPPRESS
+    )
+    parser.add_argument(
+        '--sfb-flat',
+        nargs='?',
+        const=_SFB_FLAT_DEFAULT,
+        default=None,
+        metavar='PATH',
+        help='Path to sfb_flat.py (omit PATH to auto-generate)'
     )
 
 
@@ -1937,6 +1985,26 @@ def _log_startup(logger, parsed, cprofile_path, config):
         )
 
 
+def _prepare_sfb_flat(parsed):
+    flat_value = getattr(parsed, 'sfb_flat', None)
+    if flat_value is None:
+        return 0
+    if parsed.role != 'server':
+        _print_error('--sfb-flat requires --role server')
+        return 2
+    if flat_value is _SFB_FLAT_DEFAULT:
+        flat_path = _build_sfb_flat(parsed.transport)
+        if flat_path is None:
+            return 2
+    else:
+        flat_path = os.path.abspath(flat_value)
+        if not os.path.isfile(flat_path):
+            _print_error('sfb flat path not found: %s' % flat_path)
+            return 2
+    parsed.sfb_flat = flat_path
+    return 0
+
+
 def _run_main(parsed, cprofile_path):
     """Run the CLI with parsed args."""
     cert_result = _handle_tls_bump_generate_cert(parsed)
@@ -1947,6 +2015,10 @@ def _run_main(parsed, cprofile_path):
         parsed.db_log = './logs/%s_log.db' % parsed.role
     if getattr(parsed, 'log_profile_explicit', False):
         parsed.verbose = True
+
+    flat_result = _prepare_sfb_flat(parsed)
+    if flat_result:
+        return flat_result
 
     config = create_config(parsed)
     if parsed.log_profile:

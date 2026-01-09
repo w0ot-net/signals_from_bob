@@ -29,7 +29,8 @@ Use `--transport <name>` to include only modules tagged `transport=common` or
 filters. Validation runs against the filtered set, and `allow_late` pairs are
 ignored when either module is filtered out.
 The default manifest intentionally excludes the in-memory and lossy
-transports, so flat bundles cannot use them.
+transports plus profiling/log profile helpers, so flat bundles cannot use
+those features.
 Module packages under `sfb.modules` are tagged `role=common` because their
 `__init__` modules import both server and relay classes.
 

@@ -33,7 +33,6 @@ from .logging_util import (
     get_logger,
     log_event,
 )
-from .log_profiles import LOG_PROFILES, apply_log_profile
 from .transport import (
     TransportError,
     get_transport_class,
@@ -1951,6 +1950,11 @@ def _run_main(parsed, cprofile_path):
 
     config = create_config(parsed)
     if parsed.log_profile:
+        try:
+            from .log_profiles import apply_log_profile
+        except ImportError:
+            _print_error('Log profiles not available in this build')
+            return 2
         try:
             apply_log_profile(config, parsed.log_profile)
         except ValueError as e:

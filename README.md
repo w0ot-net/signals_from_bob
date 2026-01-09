@@ -33,7 +33,7 @@ Add `--alice` to include only common + Alice modules.
 Add `--transport <name>` to include only common + transport-specific modules.
 Available transports: dns, icmp, udp_ephemeral, tls_handshake, tls_handshake_bump,
 These flags can be combined. The flattened bundle excludes the in-memory and
-lossy transports.
+lossy transports plus log profiles.
 Run it the same way as the normal entrypoint:
 ```
 python3 sfb_flat.py --role client --transport dns --domain t.example.com

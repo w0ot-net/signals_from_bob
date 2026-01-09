@@ -9,6 +9,7 @@ exclude tests
 exclude integration_tests
 exclude scripts
 exclude sfb/profiling.py
+exclude sfb/log_profiles.py
 exclude sfb/transport/memory
 exclude sfb/transport/lossy.py
 
@@ -18,7 +19,6 @@ module sfb.compat role=common
 module sfb.control_message role=common
 module sfb.channel.channel_control_messages role=common
 module sfb.crypto role=common
-module sfb.log_profiles role=common
 module sfb.modules.file_transfer.file_transfer_control_messages role=common
 module sfb.modules.nc_linux.nc_linux_control_messages role=common
 module sfb.modules.relay_control_messages role=common

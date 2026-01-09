@@ -8,6 +8,7 @@ __pycache__/
 .Python
 .python-version
 sfb_flat.py
+sfb_flat.py.gz
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

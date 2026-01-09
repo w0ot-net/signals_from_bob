@@ -5,14 +5,16 @@ Status: draft
 ## Summary
 Add a very thin DNS stager that downloads `sfb_flat.py` over DNS CNAME
 responses, assembles it in memory, and launches it with pass-through
-flags. Bob will optionally serve a gzipped+base64 payload chunked into
-CNAME responses when `sfb.cli` is started with `--sfb-flat`.
+flags. Bob will optionally serve a gzipped payload encoded directly in
+base32 and chunked into CNAME responses when `sfb.cli` is started with
+`--sfb-flat`.
 
 ## Goals
 - Provide a minimal, Python 2/3-compatible `dns_stager.py` that can be run
   as a one-liner and depends only on the standard library.
 - Support a `--sfb-flat` flag in `sfb.cli` that packages `sfb_flat.py` into
-  chunks served via DNS CNAME responses.
+  gzipped bytes, base32-encodes them, and serves chunks via DNS CNAME
+  responses.
 - Define a reliable, retry-until-complete download loop that fetches all
   pieces and verifies assembly before launching `sfb_flat.py`.
 - Keep the DNS behavior aligned with Alice-initiated polling (stager queries
@@ -42,13 +44,13 @@ CNAME responses when `sfb.cli` is started with `--sfb-flat`.
    - Use fixed-width indexes to keep query name length stable for payload
      sizing, e.g. `flat0.<index_padded>.<base_domain>`.
    - Include a minimal metadata payload in the count response, such as:
-     `count`, `chunk_size`, and `sha256` of the gzipped bytes (or of the
-     base64 text) so the stager can verify integrity and avoid stale caches.
+     `count`, `chunk_size`, and `sha256` of the gzipped bytes so the stager
+     can verify integrity and avoid stale caches.
 
 2. Add `--sfb-flat` CLI support (server only).
    - Extend `sfb/cli.py` with a new `--sfb-flat <path>` option that is valid
      for the server role; reject it for client role to avoid ambiguity.
-   - Read the file, gzip it, then base64 encode it (ASCII text).
+   - Read the file, gzip it, then base32-encode it (ASCII text).
    - Decide chunk size based on the DNS response payload cap for the stager
      query name length and EDNS size.
    - Store the prepared chunks and metadata on the config for the DNS server
@@ -72,7 +74,7 @@ CNAME responses when `sfb.cli` is started with `--sfb-flat`.
    - Resolve the CNAME target, decode base32 to recover chunk bytes.
    - Query `count`, then loop until all pieces are retrieved, retrying with
      a short sleep/backoff when a piece is missing or decode fails.
-   - Assemble all chunks in index order, base64-decode, then gunzip in
+   - Assemble all chunks in index order, base32-decode, then gunzip in
      memory.
    - Launch `sfb_flat.py` by `exec` in a `__main__` context, replacing
      `sys.argv` with pass-through args (e.g., `dns_stager.py ... -- <args>`).
@@ -82,8 +84,8 @@ CNAME responses when `sfb.cli` is started with `--sfb-flat`.
      how to pass flags through the stager.
 
 ## Options / Improvements
-- Skip base64 entirely and encode gzip bytes directly into CNAME labels to
-  reduce overhead (smaller payload and fewer DNS queries).
+- Gzip + base32 is the default to reduce overhead and keep labels
+  DNS-safe without extra encodings.
 - Use TXT responses instead of CNAME to avoid follow-up lookups and simplify
   parsing, if resolver behavior allows.
 - Include a version label (hash prefix) in the query names to avoid stale

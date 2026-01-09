@@ -3,7 +3,7 @@
 Status: draft
 
 ## Summary
-Create a `stager_template.py` that contains the shared DNS stager logic,
+Create a `dns_stager_template.py` that contains the shared DNS stager logic,
 with placeholders for base domain, passthrough args, and OS-specific
 resolver discovery. The server-side generator will fill placeholders,
 then emit Linux/Windows one-liner `.txt` stagers from the template.
@@ -21,7 +21,7 @@ then emit Linux/Windows one-liner `.txt` stagers from the template.
 - Template engine dependencies.
 
 ## Affected Components
-- `stager_template.py` (new)
+- `dns_stager_template.py` (new)
 - Server-side stager generator (Phase 1 code)
 - `linux_dns_stager.txt` (generated)
 - `windows_dns_stager.txt` (generated)
@@ -43,7 +43,7 @@ then emit Linux/Windows one-liner `.txt` stagers from the template.
   - `_fetch_count`, `_fetch_chunks`, `main`
 
 ## Plan
-1. Add `stager_template.py` with placeholders and shared logic.
+1. Add `dns_stager_template.py` with placeholders and shared logic.
    - Keep it ASCII-only; avoid platform-specific imports by default.
    - Use `zlib.decompress(data, 16 + zlib.MAX_WBITS)` for gzip.
    - Enforce Alice role in `sys.argv` before exec.

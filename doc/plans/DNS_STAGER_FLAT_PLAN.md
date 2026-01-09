@@ -5,19 +5,21 @@ Status: draft
 ## Summary
 Add very thin, OS-specific DNS stagers that download `sfb_flat.py` over
 DNS CNAME responses, assemble it in memory, and launch it with
-pass-through flags set in the stager source. Bob will optionally serve
-gzipped payload chunks in CNAME responses when `sfb.cli` is started with
-`--sfb-flat`.
+pass-through flags embedded in the stager source. Bob will automatically
+generate the stagers and serve gzipped payload chunks in CNAME responses
+when `sfb.cli` is started with `--sfb-flat`.
 
 ## Goals
 - Provide minimal, Python 2/3-compatible `linux_dns_stager.py` and
   `windows_dns_stager.py` that can be run as a one-liner and depend only
   on the standard library.
 - Avoid argument parsing in the stagers; values (domain, args) are set in
-  the source to keep code size minimal.
+  the generated source to keep code size minimal.
 - Support a `--sfb-flat` flag in `sfb.cli` that packages `sfb_flat.py` into
   gzipped bytes and serves chunks via DNS CNAME responses (base32 on the
   wire via CNAME encoding).
+- Add a `--passthrough` CLI flag for Bob to capture args that will be
+  embedded into generated stagers and passed to `sfb_flat.py`.
 - Define a reliable, retry-until-complete download loop that fetches all
   pieces and verifies assembly before launching `sfb_flat.py`.
 - Keep the DNS behavior aligned with Alice-initiated polling (stager queries
@@ -34,8 +36,8 @@ gzipped payload chunks in CNAME responses when `sfb.cli` is started with
 - `sfb/config.py`
 - `sfb/transport/dns/dns_server.py`
 - `sfb/transport/dns/dns_codec.py` (if helper(s) are needed)
-- `linux_dns_stager.py` (new)
-- `windows_dns_stager.py` (new)
+- `linux_dns_stager.py` (generated)
+- `windows_dns_stager.py` (generated)
 - `README.md` (usage note, if needed)
 
 ## Plan
@@ -55,12 +57,16 @@ gzipped payload chunks in CNAME responses when `sfb.cli` is started with
 2. Add `--sfb-flat` CLI support (server only).
    - Extend `sfb/cli.py` with a new `--sfb-flat <path>` option that is valid
      for the server role; reject it for client role to avoid ambiguity.
+   - Add `--passthrough ...` to capture args for the stager (must be last).
    - Read the file, gzip it, and keep the raw gzip bytes (CNAME encoding
      handles base32 on the wire).
    - Decide chunk size based on the DNS response payload cap for the fixed
      stager query name length and standard DNS size (512).
    - Store the prepared chunks and metadata on the config for the DNS server
      to serve (e.g., `config.dns_flat_chunks`, `config.dns_flat_meta`).
+   - Generate `linux_dns_stager.py` and `windows_dns_stager.py` on every
+     `--sfb-flat` invocation with the base domain and passthrough args
+     embedded in the source.
 
 3. Serve stager chunks from the DNS server.
    - In `sfb/transport/dns/dns_server.py`, intercept stager query names
@@ -85,7 +91,7 @@ gzipped payload chunks in CNAME responses when `sfb.cli` is started with
    - Assemble decoded chunks in index order, then gunzip in memory
      (`zlib.decompress(data, 16 + zlib.MAX_WBITS)`).
    - Launch `sfb_flat.py` by `exec` in a `__main__` context, replacing
-     `sys.argv` with a hardcoded args list (e.g., `SFB_ARGS = [...]`).
+     `sys.argv` with the embedded passthrough args list.
    - Linux resolver detection: parse `/etc/resolv.conf`.
    - Windows resolver detection: parse `nslookup` output (minimal).
 

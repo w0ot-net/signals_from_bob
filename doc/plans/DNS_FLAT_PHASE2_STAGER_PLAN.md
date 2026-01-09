@@ -5,12 +5,12 @@ Status: draft
 ## Summary
 Implement minimal, OS-specific DNS stagers that fetch the gzipped payload
 via CNAME responses, assemble it in memory, and exec `sfb_flat.py` with
-hardcoded args.
+args embedded by the server during stager generation.
 
 ## Goals
 - Add `linux_dns_stager.py` and `windows_dns_stager.py` (Python 2/3, ASCII).
 - No argument parsing; base domain, CNAME label, and args are constants in
-  each stager.
+  each generated stager.
 - Resolver detection is OS-specific only (Linux: `/etc/resolv.conf`,
   Windows: `nslookup` output).
 
@@ -20,8 +20,8 @@ hardcoded args.
 - Retry backoff or jitter.
 
 ## Affected Components
-- `linux_dns_stager.py`
-- `windows_dns_stager.py`
+- `linux_dns_stager.py` (generated)
+- `windows_dns_stager.py` (generated)
 
 ## Plan
 1. Implement minimal DNS query/response handling.
@@ -42,7 +42,7 @@ hardcoded args.
 
 4. Launch `sfb_flat.py`.
    - `exec` the payload in a `__main__` context and set `sys.argv` to the
-     hardcoded args list.
+     embedded args list.
 
 ## Testing
 - Do not run tests here.

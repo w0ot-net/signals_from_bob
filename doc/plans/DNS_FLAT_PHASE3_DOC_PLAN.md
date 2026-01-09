@@ -9,6 +9,8 @@ Document server and stager usage for the DNS flat loader workflow.
 - Add README guidance for `--sfb-flat` server usage.
 - Document the OS-specific stagers, hardcoded settings, and required
   DNS base domain/CNAME label alignment.
+ - Document the `--passthrough` flag and how its args are embedded into
+   generated stagers.
 
 ## Non-Goals
 - Architecture deep dive.

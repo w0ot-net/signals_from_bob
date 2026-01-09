@@ -3,12 +3,12 @@
 Status: draft
 
 ## Summary
-Implement minimal, OS-specific DNS stagers that fetch the gzipped payload
-via CNAME responses, assemble it in memory, and exec `sfb_flat.py` in
-Alice mode with args embedded by the server during stager generation.
+Implement minimal, OS-specific DNS stager one-liners that fetch the gzipped
+payload via CNAME responses, assemble it in memory, and exec `sfb_flat.py`
+in Alice mode with args embedded by the server during stager generation.
 
 ## Goals
-- Add `linux_dns_stager.py` and `windows_dns_stager.py` (Python 2/3, ASCII).
+- Add `linux_dns_stager.txt` and `windows_dns_stager.txt` (Python 2/3, ASCII).
 - No argument parsing; base domain, CNAME label, and args are constants in
   each generated stager.
 - Resolver detection is OS-specific only (Linux: `/etc/resolv.conf`,
@@ -20,11 +20,11 @@ Alice mode with args embedded by the server during stager generation.
 - Retry backoff or jitter.
 
 ## Affected Components
-- `linux_dns_stager.py` (generated)
-- `windows_dns_stager.py` (generated)
+- `linux_dns_stager.txt` (generated)
+- `windows_dns_stager.txt` (generated)
 
 ## Plan
-1. Implement minimal DNS query/response handling.
+1. Implement minimal DNS query/response handling in the one-liner payload.
    - Build A queries with a tiny encoder.
    - Parse the header, question, and the first CNAME answer only.
    - Decode the CNAME target name, strip the configured suffix, and base32

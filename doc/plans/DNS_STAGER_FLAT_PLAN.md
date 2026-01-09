@@ -6,17 +6,17 @@ Status: draft
 Add very thin, OS-specific DNS stagers that download `sfb_flat.py` over
 DNS CNAME responses, assemble it in memory, and launch it in Alice mode
 with pass-through flags embedded in the stager source. Bob will
-automatically generate the stagers and serve gzipped payload chunks in
-CNAME responses when `sfb.cli` is started with `--sfb-flat`.
+automatically generate stager one-liners and serve gzipped payload
+chunks in CNAME responses when `sfb.cli` is started with `--stager`.
 
 ## Goals
-- Provide minimal, Python 2/3-compatible `linux_dns_stager.py` and
-  `windows_dns_stager.py` that can be run as a one-liner and depend only
-  on the standard library.
+- Provide minimal, Python 2/3-compatible Linux and Windows stagers as
+  generated one-liners (stored in `.txt` files) that depend only on the
+  standard library.
 - Avoid argument parsing in the stagers; values (base domain and args) are
-  set in the generated source to keep code size minimal. The base domain
-  is taken from Bob's `--domain` value.
-- Support a `--sfb-flat` flag in `sfb.cli` that packages `sfb_flat.py` into
+  set in the generated one-liner to keep code size minimal. The base
+  domain is taken from Bob's `--domain` value.
+- Support a `--stager` flag in `sfb.cli` that packages `sfb_flat.py` into
   gzipped bytes and serves chunks via DNS CNAME responses (base32 on the
   wire via CNAME encoding).
 - Add a `--passthrough` CLI flag for Bob to capture args that will be
@@ -38,8 +38,8 @@ CNAME responses when `sfb.cli` is started with `--sfb-flat`.
 - `sfb/config.py`
 - `sfb/transport/dns/dns_server.py`
 - `sfb/transport/dns/dns_codec.py` (if helper(s) are needed)
-- `linux_dns_stager.py` (generated)
-- `windows_dns_stager.py` (generated)
+- `linux_dns_stager.txt` (generated)
+- `windows_dns_stager.txt` (generated)
 - `README.md` (usage note, if needed)
 
 ## Phases
@@ -57,7 +57,7 @@ Phase 1: server packaging, stager generation, and DNS serving
   - Include a compact binary metadata payload in the count response:
     `struct.pack('>2sBI', b'SF', 1, count)` where `count` is a uint32.
 - Add server CLI support:
-  - Extend `sfb/cli.py` with a new `--sfb-flat <path>` option that is valid
+  - Extend `sfb/cli.py` with a new `--stager <path>` option that is valid
     for the server role; reject it for client role to avoid ambiguity.
   - Add `--passthrough ...` to capture args for the stager (must be last).
   - Read the file, gzip it, and keep the raw gzip bytes (CNAME encoding
@@ -66,9 +66,9 @@ Phase 1: server packaging, stager generation, and DNS serving
     stager query name length and standard DNS size (512).
   - Store the prepared chunks and metadata on the config for the DNS server
     to serve (e.g., `config.dns_flat_chunks`, `config.dns_flat_meta`).
-  - Generate `linux_dns_stager.py` and `windows_dns_stager.py` on every
-    `--sfb-flat` invocation with the base domain and passthrough args
-    embedded in the source, and force Alice role in the stager args.
+  - Generate `linux_dns_stager.txt` and `windows_dns_stager.txt` on every
+    `--stager` invocation with the base domain and passthrough args
+    embedded in the one-liner, and force Alice role in the stager args.
 - Serve stager chunks from the DNS server:
   - In `sfb/transport/dns/dns_server.py`, intercept stager query names
     before `decode_query_name()` to avoid base32 parsing of stager labels.
@@ -84,7 +84,7 @@ Phase 1: server packaging, stager generation, and DNS serving
     `dns.flat_invalid`) to aid debugging.
 
 Phase 2: stagers
-- Implement `linux_dns_stager.py` and `windows_dns_stager.py`:
+- Implement Linux and Windows stager one-liners:
   - Provide minimal DNS query logic using `socket` (UDP) and a tiny DNS
     encoder/decoder (parse header, question, first CNAME answer only).
   - Resolve the first CNAME target, decode base32 to recover chunk bytes.
@@ -100,7 +100,8 @@ Phase 2: stagers
 
 Phase 3: documentation
 - Add a short README note with example server/stager invocation, including
-  how to pass flags through the stager.
+  how to pass flags through the stager and how to use the generated
+  one-liner files.
 
 ## Options / Improvements
 - None for this pass.

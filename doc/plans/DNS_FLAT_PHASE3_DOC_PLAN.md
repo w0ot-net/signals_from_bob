@@ -3,12 +3,12 @@
 Status: draft
 
 ## Summary
-Document server and stager usage for the DNS flat loader workflow.
+Document server and stager one-liner usage for the DNS flat loader workflow.
 
 ## Goals
-- Add README guidance for `--sfb-flat` server usage.
-- Document the OS-specific stagers, hardcoded settings, and required
-  DNS base domain/CNAME label alignment.
+- Add README guidance for `--stager` server usage.
+- Document the OS-specific stager one-liners, hardcoded settings, and
+  required DNS base domain/CNAME label alignment.
  - Document the `--passthrough` flag and how its args are embedded into
    generated stagers.
 
@@ -21,8 +21,8 @@ Document server and stager usage for the DNS flat loader workflow.
 
 ## Plan
 1. Add a short README section for DNS flat stagers.
-   - Example server invocation with `--sfb-flat`.
-   - Example stager execution for Linux and Windows.
+   - Example server invocation with `--stager`.
+   - Example stager one-liner usage for Linux and Windows.
    - Note that the stagers use system resolver detection only.
    - Note the required `base_domain` and `dns_cname_label` alignment and
      that the stager base domain is derived from Bob's `--domain`.

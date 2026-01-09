@@ -44,7 +44,6 @@ from .tunnel.base_tunnel import TunnelError, TunnelState
 from .tunnel.module_loader import ModuleLoadError
 from .modules import get_cli_module_class, list_cli_modules
 from .modules.base_module import ModuleError
-from .profiling import CProfileManager
 from .utils import parse_host_port
 from . import time_provider
 
@@ -1986,6 +1985,11 @@ def main(args=None):
     )
     profiler = None
     if cprofile_path:
+        try:
+            from .profiling import CProfileManager
+        except ImportError:
+            _print_error('cProfile support not available in this build')
+            return 2
         try:
             _ensure_parent_dir(cprofile_path)
         except OSError as e:

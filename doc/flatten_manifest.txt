@@ -8,6 +8,7 @@ root sfb
 exclude tests
 exclude integration_tests
 exclude scripts
+exclude sfb/profiling.py
 exclude sfb/transport/memory
 exclude sfb/transport/lossy.py
 
@@ -22,7 +23,6 @@ module sfb.modules.file_transfer.file_transfer_control_messages role=common
 module sfb.modules.nc_linux.nc_linux_control_messages role=common
 module sfb.modules.relay_control_messages role=common
 module sfb.modules.socks.socks_control_messages role=common
-module sfb.profiling role=common
 module sfb.protocol.constants role=common
 module sfb.config role=common
 module sfb.protocol.packet role=common

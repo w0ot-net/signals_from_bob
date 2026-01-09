@@ -45,9 +45,9 @@ base32 and chunked into CNAME responses when `sfb.cli` is started with
      name length stable for payload sizing:
      - Count query: `flat0.count.<base_domain>`
      - Piece query: `flat0.%05d.<base_domain>` (1-based indexes)
-   - Include a compact binary metadata payload in the count response, such
-     as `count`, `chunk_size`, and `sha256` of the gzipped bytes so the
-     stager can verify integrity.
+   - Include a compact binary metadata payload in the count response:
+     `struct.pack('>2sBI32s', b'SF', 1, count, sha256)` where `count` is a
+     uint32 and `sha256` is the digest of the gzipped bytes.
 
 2. Add `--sfb-flat` CLI support (server only).
    - Extend `sfb/cli.py` with a new `--sfb-flat <path>` option that is valid
@@ -75,8 +75,8 @@ base32 and chunked into CNAME responses when `sfb.cli` is started with
    - Provide minimal DNS query logic using `socket` (UDP) and a tiny DNS
      encoder/decoder (parse header, question, first CNAME answer only).
    - Resolve the first CNAME target, decode base32 to recover chunk bytes.
-   - Query `count`, then loop until all pieces are retrieved, retrying
-     missing pieces as needed.
+   - Query `count`, parse the metadata struct, then loop until all pieces
+     are retrieved, retrying missing pieces as needed.
    - Assemble decoded chunks in index order, then gunzip in memory
      (`zlib.decompress(data, 16 + zlib.MAX_WBITS)`).
    - Launch `sfb_flat.py` by `exec` in a `__main__` context, replacing

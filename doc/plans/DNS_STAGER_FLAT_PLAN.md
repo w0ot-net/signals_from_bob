@@ -41,9 +41,10 @@ base32 and chunked into CNAME responses when `sfb.cli` is started with
    - Use a small, deterministic query name for the count record, e.g.
      `flat0.count.<base_domain>` (or `count.<base_domain>` if we are willing
      to special-case it ahead of tunnel decoding).
-   - Use fixed-width indexes and a count label padded to the same width to
-     keep query name length stable for payload sizing, e.g.
-     `flat0.<index_padded>.<base_domain>` and `flat0.countXX.<base_domain>`.
+   - Use fixed-width indexes and a fixed-length count label to keep query
+     name length stable for payload sizing:
+     - Count query: `flat0.count.<base_domain>`
+     - Piece query: `flat0.%05d.<base_domain>` (1-based indexes)
    - Include a compact binary metadata payload in the count response, such
      as `count`, `chunk_size`, and `sha256` of the gzipped bytes so the
      stager can verify integrity.

@@ -13,8 +13,9 @@ when `sfb.cli` is started with `--sfb-flat`.
 - Provide minimal, Python 2/3-compatible `linux_dns_stager.py` and
   `windows_dns_stager.py` that can be run as a one-liner and depend only
   on the standard library.
-- Avoid argument parsing in the stagers; values (domain, args) are set in
-  the generated source to keep code size minimal.
+- Avoid argument parsing in the stagers; values (base domain and args) are
+  set in the generated source to keep code size minimal. The base domain
+  is taken from Bob's `--domain` value.
 - Support a `--sfb-flat` flag in `sfb.cli` that packages `sfb_flat.py` into
   gzipped bytes and serves chunks via DNS CNAME responses (base32 on the
   wire via CNAME encoding).

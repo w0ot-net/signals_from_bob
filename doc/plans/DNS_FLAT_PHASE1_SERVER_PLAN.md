@@ -46,7 +46,7 @@ metadata/chunks via CNAME responses in DNS.
 
 3. Auto-generate OS-specific stagers on every `--sfb-flat` invocation.
    - Generate `linux_dns_stager.py` and `windows_dns_stager.py` with the
-     base domain and passthrough args embedded.
+     base domain (from Bob's `--domain`) and passthrough args embedded.
    - Write stagers to a deterministic path (repo root by default) so they
      can be distributed as one-liners.
 

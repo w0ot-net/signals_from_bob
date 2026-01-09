@@ -24,7 +24,8 @@ Document server and stager usage for the DNS flat loader workflow.
    - Example server invocation with `--sfb-flat`.
    - Example stager execution for Linux and Windows.
    - Note that the stagers use system resolver detection only.
-   - Note the required `base_domain` and `dns_cname_label` alignment.
+   - Note the required `base_domain` and `dns_cname_label` alignment and
+     that the stager base domain is derived from Bob's `--domain`.
 
 ## Testing
 - Do not run tests here.

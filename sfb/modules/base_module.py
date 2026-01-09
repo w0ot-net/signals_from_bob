@@ -27,6 +27,12 @@ class ModuleError(Exception):
         self.reason = reason or code
 
 
+def invalid_spec(reason, error_class=None):
+    if error_class is None:
+        error_class = ModuleError
+    return error_class('invalid_spec', reason)
+
+
 class _PendingRequest(object):
     """Tracks a pending request awaiting response."""
 

@@ -160,7 +160,6 @@ class Transport(with_metaclass(TransportMeta, object)):
         """
         pass
 
-    @abc.abstractmethod
     def pending_count(self):
         """
         Number of requests awaiting response.
@@ -170,7 +169,7 @@ class Transport(with_metaclass(TransportMeta, object)):
         Returns:
             int: count of pending requests
         """
-        pass
+        return len(self._pending)
 
     @property
     @abc.abstractmethod

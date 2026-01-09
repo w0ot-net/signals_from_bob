@@ -206,10 +206,6 @@ class DnsClient(Transport):
     def max_in_flight(self):
         return self._max_in_flight
 
-    def pending_count(self):
-        """Return number of queries awaiting response."""
-        return len(self._pending)
-
     def reserve_send(self, now=None):
         if now is None:
             now = time_provider.now()

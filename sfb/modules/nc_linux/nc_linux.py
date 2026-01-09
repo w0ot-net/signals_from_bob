@@ -3,6 +3,7 @@
 
 from __future__ import absolute_import
 
+from functools import partial
 import errno
 import logging
 import os
@@ -15,7 +16,7 @@ try:
 except ImportError:
     fcntl = None
 
-from ..base_module import BaseModule, RequestResponseMixin, ModuleError, blocking
+from ..base_module import BaseModule, RequestResponseMixin, ModuleError, blocking, invalid_spec
 from ...compat import PY2, integer_types, text_type, to_native_str
 from ...logging_util import get_logger, log_event
 from ... import time_provider
@@ -30,12 +31,11 @@ class NcLinuxError(ModuleError):
     pass
 
 
-def _nc_linux_error(reason):
-    return NcLinuxError('invalid_spec', reason)
+_NC_INVALID_SPEC = partial(invalid_spec, error_class=NcLinuxError)
 
 
 _HOST_PORT_ERROR_MAP = build_host_port_error_map(
-    _nc_linux_error,
+    _NC_INVALID_SPEC,
     base_message='address must be host:port',
     overrides={
         'invalid_port': 'port invalid',

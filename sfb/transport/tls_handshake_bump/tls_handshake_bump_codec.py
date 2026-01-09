@@ -78,8 +78,7 @@ def base32_decode(value):
     return shared_base32_decode(value)
 
 
-def _base32_decode_bytes(value):
-    return shared_base32_decode_bytes(value)
+_base32_decode_bytes = shared_base32_decode_bytes
 
 
 def encode_sni_name(payload, base_domain):
@@ -187,7 +186,7 @@ def scan_response_payload(data, max_payload_len=None, max_token_len=None,
         max_start = token_len - min_len
         start = 0
         while start <= max_start:
-            payload_len = _try_decode_response_header_at(token_bytes, start)
+            payload_len = _try_decode_response_header(token_bytes, start)
             if payload_len is None:
                 start += 1
                 continue
@@ -519,7 +518,7 @@ def _try_decode_response_token(token_bytes, max_payload_len=None):
         return None
 
 
-def _try_decode_response_header_at(data, start):
+def _try_decode_response_header(data, start=0):
     end = start + SFB_BUMP_RESPONSE_TOKEN_MIN_LEN
     if start < 0 or end > len(data):
         return None
@@ -553,10 +552,6 @@ def _try_decode_response_header_at(data, start):
     b1 = ((v1 & 0x03) << 6) | (v2 << 1) | (v3 >> 4)
     b2 = ((v3 & 0x0F) << 4) | (v4 >> 1)
     return (b1 << 8) | b2
-
-
-def _try_decode_response_header(token_bytes):
-    return _try_decode_response_header_at(token_bytes, 0)
 
 
 def _response_checksum(payload):

@@ -12,7 +12,7 @@ import logging
 import socket
 import threading
 
-from ..base_module import BaseModule, ModuleError
+from ..base_module import BaseModule, ModuleError, invalid_spec
 from ..relay_connection import RelayConnection
 from ..relay_control_messages import relay_connect
 from ..relay_logging import (
@@ -29,12 +29,8 @@ from ... import time_provider
 T_FWD = 'fwd'
 
 
-def _module_error(reason):
-    return ModuleError('invalid_spec', reason)
-
-
 _HOST_PORT_ERROR_MAP = build_host_port_error_map(
-    _module_error,
+    invalid_spec,
     base_message='address must be host:port',
     overrides={
         'invalid_port': 'port invalid',

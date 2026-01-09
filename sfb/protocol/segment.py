@@ -61,7 +61,7 @@ class Segment(object):
         if len(data) > 0xFFFF:
             raise ValueError('Segment data too long: %d bytes' % len(data))
         self.channel = channel
-        self.data = _coerce_bytes(data)
+        self.data = to_bytes(data)
 
     @property
     def is_control(self):
@@ -200,10 +200,6 @@ def is_alice_channel(channel):
         bool: True if odd (Alice-opened)
     """
     return channel != CHANNEL_CONTROL and channel % 2 == 1
-
-
-def _coerce_bytes(data):
-    return to_bytes(data)
 
 
 def is_bob_channel(channel):

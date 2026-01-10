@@ -17,6 +17,7 @@
 - doc/flatten_manifest.txt (only if module coverage needs adjustment for
   scanning).
 - scripts/flatten.py (optional: add a guard to fail if comprehensions remain).
+- doc/architecture/FLATTENER.md (document mandatory AST guard).
 
 ## Design Proposal
 - Replace list/dict/set comprehensions and generator expressions with explicit
@@ -35,8 +36,9 @@
    keeping semantics, ordering, and performance characteristics.
 3. Add a flatten-time AST guard in `scripts/flatten.py` that fails the build
    when comprehensions are detected in selected modules.
-4. Regenerate `sfb_flat.py` with `--minify` and verify Python 2 startup logs
-    no longer trigger `UnboundLocalError`.
+4. Update `doc/architecture/FLATTENER.md` to document the mandatory AST guard.
+5. Regenerate `sfb_flat.py` with `--minify` and verify Python 2 startup logs
+   no longer trigger `UnboundLocalError`.
 
 ## Testing
 - Do not run tests here. The user will run tests as needed with python3.

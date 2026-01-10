@@ -125,6 +125,34 @@ class DnsServer(Server):
             )
             if not self._flat_stager.enabled:
                 self._flat_stager = None
+        stager_enabled = bool(self._flat_stager)
+        flat_chunks = config.dns_flat_chunks or []
+        flat_count = config.dns_flat_count or 0
+        stager_reason = None
+        if not stager_enabled:
+            if not flat_chunks:
+                stager_reason = 'no_chunks'
+            elif flat_count <= 0:
+                stager_reason = 'count_zero'
+            else:
+                stager_reason = 'disabled'
+        stager_fields = {
+            'enabled': stager_enabled,
+            'nonce': config.dns_stager_nonce,
+            'flat_count': flat_count,
+            'flat_chunk_size': config.dns_flat_chunk_size,
+            'flat_meta_bytes': len(config.dns_flat_meta) if config.dns_flat_meta else 0,
+            'chunks': len(flat_chunks),
+        }
+        if stager_reason:
+            stager_fields['reason'] = stager_reason
+        log_event(
+            self._logger,
+            logging.INFO,
+            'dns.stager_config',
+            'DNS stager config',
+            lambda: stager_fields,
+        )
 
         # Calculate MTUs
         send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(

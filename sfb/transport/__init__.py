@@ -84,7 +84,7 @@ def load_lossy():
 TRANSPORTS = {
     'dns': {
         'client': ('sfb.transport.dns', 'DnsClient'),
-        'server': ('sfb.transport.dns.dns_server', 'DnsServer'),
+        'server': ('sfb.transport.dns', 'DnsServer'),
     },
     'icmp': {
         'client': ('sfb.transport.icmp', 'IcmpClient'),

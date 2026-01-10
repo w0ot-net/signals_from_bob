@@ -15,9 +15,11 @@ from .dns_codec import (
     RECORD_TYPES,
 )
 from .dns_client import DnsClient
+from .dns_server import DnsServer
 
 __all__ = [
     'DnsClient',
+    'DnsServer',
     'QTYPE_A',
     'QTYPE_AAAA',
     'QTYPE_CNAME',

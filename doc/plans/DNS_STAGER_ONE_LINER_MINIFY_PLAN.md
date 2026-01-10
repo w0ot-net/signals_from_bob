@@ -4,14 +4,17 @@ Status: draft
 
 ## Summary
 Shrink the generated `linux_dns_stager.txt` and `windows_dns_stager.txt`
-one-liners by removing comments, unused imports, and long identifiers. The
-one-liners should stay Python 2/3 compatible, ASCII-only, and preserve
-current behavior.
+one-liners by removing comments, unused imports, and long identifiers,
+and by wrapping the payload passed to `exec` as a max-compressed, base64
+blob that is unpacked immediately before execution. The one-liners should
+stay Python 2/3 compatible, ASCII-only, and preserve current behavior.
 
 ## Goals
 - Eliminate comments and blank lines from the rendered payload.
 - Minify identifiers inside the template so local variables are short.
 - Avoid importing modules that are unused by a given platform.
+- Wrap the embedded payload as a max-compressed, base64-encoded blob and
+  unpack it immediately before `exec`.
 - Keep the output as a single command line per platform.
 
 ## Non-Goals
@@ -49,8 +52,16 @@ current behavior.
      mutable (e.g., list) to drop the `random` import.
    - Ensure the ID still changes between queries to reduce stale responses.
 
-5. Ensure one-liners are fully compact.
-   - Render the minified template and wrap it as `python -c "exec(...)"`.
+5. Wrap the exec payload with compression and base64.
+   - Before writing the `.txt` one-liners, compress the rendered template
+     with `zlib.compress(..., 9)` and base64-encode it.
+   - Generate one-liners that decode and decompress immediately before
+     `exec`, e.g. `exec(zlib.decompress(base64.b64decode(...)))`.
+   - Ensure the wrapper keeps the payload ASCII-only.
+
+6. Ensure one-liners are fully compact.
+   - Render, compress, and wrap the minified template as a single `python -c`
+     invocation.
    - Verify that the output is a single line with no embedded comments.
 
 ## Testing

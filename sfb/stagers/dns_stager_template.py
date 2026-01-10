@@ -231,7 +231,10 @@ def main():
     digest = hashlib.sha256(payload_bytes).hexdigest()
     if digest != PAYLOAD_HASH:
         return None
-    if not isinstance(payload, text_type):
+    if isinstance(payload, bytes):
+        if sys.version_info[0] >= 3:
+            payload = payload.decode('ascii')
+    elif not isinstance(payload, text_type):
         payload = payload.decode('ascii')
     return payload
 

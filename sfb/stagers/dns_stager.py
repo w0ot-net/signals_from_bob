@@ -331,8 +331,9 @@ def _windows_cmd(parts):
 def build_one_liner(payload, platform):
     encoded_payload = _compress_payload(payload)
     code = (
-        'import base64,zlib;exec(zlib.decompress(base64.b64decode(%s))'
-        '.decode("ascii"))'
+        'import base64,sys,zlib;payload=zlib.decompress(base64.b64decode(%s));'
+        'payload=payload.decode("ascii") if sys.version_info[0]>=3 else payload;'
+        'exec(payload)'
         % _python_string_literal_double(encoded_payload)
     )
     if platform == 'posix':

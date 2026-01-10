@@ -26,8 +26,8 @@ pieces, without querying Bob for the hash.
 
 ## Plan
 1. Choose the hash input and encoding.
-   - Hash the assembled gzip payload bytes (before decompression) so
-     integrity is checked on the exact bytes fetched over DNS.
+   - Hash the rendered `sfb_flat.py` bytes before gzip compression so
+     integrity is checked against the final payload after decompression.
    - Use `hashlib.sha256` and embed the expected hex digest as ASCII.
 
 2. Add a template placeholder for the expected hash.
@@ -35,16 +35,16 @@ pieces, without querying Bob for the hash.
      it as a string literal.
 
 3. Compute and embed the hash during stager generation.
-   - In `dns_stager.py`, compute the SHA-256 of the rendered payload's
-     gzipped bytes (the same bytes Bob serves via DNS).
+   - In `dns_stager.py`, compute the SHA-256 of the rendered `sfb_flat.py`
+     payload bytes before gzip compression.
    - Pass the hex digest into the template renderer so the stager can
      compare against it.
 
 4. Validate integrity in the stager before exec.
-   - After assembling `data` from chunks, compute its SHA-256 hex digest
-     and compare to `PAYLOAD_HASH`.
-   - If the hash mismatches, abort cleanly (return None) without
-     decompress/exec.
+   - After assembling and decompressing `data`, compute the SHA-256 hex
+     digest of the resulting `sfb_flat.py` bytes and compare to
+     `PAYLOAD_HASH`.
+   - If the hash mismatches, abort cleanly (return None) without exec.
 
 ## Testing
 - Do not run tests here.

@@ -1,13 +1,10 @@
 # DNS Stager One-Liner Minify Plan
 
-Status: draft
+Status: abandoned
 
 ## Summary
-Shrink the generated `linux_dns_stager.txt` and `windows_dns_stager.txt`
-one-liners by removing comments, unused imports, and long identifiers,
-and by wrapping the payload passed to `exec` as a max-compressed, base64
-blob that is unpacked immediately before execution. The one-liners should
-stay Python 2/3 compatible, ASCII-only, and preserve current behavior.
+Abandoned in favor of a compression-only plan that drops minification and
+flattening in favor of base64 + zip wrapping.
 
 ## Goals
 - Eliminate comments and blank lines from the rendered payload.

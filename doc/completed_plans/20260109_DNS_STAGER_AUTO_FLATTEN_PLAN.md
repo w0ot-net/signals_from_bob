@@ -1,6 +1,6 @@
 # DNS Stager Auto Flatten Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Follow-on plan after Phases 1-3 to auto-generate `sfb_flat.py` when Bob is
@@ -45,6 +45,13 @@ minification when it is not available.
 3. Validate output.
    - After the auto-flatten step, verify `sfb_flat.py` exists.
    - If missing, exit with a clear error.
+
+## Execution Notes
+- `--stager` now accepts an optional path; when omitted, it auto-runs
+  `scripts/flatten.py` with `sys.executable`.
+- Minification is enabled only when `python-minifier` imports; otherwise a
+  warning is printed and flattening continues without minify.
+- No changes were needed in `scripts/flatten.py`.
 
 ## Testing
 - Do not run tests here.

@@ -59,12 +59,22 @@ ROLE_ALIASES = {
 _DB_LOG_DEFAULT = object()
 _CPROFILE_DEFAULT = object()
 _SFB_FLAT_DEFAULT = object()
+_STAGER_DEFAULT = object()
 
 
 def _print_error(message):
     prefix = 'ERROR: '
     if sys.stderr.isatty():
         sys.stderr.write('\x1b[31m' + prefix + message + '\x1b[0m\n')
+    else:
+        sys.stderr.write(prefix + message + '\n')
+    sys.stderr.flush()
+
+
+def _print_warning(message):
+    prefix = 'WARNING: '
+    if sys.stderr.isatty():
+        sys.stderr.write('\x1b[33m' + prefix + message + '\x1b[0m\n')
     else:
         sys.stderr.write(prefix + message + '\n')
     sys.stderr.flush()
@@ -114,8 +124,15 @@ def _ensure_parent_dir(path):
 def _repo_root():
     return os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 
+def _python_minifier_available():
+    try:
+        import python_minifier
+    except ImportError:
+        return False
+    return True
 
-def _build_sfb_flat(transport):
+
+def _build_sfb_flat(transport, minify):
     root = _repo_root()
     script_path = os.path.join(root, 'scripts', 'flatten.py')
     manifest_path = os.path.join(root, 'doc', 'flatten_manifest.txt')
@@ -128,7 +145,7 @@ def _build_sfb_flat(transport):
         _print_error('flatten manifest not found: %s' % manifest_path)
         return None
     if not python_bin:
-        _print_error('Unable to resolve Python executable for --sfb-flat')
+        _print_error('Unable to resolve Python executable for flattening')
         return None
     cmd = [
         python_bin,
@@ -137,12 +154,13 @@ def _build_sfb_flat(transport):
         manifest_path,
         '--output',
         output_path,
-        '--minify',
         '--strip-logs',
         '--alice',
         '--transport',
         transport,
     ]
+    if minify:
+        cmd.append('--minify')
     try:
         subprocess.check_call(cmd)
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -152,6 +170,13 @@ def _build_sfb_flat(transport):
         _print_error('sfb_flat.py was not created: %s' % output_path)
         return None
     return output_path
+
+
+def _auto_flatten_sfb_flat(transport):
+    minify = _python_minifier_available()
+    if not minify:
+        _print_warning('python-minifier not installed; flattening without minify')
+    return _build_sfb_flat(transport, minify=minify)
 
 
 def _gzip_bytes(data):
@@ -1013,8 +1038,11 @@ def add_server_args(parser, config):
     )
     parser.add_argument(
         '--stager',
+        nargs='?',
+        const=_STAGER_DEFAULT,
+        default=None,
         metavar='PATH',
-        help='Path to sfb_flat.py for DNS stager packaging (server-only)'
+        help='Path to sfb_flat.py for DNS stager packaging (omit PATH to auto-generate)'
     )
     parser.add_argument(
         '--passthrough',
@@ -2043,7 +2071,7 @@ def _prepare_sfb_flat(parsed):
         _print_error('--sfb-flat requires --role server')
         return 2
     if flat_value is _SFB_FLAT_DEFAULT:
-        flat_path = _build_sfb_flat(parsed.transport)
+        flat_path = _auto_flatten_sfb_flat(parsed.transport)
         if flat_path is None:
             return 2
     else:
@@ -2056,9 +2084,9 @@ def _prepare_sfb_flat(parsed):
 
 
 def _prepare_dns_stager(parsed, config):
-    stager_path = getattr(parsed, 'stager', None)
+    stager_value = getattr(parsed, 'stager', None)
     passthrough = getattr(parsed, 'passthrough', None)
-    if stager_path is None:
+    if stager_value is None:
         if passthrough:
             _print_error('--passthrough requires --stager')
             return 2
@@ -2069,10 +2097,15 @@ def _prepare_dns_stager(parsed, config):
     if parsed.transport != 'dns':
         _print_error('--stager requires --transport dns')
         return 2
-    stager_path = os.path.abspath(stager_path)
-    if not os.path.isfile(stager_path):
-        _print_error('stager path not found: %s' % stager_path)
-        return 2
+    if stager_value is _STAGER_DEFAULT:
+        stager_path = _auto_flatten_sfb_flat(parsed.transport)
+        if stager_path is None:
+            return 2
+    else:
+        stager_path = os.path.abspath(stager_value)
+        if not os.path.isfile(stager_path):
+            _print_error('stager path not found: %s' % stager_path)
+            return 2
     try:
         with open(stager_path, 'rb') as handle:
             payload = handle.read()

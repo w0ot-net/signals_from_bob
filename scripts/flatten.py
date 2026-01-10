@@ -162,7 +162,7 @@ def _minify_source(source, name, path, minify_bin):
         'rename_locals': True,
         'remove_annotations': True,
         'remove_pass': True,
-        'remove_object_base': True,
+        'remove_object_base': False,
         'remove_asserts': True,
         'remove_debug': True,
         'hoist_literals': True,

@@ -82,8 +82,8 @@ module sfb.modules.port_fwd.port_fwd_server role=common
 module sfb.modules role=common
 module sfb.modules.port_fwd role=common
 module sfb.transport.dns.dns_client role=common transport=dns
-module sfb.transport.dns.dns_flat_stager role=alice transport=dns
-module sfb.transport.dns.dns_server role=alice transport=dns
+module sfb.transport.dns.dns_flat_stager role=bob transport=dns
+module sfb.transport.dns.dns_server role=bob transport=dns
 module sfb.transport.dns role=common transport=dns
 module sfb.transport.proxy_helpers role=common transport=common
 module sfb.transport.tls_handshake.tls_handshake_config role=common transport=tls_handshake

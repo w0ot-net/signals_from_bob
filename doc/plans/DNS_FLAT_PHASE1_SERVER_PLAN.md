@@ -50,9 +50,14 @@ metadata/chunks via CNAME responses in DNS.
    - Write one-liners to the repo root so they can be copied and run
      directly.
 
-4. Add stager query handling in `sfb/transport/dns/dns_server.py`.
-   - Detect `flat0.count.<base_domain>` and `flat0.%05d.<base_domain>` before
-     calling `decode_query_name()`.
+4. Add stager query handling in `sfb/transport/dns/dns_server.py`, clearly
+   separated from normal tunnel handling.
+   - Add a small, dedicated helper (e.g., `_handle_flat_stager_query`) that
+     only runs when stager data is configured.
+   - In `recv`, check for `flat0.count.<base_domain>` and
+     `flat0.%05d.<base_domain>` first, and route them to the stager helper
+     before any tunnel parsing. If no match, fall through to existing tunnel
+     logic unchanged.
    - For count queries, respond with CNAME payload:
      `struct.pack('>2sBI', b'SF', 1, count)`.
    - For piece queries, parse the 1-based index and respond with the chunk.

@@ -9,6 +9,8 @@ __pycache__/
 .python-version
 sfb_flat.py
 sfb_flat.py.gz
+linux_dns_stager.txt
+windows_dns_stager.txt
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

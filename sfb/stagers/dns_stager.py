@@ -231,6 +231,29 @@ def _python_string_literal(value):
     return '\'' + _escape_python_string(value) + '\''
 
 
+def _escape_python_string_double(value):
+    value = _ensure_ascii_text(value, 'payload')
+    out = []
+    for ch in value:
+        if ch == '\\':
+            out.append('\\\\')
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == '\n':
+            out.append('\\n')
+        elif ch == '\r':
+            out.append('\\r')
+        elif ch == '\t':
+            out.append('\\t')
+        else:
+            out.append(ch)
+    return ''.join(out)
+
+
+def _python_string_literal_double(value):
+    return '"' + _escape_python_string_double(value) + '"'
+
+
 def _payload_hash(payload_bytes):
     if payload_bytes is None:
         raise ValueError('payload_bytes required')
@@ -309,8 +332,8 @@ def build_one_liner(payload, platform):
     encoded_payload = _compress_payload(payload)
     code = (
         'import base64,zlib;exec(zlib.decompress(base64.b64decode(%s))'
-        '.decode(\'ascii\'))'
-        % _python_string_literal(encoded_payload)
+        '.decode("ascii"))'
+        % _python_string_literal_double(encoded_payload)
     )
     if platform == 'posix':
         return 'python -c %s' % _posix_shell_quote(code)

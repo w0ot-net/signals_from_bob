@@ -15,11 +15,20 @@ from .dns_codec import (
     RECORD_TYPES,
 )
 from .dns_client import DnsClient
-from .dns_server import DnsServer
+try:
+    from .dns_server import DnsServer
+except ImportError as exc:
+    _name = getattr(exc, 'name', None)
+    if _name not in ('sfb.transport.dns.dns_server', 'dns_server'):
+        _msg = str(exc)
+        if ("No module named 'sfb.transport.dns.dns_server'" not in _msg and
+                "No module named 'dns_server'" not in _msg and
+                "No module named sfb.transport.dns.dns_server" not in _msg and
+                "No module named dns_server" not in _msg):
+            raise
 
 __all__ = [
     'DnsClient',
-    'DnsServer',
     'QTYPE_A',
     'QTYPE_AAAA',
     'QTYPE_CNAME',
@@ -27,3 +36,5 @@ __all__ = [
     'QTYPE_NULL',
     'RECORD_TYPES',
 ]
+if 'DnsServer' in globals():
+    __all__.insert(1, 'DnsServer')

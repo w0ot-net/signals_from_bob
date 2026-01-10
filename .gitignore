@@ -10,6 +10,7 @@ __pycache__/
 sfb_flat.py
 sfb_flat.py.gz
 linux_dns_stager.txt
+linux_dns_stager.txt.gz
 windows_dns_stager.txt
 .pytest_cache/
 .mypy_cache/

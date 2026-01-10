@@ -723,6 +723,12 @@ def main(argv):
         manifest['roots'],
         excludes,
     )
+    _validate_manifest(
+        manifest['modules'],
+        module_paths,
+        manifest['allow_late'],
+        True,
+    )
     selected_modules = _filter_modules(
         manifest['modules'],
         manifest['module_tags'],
@@ -731,8 +737,7 @@ def main(argv):
     )
     selected_set = set(selected_modules)
     filtered_allow_late = _filter_allow_late(manifest['allow_late'], selected_set)
-    enforce_complete = not (args.alice or args.transport)
-    _validate_manifest(selected_modules, module_paths, filtered_allow_late, enforce_complete)
+    _validate_manifest(selected_modules, module_paths, filtered_allow_late, False)
 
     entry_module = manifest['entry'].split(':', 1)[0]
     if entry_module not in selected_set:

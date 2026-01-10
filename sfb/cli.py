@@ -503,6 +503,7 @@ def _write_tls_bump_cert_template(path, cn_len, offsets, cert_der):
         lines.append("    b'%s'" % chunk)
     lines.append(')')
     lines.append('')
+    _ensure_parent_dir(path)
     with open(path, 'w') as handle:
         handle.write('\n'.join(lines))
 

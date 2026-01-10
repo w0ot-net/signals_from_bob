@@ -54,16 +54,18 @@ minification/bundling.
 
 ## Runtime Bootstrap
 The generated bundle:
-1. Creates a flat on-disk root (temporary by default, or `SFB_FLAT_ROOT`).
+1. Chooses a virtual root path string from `SFB_FLAT_ROOT` or a fixed fallback.
 2. Pre-creates module objects in `sys.modules` with `__file__`, `__package__`,
    and `__path__` (for packages).
 3. Executes each module source in manifest order.
 4. Calls the entrypoint function.
 
-Directories for `__file__` paths are created under the flat root. Module sources
-remain in memory; only the directory structure is synthesized.
+The bootstrap does not create directories. Module sources remain in memory, and
+any runtime features that write to disk are responsible for creating parent
+directories.
 
 ## __file__ Behavior
-`__file__` points into the flat root for each module. This supports code that
+`__file__` points into the virtual root for each module. This supports code that
 computes paths from `__file__` (for example, TLS bump template regeneration)
-without relying on the original repository layout.
+without relying on the original repository layout. Paths derived from
+`__file__` may not exist until a runtime feature explicitly creates them.

@@ -6,6 +6,7 @@ DNS stager template rendering and one-liner generation.
 from __future__ import absolute_import
 
 import base64
+import errno
 import hashlib
 import os
 import subprocess
@@ -97,6 +98,16 @@ def _repo_root():
             os.pardir,
         )
     )
+
+
+def _ensure_dir(path):
+    if not path:
+        return
+    try:
+        os.makedirs(path)
+    except OSError as exc:
+        if exc.errno != errno.EEXIST or not os.path.isdir(path):
+            raise
 
 
 def _ensure_ascii_text(value, label):
@@ -349,6 +360,7 @@ def write_dns_stagers(base_domain, sfb_args=None, payload_bytes=None,
     repo_root = _repo_root()
     if output_dir is None:
         output_dir = repo_root
+    _ensure_dir(output_dir)
     if template_path is None:
         template_path = os.path.join(
             repo_root,

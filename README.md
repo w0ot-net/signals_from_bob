@@ -38,8 +38,9 @@ Run it the same way as the normal entrypoint:
 ```
 python3 sfb_flat.py --role client --transport dns --domain t.example.com
 ```
-Set `SFB_FLAT_ROOT` to control the temporary on-disk root used for `__file__`
-paths in the flattened bundle.
+Set `SFB_FLAT_ROOT` to control the virtual root used for `__file__`/`__path__`
+in the flattened bundle. The bootstrap does not create directories; runtime
+features that write to disk create parent directories as needed.
 
 ## Profiling
 Use `--cprofile` to write a cProfile output file.

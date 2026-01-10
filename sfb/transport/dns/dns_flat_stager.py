@@ -43,6 +43,22 @@ class DnsFlatStager(object):
         if self._enabled:
             self._stager_nonce = self._normalize_stager_nonce(self._stager_nonce)
             meta_count = self._parse_flat_meta_count(self._flat_meta)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'dns.flat_stager_init',
+                'DNS flat stager initialized',
+                lambda: {
+                    'nonce': self._stager_nonce,
+                    'requested_count': requested_count,
+                    'flat_count': self._flat_count,
+                    'meta_count': meta_count,
+                    'meta_bytes': len(self._flat_meta) if self._flat_meta else 0,
+                    'clamped': clamped,
+                    'chunks': len(self._flat_chunks),
+                    'chunk_size': self._flat_chunk_size,
+                },
+            )
             if self._flat_meta and meta_count != self._flat_count:
                 self._flat_meta = struct.pack(
                     '>2sBI', b'SF', 1, self._flat_count

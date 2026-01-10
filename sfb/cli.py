@@ -197,37 +197,66 @@ def _generate_dns_stager_nonce():
     return 'n-' + nonce_hex
 
 
-def _calc_flat_payload_cap(base_domain, stager_nonce, cname_label, label_max_len):
+def _generate_dns_stager_prefix():
+    prefix_bytes = os.urandom(4)
+    prefix_hex = binascii.hexlify(prefix_bytes)
+    if isinstance(prefix_hex, bytes):
+        prefix_hex = prefix_hex.decode('ascii')
+    return 'p-' + prefix_hex
+
+
+def _is_base32_label(label):
+    allowed = set('ABCDEFGHIJKLMNOPQRSTUVWXYZ234567')
+    try:
+        text = label.upper()
+    except AttributeError:
+        return False
+    for ch in text:
+        if ch not in allowed:
+            return False
+    return True
+
+
+def _normalize_stager_label(value, label):
+    if value is None:
+        raise ValueError('%s required' % label)
+    if isinstance(value, bytes):
+        try:
+            value = value.decode('ascii')
+        except UnicodeError:
+            raise ValueError('%s must be ASCII' % label)
+    elif not isinstance(value, text_type):
+        value = text_type(value)
+    value = value.strip().lower().strip('.')
+    if not value:
+        raise ValueError('%s required' % label)
+    try:
+        value.encode('ascii')
+    except UnicodeError:
+        raise ValueError('%s must be ASCII' % label)
+    if '.' in value:
+        raise ValueError('%s must be a single label' % label)
+    if len(value) > 63:
+        raise ValueError('%s must be <= 63 characters' % label)
+    if _is_base32_label(value):
+        raise ValueError('%s must include non-base32 characters' % label)
+    return value
+
+
+def _calc_flat_payload_cap(base_domain, stager_prefix, stager_nonce,
+                           cname_label, label_max_len):
     from .transport.dns import dns_codec
     base_domain = (base_domain or '').strip().lower().strip('.')
     if not base_domain:
         raise ValueError('base_domain required')
-    if stager_nonce is None:
-        raise ValueError('stager nonce required')
-    if isinstance(stager_nonce, bytes):
-        try:
-            stager_nonce = stager_nonce.decode('ascii')
-        except UnicodeError:
-            raise ValueError('stager nonce must be ASCII')
-    elif not isinstance(stager_nonce, text_type):
-        stager_nonce = text_type(stager_nonce)
-    stager_nonce = stager_nonce.strip().lower().strip('.')
-    if not stager_nonce:
-        raise ValueError('stager nonce required')
-    try:
-        stager_nonce.encode('ascii')
-    except UnicodeError:
-        raise ValueError('stager nonce must be ASCII')
-    if '.' in stager_nonce:
-        raise ValueError('stager nonce must be a single label')
-    if len(stager_nonce) > 63:
-        raise ValueError('stager nonce must be <= 63 characters')
+    stager_prefix = _normalize_stager_label(stager_prefix, 'stager prefix')
+    stager_nonce = _normalize_stager_label(stager_nonce, 'stager nonce')
     cname_label = (cname_label or '').strip().strip('.')
     if cname_label:
         cname_suffix = '%s.%s' % (cname_label, base_domain)
     else:
         cname_suffix = base_domain
-    qname = 'flat0.%s.%05d.%s' % (stager_nonce, 1, base_domain)
+    qname = '%s.%s.%05d.%s' % (stager_prefix, stager_nonce, 1, base_domain)
     qname_wire_len = len(dns_codec.encode_name(qname))
     payload_cap, _ = dns_codec.calc_cname_response_payload_cap(
         qname_wire_len,
@@ -2139,6 +2168,8 @@ def _prepare_dns_stager(parsed, config):
             return 2
     if not config.dns_stager_nonce:
         config.dns_stager_nonce = _generate_dns_stager_nonce()
+    if not config.dns_stager_prefix:
+        config.dns_stager_prefix = _generate_dns_stager_prefix()
     if stager_value is not _STAGER_DEFAULT:
         _print_warning('Ignoring --stager path override; regenerating sfb_flat.py')
     stager_path = _auto_flatten_sfb_flat(parsed.transport)
@@ -2156,6 +2187,7 @@ def _prepare_dns_stager(parsed, config):
     try:
         payload_cap = _calc_flat_payload_cap(
             config.dns_base_domain,
+            config.dns_stager_prefix,
             config.dns_stager_nonce,
             config.dns_cname_label,
             config.dns_label_max_len,
@@ -2184,6 +2216,7 @@ def _prepare_dns_stager(parsed, config):
             sfb_args=passthrough or [],
             payload_bytes=payload,
             cname_label=config.dns_cname_label,
+            stager_prefix=config.dns_stager_prefix,
             stager_nonce=config.dns_stager_nonce,
         )
     except (IOError, OSError, ValueError) as exc:

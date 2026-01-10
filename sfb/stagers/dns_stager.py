@@ -336,7 +336,10 @@ def _windows_cmd(parts):
     try:
         return subprocess.list2cmdline(parts)
     except AttributeError:
-        return ' '.join('"%s"' % part for part in parts)
+        quoted = []
+        for part in parts:
+            quoted.append('"%s"' % part)
+        return ' '.join(quoted)
 
 
 def build_one_liner(payload, platform):

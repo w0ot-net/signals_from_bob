@@ -39,7 +39,10 @@ class FastRetransmitController(object):
             self._counts.clear()
             return
         valid = set(self._send_window.unacked_seqs())
-        stale = [seq for seq in self._counts if seq not in valid]
+        stale = []
+        for seq in self._counts:
+            if seq not in valid:
+                stale.append(seq)
         for seq in stale:
             del self._counts[seq]
 

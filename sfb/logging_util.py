@@ -459,7 +459,9 @@ def _match_any(value, patterns):
 
 def _ensure_log_columns(cursor):
     cursor.execute('PRAGMA table_info(logs)')
-    existing = set([row[1] for row in cursor.fetchall()])
+    existing = set()
+    for row in cursor.fetchall():
+        existing.add(row[1])
     if 'event' not in existing:
         cursor.execute('ALTER TABLE logs ADD COLUMN event TEXT')
     if 'fields' not in existing:

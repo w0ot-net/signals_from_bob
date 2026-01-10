@@ -89,7 +89,10 @@ def encode_name(name):
         return b'\x00'
     name = _normalize_domain(name)
     parts = []
-    labels = [label for label in name.split('.') if label]
+    labels = []
+    for label in name.split('.'):
+        if label:
+            labels.append(label)
     _validate_labels(labels)
     _validate_name_length(labels)
     for label in labels:
@@ -204,7 +207,10 @@ def _split_domain_labels(name, lower=False, require_non_empty=False,
     name = _normalize_domain(name)
     if lower:
         name = name.lower()
-    labels = [label for label in name.split('.') if label]
+    labels = []
+    for label in name.split('.'):
+        if label:
+            labels.append(label)
     if require_non_empty and not labels:
         if empty_error is None:
             empty_error = 'domain required'
@@ -222,7 +228,10 @@ def _validate_labels(labels, max_len=MAX_LABEL_LEN):
 def _validate_name_length(labels):
     if not labels:
         return
-    total_len = sum(len(label) for label in labels) + (len(labels) - 1)
+    total_len = 0
+    for label in labels:
+        total_len += len(label)
+    total_len += (len(labels) - 1)
     if total_len > MAX_NAME_LEN:
         raise ValueError('Name exceeds max length')
 
@@ -415,7 +424,10 @@ def calc_query_mtu(base_domain, label_max_len=None):
     """
     label_max_len = _normalize_label_max_len(label_max_len)
     base_domain = _normalize_domain(base_domain)
-    base_labels = [label for label in base_domain.split('.') if label]
+    base_labels = []
+    for label in base_domain.split('.'):
+        if label:
+            base_labels.append(label)
     _validate_labels(base_labels)
 
     # Available chars after base domain, trailing dot, nonce, and nonce dot

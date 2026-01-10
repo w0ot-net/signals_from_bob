@@ -43,3 +43,8 @@
 
 ## Testing
 - Do not run tests here. The user will run tests as needed with python3.
+
+## Execution Notes
+- Replaced comprehensions/generator expressions in flat-build sfb/ modules with explicit loops.
+- Added AST guard in scripts/flatten.py with template placeholder normalization; documented in FLATTENER.md.
+- Regenerated sfb_flat.py using python3 scripts/flatten.py --minify --strip-logs --alice --transport dns.

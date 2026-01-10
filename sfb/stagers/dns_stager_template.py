@@ -223,7 +223,10 @@ def main():
     chunks = _fetch_chunks(resolver, count)
     if len(chunks) != count:
         return None
-    data = b''.join(chunks[index] for index in range(1, count + 1))
+    parts = []
+    for index in range(1, count + 1):
+        parts.append(chunks[index])
+    data = b''.join(parts)
     payload = zlib.decompress(data, 16 + zlib.MAX_WBITS)
     payload_bytes = payload
     if isinstance(payload_bytes, text_type):

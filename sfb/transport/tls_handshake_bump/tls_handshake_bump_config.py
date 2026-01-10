@@ -174,6 +174,11 @@ def _validate_request_path(value):
     value = _require_ascii_text(value, 'tls_bump_request_path')
     if not value.startswith('/'):
         raise TransportError('tls_bump_request_path must start with /')
-    if any(ch.isspace() for ch in value):
+    has_space = False
+    for ch in value:
+        if ch.isspace():
+            has_space = True
+            break
+    if has_space:
         raise TransportError('tls_bump_request_path must not contain whitespace')
     return value

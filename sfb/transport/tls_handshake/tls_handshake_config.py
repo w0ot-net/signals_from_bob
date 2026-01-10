@@ -172,8 +172,15 @@ def _validate_sni(value):
 def _validate_alpn(value):
     if not isinstance(value, text_type):
         raise TransportError('tls_alpn must be text')
-    tokens = [token.strip() for token in value.split(',')]
-    if not tokens or any(not token for token in tokens):
+    tokens = []
+    for token in value.split(','):
+        tokens.append(token.strip())
+    has_empty = False
+    for token in tokens:
+        if not token:
+            has_empty = True
+            break
+    if not tokens or has_empty:
         raise TransportError('tls_alpn contains empty entries')
     alpn_list = []
     for token in tokens:

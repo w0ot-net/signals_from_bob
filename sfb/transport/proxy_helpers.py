@@ -231,9 +231,15 @@ class ProxyConnect(object):
                 self._log_cb('bad_status', status=status)
             return self._finish(PROXY_CLOSED)
         extra = self._recv_buf[header_end + 4:]
-        if extra and any(byte not in (13, 10) for byte in bytearray(extra)):
-            self._log_cb('extra_bytes', bytes=len(extra))
-            return self._finish(PROXY_CLOSED)
+        if extra:
+            has_non_crlf = False
+            for byte in bytearray(extra):
+                if byte not in (13, 10):
+                    has_non_crlf = True
+                    break
+            if has_non_crlf:
+                self._log_cb('extra_bytes', bytes=len(extra))
+                return self._finish(PROXY_CLOSED)
         return self._finish(PROXY_DONE)
 
     def _finish(self, status):
@@ -269,7 +275,12 @@ def _require_ascii_text(value, label):
 
 def _validate_proxy_addr(value, label, host_port_error_map):
     value = _require_ascii_text(value, label)
-    if any(ch.isspace() for ch in value):
+    has_space = False
+    for ch in value:
+        if ch.isspace():
+            has_space = True
+            break
+    if has_space:
         raise TransportError('%s must not contain whitespace' % label)
     parse_host_port_or_raise(value, host_port_error_map)
     return value

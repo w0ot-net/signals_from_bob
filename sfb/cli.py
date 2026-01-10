@@ -186,7 +186,10 @@ def _gzip_bytes(data):
 
 
 def _split_chunks(data, chunk_size):
-    return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
+    chunks = []
+    for i in range(0, len(data), chunk_size):
+        chunks.append(data[i:i + chunk_size])
+    return chunks
 
 
 def _generate_dns_stager_nonce():
@@ -477,7 +480,10 @@ def _encode_node(node):
     length_bytes = _encode_der_length(len(value_bytes))
     header = struct.pack('!B', node.tag) + length_bytes
     header_len = len(header)
-    offsets = [header_len + off for off in offsets]
+    new_offsets = []
+    for off in offsets:
+        new_offsets.append(header_len + off)
+    offsets = new_offsets
     return header + value_bytes, offsets
 
 
@@ -500,7 +506,10 @@ def _write_tls_bump_cert_template(path, cn_len, offsets, cert_der):
     width = 76
     for i in range(0, len(b64_text), width):
         chunks.append(b64_text[i:i + width])
-    offsets_text = ', '.join(str(offset) for offset in offsets)
+    parts = []
+    for offset in offsets:
+        parts.append(str(offset))
+    offsets_text = ', '.join(parts)
     if len(offsets) == 1:
         offsets_text += ','
     lines = [
@@ -1434,7 +1443,11 @@ def create_config(args):
     config_kwargs.update(_build_logging_config(args))
     config_kwargs.update(_build_crypto_config(args))
 
-    config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
+    cleaned = {}
+    for key, value in config_kwargs.items():
+        if value is not None:
+            cleaned[key] = value
+    config_kwargs = cleaned
     return Config(**config_kwargs)
 
 

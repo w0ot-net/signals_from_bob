@@ -51,6 +51,9 @@ breaking cross-module imports.
 To keep Python 2 compatibility with local renaming enabled, avoid list/dict/set
 comprehensions and generator expressions in modules that ship in the flat
 build; use explicit loops instead.
+The flattener enforces this with an AST scan and fails the build if any
+comprehension or generator expression is found in selected modules. Template
+placeholders are replaced with literals for parsing.
 Use `--strip-logs` to remove `log_event(...)` and logger method calls (for
 example, `logging.info(...)` or `self._logger.error(...)`) before
 minification/bundling.

@@ -305,10 +305,10 @@ class SendWindow(object):
         if max_count is not None:
             retransmits = retransmits[:max_count]
 
-        return [
-            (seq, pkt.segments, pkt.flags, pkt.encrypted_body)
-            for _, seq, pkt in retransmits
-        ]
+        items = []
+        for _, seq, pkt in retransmits:
+            items.append((seq, pkt.segments, pkt.flags, pkt.encrypted_body))
+        return items
 
     def get_oldest_unacked(self):
         """
@@ -434,7 +434,10 @@ class SendWindow(object):
                 continue
             candidates.append((diff, seq))
         candidates.sort()
-        return [seq for _, seq in candidates]
+        seqs = []
+        for _, seq in candidates:
+            seqs.append(seq)
+        return seqs
 
     def get_keepalive_drop_info(self, now=None):
         if self._last_keepalive_drop_seq is None:

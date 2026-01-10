@@ -408,7 +408,10 @@ def _validate_labels(labels):
 
 
 def _validate_name_length(labels):
-    total_len = sum(len(label) for label in labels) + (len(labels) - 1)
+    total_len = 0
+    for label in labels:
+        total_len += len(label)
+    total_len += (len(labels) - 1)
     if total_len > MAX_NAME_LEN:
         raise ValueError('Name exceeds max length')
 

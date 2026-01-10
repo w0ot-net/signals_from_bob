@@ -66,6 +66,12 @@ _LOG_METHOD_NAMES = set([
     'log',
 ])
 _LOG_BASE_NAMES = set(['logger', 'logging'])
+_COMPREHENSION_NODE_TYPES = (
+    ast.ListComp,
+    ast.DictComp,
+    ast.SetComp,
+    ast.GeneratorExp,
+)
 
 
 class _ImportCollector(ast.NodeVisitor):
@@ -109,6 +115,65 @@ def _read_text(path):
         return data.decode('ascii')
     except UnicodeDecodeError:
         raise ManifestError('Non-ASCII content in %s' % path)
+
+
+def _replace_template_placeholders(source):
+    if '{{' not in source or '}}' not in source:
+        return source
+    lines = source.splitlines(True)
+    out_lines = []
+    prev_non_empty = None
+    prev_indent = ''
+    for line in lines:
+        if '{{' not in line or '}}' not in line:
+            out_line = line
+        else:
+            stripped = line.strip()
+            if stripped.startswith('{{') and stripped.endswith('}}'):
+                indent = line[:len(line) - len(line.lstrip())]
+                if prev_non_empty is not None and prev_non_empty.rstrip().endswith(':'):
+                    indent = prev_indent + '    '
+                line_end = _line_ending(line)
+                out_line = indent + 'pass' + line_end
+            else:
+                out = []
+                index = 0
+                while True:
+                    start = line.find('{{', index)
+                    if start < 0:
+                        out.append(line[index:])
+                        break
+                    end = line.find('}}', start + 2)
+                    if end < 0:
+                        out.append(line[index:])
+                        break
+                    out.append(line[index:start])
+                    out.append('0')
+                    index = end + 2
+                out_line = ''.join(out)
+        out_lines.append(out_line)
+        if out_line.strip():
+            prev_non_empty = out_line
+            prev_indent = out_line[:len(out_line) - len(out_line.lstrip())]
+    return ''.join(out_lines)
+
+
+def _find_comprehension_violations(source, name, path):
+    if '{{' in source and '}}' in source:
+        source = _replace_template_placeholders(source)
+    try:
+        tree = ast.parse(source, filename=name)
+    except SyntaxError as exc:
+        raise ValidationError('Unable to parse %s: %s' % (path, exc))
+    violations = []
+    for node in ast.walk(tree):
+        if isinstance(node, _COMPREHENSION_NODE_TYPES):
+            lineno = getattr(node, 'lineno', None)
+            if lineno is None:
+                violations.append('%s %s' % (path, type(node).__name__))
+            else:
+                violations.append('%s:%d %s' % (path, lineno, type(node).__name__))
+    return violations
 
 
 def _minify_arg_names(func):
@@ -745,13 +810,23 @@ def main(argv):
     if entry_module not in selected_set:
         raise ManifestError('entry module not listed in manifest: %s' % entry_module)
 
+    comprehension_violations = []
     entries = []
     for name in selected_modules:
         path = module_paths[name]
         source = _read_text(path)
+        comprehension_violations.extend(
+            _find_comprehension_violations(source, name, path)
+        )
         if args.strip_logs:
             source = _strip_logging_statements(source, name)
         entries.append((name, is_package[name], source, path))
+
+    if comprehension_violations:
+        raise ValidationError(
+            'comprehensions not allowed in flat build modules:\n' +
+            '\n'.join(comprehension_violations)
+        )
 
     _validate_order(
         [(name, is_pkg, source) for name, is_pkg, source, _ in entries],

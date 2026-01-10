@@ -697,13 +697,16 @@ class BaseTunnel(object):
              packet.ack, packet.sack, now=now, sample_rtt=sample_rtt
          )
         def build_ack_fields():
+            rtt_samples_ms = []
+            for sample in rtt_samples:
+                rtt_samples_ms.append(round(sample, 3))
             fields = {
                 'ack': packet.ack,
                 'sack': packet.sack,
                 'acked_count': acked_count,
                 'data_acked_count': data_acked_count,
                 'rtt_sample_count': len(rtt_samples),
-                'rtt_samples_ms': [round(sample, 3) for sample in rtt_samples],
+                'rtt_samples_ms': rtt_samples_ms,
                 'unacked_before': unacked_before,
                 'unacked_after': unacked_after,
                 'prev_cum_ack': prev_cum_ack,

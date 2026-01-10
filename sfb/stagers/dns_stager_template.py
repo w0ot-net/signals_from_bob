@@ -12,6 +12,7 @@ import time
 import zlib
 
 BASE_DOMAIN = '{{BASE_DOMAIN}}'
+CNAME_SUFFIX = '{{CNAME_SUFFIX}}'
 SFB_ARGS = {{SFB_ARGS}}
 
 COUNT_NAME = 'flat0.count.%s' % BASE_DOMAIN
@@ -127,7 +128,7 @@ def _decode_cname(name):
     if not name:
         return None
     name = name.rstrip('.')
-    suffix = BASE_DOMAIN.rstrip('.')
+    suffix = CNAME_SUFFIX.rstrip('.')
     lower_name = name.lower()
     lower_suffix = suffix.lower()
     if lower_name == lower_suffix:

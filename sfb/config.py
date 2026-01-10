@@ -57,8 +57,6 @@ class Config(object):
     dns_flat_meta = None
     # DNS flat stager chunk size (server-only)
     dns_flat_chunk_size = None
-    # DNS flat stager prefix label (server-only)
-    dns_stager_prefix = None
     # DNS flat stager nonce label (server-only)
     dns_stager_nonce = None
 
@@ -384,7 +382,6 @@ class Config(object):
         'dns_flat_count',
         'dns_flat_meta',
         'dns_flat_chunk_size',
-        'dns_stager_prefix',
         'dns_stager_nonce',
         'icmp_target',
         'icmp_packet_mtu',
@@ -549,30 +546,6 @@ class Config(object):
             raise ValueError("dns_cname_label must be <= 63 characters")
         if self._is_base32_label(self.dns_cname_label):
             raise ValueError("dns_cname_label must include non-base32 characters")
-        if self.dns_stager_prefix is not None:
-            prefix = self.dns_stager_prefix
-            if isinstance(prefix, bytes):
-                try:
-                    prefix = prefix.decode('ascii')
-                except UnicodeError:
-                    raise ValueError("dns_stager_prefix must be ASCII")
-            try:
-                prefix = prefix.strip()
-            except AttributeError:
-                raise ValueError("dns_stager_prefix must be a string")
-            if not prefix:
-                raise ValueError("dns_stager_prefix must not be empty")
-            try:
-                prefix.encode('ascii')
-            except UnicodeError:
-                raise ValueError("dns_stager_prefix must be ASCII")
-            if '.' in prefix:
-                raise ValueError("dns_stager_prefix must be a single label")
-            if len(prefix) > 63:
-                raise ValueError("dns_stager_prefix must be <= 63 characters")
-            if self._is_base32_label(prefix):
-                raise ValueError("dns_stager_prefix must include non-base32 characters")
-            self.dns_stager_prefix = prefix.lower()
         if self.dns_stager_nonce is not None:
             nonce = self.dns_stager_nonce
             if isinstance(nonce, bytes):

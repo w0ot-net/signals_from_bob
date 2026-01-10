@@ -197,14 +197,6 @@ def _generate_dns_stager_nonce():
     return 'n-' + nonce_hex
 
 
-def _generate_dns_stager_prefix():
-    prefix_bytes = os.urandom(4)
-    prefix_hex = binascii.hexlify(prefix_bytes)
-    if isinstance(prefix_hex, bytes):
-        prefix_hex = prefix_hex.decode('ascii')
-    return 'p-' + prefix_hex
-
-
 def _is_base32_label(label):
     allowed = set('ABCDEFGHIJKLMNOPQRSTUVWXYZ234567')
     try:
@@ -217,46 +209,44 @@ def _is_base32_label(label):
     return True
 
 
-def _normalize_stager_label(value, label):
+def _normalize_stager_nonce_label(value):
     if value is None:
-        raise ValueError('%s required' % label)
+        raise ValueError('stager nonce required')
     if isinstance(value, bytes):
         try:
             value = value.decode('ascii')
         except UnicodeError:
-            raise ValueError('%s must be ASCII' % label)
+            raise ValueError('stager nonce must be ASCII')
     elif not isinstance(value, text_type):
         value = text_type(value)
     value = value.strip().lower().strip('.')
     if not value:
-        raise ValueError('%s required' % label)
+        raise ValueError('stager nonce required')
     try:
         value.encode('ascii')
     except UnicodeError:
-        raise ValueError('%s must be ASCII' % label)
+        raise ValueError('stager nonce must be ASCII')
     if '.' in value:
-        raise ValueError('%s must be a single label' % label)
+        raise ValueError('stager nonce must be a single label')
     if len(value) > 63:
-        raise ValueError('%s must be <= 63 characters' % label)
+        raise ValueError('stager nonce must be <= 63 characters')
     if _is_base32_label(value):
-        raise ValueError('%s must include non-base32 characters' % label)
+        raise ValueError('stager nonce must include non-base32 characters')
     return value
 
 
-def _calc_flat_payload_cap(base_domain, stager_prefix, stager_nonce,
-                           cname_label, label_max_len):
+def _calc_flat_payload_cap(base_domain, stager_nonce, cname_label, label_max_len):
     from .transport.dns import dns_codec
     base_domain = (base_domain or '').strip().lower().strip('.')
     if not base_domain:
         raise ValueError('base_domain required')
-    stager_prefix = _normalize_stager_label(stager_prefix, 'stager prefix')
-    stager_nonce = _normalize_stager_label(stager_nonce, 'stager nonce')
+    stager_nonce = _normalize_stager_nonce_label(stager_nonce)
     cname_label = (cname_label or '').strip().strip('.')
     if cname_label:
         cname_suffix = '%s.%s' % (cname_label, base_domain)
     else:
         cname_suffix = base_domain
-    qname = '%s.%s.%05d.%s' % (stager_prefix, stager_nonce, 1, base_domain)
+    qname = '%s.%05d.%s' % (stager_nonce, 1, base_domain)
     qname_wire_len = len(dns_codec.encode_name(qname))
     payload_cap, _ = dns_codec.calc_cname_response_payload_cap(
         qname_wire_len,
@@ -2168,8 +2158,6 @@ def _prepare_dns_stager(parsed, config):
             return 2
     if not config.dns_stager_nonce:
         config.dns_stager_nonce = _generate_dns_stager_nonce()
-    if not config.dns_stager_prefix:
-        config.dns_stager_prefix = _generate_dns_stager_prefix()
     if stager_value is not _STAGER_DEFAULT:
         _print_warning('Ignoring --stager path override; regenerating sfb_flat.py')
     stager_path = _auto_flatten_sfb_flat(parsed.transport)
@@ -2187,7 +2175,6 @@ def _prepare_dns_stager(parsed, config):
     try:
         payload_cap = _calc_flat_payload_cap(
             config.dns_base_domain,
-            config.dns_stager_prefix,
             config.dns_stager_nonce,
             config.dns_cname_label,
             config.dns_label_max_len,
@@ -2216,7 +2203,6 @@ def _prepare_dns_stager(parsed, config):
             sfb_args=passthrough or [],
             payload_bytes=payload,
             cname_label=config.dns_cname_label,
-            stager_prefix=config.dns_stager_prefix,
             stager_nonce=config.dns_stager_nonce,
         )
     except (IOError, OSError, ValueError) as exc:

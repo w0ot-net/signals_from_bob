@@ -90,6 +90,7 @@ class DnsFlatStager(object):
             return None
         return count
 
+    @staticmethod
     def _is_base32_label(label):
         allowed = set('ABCDEFGHIJKLMNOPQRSTUVWXYZ234567')
         try:

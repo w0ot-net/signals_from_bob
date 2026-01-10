@@ -99,4 +99,7 @@ module sfb.transport.udp_ephemeral.udp_ephemeral_client role=common transport=ud
 module sfb.transport.udp_ephemeral.udp_ephemeral_server role=bob transport=udp_ephemeral
 module sfb.transport.udp_ephemeral role=common transport=udp_ephemeral
 module sfb.transport role=common transport=common
+module sfb.stagers role=bob
+module sfb.stagers.dns_stager_template role=bob
+module sfb.stagers.dns_stager role=bob
 module sfb.cli role=common

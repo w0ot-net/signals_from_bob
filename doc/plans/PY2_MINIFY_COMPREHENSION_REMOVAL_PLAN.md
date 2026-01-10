@@ -33,9 +33,10 @@
    by the flat build (AST scan; record file and line locations).
 2. Rewrite each comprehension into explicit loops or helper functions while
    keeping semantics, ordering, and performance characteristics.
-3. If implemented, add a flatten-time AST guard in `scripts/flatten.py` that
+3. Add optional AST guard in `scripts/flatten.py` to prevent regressions.
+4. If implemented, add a flatten-time AST guard in `scripts/flatten.py` that
    fails the build when comprehensions are detected in selected modules.
-4. Regenerate `sfb_flat.py` with `--minify` and verify Python 2 startup logs
+5. Regenerate `sfb_flat.py` with `--minify` and verify Python 2 startup logs
    no longer trigger `UnboundLocalError`.
 
 ## Testing

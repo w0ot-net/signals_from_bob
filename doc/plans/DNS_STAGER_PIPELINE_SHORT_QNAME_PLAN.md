@@ -52,9 +52,6 @@ stager query names to increase payload capacity per response.
    - Set `sys.dont_write_bytecode = True` and
      `PYTHONDONTWRITEBYTECODE=1` at the top of the stager template before
      any imports to suppress `.pyc` creation.
-   - Add a small write-guard (override `open`/`io.open`/`os.open`) during
-     stager download that rejects write/append/create modes, and keep it
-     enabled through `exec(payload)`.
 
 4. Wire generation and outputs.
    - Ensure `sfb/stagers/dns_stager.py` renders the updated template.

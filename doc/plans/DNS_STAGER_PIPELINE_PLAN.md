@@ -28,7 +28,7 @@ the existing stager query names.
 ## Plan
 1. Add a pipelined chunk fetch loop in the stager template.
    - Keep a single UDP socket and send up to a fixed window of missing
-     indices before receiving responses.
+     indices before receiving responses (default window: 8, cap at count).
    - Track outstanding indices with last-sent timestamps and re-send
      after a short timeout, avoiding tight loops.
    - Use `select` for a bounded receive wait and parse any CNAME

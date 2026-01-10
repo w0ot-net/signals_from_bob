@@ -16,7 +16,7 @@ CNAME_SUFFIX = '{{CNAME_SUFFIX}}'
 SFB_ARGS = {{SFB_ARGS}}
 
 COUNT_NAME = 'flat0.count.%s' % BASE_DOMAIN
-PIECE_FMT = 'flat0.%05d.%s' % BASE_DOMAIN
+PIECE_FMT = 'flat0.%%05d.%s' % BASE_DOMAIN
 TIMEOUT = 2.0
 
 try:

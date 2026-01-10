@@ -22,8 +22,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 
-from .config import Config
+from .config import Config, DNS_STANDARD_SIZE
 from .compat import byte_at, text_type
 from .crypto import Plain, RC4, SHA256, XOR
 from .logging_util import (
@@ -151,6 +152,39 @@ def _build_sfb_flat(transport):
         _print_error('sfb_flat.py was not created: %s' % output_path)
         return None
     return output_path
+
+
+def _gzip_bytes(data):
+    compressor = zlib.compressobj(9, zlib.DEFLATED, 16 + zlib.MAX_WBITS)
+    return compressor.compress(data) + compressor.flush()
+
+
+def _split_chunks(data, chunk_size):
+    return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
+
+
+def _calc_flat_payload_cap(base_domain, cname_label, label_max_len):
+    from .transport.dns import dns_codec
+    base_domain = (base_domain or '').strip().lower().strip('.')
+    if not base_domain:
+        raise ValueError('base_domain required')
+    cname_label = (cname_label or '').strip().strip('.')
+    if cname_label:
+        cname_suffix = '%s.%s' % (cname_label, base_domain)
+    else:
+        cname_suffix = base_domain
+    qname = 'flat0.%05d.%s' % (1, base_domain)
+    qname_wire_len = len(dns_codec.encode_name(qname))
+    payload_cap, _ = dns_codec.calc_cname_response_payload_cap(
+        qname_wire_len,
+        DNS_STANDARD_SIZE,
+        cname_suffix,
+        label_max_len,
+        opt_record_len=0,
+    )
+    if payload_cap is None or payload_cap <= 0:
+        raise ValueError('stager payload cap unavailable for %s' % qname)
+    return payload_cap
 
 
 def _positive_int(value):
@@ -976,6 +1010,18 @@ def add_server_args(parser, config):
         default=None,
         metavar='PATH',
         help='Path to sfb_flat.py (omit PATH to auto-generate)'
+    )
+    parser.add_argument(
+        '--stager',
+        metavar='PATH',
+        help='Path to sfb_flat.py for DNS stager packaging (server-only)'
+    )
+    parser.add_argument(
+        '--passthrough',
+        nargs=argparse.REMAINDER,
+        default=None,
+        metavar='ARGS',
+        help='Args to pass through DNS stager to sfb_flat.py (must be last)'
     )
 
 
@@ -2009,6 +2055,69 @@ def _prepare_sfb_flat(parsed):
     return 0
 
 
+def _prepare_dns_stager(parsed, config):
+    stager_path = getattr(parsed, 'stager', None)
+    passthrough = getattr(parsed, 'passthrough', None)
+    if stager_path is None:
+        if passthrough:
+            _print_error('--passthrough requires --stager')
+            return 2
+        return 0
+    if parsed.role != 'server':
+        _print_error('--stager requires --role server')
+        return 2
+    if parsed.transport != 'dns':
+        _print_error('--stager requires --transport dns')
+        return 2
+    stager_path = os.path.abspath(stager_path)
+    if not os.path.isfile(stager_path):
+        _print_error('stager path not found: %s' % stager_path)
+        return 2
+    try:
+        with open(stager_path, 'rb') as handle:
+            payload = handle.read()
+    except (IOError, OSError) as exc:
+        _print_error('Failed to read stager path: %s' % exc)
+        return 2
+    if not payload:
+        _print_error('stager path is empty: %s' % stager_path)
+        return 2
+    try:
+        payload_cap = _calc_flat_payload_cap(
+            config.dns_base_domain,
+            config.dns_cname_label,
+            config.dns_label_max_len,
+        )
+    except ValueError as exc:
+        _print_error('Stager chunk size error: %s' % exc)
+        return 2
+    gz_payload = _gzip_bytes(payload)
+    if not gz_payload:
+        _print_error('stager gzip payload empty')
+        return 2
+    chunks = _split_chunks(gz_payload, payload_cap)
+    if not chunks:
+        _print_error('stager payload chunking failed')
+        return 2
+    count = len(chunks)
+    meta = struct.pack('>2sBI', b'SF', 1, count)
+    config.dns_flat_chunks = chunks
+    config.dns_flat_count = count
+    config.dns_flat_meta = meta
+    config.dns_flat_chunk_size = payload_cap
+    try:
+        from .stagers import dns_stager
+        dns_stager.write_dns_stagers(
+            config.dns_base_domain,
+            sfb_args=passthrough or [],
+            cname_label=config.dns_cname_label,
+        )
+    except (IOError, OSError, ValueError) as exc:
+        _print_error('Failed to generate DNS stagers: %s' % exc)
+        return 2
+    return 0
+
+
 def _run_main(parsed, cprofile_path):
     """Run the CLI with parsed args."""
     cert_result = _handle_tls_bump_generate_cert(parsed)
@@ -2025,6 +2134,9 @@ def _run_main(parsed, cprofile_path):
         return flat_result
 
     config = create_config(parsed)
+    stager_result = _prepare_dns_stager(parsed, config)
+    if stager_result:
+        return stager_result
     if parsed.log_profile:
         try:
             from .log_profiles import apply_log_profile

@@ -1,7 +1,5 @@
 # DNS Flat Phase 1: Server Packaging + Serving
 
-Status: draft
-
 ## Summary
 Add server-side support for `--stager`, package `sfb_flat.py` into gzipped
 chunks, auto-generate OS-specific stager one-liners, and serve stager
@@ -69,3 +67,9 @@ metadata/chunks via CNAME responses in DNS.
 
 ## Testing
 - Do not run tests here.
+
+## Execution Notes
+- Added DNS stager config fields for chunk data and metadata.
+- Added server CLI support for `--stager` and `--passthrough`, gzip chunking, and stager one-liner generation.
+- Added DNS server handling for `flat0.count` and `flat0.%05d` queries with OPT-suppressed responses and stager logging.
+- Tests not run (not requested).

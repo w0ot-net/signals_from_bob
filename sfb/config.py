@@ -49,6 +49,14 @@ class Config(object):
     dns_cname_label = "0"
     # IPv4 address returned for CNAME follow-up A queries
     dns_cname_a_addr = "0.0.0.0"
+    # DNS flat stager chunks (server-only)
+    dns_flat_chunks = None
+    # DNS flat stager chunk count (server-only)
+    dns_flat_count = None
+    # DNS flat stager metadata payload (server-only)
+    dns_flat_meta = None
+    # DNS flat stager chunk size (server-only)
+    dns_flat_chunk_size = None
 
     # --- ICMP Transport ---
     # Target host/IPv4 for Alice
@@ -368,6 +376,10 @@ class Config(object):
         'dns_label_max_len',
         'dns_cname_label',
         'dns_cname_a_addr',
+        'dns_flat_chunks',
+        'dns_flat_count',
+        'dns_flat_meta',
+        'dns_flat_chunk_size',
         'icmp_target',
         'icmp_packet_mtu',
         'icmp_pending_timeout',

@@ -9,7 +9,7 @@ exclude tests
 exclude integration_tests
 exclude scripts
 exclude sfb/profiling.py
-exclude sfb/log_profiles.py
+#exclude sfb/log_profiles.py
 exclude sfb/transport/memory
 exclude sfb/transport/lossy.py
 
@@ -34,6 +34,7 @@ module sfb.reliability.pacing role=common
 module sfb.reliability.stats role=common
 module sfb.time_provider role=common
 module sfb.logging_util role=common
+module sfb.log_profiles role=common
 module sfb.channel.channel role=common
 module sfb.channel.control_channel role=common
 module sfb.modules.base_module role=common

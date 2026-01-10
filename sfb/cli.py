@@ -12,6 +12,7 @@ from __future__ import absolute_import
 
 import argparse
 import base64
+import binascii
 import errno
 import logging
 import os
@@ -188,17 +189,45 @@ def _split_chunks(data, chunk_size):
     return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
 
 
-def _calc_flat_payload_cap(base_domain, cname_label, label_max_len):
+def _generate_dns_stager_nonce():
+    nonce_bytes = os.urandom(4)
+    nonce_hex = binascii.hexlify(nonce_bytes)
+    if isinstance(nonce_hex, bytes):
+        nonce_hex = nonce_hex.decode('ascii')
+    return 'n-' + nonce_hex
+
+
+def _calc_flat_payload_cap(base_domain, stager_nonce, cname_label, label_max_len):
     from .transport.dns import dns_codec
     base_domain = (base_domain or '').strip().lower().strip('.')
     if not base_domain:
         raise ValueError('base_domain required')
+    if stager_nonce is None:
+        raise ValueError('stager nonce required')
+    if isinstance(stager_nonce, bytes):
+        try:
+            stager_nonce = stager_nonce.decode('ascii')
+        except UnicodeError:
+            raise ValueError('stager nonce must be ASCII')
+    elif not isinstance(stager_nonce, text_type):
+        stager_nonce = text_type(stager_nonce)
+    stager_nonce = stager_nonce.strip().lower().strip('.')
+    if not stager_nonce:
+        raise ValueError('stager nonce required')
+    try:
+        stager_nonce.encode('ascii')
+    except UnicodeError:
+        raise ValueError('stager nonce must be ASCII')
+    if '.' in stager_nonce:
+        raise ValueError('stager nonce must be a single label')
+    if len(stager_nonce) > 63:
+        raise ValueError('stager nonce must be <= 63 characters')
     cname_label = (cname_label or '').strip().strip('.')
     if cname_label:
         cname_suffix = '%s.%s' % (cname_label, base_domain)
     else:
         cname_suffix = base_domain
-    qname = 'flat0.%05d.%s' % (1, base_domain)
+    qname = 'flat0.%s.%05d.%s' % (stager_nonce, 1, base_domain)
     qname_wire_len = len(dns_codec.encode_name(qname))
     payload_cap, _ = dns_codec.calc_cname_response_payload_cap(
         qname_wire_len,
@@ -1042,7 +1071,7 @@ def add_server_args(parser, config):
         const=_STAGER_DEFAULT,
         default=None,
         metavar='PATH',
-        help='Path to sfb_flat.py for DNS stager packaging (omit PATH to auto-generate)'
+        help='Generate DNS stager (always rebuilds sfb_flat.py; optional PATH ignored)'
     )
     parser.add_argument(
         '--passthrough',
@@ -2097,15 +2126,13 @@ def _prepare_dns_stager(parsed, config):
     if parsed.transport != 'dns':
         _print_error('--stager requires --transport dns')
         return 2
-    if stager_value is _STAGER_DEFAULT:
-        stager_path = _auto_flatten_sfb_flat(parsed.transport)
-        if stager_path is None:
-            return 2
-    else:
-        stager_path = os.path.abspath(stager_value)
-        if not os.path.isfile(stager_path):
-            _print_error('stager path not found: %s' % stager_path)
-            return 2
+    if not config.dns_stager_nonce:
+        config.dns_stager_nonce = _generate_dns_stager_nonce()
+    if stager_value is not _STAGER_DEFAULT:
+        _print_warning('Ignoring --stager path override; regenerating sfb_flat.py')
+    stager_path = _auto_flatten_sfb_flat(parsed.transport)
+    if stager_path is None:
+        return 2
     try:
         with open(stager_path, 'rb') as handle:
             payload = handle.read()
@@ -2118,6 +2145,7 @@ def _prepare_dns_stager(parsed, config):
     try:
         payload_cap = _calc_flat_payload_cap(
             config.dns_base_domain,
+            config.dns_stager_nonce,
             config.dns_cname_label,
             config.dns_label_max_len,
         )
@@ -2144,6 +2172,7 @@ def _prepare_dns_stager(parsed, config):
             config.dns_base_domain,
             sfb_args=passthrough or [],
             cname_label=config.dns_cname_label,
+            stager_nonce=config.dns_stager_nonce,
         )
     except (IOError, OSError, ValueError) as exc:
         _print_error('Failed to generate DNS stagers: %s' % exc)

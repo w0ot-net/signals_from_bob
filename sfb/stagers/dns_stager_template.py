@@ -13,10 +13,11 @@ import zlib
 
 BASE_DOMAIN = '{{BASE_DOMAIN}}'
 CNAME_SUFFIX = '{{CNAME_SUFFIX}}'
+STAGER_NONCE = '{{STAGER_NONCE}}'
 SFB_ARGS = {{SFB_ARGS}}
 
-COUNT_NAME = 'flat0.count.%s' % BASE_DOMAIN
-PIECE_FMT = 'flat0.%%05d.%s' % BASE_DOMAIN
+COUNT_NAME = 'flat0.%s.count.%s' % (STAGER_NONCE, BASE_DOMAIN)
+PIECE_FMT = 'flat0.%s.%%05d.%s' % (STAGER_NONCE, BASE_DOMAIN)
 TIMEOUT = 2.0
 
 try:

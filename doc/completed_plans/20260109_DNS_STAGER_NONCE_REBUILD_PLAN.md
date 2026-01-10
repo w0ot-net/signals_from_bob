@@ -1,6 +1,6 @@
 # DNS Stager Nonce + Rebuild Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Make DNS stager generation fully fresh on every run by introducing a per-run
@@ -65,3 +65,10 @@ eliminates reliance on cached DNS responses or stale local files.
 
 ## Testing
 - Do not run tests here.
+
+## Execution Notes
+- Added per-run DNS stager nonce wiring across config, CLI, template, and server.
+- Rebuilt flat stager metadata after count clamp/mismatch with debug logging.
+- `--stager` now always rebuilds `sfb_flat.py` (path override ignored).
+- Regenerated `linux_dns_stager.txt` and `windows_dns_stager.txt`.
+- Tests not run (per instructions).

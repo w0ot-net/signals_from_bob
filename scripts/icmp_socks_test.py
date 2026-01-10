@@ -230,7 +230,6 @@ def start_bob(socks_port):
         '--db-log', SERVER_DB_LOG,
         '--log-profile', 'scp_stalled_icmp_socks',
         '--module', 'socks',
-        'start',
         '--socks-host', '127.0.0.1',
         '--socks-port', str(socks_port),
     ]

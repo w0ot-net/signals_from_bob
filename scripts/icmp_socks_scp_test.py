@@ -359,7 +359,6 @@ def start_bob(socks_host, socks_port, icmp_mtu=None, max_in_flight=None,
         cmd.extend(['--max-in-flight', str(max_in_flight)])
     cmd.extend([
         '--module', 'socks',
-        'start',
         '--socks-host', socks_host,
         '--socks-port', str(socks_port),
     ])

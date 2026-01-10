@@ -327,7 +327,6 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
         cmd.extend(['--icmp-mtu', str(icmp_mtu)])
     cmd.extend([
         '--module', 'socks',
-        'start',
         '--socks-host', '127.0.0.1',
         '--socks-port', str(socks_port),
     ])

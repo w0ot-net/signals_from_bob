@@ -37,3 +37,9 @@
 
 ## Testing
 - Do not run tests here. The user will run tests as needed with python3.
+
+## Execution Notes
+- Set the SOCKS server module to non-subcommand mode and moved SOCKS CLI args to
+  the module parser.
+- Removed the `start` token from SOCKS launch scripts and the sfb.py usage
+  example.

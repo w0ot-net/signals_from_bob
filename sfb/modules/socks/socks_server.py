@@ -89,24 +89,26 @@ class SocksServerModule(BaseModule):
     """
 
     TYPE = T_SOCK
-    DEFAULT_COMMAND = 'start'
-    REQUIRES_COMMAND = True
     REMOTE_MODULE = 'socks_relay'
+    USES_SUBCOMMANDS = False
 
     @classmethod
-    def register_commands(cls, subparsers, role, config=None):
-        """Register CLI subcommands for SOCKS server."""
+    def register_commands(cls, parser, role, config=None):
+        """Register CLI arguments for the SOCKS server."""
         host_default = '0.0.0.0'
         port_default = 1080
         if config is not None:
             host_default = config.relay_listen_host
             port_default = config.relay_listen_port
-        start_p = subparsers.add_parser('start', help='Start SOCKS5 proxy server')
-        start_p.add_argument(
+        group = parser.add_argument_group(
+            'socks options',
+            'SOCKS5 proxy server settings.',
+        )
+        group.add_argument(
             '--socks-host', default=host_default,
             help='SOCKS server listen address (default: %s)' % host_default
         )
-        start_p.add_argument(
+        group.add_argument(
             '--socks-port', type=int, default=port_default,
             help='SOCKS server listen port (default: %s)' % port_default
         )

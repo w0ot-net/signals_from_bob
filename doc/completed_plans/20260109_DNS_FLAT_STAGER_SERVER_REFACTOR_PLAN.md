@@ -1,6 +1,6 @@
 # DNS Flat Stager Server Refactor Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Move DNS flat stager handling out of `sfb/transport/dns/dns_server.py` into
@@ -45,3 +45,7 @@ the helper.
 
 ## Testing
 - Do not run tests here.
+
+## Execution Notes
+- 2026-01-09: Added `dns_flat_stager` helper and delegated stager handling
+  from `DnsServer`.

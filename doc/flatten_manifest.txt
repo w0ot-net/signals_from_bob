@@ -66,7 +66,7 @@ module sfb.transport.tls_handshake_bump.tls_handshake_bump_codec role=common tra
 module sfb.transport.transport_base role=common transport=common
 module sfb.transport.mtu_limits role=common transport=common
 module sfb.transport.icmp.icmp_client role=common transport=icmp
-module sfb.transport.icmp.icmp_server role=common transport=icmp
+module sfb.transport.icmp.icmp_server role=bob transport=icmp
 module sfb.transport.icmp role=common transport=icmp
 module sfb.transport.tls_handshake_bump.tls_handshake_bump_selector role=common transport=tls_handshake_bump
 module sfb.tunnel.tunnel_control_messages role=common
@@ -88,15 +88,15 @@ module sfb.transport.dns role=common transport=dns
 module sfb.transport.proxy_helpers role=common transport=common
 module sfb.transport.tls_handshake.tls_handshake_config role=common transport=tls_handshake
 module sfb.transport.tls_handshake.tls_handshake_client role=common transport=tls_handshake
-module sfb.transport.tls_handshake.tls_handshake_server role=common transport=tls_handshake
+module sfb.transport.tls_handshake.tls_handshake_server role=bob transport=tls_handshake
 module sfb.transport.tls_handshake role=common transport=tls_handshake
 module sfb.transport.tls_handshake_bump.tls_handshake_bump_config role=common transport=tls_handshake_bump
 module sfb.transport.tls_handshake_bump.tls_handshake_bump_client role=common transport=tls_handshake_bump
-module sfb.transport.tls_handshake_bump.tls_handshake_bump_server role=common transport=tls_handshake_bump
+module sfb.transport.tls_handshake_bump.tls_handshake_bump_server role=bob transport=tls_handshake_bump
 module sfb.transport.tls_handshake_bump role=common transport=tls_handshake_bump
 module sfb.transport.udp_ephemeral.udp_ephemeral_config role=common transport=udp_ephemeral
 module sfb.transport.udp_ephemeral.udp_ephemeral_client role=common transport=udp_ephemeral
-module sfb.transport.udp_ephemeral.udp_ephemeral_server role=common transport=udp_ephemeral
+module sfb.transport.udp_ephemeral.udp_ephemeral_server role=bob transport=udp_ephemeral
 module sfb.transport.udp_ephemeral role=common transport=udp_ephemeral
 module sfb.transport role=common transport=common
 module sfb.cli role=common

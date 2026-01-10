@@ -13,7 +13,8 @@
 
 ## Affected Components
 - sfb/ (all modules included by doc/flatten_manifest.txt that use
-  comprehensions or generator expressions).
+  comprehensions or generator expressions; see
+  doc/plans/PY2_MINIFY_COMPREHENSION_INVENTORY.md.
 - doc/flatten_manifest.txt (only if module coverage needs adjustment for
   scanning).
 - scripts/flatten.py (optional: add a guard to fail if comprehensions remain).

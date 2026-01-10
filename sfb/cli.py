@@ -2126,6 +2126,16 @@ def _prepare_dns_stager(parsed, config):
     if parsed.transport != 'dns':
         _print_error('--stager requires --transport dns')
         return 2
+    if passthrough:
+        if _has_arg_prefix(passthrough, '--role'):
+            _print_error('--passthrough cannot include --role')
+            return 2
+        if _has_arg_prefix(passthrough, '--domain'):
+            _print_error('--passthrough cannot include --domain')
+            return 2
+        if _has_arg_prefix(passthrough, '--transport'):
+            _print_error('--passthrough cannot include --transport')
+            return 2
     if not config.dns_stager_nonce:
         config.dns_stager_nonce = _generate_dns_stager_nonce()
     if stager_value is not _STAGER_DEFAULT:

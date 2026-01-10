@@ -231,7 +231,15 @@ def main():
 if __name__ == '__main__':
     payload = main()
     if payload:
-        sys.argv = ['sfb_flat.py', 'alice'] + SFB_ARGS
+        sys.argv = [
+            'sfb_flat.py',
+            '--role',
+            'alice',
+            '--transport',
+            'dns',
+            '--domain',
+            BASE_DOMAIN,
+        ] + SFB_ARGS
         globals()['__name__'] = '__main__'
         globals()['__file__'] = 'sfb_flat.py'
         exec(payload)

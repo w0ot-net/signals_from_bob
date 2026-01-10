@@ -12,7 +12,6 @@ from __future__ import absolute_import
 
 import argparse
 import base64
-import binascii
 import errno
 import logging
 import os
@@ -192,64 +191,26 @@ def _split_chunks(data, chunk_size):
     return chunks
 
 
-def _generate_dns_stager_nonce():
-    nonce_bytes = os.urandom(4)
-    nonce_hex = binascii.hexlify(nonce_bytes)
-    if isinstance(nonce_hex, bytes):
-        nonce_hex = nonce_hex.decode('ascii')
-    return 'n-' + nonce_hex
+_STAGER_CACHE_BUSTER_PREFIX = 'r-'
+_STAGER_CACHE_BUSTER_HEX_LEN = 8
 
 
-def _is_base32_label(label):
-    allowed = set('ABCDEFGHIJKLMNOPQRSTUVWXYZ234567')
-    try:
-        text = label.upper()
-    except AttributeError:
-        return False
-    for ch in text:
-        if ch not in allowed:
-            return False
-    return True
+def _stager_cache_buster_sample():
+    return _STAGER_CACHE_BUSTER_PREFIX + ('0' * _STAGER_CACHE_BUSTER_HEX_LEN)
 
 
-def _normalize_stager_nonce_label(value):
-    if value is None:
-        raise ValueError('stager nonce required')
-    if isinstance(value, bytes):
-        try:
-            value = value.decode('ascii')
-        except UnicodeError:
-            raise ValueError('stager nonce must be ASCII')
-    elif not isinstance(value, text_type):
-        value = text_type(value)
-    value = value.strip().lower().strip('.')
-    if not value:
-        raise ValueError('stager nonce required')
-    try:
-        value.encode('ascii')
-    except UnicodeError:
-        raise ValueError('stager nonce must be ASCII')
-    if '.' in value:
-        raise ValueError('stager nonce must be a single label')
-    if len(value) > 63:
-        raise ValueError('stager nonce must be <= 63 characters')
-    if _is_base32_label(value):
-        raise ValueError('stager nonce must include non-base32 characters')
-    return value
-
-
-def _calc_flat_payload_cap(base_domain, stager_nonce, cname_label, label_max_len):
+def _calc_flat_payload_cap(base_domain, cname_label, label_max_len):
     from .transport.dns import dns_codec
     base_domain = (base_domain or '').strip().lower().strip('.')
     if not base_domain:
         raise ValueError('base_domain required')
-    stager_nonce = _normalize_stager_nonce_label(stager_nonce)
     cname_label = (cname_label or '').strip().strip('.')
     if cname_label:
         cname_suffix = '%s.%s' % (cname_label, base_domain)
     else:
         cname_suffix = base_domain
-    qname = '%s.%05d.%s' % (stager_nonce, 1, base_domain)
+    cache_label = _stager_cache_buster_sample()
+    qname = '%s.count.%s' % (cache_label, base_domain)
     qname_wire_len = len(dns_codec.encode_name(qname))
     payload_cap, _ = dns_codec.calc_cname_response_payload_cap(
         qname_wire_len,
@@ -2169,8 +2130,6 @@ def _prepare_dns_stager(parsed, config):
         if _has_arg_prefix(passthrough, '--transport'):
             _print_error('--passthrough cannot include --transport')
             return 2
-    if not config.dns_stager_nonce:
-        config.dns_stager_nonce = _generate_dns_stager_nonce()
     if stager_value is not _STAGER_DEFAULT:
         _print_warning('Ignoring --stager path override; regenerating sfb_flat.py')
     stager_path = _auto_flatten_sfb_flat(parsed.transport)
@@ -2188,7 +2147,6 @@ def _prepare_dns_stager(parsed, config):
     try:
         payload_cap = _calc_flat_payload_cap(
             config.dns_base_domain,
-            config.dns_stager_nonce,
             config.dns_cname_label,
             config.dns_label_max_len,
         )
@@ -2216,7 +2174,6 @@ def _prepare_dns_stager(parsed, config):
             sfb_args=passthrough or [],
             payload_bytes=payload,
             cname_label=config.dns_cname_label,
-            stager_nonce=config.dns_stager_nonce,
         )
     except (IOError, OSError, ValueError) as exc:
         _print_error('Failed to generate DNS stagers: %s' % exc)

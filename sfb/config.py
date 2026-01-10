@@ -57,8 +57,6 @@ class Config(object):
     dns_flat_meta = None
     # DNS flat stager chunk size (server-only)
     dns_flat_chunk_size = None
-    # DNS flat stager nonce label (server-only)
-    dns_stager_nonce = None
 
     # --- ICMP Transport ---
     # Target host/IPv4 for Alice
@@ -382,7 +380,6 @@ class Config(object):
         'dns_flat_count',
         'dns_flat_meta',
         'dns_flat_chunk_size',
-        'dns_stager_nonce',
         'icmp_target',
         'icmp_packet_mtu',
         'icmp_pending_timeout',
@@ -546,30 +543,6 @@ class Config(object):
             raise ValueError("dns_cname_label must be <= 63 characters")
         if self._is_base32_label(self.dns_cname_label):
             raise ValueError("dns_cname_label must include non-base32 characters")
-        if self.dns_stager_nonce is not None:
-            nonce = self.dns_stager_nonce
-            if isinstance(nonce, bytes):
-                try:
-                    nonce = nonce.decode('ascii')
-                except UnicodeError:
-                    raise ValueError("dns_stager_nonce must be ASCII")
-            try:
-                nonce = nonce.strip()
-            except AttributeError:
-                raise ValueError("dns_stager_nonce must be a string")
-            if not nonce:
-                raise ValueError("dns_stager_nonce must not be empty")
-            try:
-                nonce.encode('ascii')
-            except UnicodeError:
-                raise ValueError("dns_stager_nonce must be ASCII")
-            if '.' in nonce:
-                raise ValueError("dns_stager_nonce must be a single label")
-            if len(nonce) > 63:
-                raise ValueError("dns_stager_nonce must be <= 63 characters")
-            if self._is_base32_label(nonce):
-                raise ValueError("dns_stager_nonce must include non-base32 characters")
-            self.dns_stager_nonce = nonce.lower()
 
         # ICMP validation
         if self.icmp_packet_mtu <= 0:

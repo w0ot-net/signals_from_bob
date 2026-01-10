@@ -27,5 +27,7 @@
   readability, logging, and correctness; optimize for the least code and
   complexity with the highest performance while maintaining readability,
   logging, and correctness.
+- Coding: avoid list/dict/set comprehensions and generator expressions in sfb/
+  (flat build) so Python 2 minified builds remain safe; use explicit loops.
 - Avoid over-preserving API compatibility when a breaking change would be
   cleaner/better long term; update call sites instead.

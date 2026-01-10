@@ -48,6 +48,9 @@ falls back to the `pyminify` CLI if needed (`--minify-bin` controls the binary
 path). `scripts/flatten.py` is the only file allowed to import
 `python_minifier` directly. By default, only locals are renamed to avoid
 breaking cross-module imports.
+To keep Python 2 compatibility with local renaming enabled, avoid list/dict/set
+comprehensions and generator expressions in modules that ship in the flat
+build; use explicit loops instead.
 Use `--strip-logs` to remove `log_event(...)` and logger method calls (for
 example, `logging.info(...)` or `self._logger.error(...)`) before
 minification/bundling.

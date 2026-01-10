@@ -2181,6 +2181,7 @@ def _prepare_dns_stager(parsed, config):
         dns_stager.write_dns_stagers(
             config.dns_base_domain,
             sfb_args=passthrough or [],
+            payload_bytes=payload,
             cname_label=config.dns_cname_label,
             stager_nonce=config.dns_stager_nonce,
         )

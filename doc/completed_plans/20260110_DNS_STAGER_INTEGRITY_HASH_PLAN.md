@@ -1,6 +1,6 @@
 # DNS Stager Integrity Hash Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Embed an expected payload hash directly in the generated DNS stager
@@ -19,6 +19,7 @@ pieces, without querying Bob for the hash.
 - Changing DNS transport behavior beyond stager validation.
 
 ## Affected Components
+- `sfb/cli.py`
 - `sfb/stagers/dns_stager.py`
 - `sfb/stagers/dns_stager_template.py`
 - `linux_dns_stager.txt` (generated)
@@ -37,6 +38,8 @@ pieces, without querying Bob for the hash.
 3. Compute and embed the hash during stager generation.
    - In `dns_stager.py`, compute the SHA-256 of the rendered `sfb_flat.py`
      payload bytes before gzip compression.
+   - Pass the raw payload bytes from `sfb/cli.py` into the stager generator
+     so the hash matches the exact bytes that are gzipped for DNS serving.
    - Pass the hex digest into the template renderer so the stager can
      compare against it.
 
@@ -48,3 +51,9 @@ pieces, without querying Bob for the hash.
 
 ## Testing
 - Do not run tests here.
+
+## Execution Notes
+- Embedded a payload hash placeholder and validation in the stager template.
+- Generator now hashes the raw `sfb_flat.py` bytes passed from the CLI and
+  injects the expected hex digest into the stagers.
+- Tests not run (not requested).

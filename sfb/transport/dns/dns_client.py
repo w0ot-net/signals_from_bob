@@ -38,7 +38,6 @@ from ...protocol import (
     FLAG_ACK,
     FLAG_KEEPALIVE,
     FLAG_HAS_SEGMENTS,
-    FLAG_POLL_HINT,
 )
 from ...protocol.constants import MIN_PACKET_MTU, PACKET_HEADER_SIZE
 from ...utils import parse_host_port
@@ -100,9 +99,6 @@ class DnsClient(Transport):
         self._alice_has_data_pending = False
         self._bob_has_data_polls = 2
         self._bob_has_data_remaining = 0
-        self._poll_hint_budget = 0
-        self._poll_hint_mode = None
-        self._retransmit_guard = False
         self._recv_window_sack = 0
 
         # Parse resolver address or use system resolver
@@ -244,7 +240,6 @@ class DnsClient(Transport):
         permit = self._reserve_permit(now=now, pending_before=pending_before)
         payload_cap = self._select_payload_cap()
         self._attach_payload_cap(permit, payload_cap)
-        self._consume_poll_hint_budget()
         return permit
 
     def payload_cap_for_send(self, permit):
@@ -528,12 +523,6 @@ class DnsClient(Transport):
                 flags=flags,
             )
             return
-        poll_hint = bool(flags & FLAG_POLL_HINT)
-        if poll_hint:
-            if has_segments:
-                self._reset_poll_hint_budget('segments')
-            else:
-                self._reset_poll_hint_budget('keepalive')
         if has_segments:
             self._update_bob_data_state(True)
             return
@@ -592,33 +581,17 @@ class DnsClient(Transport):
         target = None
         query_payload = safe_query_payload
         fallback = None
-        if self._poll_hint_budget > 0:
-            if self._poll_hint_mode == 'segments' and self._alice_has_data_pending:
-                mode = 'clamp_balanced'
-                query_payload = self._balanced_query_payload
-                if query_payload is None:
-                    mode = 'clamp_max_bob'
-                    fallback = 'balanced_unavailable'
-            else:
-                mode = 'clamp_max_bob'
-            if mode == 'clamp_max_bob':
-                target = self._max_response_payload_cap
-                query_payload = self._max_query_payload_for_response_cap(target)
-                if query_payload is None:
-                    query_payload = safe_query_payload
-                    fallback = 'missing_response_cap'
-        else:
-            if (self._alice_has_data_pending and
-                    self._bob_has_data_remaining <= 0):
-                mode = 'clamp_unsafe_alice_max'
-                target = PACKET_HEADER_SIZE
-                query_payload = unsafe_query_payload
-                if (query_payload is None or
-                        query_payload < self._min_query_packet_mtu):
-                    mode = 'clamp_safe_max_alice'
-                    query_payload = safe_query_payload
-                    fallback = 'unsafe_missing_header_cap'
-                    self._log_unsafe_fallback(fallback)
+        if (self._alice_has_data_pending and
+                self._bob_has_data_remaining <= 0):
+            mode = 'clamp_unsafe_alice_max'
+            target = PACKET_HEADER_SIZE
+            query_payload = unsafe_query_payload
+            if (query_payload is None or
+                    query_payload < self._min_query_packet_mtu):
+                mode = 'clamp_safe_max_alice'
+                query_payload = safe_query_payload
+                fallback = 'unsafe_missing_header_cap'
+                self._log_unsafe_fallback(fallback)
         if query_payload is not None:
             if query_payload > self._raw_query_packet_mtu:
                 query_payload = self._raw_query_packet_mtu
@@ -633,15 +606,12 @@ class DnsClient(Transport):
                 'mode': mode,
                 'alice_has_data': self._alice_has_data_pending,
                 'bob_has_data_remaining': self._bob_has_data_remaining,
-                'retransmit_guard': self._retransmit_guard,
                 'recv_window_sack': self._recv_window_sack,
                 'raw_query_packet_mtu': self._raw_query_packet_mtu,
                 'safe_query_payload': safe_query_payload,
                 'unsafe_query_payload': unsafe_query_payload,
                 'target_response_payload': target,
                 'query_payload_cap': query_payload,
-                'poll_hint_budget': self._poll_hint_budget,
-                'poll_hint_mode': self._poll_hint_mode,
                 'fallback': fallback,
             },
         )
@@ -685,23 +655,6 @@ class DnsClient(Transport):
             return
         if self._bob_has_data_remaining > 0:
             self._bob_has_data_remaining -= 1
-
-    def _reset_poll_hint_budget(self, mode=None):
-        target = 8
-        if target < 1:
-            target = 1
-        self._poll_hint_budget = target
-        self._poll_hint_mode = mode
-        self._retransmit_guard = True
-
-    def _consume_poll_hint_budget(self):
-        if self._poll_hint_budget <= 0:
-            return
-        self._poll_hint_budget -= 1
-        if self._poll_hint_budget <= 0:
-            self._poll_hint_budget = 0
-            self._retransmit_guard = False
-            self._poll_hint_mode = None
 
     def _init_response_caps(self):
         raw_query_mtu = self._raw_query_packet_mtu

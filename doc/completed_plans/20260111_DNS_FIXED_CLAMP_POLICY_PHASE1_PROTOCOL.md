@@ -1,6 +1,6 @@
 # DNS Fixed Clamp Policy Phase 1 - Protocol and Tunnel
 
-Status: draft
+Status: completed
 
 ## Summary
 Remove POLL_HINT from the protocol and tunnel implementation. This is a
@@ -56,3 +56,12 @@ breaking change; both sides must upgrade together.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes (20260111)
+- Removed FLAG_POLL_HINT from protocol constants, PacketHeader validation, and
+  protocol exports; marked bit 4 reserved.
+- Dropped poll-hint validation/log fields in BaseTunnel and removed poll-hint
+  response behavior from Bob.
+- Removed DNS client poll-hint clamp state to keep call sites consistent with
+  the flag removal.
+- Tests not run (per plan).

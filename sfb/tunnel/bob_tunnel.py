@@ -19,7 +19,6 @@ from ..protocol import (
     FLAG_ACK,
     FLAG_KEEPALIVE,
     FLAG_HAS_SEGMENTS,
-    FLAG_POLL_HINT,
     PACKET_HEADER_SIZE,
 )
 
@@ -327,7 +326,6 @@ class BobTunnel(BaseTunnel):
     def _send_retransmit_response(self, responder, response_payload_cap, now,
                                   seq, segments, flags, encrypted_body,
                                   context='retransmit', reason=None):
-        flags |= FLAG_POLL_HINT
         packet = self._rebuild_packet(seq, segments, flags=flags)
         encrypted_body, response_data = self._encode_packet_for_send(
             packet,
@@ -335,7 +333,6 @@ class BobTunnel(BaseTunnel):
         )
         if (response_payload_cap is not None and
                 len(response_data) > response_payload_cap):
-            poll_hint = True
             log_event(
                 self._logger,
                 logging.DEBUG,
@@ -364,7 +361,6 @@ class BobTunnel(BaseTunnel):
                         'seq': seq,
                         'bytes': len(response_data),
                         'cap': response_payload_cap,
-                        'poll_hint': poll_hint,
                         'segments': 0,
                         'response': 'keepalive',
                         'side': 'bob',
@@ -374,7 +370,7 @@ class BobTunnel(BaseTunnel):
                 now = log_now
             if not self._send_window.can_send:
                 dropped_seq = self._send_window.drop_oldest_keepalive(
-                    reason='poll_hint_window_full', now=now
+                    reason='window_full', now=now
                 )
                 if dropped_seq is not None:
                     self._log_reliability_state(
@@ -383,7 +379,7 @@ class BobTunnel(BaseTunnel):
                         'Reliability state after keepalive drop',
                         now=now,
                         extra_fields={
-                            'context': 'poll_hint_keepalive',
+                            'context': 'keepalive',
                             'reason': 'window_full',
                             'seq': dropped_seq,
                         },
@@ -391,7 +387,6 @@ class BobTunnel(BaseTunnel):
             self._send_keepalive_response(
                 responder,
                 now,
-                poll_hint=poll_hint,
             )
             return False
         prev_info = self._send_window.get_unacked_info(seq)
@@ -454,10 +449,8 @@ class BobTunnel(BaseTunnel):
         )
         return True
 
-    def _send_keepalive_response(self, responder, now, poll_hint=False):
+    def _send_keepalive_response(self, responder, now):
         flags = FLAG_KEEPALIVE
-        if poll_hint:
-            flags |= FLAG_POLL_HINT
         packet, _ = self._build_packet(
             flags=flags,
             segments=[],
@@ -485,7 +478,6 @@ class BobTunnel(BaseTunnel):
                     'reason': 'window_full',
                     'error': str(exc),
                     'side': 'bob',
-                    'poll_hint': poll_hint,
                     'unacked': self._send_window.unacked_count,
                     'max_in_flight': self._send_window._max_in_flight,
                 },
@@ -493,10 +485,8 @@ class BobTunnel(BaseTunnel):
             return False
         return True
 
-    def _send_segments_response(self, responder, now, segments, poll_hint=False):
+    def _send_segments_response(self, responder, now, segments):
         flags = FLAG_HAS_SEGMENTS
-        if poll_hint:
-            flags |= FLAG_POLL_HINT
         packet, _ = self._build_packet(
             flags=flags,
             segments=segments,
@@ -593,16 +583,12 @@ class BobTunnel(BaseTunnel):
                 cap_payload = 0
             if cap_payload < max_payload:
                 max_payload = cap_payload
-        segments, pending_data = self._collect_segments(
-            max_payload,
-            return_pending=True,
-        )
+        segments = self._collect_segments(max_payload)
 
         if not segments:
             decision.update({
                 'action': 'keepalive',
                 'context': 'keepalive',
-                'poll_hint': bool(pending_data),
             })
             return decision
 
@@ -610,7 +596,6 @@ class BobTunnel(BaseTunnel):
             'action': 'segments',
             'context': 'segments',
             'segments': segments,
-            'poll_hint': bool(pending_data),
         })
         return decision
 
@@ -766,7 +751,6 @@ class BobTunnel(BaseTunnel):
             self._send_keepalive_response(
                 responder,
                 now,
-                poll_hint=decision.get('poll_hint', False),
             )
             return
         if action == 'segments':
@@ -774,7 +758,6 @@ class BobTunnel(BaseTunnel):
                 responder,
                 now,
                 decision.get('segments'),
-                poll_hint=decision.get('poll_hint', False),
             )
             return
 

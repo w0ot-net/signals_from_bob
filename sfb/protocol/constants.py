@@ -31,7 +31,7 @@ FLAG_SYN = 0x01
 FLAG_ACK = 0x02
 FLAG_KEEPALIVE = 0x04
 FLAG_HAS_SEGMENTS = 0x08
-FLAG_POLL_HINT = 0x10
+# 0x10 reserved for future use
 
 # Sequence number space
 SEQ_MAX = 0xFFFF

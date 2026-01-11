@@ -6,6 +6,10 @@ Status: draft
 Enable DNS name compression in CNAME responses to reduce response size and
 increase effective payload capacity for DNS transport.
 
+## Related Plans
+- `doc/plans/DNS_CNAME_COMPRESSION_CLEAN_BREAKS_PLAN.md` (breaking-change
+  follow-on to execute alongside this plan)
+
 ## Goals
 - Use compression pointers for the CNAME answer name and CNAME target suffix.
 - Update payload cap calculations to account for compressed responses.
@@ -30,8 +34,9 @@ increase effective payload capacity for DNS transport.
    - Add a helper to compute the base-domain pointer offset inside a query
      name given `qname_wire_len` and `base_domain_wire_len`.
    - Add a helper that builds CNAME RDATA with a compressed base-domain suffix:
-     encode data labels + CNAME label, then append a compression pointer to the
-     base-domain offset.
+     encode data labels + CNAME label without a root terminator (do not use
+     `encode_name()` directly or strip its trailing `0x00`), then append a
+     compression pointer to the base-domain offset.
 2. Update payload cap calculations for compression.
    - Extend `calc_cname_response_payload_cap` to accept `base_domain` and a
      `use_compression` flag, and compute:

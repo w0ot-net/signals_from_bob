@@ -193,15 +193,10 @@ def _split_chunks(data, chunk_size):
 
 _STAGER_CACHE_BUSTER_PREFIX = 'r-'
 _STAGER_CACHE_BUSTER_HEX_LEN = 8
-_STAGER_INDEX_HEX_LEN = 8
 
 
 def _stager_cache_buster_sample():
     return _STAGER_CACHE_BUSTER_PREFIX + ('0' * _STAGER_CACHE_BUSTER_HEX_LEN)
-
-
-def _stager_index_label_sample():
-    return 'f' * _STAGER_INDEX_HEX_LEN
 
 
 def _calc_flat_payload_cap(base_domain, cname_label, label_max_len):
@@ -215,8 +210,7 @@ def _calc_flat_payload_cap(base_domain, cname_label, label_max_len):
     else:
         cname_suffix = base_domain
     cache_label = _stager_cache_buster_sample()
-    index_label = _stager_index_label_sample()
-    qname = '%s.%s.%s' % (cache_label, index_label, base_domain)
+    qname = '%s.count.%s' % (cache_label, base_domain)
     qname_wire_len = len(dns_codec.encode_name(qname))
     payload_cap, _ = dns_codec.calc_cname_response_payload_cap(
         qname_wire_len,

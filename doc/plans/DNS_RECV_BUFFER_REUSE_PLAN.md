@@ -1,6 +1,6 @@
 # DNS Receive Buffer Reuse Plan
 
-Status: completed
+Status: draft
 
 ## Summary
 Reduce per-packet allocations in the DNS client by reusing a UDP receive buffer
@@ -51,10 +51,3 @@ entire packet.
 
 ## Testing
 - Do not run tests.
-
-## Execution Notes
-- Reused a preallocated DNS client receive buffer and refreshed it when the
-  configured size changes.
-- Switched DNS name parsing to operate on bytes-like views and only copy
-  per-label slices for ASCII decoding.
-- Tests not run (not requested).

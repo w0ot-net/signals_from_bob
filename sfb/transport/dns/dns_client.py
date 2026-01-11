@@ -23,7 +23,7 @@ from ..transport_base import (
 from ..mtu_limits import resolve_mtu_limits
 from . import dns_codec as codec
 from .dns_utils import load_system_resolvers
-from ...compat import buffer_view, require_bytes_like
+from ...compat import require_bytes_like
 from ...config import Config
 from ...logging_util import get_logger, log_event
 from ...protocol import (
@@ -188,7 +188,6 @@ class DnsClient(Transport):
             lambda: mtu_details,
         )
         self._recv_bufsize = max(self._edns_size, config.dns_recv_bufsize_min)
-        self._recv_buf = bytearray(self._recv_bufsize)
 
         # Pending query tracking
         self._next_corr_id = 0
@@ -379,15 +378,10 @@ class DnsClient(Transport):
                    (None, None) if no valid response available
         """
         try:
-            recv_buf = self._recv_buf
-            if recv_buf is None or len(recv_buf) != self._recv_bufsize:
-                recv_buf = bytearray(self._recv_bufsize)
-                self._recv_buf = recv_buf
-            recv_len, addr = self._sock.recvfrom_into(recv_buf)
+            resp_data, addr = self._sock.recvfrom(self._recv_bufsize)
         except socket.error as e:
             raise TransportError('Receive failed: %s' % e)
 
-        resp_data = buffer_view(recv_buf, length=recv_len)
         result = self._parse_response(resp_data)
         if result is None:
             log_event(
@@ -396,7 +390,7 @@ class DnsClient(Transport):
                 'dns.malformed_response',
                 'DNS response malformed',
                 lambda: {
-                    'bytes': recv_len,
+                    'bytes': len(resp_data),
                     'addr': '%s:%d' % (addr[0], addr[1]),
                 },
             )

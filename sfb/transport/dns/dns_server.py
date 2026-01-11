@@ -16,6 +16,7 @@ from ..transport_base import Server, TransportError, raise_bind_error
 from ..mtu_limits import resolve_mtu_limits
 from . import dns_codec as codec
 from .dns_flat_stager import DnsFlatStager
+from ...compat import buffer_view
 from ...config import Config
 from ...logging_util import get_logger, log_event
 from ...protocol.constants import MIN_PACKET_MTU
@@ -394,6 +395,7 @@ class DnsServer(Server):
         Raises:
             ValueError: on parse error
         """
+        data = buffer_view(data)
         if len(data) < 12:
             raise ValueError('Query too short')
 

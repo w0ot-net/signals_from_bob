@@ -13,7 +13,7 @@ import struct
 
 from ..base32 import base32_decode as shared_base32_decode
 from ..base32 import base32_encode as shared_base32_encode
-from ...compat import byte_at, require_bytes_like, text_type, to_bytes
+from ...compat import buffer_view, byte_at, require_bytes_like, text_type, to_bytes
 from ...config import DNS_STANDARD_SIZE
 
 # DNS constants
@@ -115,7 +115,7 @@ def decode_name(data, offset, allow_compression=True):
     Returns:
         tuple: (name_string, new_offset)
     """
-    data = to_bytes(data)
+    data = buffer_view(data)
     labels = []
     jumped = False
     end_offset = None
@@ -157,7 +157,8 @@ def decode_name(data, offset, allow_compression=True):
         offset += 1
         if offset + length > len(data):
             raise ValueError('Label exceeds data')
-        labels.append(data[offset:offset + length].decode('ascii'))
+        label = data[offset:offset + length]
+        labels.append(to_bytes(label).decode('ascii'))
         offset += length
         if not jumped:
             end_offset = offset
@@ -171,7 +172,7 @@ def decode_name(data, offset, allow_compression=True):
 
 def skip_name(data, offset):
     """Skip a DNS name in wire format, return new offset."""
-    data = to_bytes(data)
+    data = buffer_view(data)
     while offset < len(data):
         length = byte_at(data, offset)
         if length == 0:

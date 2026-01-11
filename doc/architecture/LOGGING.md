@@ -64,6 +64,7 @@ Available profiles (current):
 - `file_transfer_put_debug`
 - `icmp_retransmit_debug`
 - `icmp_transport`
+- `sack_bitmap_probe`
 - `no_logging`
 - `scp_stalled_icmp_socks`
 - `socks_starvation`

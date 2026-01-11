@@ -1,6 +1,6 @@
 # DNS DNS ID Array Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Replace the per-packet DNS ID lookup dict with a fixed 65536-entry list to
@@ -33,3 +33,8 @@ avoid hash lookups on every send and receive.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- Replaced DNS ID lookup dict with a fixed-size list and reset slots to None on
+  completion, error, and prune cleanup.
+- Tests not run (not requested).

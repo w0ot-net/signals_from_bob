@@ -192,7 +192,7 @@ class DnsClient(Transport):
         # Pending query tracking
         self._next_corr_id = 0
         self._pending = PendingTracker(self._pending_timeout)
-        self._dns_to_corr = {}  # dns_id -> corr_id
+        self._dns_to_corr = [None] * 0x10000  # dns_id -> corr_id or None
 
     @property
     def send_packet_mtu(self):
@@ -398,7 +398,8 @@ class DnsClient(Transport):
 
         dns_id, qname, payload, rcode, reason = result
 
-        if dns_id not in self._dns_to_corr:
+        corr_id = self._dns_to_corr[dns_id]
+        if corr_id is None:
             log_event(
                 _LOG,
                 logging.DEBUG,
@@ -412,7 +413,6 @@ class DnsClient(Transport):
             )
             return (None, None)  # Stale or unknown query
 
-        corr_id = self._dns_to_corr[dns_id]
         pending = self._pending.get(corr_id)
         if pending is None:
             log_event(
@@ -463,12 +463,12 @@ class DnsClient(Transport):
             )
             # Clean up tracking to avoid pending exhaustion
             self._pending.pop(corr_id)
-            del self._dns_to_corr[dns_id]
+            self._dns_to_corr[dns_id] = None
             return (None, None)  # RCODE error, drop
 
         # Clean up tracking
         self._pending.pop(corr_id)
-        del self._dns_to_corr[dns_id]
+        self._dns_to_corr[dns_id] = None
 
         self._update_bob_data_from_payload(payload)
         log_event(
@@ -539,7 +539,7 @@ class DnsClient(Transport):
 
     def _on_prune(self, stale):
         for _, pending in stale:
-            self._dns_to_corr.pop(pending.dns_id, None)
+            self._dns_to_corr[pending.dns_id] = None
 
     def _prune_stale(self, now=None):
         """Remove stale pending queries to free capacity."""
@@ -923,7 +923,7 @@ class DnsClient(Transport):
     def close(self):
         """Close the UDP socket and cancel all pending queries."""
         self._pending.clear()
-        self._dns_to_corr.clear()
+        self._dns_to_corr = [None] * 0x10000
         if self._sock:
             self._sock.close()
             self._sock = None

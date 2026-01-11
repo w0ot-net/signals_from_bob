@@ -1,6 +1,6 @@
 # DNS Flat Phase 3: Documentation
 
-Status: draft
+Status: completed
 
 ## Summary
 Document server and stager one-liner usage for the DNS flat loader workflow.
@@ -29,3 +29,8 @@ Document server and stager one-liner usage for the DNS flat loader workflow.
 
 ## Testing
 - Do not run tests here.
+
+## Execution Notes
+- Expanded `README.md` with DNS stager one-liner usage, passthrough guidance,
+  resolver detection behavior, and base domain/CNAME label alignment notes.
+- Tests not run (per instructions).

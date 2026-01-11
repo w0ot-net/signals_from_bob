@@ -1,6 +1,6 @@
 # DNS Parse Response Struct Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Make `dns_client._parse_response` return a lightweight structured result so
@@ -32,3 +32,7 @@ call sites read more clearly without adding per-packet overhead.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- 2026-01-11: Added ParseResult container, updated _parse_response returns and
+  _try_recv field access, and refreshed the docstring.

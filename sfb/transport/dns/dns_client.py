@@ -8,6 +8,7 @@ Supports pipelining with multiple in-flight queries.
 
 from __future__ import absolute_import
 
+from collections import namedtuple
 import logging
 import random
 import select
@@ -49,6 +50,12 @@ class _PendingQuery(object):
     def __init__(self, dns_id, qname):
         self.dns_id = dns_id
         self.qname = qname
+
+
+ParseResult = namedtuple(
+    'ParseResult',
+    ('dns_id', 'qname', 'payload', 'rcode', 'reason'),
+)
 
 
 class DnsClient(Transport):
@@ -396,7 +403,11 @@ class DnsClient(Transport):
             )
             return (None, None)  # Malformed packet
 
-        dns_id, qname, payload, rcode, reason = result
+        dns_id = result.dns_id
+        qname = result.qname
+        payload = result.payload
+        rcode = result.rcode
+        reason = result.reason
 
         corr_id = self._dns_to_corr[dns_id]
         if corr_id is None:
@@ -833,9 +844,9 @@ class DnsClient(Transport):
         Parse DNS response packet.
 
         Returns:
-            tuple: (query_id, qname, payload_bytes, rcode, reason) on success
-            tuple: (query_id, qname, None, rcode, reason) if response has no payload
-            tuple: (query_id, qname, None, None, reason) if packet is malformed
+            ParseResult: dns_id, qname, payload, rcode, reason for any packet
+                with a readable DNS header.
+            None: if packet is too short to contain a DNS header.
         """
         if len(data) < 12:
             return None
@@ -845,12 +856,12 @@ class DnsClient(Transport):
         )
 
         if not (flags & codec.FLAG_QR):
-            return query_id, None, None, None, 'not_response'
+            return ParseResult(query_id, None, None, None, 'not_response')
 
         # Check RCODE
         rcode = flags & codec.RCODE_MASK
         if rcode != codec.RCODE_NOERROR:
-            return query_id, None, None, rcode, 'rcode'
+            return ParseResult(query_id, None, None, rcode, 'rcode')
 
         # Skip questions
         offset = 12
@@ -866,13 +877,13 @@ class DnsClient(Transport):
                     offset = codec.skip_name(data, offset)
                 offset += 4  # QTYPE + QCLASS
         except ValueError:
-            return query_id, None, None, None, 'question_parse'
+            return ParseResult(query_id, None, None, None, 'question_parse')
 
         if qname is None:
-            return query_id, None, None, None, 'question_parse'
+            return ParseResult(query_id, None, None, None, 'question_parse')
 
         if ancount < 1:
-            return query_id, qname, None, rcode, 'no_answer'
+            return ParseResult(query_id, qname, None, rcode, 'no_answer')
 
         for _ in range(ancount):
             try:
@@ -880,10 +891,10 @@ class DnsClient(Transport):
                     data, offset, allow_compression=True
                 )
             except ValueError:
-                return query_id, qname, None, rcode, 'answer_name'
+                return ParseResult(query_id, qname, None, rcode, 'answer_name')
 
             if offset + 10 > len(data):
-                return query_id, qname, None, rcode, 'answer_header'
+                return ParseResult(query_id, qname, None, rcode, 'answer_header')
 
             rtype, rclass, ttl, rdlength = struct.unpack(
                 '>HHIH', data[offset:offset + 10]
@@ -891,7 +902,13 @@ class DnsClient(Transport):
             offset += 10
 
             if offset + rdlength > len(data):
-                return query_id, qname, None, rcode, 'answer_rdlength'
+                return ParseResult(
+                    query_id,
+                    qname,
+                    None,
+                    rcode,
+                    'answer_rdlength',
+                )
 
             if rclass != codec.QCLASS_IN or rtype != self._rtype:
                 offset += rdlength
@@ -906,21 +923,39 @@ class DnsClient(Transport):
                     data, offset, allow_compression=True
                 )
             except ValueError:
-                return query_id, qname, None, rcode, 'cname_decode'
+                return ParseResult(query_id, qname, None, rcode, 'cname_decode')
 
             if end_offset > offset + rdlength:
-                return query_id, qname, None, rcode, 'cname_rdlength'
+                return ParseResult(
+                    query_id,
+                    qname,
+                    None,
+                    rcode,
+                    'cname_rdlength',
+                )
 
             try:
                 payload = codec.decode_cname_target(
                     cname, self._cname_suffix, self._label_max_len
                 )
             except ValueError:
-                return query_id, qname, None, rcode, 'payload_decode'
+                return ParseResult(
+                    query_id,
+                    qname,
+                    None,
+                    rcode,
+                    'payload_decode',
+                )
 
-            return query_id, qname, payload, rcode, 'ok'
+            return ParseResult(query_id, qname, payload, rcode, 'ok')
 
-        return query_id, qname, None, rcode, 'no_matching_answer'
+        return ParseResult(
+            query_id,
+            qname,
+            None,
+            rcode,
+            'no_matching_answer',
+        )
 
     def close(self):
         """Close the UDP socket and cancel all pending queries."""

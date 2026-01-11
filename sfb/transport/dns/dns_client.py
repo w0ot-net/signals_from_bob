@@ -23,6 +23,11 @@ from ..transport_base import (
 )
 from ..mtu_limits import resolve_mtu_limits
 from . import dns_codec as codec
+from .dns_constants import (
+    DNS_HEADER_LEN,
+    DNS_QUESTION_FIXED_LEN,
+    DNS_RR_FIXED_LEN,
+)
 from .dns_utils import load_system_resolvers
 from ...compat import require_bytes_like
 from ...config import Config
@@ -848,11 +853,11 @@ class DnsClient(Transport):
                 with a readable DNS header.
             None: if packet is too short to contain a DNS header.
         """
-        if len(data) < 12:
+        if len(data) < DNS_HEADER_LEN:
             return None
 
         query_id, flags, qdcount, ancount, nscount, arcount = struct.unpack(
-            '>HHHHHH', data[:12]
+            '>HHHHHH', data[:DNS_HEADER_LEN]
         )
 
         if not (flags & codec.FLAG_QR):
@@ -864,7 +869,7 @@ class DnsClient(Transport):
             return ParseResult(query_id, None, None, rcode, 'rcode')
 
         # Skip questions
-        offset = 12
+        offset = DNS_HEADER_LEN
         qname = None
         try:
             for _ in range(qdcount):
@@ -875,7 +880,7 @@ class DnsClient(Transport):
                     qname = qname.lower()
                 else:
                     offset = codec.skip_name(data, offset)
-                offset += 4  # QTYPE + QCLASS
+                offset += DNS_QUESTION_FIXED_LEN
         except ValueError:
             return ParseResult(query_id, None, None, None, 'question_parse')
 
@@ -893,13 +898,13 @@ class DnsClient(Transport):
             except ValueError:
                 return ParseResult(query_id, qname, None, rcode, 'answer_name')
 
-            if offset + 10 > len(data):
+            if offset + DNS_RR_FIXED_LEN > len(data):
                 return ParseResult(query_id, qname, None, rcode, 'answer_header')
 
             rtype, rclass, ttl, rdlength = struct.unpack(
-                '>HHIH', data[offset:offset + 10]
+                '>HHIH', data[offset:offset + DNS_RR_FIXED_LEN]
             )
-            offset += 10
+            offset += DNS_RR_FIXED_LEN
 
             if offset + rdlength > len(data):
                 return ParseResult(

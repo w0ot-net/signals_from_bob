@@ -15,6 +15,7 @@ import struct
 from ..transport_base import Server, TransportError, raise_bind_error
 from ..mtu_limits import resolve_mtu_limits
 from . import dns_codec as codec
+from .dns_constants import DNS_HEADER_LEN, DNS_QUESTION_FIXED_LEN
 from .dns_flat_stager import DnsFlatStager
 from ...config import Config
 from ...logging_util import get_logger, log_event
@@ -394,11 +395,11 @@ class DnsServer(Server):
         Raises:
             ValueError: on parse error
         """
-        if len(data) < 12:
+        if len(data) < DNS_HEADER_LEN:
             raise ValueError('Query too short')
 
         query_id, flags, qdcount, ancount, nscount, arcount = struct.unpack(
-            '>HHHHHH', data[:12]
+            '>HHHHHH', data[:DNS_HEADER_LEN]
         )
 
         # Should be a query (QR=0)
@@ -409,12 +410,15 @@ class DnsServer(Server):
             raise ValueError('No question')
 
         # Parse question
-        qname, offset = codec.decode_name(data, 12)
+        qname, offset = codec.decode_name(data, DNS_HEADER_LEN)
 
-        if offset + 4 > len(data):
+        if offset + DNS_QUESTION_FIXED_LEN > len(data):
             raise ValueError('Question truncated')
 
-        qtype, qclass = struct.unpack('>HH', data[offset:offset + 4])
+        qtype, qclass = struct.unpack(
+            '>HH',
+            data[offset:offset + DNS_QUESTION_FIXED_LEN],
+        )
 
         if qclass != codec.QCLASS_IN:
             raise ValueError('Unexpected class %d' % qclass)
@@ -447,7 +451,7 @@ class DnsServer(Server):
         # Answer
         if self._rtype != codec.QTYPE_CNAME:
             raise TransportError('Unsupported response type')
-        answer = codec.build_compression_pointer(12)
+        answer = codec.build_compression_pointer(DNS_HEADER_LEN)
 
         try:
             cname_target = codec.encode_cname_target(
@@ -474,7 +478,7 @@ class DnsServer(Server):
             qname_wire_len, base_domain_wire_len
         )
         if base_offset is not None:
-            pointer_offset = 12 + base_offset
+            pointer_offset = DNS_HEADER_LEN + base_offset
             try:
                 rdata = codec.build_cname_rdata_compressed(
                     data,

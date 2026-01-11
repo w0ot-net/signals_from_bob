@@ -2177,8 +2177,10 @@ def _prepare_dns_stager(parsed, config):
     config.dns_flat_count = count
     config.dns_flat_meta = meta
     config.dns_flat_chunk_size = payload_cap
-    index_seed = _generate_stager_index_seed()
-    config.dns_flat_index_seed = index_seed
+    index_seed = config.dns_flat_index_seed
+    if index_seed is None:
+        index_seed = _generate_stager_index_seed()
+        config.dns_flat_index_seed = index_seed
     try:
         from .stagers import dns_stager
         dns_stager.write_dns_stagers(

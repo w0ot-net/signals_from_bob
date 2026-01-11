@@ -38,6 +38,40 @@ def _get_socket_error(exc):
     return err
 
 
+def _add_socket_close_reason(mapping, name, reason):
+    code = getattr(errno, name, None)
+    if code is None:
+        return
+    mapping[code] = reason
+
+
+def _build_socket_close_reasons():
+    reasons = {}
+    reasons[errno.EPIPE] = 'peer_closed'
+    reasons[errno.ECONNRESET] = 'peer_reset'
+    reasons[errno.ECONNABORTED] = 'peer_abort'
+    reasons[errno.ENOTCONN] = 'peer_closed'
+    reasons[errno.ESHUTDOWN] = 'peer_closed'
+    reasons[errno.ETIMEDOUT] = 'peer_timeout'
+    _add_socket_close_reason(reasons, 'WSAEPIPE', 'peer_closed')
+    _add_socket_close_reason(reasons, 'WSAECONNRESET', 'peer_reset')
+    _add_socket_close_reason(reasons, 'WSAECONNABORTED', 'peer_abort')
+    _add_socket_close_reason(reasons, 'WSAENOTCONN', 'peer_closed')
+    _add_socket_close_reason(reasons, 'WSAESHUTDOWN', 'peer_closed')
+    _add_socket_close_reason(reasons, 'WSAETIMEDOUT', 'peer_timeout')
+    return reasons
+
+
+_SOCKET_CLOSE_REASONS = _build_socket_close_reasons()
+
+
+def _expected_socket_close_reason(exc):
+    err = _get_socket_error(exc)
+    if err is None:
+        return None
+    return _SOCKET_CLOSE_REASONS.get(err)
+
+
 def _is_would_block(exc):
     err = _get_socket_error(exc)
     if err is None:
@@ -94,6 +128,13 @@ def _channel_state_snapshot(channel):
 def _shutdown_socket_write(sock):
     try:
         sock.shutdown(socket.SHUT_WR)
+    except Exception:
+        pass
+
+
+def _close_channel_on_socket_close(channel):
+    try:
+        channel.close()
     except Exception:
         pass
 
@@ -344,6 +385,13 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 if stats_enabled:
                     select_wait_time += time_provider.now() - select_start
             except Exception as exc:
+                close_reason = _expected_socket_close_reason(exc)
+                if close_reason is not None:
+                    exit_reason = close_reason
+                    exit_error = exc
+                    if not stop_event.is_set():
+                        invoke_close_callback()
+                    break
                 fatal_error = True
                 exit_reason = 'socket_select_error'
                 exit_error = exc
@@ -376,6 +424,13 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 except socket.error as exc:
                     if _is_would_block(exc):
                         break
+                    close_reason = _expected_socket_close_reason(exc)
+                    if close_reason is not None:
+                        exit_reason = close_reason
+                        exit_error = exc
+                        if not stop_event.is_set():
+                            invoke_close_callback()
+                        return
                     fatal_error = True
                     exit_reason = 'socket_recv_error'
                     exit_error = exc
@@ -668,6 +723,12 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     if stats_enabled:
                         select_wait_time += time_provider.now() - select_start
                 except Exception as exc:
+                    close_reason = _expected_socket_close_reason(exc)
+                    if close_reason is not None:
+                        exit_reason = close_reason
+                        exit_error = exc
+                        _close_channel_on_socket_close(channel)
+                        break
                     fatal_error = True
                     exit_reason = 'socket_select_error'
                     exit_error = exc
@@ -688,6 +749,12 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                         if _is_would_block(exc):
                             sent = 0
                         else:
+                            close_reason = _expected_socket_close_reason(exc)
+                            if close_reason is not None:
+                                exit_reason = close_reason
+                                exit_error = exc
+                                _close_channel_on_socket_close(channel)
+                                break
                             fatal_error = True
                             exit_reason = 'socket_send_error'
                             exit_error = exc

@@ -23,6 +23,26 @@ def _event_name(prefix, name):
     return '%s.%s' % (prefix, name)
 
 
+def _select_close_reason(pump_reasons):
+    if not pump_reasons:
+        return None
+    preferred = (
+        'peer_reset',
+        'peer_abort',
+        'peer_timeout',
+        'peer_closed',
+        'socket_eof',
+        'channel_eof',
+        'remote_half_close',
+        'channel_closed',
+    )
+    for wanted in preferred:
+        for reason in pump_reasons.values():
+            if reason == wanted:
+                return wanted
+    return None
+
+
 class RelayConnection(object):
     """Manages a bidirectional relay between a socket and a tunnel channel."""
 
@@ -150,6 +170,10 @@ class RelayConnection(object):
             'channel_eof',
             'remote_half_close',
             'channel_closed',
+            'peer_closed',
+            'peer_reset',
+            'peer_abort',
+            'peer_timeout',
         )
         if fatal_error:
             stop_cause = 'error'
@@ -168,6 +192,9 @@ class RelayConnection(object):
             summary['pump_errors'] = pump_errors
         if pump_durations:
             summary['pump_durations'] = pump_durations
+        close_reason = _select_close_reason(pump_reasons)
+        if close_reason is not None:
+            summary['close_reason'] = close_reason
         add_fields(summary, {
             'bytes_from_peer': socket_to_channel.get('bytes_in_total'),
             'bytes_to_peer': channel_to_socket.get('bytes_out_total'),

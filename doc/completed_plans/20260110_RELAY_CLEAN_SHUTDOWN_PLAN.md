@@ -1,7 +1,5 @@
 # Relay Clean Shutdown Plan
 
-Status: draft
-
 ## Summary
 Treat common peer disconnects as expected so relay channels shut down cleanly
 on both sides without being flagged as fatal.
@@ -51,3 +49,9 @@ on both sides without being flagged as fatal.
 
 ## Validation
 - Do not run tests here.
+
+## Execution Notes
+- Classified expected socket-close errors and treated them as clean shutdowns
+  with channel close propagation.
+- Relay summaries now include close_reason and treat peer-close reasons as eof.
+- SOCKS server now uses clean channel half-close on client disconnects.

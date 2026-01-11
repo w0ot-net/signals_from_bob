@@ -411,10 +411,6 @@ class SocksServerModule(BaseModule):
                     'socks-rid%d-c2ch' % rid,
                     'socks-rid%d-ch2c' % rid,
                 ),
-                socket_eof_callback=lambda: channel.abort(
-                    code='client_closed',
-                    message='SOCKS client disconnected',
-                ),
                 close_on_socket_error=True,
             )
             with self._connections_lock:

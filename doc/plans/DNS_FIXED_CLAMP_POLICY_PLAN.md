@@ -67,6 +67,10 @@ together.
        using compression parameters from the CNAME compression plan.
      - Track the smallest non-zero cap; return it along with the packet-size
        ceiling for logging.
+   - Treat compression as mandatory for this helper: if compression cannot be
+     applied for the current base domain/cname suffix, raise a TransportError
+     (this should never happen if the CNAME compression plan is implemented
+     correctly).
    - If the minimum cap is below `MIN_PACKET_MTU`, raise a TransportError with
      base-domain, label, and EDNS sizing context.
 

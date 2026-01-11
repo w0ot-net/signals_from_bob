@@ -1,6 +1,6 @@
 # DNS Flat Stager Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Add very thin, OS-specific DNS stagers that download `sfb_flat.py` over
@@ -109,3 +109,16 @@ Phase 3: documentation
 
 ## Testing
 - Do not run tests here.
+
+## Execution Notes
+- Implemented DNS stager generation in `sfb/cli.py` with `--stager` and
+  `--passthrough`, including auto-flattening, gzip chunking, and config wiring.
+- Added DNS flat stager server handling via `sfb/transport/dns/dns_flat_stager.py`
+  and the DNS server hook, using cache-buster labels, seeded index tokens, and
+  standard 512-byte responses without OPT records.
+- Added the DNS stager template/renderer to produce Linux/Windows one-liners
+  that fetch count/chunks over DNS, verify payload hash, and exec `sfb_flat.py`
+  in Alice mode with passthrough args.
+- Updated `README.md` and generated `linux_dns_stager.txt` and
+  `windows_dns_stager.txt`.
+- Tests not run (per instructions).

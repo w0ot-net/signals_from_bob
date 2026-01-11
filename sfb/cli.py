@@ -226,8 +226,10 @@ def _calc_flat_payload_cap(base_domain, cname_label, label_max_len):
         qname_wire_len,
         DNS_STANDARD_SIZE,
         cname_suffix,
+        base_domain,
         label_max_len,
         opt_record_len=0,
+        use_compression=True,
     )
     if payload_cap is None or payload_cap <= 0:
         raise ValueError('stager payload cap unavailable for %s' % qname)

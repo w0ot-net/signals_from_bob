@@ -266,8 +266,10 @@ class DnsFlatStager(object):
             qname_wire_len,
             DNS_STANDARD_SIZE,
             self._cname_suffix,
+            self._base_domain,
             self._label_max_len,
             0,
+            use_compression=True,
         )
         return payload_cap, qname_wire_len, max_packet_size
 

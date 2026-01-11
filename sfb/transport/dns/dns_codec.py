@@ -13,7 +13,7 @@ import struct
 
 from ..base32 import base32_decode as shared_base32_decode
 from ..base32 import base32_encode as shared_base32_encode
-from ...compat import byte_at, require_bytes_like, text_type, to_bytes
+from ...compat import byte_at, integer_types, require_bytes_like, text_type, to_bytes
 from ...config import DNS_STANDARD_SIZE
 
 # DNS constants
@@ -191,6 +191,30 @@ def skip_name(data, offset):
     raise ValueError('Invalid DNS name')
 
 
+def build_compression_pointer(offset):
+    """Build a DNS compression pointer."""
+    if not isinstance(offset, integer_types):
+        raise ValueError('Compression pointer offset must be int')
+    if offset < 0 or offset > 0x3FFF:
+        raise ValueError('Compression pointer offset out of range')
+    return struct.pack('>H', 0xC000 | offset)
+
+
+def calc_base_domain_pointer_offset(qname_wire_len, base_domain_wire_len):
+    """
+    Return the base-domain offset inside a QNAME, or None if invalid.
+    """
+    if not isinstance(qname_wire_len, integer_types):
+        return None
+    if not isinstance(base_domain_wire_len, integer_types):
+        return None
+    if qname_wire_len < 0 or base_domain_wire_len <= 0:
+        return None
+    if qname_wire_len < base_domain_wire_len:
+        return None
+    return qname_wire_len - base_domain_wire_len
+
+
 def _normalize_domain(name):
     if not isinstance(name, text_type):
         try:
@@ -255,6 +279,68 @@ def _b32_labels(data, label_max_len):
         labels.append(b32[:label_max_len])
         b32 = b32[label_max_len:]
     return labels
+
+
+def _split_cname_suffix_for_compression(cname_suffix, base_domain):
+    suffix_labels_lower = _split_domain_labels(cname_suffix, lower=True)
+    base_labels_lower = _split_domain_labels(
+        base_domain,
+        lower=True,
+        require_non_empty=True,
+        empty_error='base_domain required',
+    )
+    if len(suffix_labels_lower) < len(base_labels_lower):
+        raise ValueError('cname_suffix does not match base_domain')
+    suffix_idx = len(suffix_labels_lower) - len(base_labels_lower)
+    for i in range(len(base_labels_lower)):
+        if suffix_labels_lower[suffix_idx + i] != base_labels_lower[i]:
+            raise ValueError('cname_suffix does not match base_domain')
+    prefix_len = len(suffix_labels_lower) - len(base_labels_lower)
+    suffix_labels_raw = _split_domain_labels(cname_suffix)
+    prefix_labels = []
+    idx = 0
+    while idx < prefix_len:
+        prefix_labels.append(suffix_labels_raw[idx])
+        idx += 1
+    base_labels_raw = _split_domain_labels(
+        base_domain,
+        require_non_empty=True,
+        empty_error='base_domain required',
+    )
+    return prefix_labels, base_labels_raw
+
+
+def build_cname_rdata_compressed(data, cname_suffix, base_domain,
+                                 base_domain_offset, label_max_len=None):
+    """
+    Build CNAME RDATA with a compressed base-domain suffix.
+    """
+    data = require_bytes_like(data)
+    if cname_suffix is None:
+        raise ValueError('cname_suffix required')
+    prefix_labels, base_labels = _split_cname_suffix_for_compression(
+        cname_suffix, base_domain
+    )
+    data_labels = _b32_labels(data, label_max_len)
+    labels_for_length = []
+    for label in data_labels:
+        labels_for_length.append(label)
+    for label in prefix_labels:
+        labels_for_length.append(label)
+    for label in base_labels:
+        labels_for_length.append(label)
+    _validate_name_length(labels_for_length)
+    parts = []
+    for label in data_labels:
+        if label:
+            encoded = label.encode('ascii')
+            parts.append(struct.pack('B', len(encoded)) + encoded)
+    for label in prefix_labels:
+        if label:
+            encoded = label.encode('ascii')
+            parts.append(struct.pack('B', len(encoded)) + encoded)
+    parts.append(build_compression_pointer(base_domain_offset))
+    return b''.join(parts)
 
 
 _CNAME_PAYLOAD_LOOKUP_CACHE = {}
@@ -467,8 +553,10 @@ def calc_qname_wire_len(payload_len, base_domain, label_max_len=None):
     return _qname_wire_len_for_payload(payload_len, base_domain, label_max_len)
 
 
-def _get_cname_payload_lookup(cname_suffix, label_max_len, max_packet_size):
-    key = (cname_suffix, label_max_len, max_packet_size)
+def _get_cname_payload_lookup(cname_suffix, base_domain, label_max_len,
+                              max_packet_size, use_compression):
+    key = (cname_suffix, base_domain, label_max_len, max_packet_size,
+           bool(use_compression))
     cached = _CNAME_PAYLOAD_LOOKUP_CACHE.get(key)
     if cached is not None:
         return cached
@@ -477,10 +565,20 @@ def _get_cname_payload_lookup(cname_suffix, label_max_len, max_packet_size):
     rdata_lens = []
     for payload_len in range(upper + 1):
         try:
-            cname_target = encode_cname_target(
-                b'\x00' * payload_len, cname_suffix, label_max_len
-            )
-            rdata_len = len(encode_name(cname_target))
+            if use_compression:
+                rdata = build_cname_rdata_compressed(
+                    b'\x00' * payload_len,
+                    cname_suffix,
+                    base_domain,
+                    12,
+                    label_max_len,
+                )
+                rdata_len = len(rdata)
+            else:
+                cname_target = encode_cname_target(
+                    b'\x00' * payload_len, cname_suffix, label_max_len
+                )
+                rdata_len = len(encode_name(cname_target))
         except ValueError:
             rdata_len = None
         rdata_lens.append(rdata_len)
@@ -497,19 +595,22 @@ def _get_cname_payload_lookup(cname_suffix, label_max_len, max_packet_size):
     return payload_for_available
 
 
-def _max_cname_payload_for_response(fixed_len, cname_suffix, label_max_len,
-                                    max_packet_size):
+def _max_cname_payload_for_response(fixed_len, cname_suffix, base_domain,
+                                    label_max_len, max_packet_size,
+                                    use_compression):
     if fixed_len >= max_packet_size:
         return 0
     payload_for_available = _get_cname_payload_lookup(
-        cname_suffix, label_max_len, max_packet_size
+        cname_suffix, base_domain, label_max_len, max_packet_size,
+        use_compression
     )
     available = max_packet_size - fixed_len
     return payload_for_available[available]
 
 
 def calc_cname_response_payload_cap(qname_wire_len, edns_size, cname_suffix,
-                                    label_max_len=None, opt_record_len=0):
+                                    base_domain, label_max_len=None,
+                                    opt_record_len=0, use_compression=False):
     """
     Calculate response payload cap for a CNAME response.
 
@@ -517,8 +618,10 @@ def calc_cname_response_payload_cap(qname_wire_len, edns_size, cname_suffix,
         qname_wire_len: wire length of QNAME
         edns_size: advertised EDNS UDP size
         cname_suffix: CNAME suffix used for tunnel data
+        base_domain: tunnel base domain suffix
         label_max_len: max label length for tunnel data labels
         opt_record_len: encoded OPT record length when EDNS is enabled
+        use_compression: True to use compression pointer calculations
 
     Returns:
         tuple: (response_payload_cap, max_packet_size)
@@ -527,6 +630,7 @@ def calc_cname_response_payload_cap(qname_wire_len, edns_size, cname_suffix,
         return None, None
     label_max_len = _normalize_label_max_len(label_max_len)
     cname_suffix = _normalize_domain(cname_suffix)
+    base_domain = _normalize_domain(base_domain)
     max_packet_size = edns_size
     if max_packet_size < DNS_STANDARD_SIZE:
         max_packet_size = DNS_STANDARD_SIZE
@@ -535,6 +639,26 @@ def calc_cname_response_payload_cap(qname_wire_len, edns_size, cname_suffix,
         additional_len = opt_record_len
     question_len = qname_wire_len + 4
     answer_name_len = qname_wire_len
+    use_compression = bool(use_compression)
+    if use_compression:
+        try:
+            base_domain_wire_len = len(encode_name(base_domain))
+        except TypeError:
+            base_domain_wire_len = None
+        base_offset = calc_base_domain_pointer_offset(
+            qname_wire_len, base_domain_wire_len
+        )
+        if base_offset is None:
+            use_compression = False
+        else:
+            pointer_offset = 12 + base_offset
+            try:
+                build_compression_pointer(pointer_offset)
+                _split_cname_suffix_for_compression(cname_suffix, base_domain)
+            except ValueError:
+                use_compression = False
+    if use_compression:
+        answer_name_len = 2
     answer_fixed_len = 10
     fixed_len = (12 + question_len + answer_name_len +
                  answer_fixed_len + additional_len)
@@ -543,8 +667,10 @@ def calc_cname_response_payload_cap(qname_wire_len, edns_size, cname_suffix,
     response_payload = _max_cname_payload_for_response(
         fixed_len,
         cname_suffix,
+        base_domain,
         label_max_len,
         max_packet_size,
+        use_compression,
     )
     return response_payload, max_packet_size
 

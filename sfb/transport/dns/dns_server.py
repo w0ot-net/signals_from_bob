@@ -427,6 +427,8 @@ class DnsServer(Server):
         """Build and send DNS response."""
         opt_record = self._opt_record if include_opt else b''
         opt_arcount = self._opt_arcount if include_opt else 0
+        if qname_wire_len is None:
+            qname_wire_len = len(codec.encode_name(qname))
         # Header
         flags = codec.FLAG_QR | codec.FLAG_AA  # Response + Authoritative
         header = struct.pack('>HHHHHH',
@@ -443,9 +445,9 @@ class DnsServer(Server):
         question += struct.pack('>HH', qtype, codec.QCLASS_IN)
 
         # Answer
-        answer = codec.encode_name(qname)
         if self._rtype != codec.QTYPE_CNAME:
             raise TransportError('Unsupported response type')
+        answer = codec.build_compression_pointer(12)
 
         try:
             cname_target = codec.encode_cname_target(
@@ -466,7 +468,25 @@ class DnsServer(Server):
             )
             raise TransportError('Invalid response data: %s' % exc)
 
-        rdata = codec.encode_name(cname_target)
+        rdata = None
+        base_domain_wire_len = len(codec.encode_name(self._base_domain))
+        base_offset = codec.calc_base_domain_pointer_offset(
+            qname_wire_len, base_domain_wire_len
+        )
+        if base_offset is not None:
+            pointer_offset = 12 + base_offset
+            try:
+                rdata = codec.build_cname_rdata_compressed(
+                    data,
+                    self._cname_suffix,
+                    self._base_domain,
+                    pointer_offset,
+                    self._label_max_len,
+                )
+            except ValueError:
+                rdata = None
+        if rdata is None:
+            rdata = codec.encode_name(cname_target)
 
         answer += struct.pack('>HHIH',
             self._rtype,
@@ -599,8 +619,10 @@ class DnsServer(Server):
             qname_wire_len,
             self._edns_size,
             self._cname_suffix,
+            self._base_domain,
             self._label_max_len,
             self._opt_record_len,
+            use_compression=True,
         )
         return payload_cap, qname_wire_len, max_packet_size
 
@@ -621,8 +643,10 @@ class DnsServer(Server):
                 qname_wire_len,
                 self._edns_size,
                 self._cname_suffix,
+                self._base_domain,
                 self._label_max_len,
                 self._opt_record_len,
+                use_compression=True,
             )
             if payload_cap is not None and payload_cap > max_response_payload:
                 max_response_payload = payload_cap

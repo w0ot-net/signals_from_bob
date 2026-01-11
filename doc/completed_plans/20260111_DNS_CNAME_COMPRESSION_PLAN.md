@@ -1,6 +1,6 @@
 # DNS CNAME Compression Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Enable DNS name compression in CNAME responses to reduce response size and
@@ -62,3 +62,10 @@ increase effective payload capacity for DNS transport.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- 20260111: Added DNS CNAME compression helpers and payload-cap calculations in
+  `sfb/transport/dns/dns_codec.py`, updated DNS server CNAME responses to emit
+  compressed answer names and base-domain pointers with fallback, and wired
+  client/stager/CLI cap callers to compression-aware calculations.
+- Tests not run (not requested).

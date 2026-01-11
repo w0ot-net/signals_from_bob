@@ -713,8 +713,10 @@ class DnsClient(Transport):
                 qname_wire_len,
                 self._edns_size,
                 self._cname_suffix,
+                self._base_domain,
                 self._label_max_len,
                 self._opt_record_len,
+                use_compression=True,
             )
             if response_cap is None:
                 response_cap = 0

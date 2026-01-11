@@ -73,7 +73,13 @@ together.
 4. Apply the fixed response cap in DNS client/server.
    - `sfb/transport/dns/dns_client.py`:
      - Remove poll-hint budget state, bob-data tracking, clamp modes, and
-       response-cap lookup tables.
+       response-cap lookup tables, including `_alice_has_data_pending`,
+       `_bob_has_data_*`, `_poll_hint_*`, `_recv_window_sack`, and the related
+       methods `notify_send_pending`, `notify_peer_data`,
+       `notify_recv_window_sack`, `_update_bob_data_from_payload`,
+       `_reset_poll_hint_budget`, `_consume_poll_hint_budget`,
+       `_log_clamp_header_skip`, and `_log_unsafe_fallback`; remove their call
+       sites in `reserve_send()` and `_try_recv()`.
      - Compute the fixed response cap at init and clamp `_recv_packet_mtu` to
        `min(calculated_recv_mtu, fixed_response_cap)`.
      - Have `payload_cap_for_send()` return None and remove `_select_payload_cap`

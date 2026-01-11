@@ -14,7 +14,7 @@ Message type: `fwd`
 
 ```
 python3 -m sfb.cli --role bob --transport dns --domain t.example.com \
-  --module port_fwd_server start --local 127.0.0.1:8080 --remote 10.0.0.5:22
+  --module port_fwd_server --local 127.0.0.1:8080 --remote 10.0.0.5:22
 ```
 
 ### Alice (relay)

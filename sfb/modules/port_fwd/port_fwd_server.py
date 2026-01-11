@@ -74,19 +74,21 @@ class PortForwardServerModule(BaseModule):
     """
 
     TYPE = T_FWD
-    DEFAULT_COMMAND = 'start'
-    REQUIRES_COMMAND = True
     REMOTE_MODULE = 'port_fwd_relay'
+    USES_SUBCOMMANDS = False
 
     @classmethod
-    def register_commands(cls, subparsers, role, config=None):
-        """Register CLI subcommands for port forward server."""
-        start_p = subparsers.add_parser('start', help='Start TCP port forward server')
-        start_p.add_argument(
+    def register_commands(cls, parser, role, config=None):
+        """Register CLI arguments for port forward server."""
+        group = parser.add_argument_group(
+            'port forward options',
+            'Port forward server settings.',
+        )
+        group.add_argument(
             '--local', required=True,
             help='Local listen address (HOST:PORT)'
         )
-        start_p.add_argument(
+        group.add_argument(
             '--remote', required=True,
             help='Remote target address (HOST:PORT)'
         )

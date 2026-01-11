@@ -2187,6 +2187,8 @@ def _prepare_dns_stager(parsed, config):
             payload_bytes=payload,
             cname_label=config.dns_cname_label,
             index_seed=index_seed,
+            flat_count=count,
+            flat_chunk_size=payload_cap,
         )
     except (IOError, OSError, ValueError) as exc:
         _print_error('Failed to generate DNS stagers: %s' % exc)

@@ -7,6 +7,9 @@
   (`{{RESOLVER_SNIPPET}}` -> `pass`) to parse; the location below is from that
   parse with line numbers preserved.
 
+## Cross References
+- `doc/completed_plans/20260110_PY2_MINIFY_COMPREHENSION_REMOVAL_PLAN.md`
+
 ## Locations
 - sfb/cli.py:189 listcomp before: return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]; after: chunks = []; for i in range(0, len(data), chunk_size): chunks.append(data[i:i + chunk_size]); return chunks
 - sfb/cli.py:480 listcomp before: offsets = [header_len + off for off in offsets]; after: new_offsets = []; for off in offsets: new_offsets.append(header_len + off); offsets = new_offsets
@@ -29,3 +32,6 @@
 - sfb/transport/tls_handshake_bump/tls_handshake_bump_codec.py:411 genexp before: total_len = sum(len(label) for label in labels) + (len(labels) - 1); after: total_len = 0; for label in labels: total_len += len(label); total_len += (len(labels) - 1)
 - sfb/transport/tls_handshake_bump/tls_handshake_bump_config.py:177 genexp before: if any(ch.isspace() for ch in value): after: has_space = False; for ch in value: if ch.isspace(): has_space = True; break; if has_space: ...
 - sfb/tunnel/base_tunnel.py:706 listcomp before: 'rtt_samples_ms': [round(sample, 3) for sample in rtt_samples]; after: rounded = []; for sample in rtt_samples: rounded.append(round(sample, 3)); 'rtt_samples_ms': rounded
+
+## Execution Notes
+- 2026-01-11: Inventory completed and cross-referenced with the removal plan.

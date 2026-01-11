@@ -14,7 +14,7 @@
 ## Affected Components
 - sfb/ (all modules included by doc/flatten_manifest.txt that use
   comprehensions or generator expressions; see
-  doc/plans/PY2_MINIFY_COMPREHENSION_INVENTORY.md.
+  doc/completed_plans/20260111_PY2_MINIFY_COMPREHENSION_INVENTORY.md.
 - doc/flatten_manifest.txt (only if module coverage needs adjustment for
   scanning).
 - scripts/flatten.py (optional: add a guard to fail if comprehensions remain).
@@ -48,3 +48,4 @@
 - Replaced comprehensions/generator expressions in flat-build sfb/ modules with explicit loops.
 - Added AST guard in scripts/flatten.py with template placeholder normalization; documented in FLATTENER.md.
 - Regenerated sfb_flat.py using python3 scripts/flatten.py --minify --strip-logs --alice --transport dns.
+- See doc/completed_plans/20260111_PY2_MINIFY_COMPREHENSION_INVENTORY.md for the inventory list.

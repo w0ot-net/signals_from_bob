@@ -1,6 +1,6 @@
 # Channel ID Lowest-Available Reuse Plan
 
-Status: draft
+Status: abandoned
 
 ## Summary
 Change channel ID allocation to reuse the lowest available ID for the local
@@ -17,6 +17,12 @@ example, channel 2 closes and the next open uses channel 2).
 - Protocol changes (no channel generation/epoch field).
 - Changes to the open/close handshake.
 - Tests or e2e updates.
+
+## Decision
+- Abandon this for now; the current reuse cooldown already offers safe reuse
+  without changing allocation order.
+- Reworking allocation to lowest-available adds O(n) scans and adds subtle
+  late-packet risk without a clear operational need yet.
 
 ## Affected Components
 - `sfb/channel/channel_manager.py`

@@ -5,7 +5,8 @@ Status: draft
 ## Summary
 Reduce per-packet allocations in the DNS client by reusing a UDP receive buffer
 and teaching DNS name parsing to accept bytes-like views without copying the
-entire packet.
+entire packet. Optionally extend the same recv buffer reuse to the DNS server
+if receive-side allocation pressure is also a concern on Bob.
 
 ## Goals
 - Use recvfrom_into with a preallocated bytearray in the DNS client.
@@ -20,14 +21,15 @@ entire packet.
 ## Affected Components
 - `sfb/transport/dns/dns_client.py`
 - `sfb/transport/dns/dns_codec.py`
-- `sfb/transport/dns/dns_server.py`
-- `sfb/compat.py`
+- `sfb/transport/dns/dns_server.py` (optional)
 
 ## Helper Notes
 - Use `compat.buffer_view` for zero-copy bytes-like views of packet data.
 - Use `compat.byte_at` for single-byte reads from views.
 - Use `compat.to_bytes` only for the small label slices that must be decoded.
 - Use `compat.bytearray_to_bytes` only at bytes-only boundaries if needed.
+- `compat.py` changes are likely unnecessary; use existing helpers unless a
+  concrete Python 2 edge case requires an update.
 
 ## Plan
 1. Reuse a receive buffer in `sfb/transport/dns/dns_client.py`.
@@ -45,7 +47,13 @@ entire packet.
    - Ensure `dns_client._parse_response` and `dns_server._parse_query` work with
      bytes-like views and struct.unpack slices.
    - Keep validation and error handling identical to the current behavior.
-4. Manual verification.
+4. Optionally reuse a receive buffer in `sfb/transport/dns/dns_server.py`.
+   - Allocate `bytearray(self._recv_bufsize)` once.
+   - Use `recvfrom_into` and pass `compat.buffer_view(recv_buf, length=recv_len)`
+     to `_parse_query`.
+   - If not doing this now, document why (e.g., server allocation pressure is
+     not a concern).
+5. Manual verification.
    - Confirm the receive buffer is reused across packets.
    - Confirm only small label slices are copied when decoding names.
 

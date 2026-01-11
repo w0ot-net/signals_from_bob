@@ -38,7 +38,10 @@ class DnsFlatStager(object):
         self._flat_count = flat_count
         self._flat_meta = flat_meta
         self._flat_chunk_size = flat_chunk_size
-        self._index_seed = self._normalize_index_seed(index_seed)
+        seed_value, seed_hex, seed_reason = self._parse_index_seed(index_seed)
+        self._index_seed = seed_value
+        self._index_seed_hex = seed_hex
+        self._index_seed_reason = seed_reason
         self._rtype = rtype
         self._cname_suffix = cname_suffix
         self._label_max_len = label_max_len
@@ -46,7 +49,7 @@ class DnsFlatStager(object):
         self._send_response = send_response
         self._send_empty_response = send_empty_response
         self._enabled = bool(
-            self._flat_chunks and self._flat_count and self._index_seed is not None
+            self._flat_chunks and self._flat_count and self._index_seed_reason is None
         )
         if self._enabled:
             meta_count = self._parse_flat_meta_count(self._flat_meta)
@@ -111,16 +114,16 @@ class DnsFlatStager(object):
         return True
 
     @staticmethod
-    def _normalize_index_seed(seed):
+    def _parse_index_seed(seed):
         if seed is None:
-            return None
+            return None, None, 'seed_missing'
         try:
             seed_value = int(seed)
         except (TypeError, ValueError):
-            return None
+            return None, None, 'seed_invalid'
         if seed_value < 0 or seed_value > _INDEX_TOKEN_MASK:
-            return None
-        return seed_value
+            return None, None, 'seed_invalid'
+        return seed_value, '%08x' % seed_value, None
 
     @staticmethod
     def _is_hex_token(label):
@@ -134,6 +137,14 @@ class DnsFlatStager(object):
     @property
     def enabled(self):
         return self._enabled
+
+    @property
+    def seed_hex(self):
+        return self._index_seed_hex
+
+    @property
+    def seed_reason(self):
+        return self._index_seed_reason
 
     def handle_query(self, query_id, qname, qname_lower, qtype, addr):
         if not self._enabled:

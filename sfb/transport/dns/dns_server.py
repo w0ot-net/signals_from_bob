@@ -108,26 +108,16 @@ class DnsServer(Server):
         self._soa_record = self._build_soa_record()
         self._logger = get_logger(__name__)
         self._flat_stager = None
-        flat_seed = config.dns_flat_index_seed
-        seed_value = None
         seed_hex = None
-        seed_valid = False
-        if flat_seed is not None:
-            try:
-                seed_value = int(flat_seed)
-            except (TypeError, ValueError):
-                seed_value = None
-            if seed_value is not None and 0 <= seed_value <= 0xFFFFFFFF:
-                seed_valid = True
-                seed_hex = '%08x' % seed_value
+        seed_reason = None
         if config.dns_flat_chunks:
-            self._flat_stager = DnsFlatStager(
+            flat_stager = DnsFlatStager(
                 base_domain=self._base_domain,
                 flat_chunks=config.dns_flat_chunks,
                 flat_count=config.dns_flat_count,
                 flat_meta=config.dns_flat_meta,
                 flat_chunk_size=config.dns_flat_chunk_size,
-                index_seed=seed_value,
+                index_seed=config.dns_flat_index_seed,
                 rtype=self._rtype,
                 cname_suffix=self._cname_suffix,
                 label_max_len=self._label_max_len,
@@ -135,8 +125,10 @@ class DnsServer(Server):
                 send_response=self._send_response,
                 send_empty_response=self._send_empty_response,
             )
-            if not self._flat_stager.enabled:
-                self._flat_stager = None
+            seed_hex = flat_stager.seed_hex
+            seed_reason = flat_stager.seed_reason
+            if flat_stager.enabled:
+                self._flat_stager = flat_stager
         stager_enabled = bool(self._flat_stager)
         flat_chunks = config.dns_flat_chunks or []
         flat_count = config.dns_flat_count or 0
@@ -146,11 +138,8 @@ class DnsServer(Server):
                 stager_reason = 'no_chunks'
             elif flat_count <= 0:
                 stager_reason = 'count_zero'
-            elif not seed_valid:
-                if flat_seed is None:
-                    stager_reason = 'seed_missing'
-                else:
-                    stager_reason = 'seed_invalid'
+            elif seed_reason:
+                stager_reason = seed_reason
             else:
                 stager_reason = 'disabled'
         stager_fields = {

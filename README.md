@@ -42,6 +42,14 @@ Set `SFB_FLAT_ROOT` to control the virtual root used for `__file__`/`__path__`
 in the flattened bundle. The bootstrap does not create directories; runtime
 features that write to disk create parent directories as needed.
 
+## DNS Stager
+Generate DNS stager one-liners with:
+```
+python3 -m sfb.cli --role server --transport dns --domain t.example.com --stager
+```
+Stager blobs embed a per-run index seed; older stager blobs are incompatible
+with the random index mapping and must be regenerated.
+
 ## Profiling
 Use `--cprofile` to write a cProfile output file.
 Examples:

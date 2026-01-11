@@ -15,6 +15,7 @@ import base64
 import errno
 import logging
 import os
+import random
 import shutil
 import signal
 import struct
@@ -193,10 +194,18 @@ def _split_chunks(data, chunk_size):
 
 _STAGER_CACHE_BUSTER_PREFIX = 'r-'
 _STAGER_CACHE_BUSTER_HEX_LEN = 8
+_STAGER_INDEX_TOKEN_HEX_LEN = 8
 
 
 def _stager_cache_buster_sample():
     return _STAGER_CACHE_BUSTER_PREFIX + ('0' * _STAGER_CACHE_BUSTER_HEX_LEN)
+
+
+def _generate_stager_index_seed():
+    seed = 0
+    while seed == 0:
+        seed = random.getrandbits(32)
+    return seed
 
 
 def _calc_flat_payload_cap(base_domain, cname_label, label_max_len):
@@ -210,7 +219,8 @@ def _calc_flat_payload_cap(base_domain, cname_label, label_max_len):
     else:
         cname_suffix = base_domain
     cache_label = _stager_cache_buster_sample()
-    qname = '%s.count.%s' % (cache_label, base_domain)
+    index_label = '0' * _STAGER_INDEX_TOKEN_HEX_LEN
+    qname = '%s.%s.%s' % (cache_label, index_label, base_domain)
     qname_wire_len = len(dns_codec.encode_name(qname))
     payload_cap, _ = dns_codec.calc_cname_response_payload_cap(
         qname_wire_len,
@@ -2167,6 +2177,8 @@ def _prepare_dns_stager(parsed, config):
     config.dns_flat_count = count
     config.dns_flat_meta = meta
     config.dns_flat_chunk_size = payload_cap
+    index_seed = _generate_stager_index_seed()
+    config.dns_flat_index_seed = index_seed
     try:
         from .stagers import dns_stager
         dns_stager.write_dns_stagers(
@@ -2174,6 +2186,7 @@ def _prepare_dns_stager(parsed, config):
             sfb_args=passthrough or [],
             payload_bytes=payload,
             cname_label=config.dns_cname_label,
+            index_seed=index_seed,
         )
     except (IOError, OSError, ValueError) as exc:
         _print_error('Failed to generate DNS stagers: %s' % exc)

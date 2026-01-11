@@ -16,10 +16,13 @@ import zlib
 BASE_DOMAIN = '{{BASE_DOMAIN}}'
 CNAME_SUFFIX = '{{CNAME_SUFFIX}}'
 PAYLOAD_HASH = '{{PAYLOAD_HASH}}'
+INDEX_SEED = {{INDEX_SEED}}
 SFB_ARGS = {{SFB_ARGS}}
 
 CACHE_BUSTER_PREFIX = 'r-'
 CACHE_BUSTER_HEX_LEN = 8
+INDEX_TOKEN_HEX_LEN = 8
+INDEX_TOKEN_MASK = 0xFFFFFFFF
 
 
 def _cache_buster_label():
@@ -31,8 +34,13 @@ def _count_name(label):
     return '%s.count.%s' % (label, BASE_DOMAIN)
 
 
+def _index_label(index):
+    token = (index ^ INDEX_SEED) & INDEX_TOKEN_MASK
+    return '%0*x' % (INDEX_TOKEN_HEX_LEN, token)
+
+
 def _piece_name(label, index):
-    return '%s.%05d.%s' % (label, index, BASE_DOMAIN)
+    return '%s.%s.%s' % (label, _index_label(index), BASE_DOMAIN)
 TIMEOUT = 2.0
 PIPELINE_WINDOW = 8
 PIPELINE_RESEND_AFTER = 0.5

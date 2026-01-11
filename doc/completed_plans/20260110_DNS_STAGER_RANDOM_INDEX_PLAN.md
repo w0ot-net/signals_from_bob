@@ -1,6 +1,6 @@
 # DNS Stager Random Index Mapping Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Replace sequential numeric piece labels with a per-run deterministic
@@ -71,3 +71,8 @@ blob; Bob will not be queried for any hash or seed.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- Added a per-run index seed to stager generation with fixed-length hex tokens.
+- Updated Bob's stager decoder to validate and reverse the seeded mapping.
+- Regenerated DNS stager one-liners and documented the incompatibility with older blobs.

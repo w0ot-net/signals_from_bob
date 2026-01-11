@@ -57,6 +57,8 @@ class Config(object):
     dns_flat_meta = None
     # DNS flat stager chunk size (server-only)
     dns_flat_chunk_size = None
+    # DNS flat stager index seed (server-only)
+    dns_flat_index_seed = None
 
     # --- ICMP Transport ---
     # Target host/IPv4 for Alice
@@ -380,6 +382,7 @@ class Config(object):
         'dns_flat_count',
         'dns_flat_meta',
         'dns_flat_chunk_size',
+        'dns_flat_index_seed',
         'icmp_target',
         'icmp_packet_mtu',
         'icmp_pending_timeout',

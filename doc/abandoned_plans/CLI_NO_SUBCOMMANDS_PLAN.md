@@ -1,5 +1,7 @@
 # CLI No-Subcommands Plan
 
+Status: abandoned
+
 ## Goal
 - Remove argparse subcommand support from sfb/cli.py so module options are flat
   flags.
@@ -8,6 +10,9 @@
 ## Non-Goals
 - Changing transport behavior or module protocol behavior.
 - Updating or running tests.
+
+## Decision
+- Abandoned per request; no implementation work executed.
 
 ## Current Subcommands (to remove)
 - file_transfer: list, hash, get, put (per-command positional args plus

@@ -15,6 +15,8 @@ from ..base32 import base32_decode as shared_base32_decode
 from ..base32 import base32_encode as shared_base32_encode
 from ...compat import byte_at, integer_types, require_bytes_like, text_type, to_bytes
 from ...config import DNS_STANDARD_SIZE
+from ..transport_base import TransportError
+from ...protocol.constants import MIN_PACKET_MTU
 
 # DNS constants
 QTYPE_A = 1
@@ -608,6 +610,25 @@ def _max_cname_payload_for_response(fixed_len, cname_suffix, base_domain,
     return payload_for_available[available]
 
 
+def _can_use_cname_compression(qname_wire_len, cname_suffix, base_domain):
+    try:
+        base_domain_wire_len = len(encode_name(base_domain))
+    except TypeError:
+        return False
+    base_offset = calc_base_domain_pointer_offset(
+        qname_wire_len, base_domain_wire_len
+    )
+    if base_offset is None:
+        return False
+    pointer_offset = 12 + base_offset
+    try:
+        build_compression_pointer(pointer_offset)
+        _split_cname_suffix_for_compression(cname_suffix, base_domain)
+    except ValueError:
+        return False
+    return True
+
+
 def calc_cname_response_payload_cap(qname_wire_len, edns_size, cname_suffix,
                                     base_domain, label_max_len=None,
                                     opt_record_len=0, use_compression=False):
@@ -641,22 +662,9 @@ def calc_cname_response_payload_cap(qname_wire_len, edns_size, cname_suffix,
     answer_name_len = qname_wire_len
     use_compression = bool(use_compression)
     if use_compression:
-        try:
-            base_domain_wire_len = len(encode_name(base_domain))
-        except TypeError:
-            base_domain_wire_len = None
-        base_offset = calc_base_domain_pointer_offset(
-            qname_wire_len, base_domain_wire_len
-        )
-        if base_offset is None:
+        if not _can_use_cname_compression(
+                qname_wire_len, cname_suffix, base_domain):
             use_compression = False
-        else:
-            pointer_offset = 12 + base_offset
-            try:
-                build_compression_pointer(pointer_offset)
-                _split_cname_suffix_for_compression(cname_suffix, base_domain)
-            except ValueError:
-                use_compression = False
     if use_compression:
         answer_name_len = 2
     answer_fixed_len = 10
@@ -673,6 +681,106 @@ def calc_cname_response_payload_cap(qname_wire_len, edns_size, cname_suffix,
         use_compression,
     )
     return response_payload, max_packet_size
+
+
+def calc_fixed_cname_response_payload_cap(raw_query_packet_mtu, edns_size,
+                                          cname_suffix, base_domain,
+                                          label_max_len=None,
+                                          opt_record_len=0):
+    """
+    Calculate a fixed CNAME response payload cap across query payload sizes.
+
+    Returns:
+        tuple: (fixed_cap, max_packet_size, min_payload_len, min_qname_wire_len)
+    """
+    label_max_len = _normalize_label_max_len(label_max_len)
+    cname_suffix = _normalize_domain(cname_suffix)
+    base_domain = _normalize_domain(base_domain)
+    if raw_query_packet_mtu < MIN_PACKET_MTU:
+        raise TransportError(
+            'DNS query MTU %d below minimum %d (base_domain=%s, '
+            'cname_suffix=%s, label_max_len=%d, edns_size=%d, '
+            'raw_query_packet_mtu=%d)' % (
+                raw_query_packet_mtu,
+                MIN_PACKET_MTU,
+                base_domain,
+                cname_suffix,
+                label_max_len,
+                edns_size,
+                raw_query_packet_mtu,
+            )
+        )
+    fixed_cap = None
+    min_payload_len = None
+    min_qname_wire_len = None
+    max_packet_size = None
+    compression_checked = False
+    for payload_len in range(MIN_PACKET_MTU, raw_query_packet_mtu + 1):
+        try:
+            qname_wire_len = calc_qname_wire_len(
+                payload_len,
+                base_domain,
+                label_max_len,
+            )
+        except ValueError:
+            continue
+        if not compression_checked:
+            if not _can_use_cname_compression(
+                    qname_wire_len, cname_suffix, base_domain):
+                raise TransportError(
+                    'DNS CNAME compression required (base_domain=%s, '
+                    'cname_suffix=%s, label_max_len=%d, edns_size=%d, '
+                    'raw_query_packet_mtu=%d)' % (
+                        base_domain,
+                        cname_suffix,
+                        label_max_len,
+                        edns_size,
+                        raw_query_packet_mtu,
+                    )
+                )
+            compression_checked = True
+        response_cap, max_packet_size = calc_cname_response_payload_cap(
+            qname_wire_len,
+            edns_size,
+            cname_suffix,
+            base_domain,
+            label_max_len,
+            opt_record_len,
+            use_compression=True,
+        )
+        if response_cap is None or response_cap <= 0:
+            continue
+        if fixed_cap is None or response_cap < fixed_cap:
+            fixed_cap = response_cap
+            min_payload_len = payload_len
+            min_qname_wire_len = qname_wire_len
+    if fixed_cap is None:
+        raise TransportError(
+            'DNS fixed response cap unavailable (base_domain=%s, '
+            'cname_suffix=%s, label_max_len=%d, edns_size=%d, '
+            'raw_query_packet_mtu=%d)' % (
+                base_domain,
+                cname_suffix,
+                label_max_len,
+                edns_size,
+                raw_query_packet_mtu,
+            )
+        )
+    if fixed_cap < MIN_PACKET_MTU:
+        raise TransportError(
+            'DNS fixed response cap %d below minimum %d (base_domain=%s, '
+            'cname_suffix=%s, label_max_len=%d, edns_size=%d, '
+            'raw_query_packet_mtu=%d)' % (
+                fixed_cap,
+                MIN_PACKET_MTU,
+                base_domain,
+                cname_suffix,
+                label_max_len,
+                edns_size,
+                raw_query_packet_mtu,
+            )
+        )
+    return fixed_cap, max_packet_size, min_payload_len, min_qname_wire_len
 
 
 def encode_cname_target(data, cname_suffix, label_max_len=None):

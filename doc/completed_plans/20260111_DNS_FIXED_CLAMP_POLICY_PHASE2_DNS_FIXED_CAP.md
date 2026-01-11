@@ -1,6 +1,6 @@
 # DNS Fixed Clamp Policy Phase 2 - Fixed Response Cap Implementation
 
-Status: draft
+Status: completed
 
 ## Summary
 Replace adaptive poll-hint clamp behavior with a fixed DNS response payload cap
@@ -91,3 +91,10 @@ that cap in DNS client and server initialization.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- 20260111: Added fixed CNAME response cap calculation with mandatory
+  compression in `sfb/transport/dns/dns_codec.py`, simplified DNS client
+  initialization and MTU clamping to use the fixed cap, and updated DNS server
+  initialization and per-query caps to apply the fixed cap minimum.
+- Tests not run (not requested).

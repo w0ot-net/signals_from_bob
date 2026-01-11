@@ -19,7 +19,6 @@ from .dns_constants import DNS_HEADER_LEN, DNS_QUESTION_FIXED_LEN
 from .dns_flat_stager import DnsFlatStager
 from ...config import Config
 from ...logging_util import get_logger, log_event
-from ...protocol.constants import MIN_PACKET_MTU
 from ...utils import parse_host_port
 from ... import time_provider
 
@@ -168,26 +167,52 @@ class DnsServer(Server):
         )
         self._recv_packet_mtu = recv_mtu
         calculated_send_mtu = send_mtu
-        self._min_response_packet_mtu = min_packet_mtu
-        self._max_response_packet_mtu = None
+        self._fixed_response_cap = None
         if self._rtype == codec.QTYPE_CNAME:
-            self._max_response_packet_mtu = (
-                self._compute_max_response_packet_mtu()
-            )
-            if self._max_response_packet_mtu < self._min_response_packet_mtu:
-                raise TransportError(
-                    'DNS response MTU %d below minimum %d (base_domain=%s, '
-                    'label_max_len=%d, edns_size=%d)' % (
-                        self._max_response_packet_mtu,
-                        self._min_response_packet_mtu,
+            try:
+                fixed_response_cap, max_packet_size, min_payload_len, min_qname_wire_len = (
+                    codec.calc_fixed_cname_response_payload_cap(
+                        self._recv_packet_mtu,
+                        self._edns_size,
+                        self._cname_suffix,
                         self._base_domain,
                         self._label_max_len,
-                        self._edns_size,
+                        self._opt_record_len,
                     )
                 )
+            except TransportError as exc:
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'dns.fixed_response_cap_error',
+                    'DNS fixed response cap failed',
+                    lambda: {
+                        'error': str(exc),
+                    },
+                )
+                raise
+            self._fixed_response_cap = fixed_response_cap
+            log_event(
+                self._logger,
+                logging.INFO,
+                'dns.fixed_response_cap',
+                'DNS fixed response cap',
+                lambda: {
+                    'base_domain': self._base_domain,
+                    'cname_suffix': self._cname_suffix,
+                    'label_max_len': self._label_max_len,
+                    'edns_size': self._edns_size,
+                    'raw_query_packet_mtu': self._recv_packet_mtu,
+                    'opt_record_len': self._opt_record_len,
+                    'fixed_response_cap': fixed_response_cap,
+                    'max_packet_size': max_packet_size,
+                    'min_payload_len': min_payload_len,
+                    'min_qname_wire_len': min_qname_wire_len,
+                },
+            )
             effective_send_mtu = min(
                 calculated_send_mtu,
-                self._max_response_packet_mtu,
+                fixed_response_cap,
             )
             if effective_send_mtu < calculated_send_mtu:
                 log_event(
@@ -197,7 +222,7 @@ class DnsServer(Server):
                     'DNS response MTU clamped',
                     lambda: {
                         'calculated_mtu': calculated_send_mtu,
-                        'max_response_packet_mtu': self._max_response_packet_mtu,
+                        'max_response_packet_mtu': fixed_response_cap,
                         'effective_mtu': effective_send_mtu,
                     },
                 )
@@ -628,33 +653,11 @@ class DnsServer(Server):
             self._opt_record_len,
             use_compression=True,
         )
+        fixed_cap = self._fixed_response_cap
+        if (payload_cap is not None and fixed_cap is not None and
+                payload_cap > fixed_cap):
+            payload_cap = fixed_cap
         return payload_cap, qname_wire_len, max_packet_size
-
-    def _compute_max_response_packet_mtu(self):
-        max_query_payload = self._recv_packet_mtu
-        min_query_payload = MIN_PACKET_MTU
-        max_response_payload = 0
-        for payload_len in range(min_query_payload, max_query_payload + 1):
-            try:
-                qname_wire_len = codec.calc_qname_wire_len(
-                    payload_len,
-                    self._base_domain,
-                    self._label_max_len,
-                )
-            except ValueError:
-                continue
-            payload_cap, _ = codec.calc_cname_response_payload_cap(
-                qname_wire_len,
-                self._edns_size,
-                self._cname_suffix,
-                self._base_domain,
-                self._label_max_len,
-                self._opt_record_len,
-                use_compression=True,
-            )
-            if payload_cap is not None and payload_cap > max_response_payload:
-                max_response_payload = payload_cap
-        return max_response_payload
 
     def _build_soa_record(self):
         """Build a minimal SOA record for authority section with TTL=0."""

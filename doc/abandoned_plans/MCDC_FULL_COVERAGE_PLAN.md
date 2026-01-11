@@ -1,6 +1,6 @@
 # MC/DC Full Coverage Plan
 
-Status: draft
+Status: abandoned
 
 ## Goal
 
@@ -13,6 +13,15 @@ closing decision-coverage gaps, and enforcing a coverage gate.
 - Modify any code under ./tests.
 - Run tests/e2e/.
 - Change runtime behavior outside of coverage-instrumented runs.
+
+## Decision
+
+- Abandon this plan; the instrumentation and maintenance cost is too high for
+  the current priorities.
+- AST rewriting across the full codebase adds risk of subtle behavior drift,
+  even when guarded by a runtime flag.
+- Achieving 100% MC/DC would require extensive new tests with limited
+  practical payoff right now.
 
 ## Affected Components
 

@@ -15,6 +15,7 @@ from .transport_base import (
     Transport,
     Server,
     TransportError,
+    TransportFatalError,
 )
 
 _LOSSY_CACHE = None
@@ -113,6 +114,7 @@ __all__ = [
     'Transport',
     'Server',
     'TransportError',
+    'TransportFatalError',
     'create_inmemory_transport_pair',
     'load_lossy',
     'TRANSPORTS',

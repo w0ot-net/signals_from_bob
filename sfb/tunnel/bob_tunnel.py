@@ -12,6 +12,7 @@ import logging
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
 from ..logging_util import log_event
+from ..transport import TransportFatalError
 from .. import time_provider
 from ..protocol import (
     Packet,
@@ -82,7 +83,21 @@ class BobTunnel(BaseTunnel):
         self._serve_forever_active = False
 
     def _recv_and_dispatch(self, timeout, check_idle):
-        result = self._transport.recv(timeout=timeout)
+        try:
+            result = self._transport.recv(timeout=timeout)
+        except TransportFatalError as exc:
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'tunnel.transport_fatal',
+                'Transport fatal error',
+                lambda: {
+                    'error': str(exc),
+                    'side': 'bob',
+                },
+            )
+            self.close()
+            return False
         if result is None or result[0] is None:
             if check_idle and self._check_idle_timeout():
                 return False

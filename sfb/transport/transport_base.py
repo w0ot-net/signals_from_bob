@@ -361,6 +361,11 @@ class TransportError(Exception):
     pass
 
 
+class TransportFatalError(TransportError):
+    """Fatal transport error that should stop the tunnel."""
+    pass
+
+
 _ADDR_IN_USE_ERRORS = set([errno.EADDRINUSE])
 for name in ('WSAEADDRINUSE',):
     value = getattr(errno, name, None)

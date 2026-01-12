@@ -12,7 +12,7 @@ from . import dns_codec as codec
 from ...config import DNS_STANDARD_SIZE
 from ...logging_util import log_event
 from ...protocol.constants import MIN_PACKET_MTU
-from ..transport_base import TransportError
+from ..transport_base import TransportFatalError
 
 
 _CACHE_BUSTER_PREFIX = 'r-'
@@ -288,7 +288,7 @@ class DnsFlatStager(object):
                     'max_packet_size': max_packet_size,
                 },
             )
-            raise TransportError(
+            raise TransportFatalError(
                 'DNS stager response payload cap %d below minimum %d (qname=%s)' % (
                     payload_cap,
                     MIN_PACKET_MTU,

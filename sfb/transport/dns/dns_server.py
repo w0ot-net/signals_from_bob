@@ -12,7 +12,12 @@ import select
 import socket
 import struct
 
-from ..transport_base import Server, TransportError, raise_bind_error
+from ..transport_base import (
+    Server,
+    TransportError,
+    TransportFatalError,
+    raise_bind_error,
+)
 from ..mtu_limits import resolve_mtu_limits
 from . import dns_codec as codec
 from .dns_constants import DNS_HEADER_LEN, DNS_QUESTION_FIXED_LEN
@@ -673,7 +678,7 @@ class DnsServer(Server):
                     'fixed_response_cap': fixed_cap,
                 },
             )
-            raise TransportError(
+            raise TransportFatalError(
                 'DNS response payload cap %d below minimum %d (qname=%s)' % (
                     payload_cap,
                     MIN_PACKET_MTU,

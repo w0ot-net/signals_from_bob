@@ -52,6 +52,17 @@
   (601/602/603, etc.), so seq 595 is deprioritized until it becomes oldest
   again at 23:21:03. This matches Bob's opportunistic retransmit policy.
 
+### New occurrence (2026-01-12 04:21:20 to 04:21:34)
+- Bob logs `sock.server_channel_failed` for ch4/ch6/ch8 (rids 2-4) at
+  04:21:24-04:21:34.
+- Bob `tunnel.ack_detail` keeps cumulative ACK at 595 with `ack_silence`
+  ~34-38s while `recv_ack` advances to 1036-1041; `send_keepalive_unacked`
+  remains 66-70.
+- Bob retransmits keepalives seq 711/712/725/729 with `retransmit_count=2`
+  while cumulative ACK remains 595.
+- Alice logs repeated `tunnel.retransmit_skip` due to `ack_silence` with
+  `unacked=0` around 04:21:20.
+
 ## Hypothesis
 - A single DNS response carrying seq 595 was dropped on the path (likely at the
   recursive resolver or on-path), creating a cumulative ACK hole.

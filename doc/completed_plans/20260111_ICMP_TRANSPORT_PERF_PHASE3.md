@@ -1,6 +1,6 @@
 # ICMP Transport Perf Phase 3 - Socket Buffers and Logging Guidance
 
-Status: draft
+Status: completed
 
 ## Summary
 Introduce optional ICMP socket buffer sizing to reduce drops under bursty
@@ -38,3 +38,9 @@ polling and add documentation guidance for production logging settings.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes (2026-01-11)
+- Added ICMP socket buffer config fields and applied them in client/server
+  transports with effective size logging and warning on failure.
+- Documented new config fields and logging guidance for production throughput.
+- No tests were run.

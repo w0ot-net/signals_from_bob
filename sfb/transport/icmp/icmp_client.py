@@ -46,6 +46,90 @@ def _get_errno(exc):
     return err
 
 
+def _normalize_socket_buffer(value):
+    if value is None:
+        return None
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    return value
+
+
+def _set_socket_buffer(sock, opt, opt_name, value, role):
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, opt, value)
+        return True
+    except socket.error as e:
+        log_event(
+            _LOG,
+            logging.WARNING,
+            'icmp.socket_buffer_set_failed',
+            'ICMP socket buffer set failed',
+            lambda: {
+                'role': role,
+                'buffer': opt_name,
+                'value': value,
+                'error': str(e),
+            },
+        )
+        return False
+
+
+def _get_socket_buffer(sock, opt, opt_name, role):
+    try:
+        return sock.getsockopt(socket.SOL_SOCKET, opt)
+    except socket.error as e:
+        log_event(
+            _LOG,
+            logging.WARNING,
+            'icmp.socket_buffer_get_failed',
+            'ICMP socket buffer get failed',
+            lambda: {
+                'role': role,
+                'buffer': opt_name,
+                'error': str(e),
+            },
+        )
+        return None
+
+
+def _configure_socket_buffers(sock, rcvbuf, sndbuf, role):
+    rcvbuf = _normalize_socket_buffer(rcvbuf)
+    sndbuf = _normalize_socket_buffer(sndbuf)
+    if rcvbuf is None and sndbuf is None:
+        return
+    if rcvbuf is not None:
+        _set_socket_buffer(sock, socket.SO_RCVBUF, 'rcvbuf', rcvbuf, role)
+    if sndbuf is not None:
+        _set_socket_buffer(sock, socket.SO_SNDBUF, 'sndbuf', sndbuf, role)
+    effective_rcv = None
+    effective_snd = None
+    if rcvbuf is not None:
+        effective_rcv = _get_socket_buffer(
+            sock, socket.SO_RCVBUF, 'rcvbuf', role
+        )
+    if sndbuf is not None:
+        effective_snd = _get_socket_buffer(
+            sock, socket.SO_SNDBUF, 'sndbuf', role
+        )
+    log_event(
+        _LOG,
+        logging.INFO,
+        'icmp.socket_buffers',
+        'ICMP socket buffers',
+        lambda: {
+            'role': role,
+            'rcvbuf_requested': rcvbuf,
+            'sndbuf_requested': sndbuf,
+            'rcvbuf_effective': effective_rcv,
+            'sndbuf_effective': effective_snd,
+        },
+    )
+
+
 class IcmpClient(Transport):
     """
     ICMP client transport for Alice.
@@ -69,6 +153,12 @@ class IcmpClient(Transport):
         self._sock.setblocking(False)
         self._sock_list = [self._sock]
         self._target_addr = (self._target_ip, 0)
+        _configure_socket_buffers(
+            self._sock,
+            config.icmp_socket_rcvbuf,
+            config.icmp_socket_sndbuf,
+            role='client',
+        )
 
         send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
             'icmp', config, role='client'
@@ -114,6 +204,8 @@ class IcmpClient(Transport):
                 'recv_packet_mtu': self._recv_packet_mtu,
                 'max_in_flight': self._max_in_flight,
                 'pending_timeout': self._pending_timeout,
+                'socket_rcvbuf': config.icmp_socket_rcvbuf,
+                'socket_sndbuf': config.icmp_socket_sndbuf,
             },
         )
 

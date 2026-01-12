@@ -67,6 +67,10 @@ class Config(object):
     icmp_packet_mtu = 1350
     # Timeout before considering an ICMP request stale (seconds)
     icmp_pending_timeout = 10.0
+    # Optional ICMP socket receive buffer size (bytes, 0 = default)
+    icmp_socket_rcvbuf = 0
+    # Optional ICMP socket send buffer size (bytes, 0 = default)
+    icmp_socket_sndbuf = 0
 
     # --- UDP Ephemeral Transport ---
     # Target host:port for Alice (IPv4 only)

@@ -1,6 +1,6 @@
 # ICMP Transport Performance Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Split ICMP performance work into three phases covering client hot paths,
@@ -31,8 +31,8 @@ so server-side tweaks are incremental.
   See `doc/completed_plans/20260111_ICMP_TRANSPORT_PERF_PHASE1.md`.
 - Phase 2 (completed): ICMP server hot path and allocation work.
   See `doc/completed_plans/20260111_ICMP_TRANSPORT_PERF_PHASE2.md`.
-- Phase 3: ICMP socket buffer sizing and logging guidance.
-  See `doc/plans/ICMP_TRANSPORT_PERF_PHASE3.md`.
+- Phase 3 (completed): ICMP socket buffer sizing and logging guidance.
+  See `doc/completed_plans/20260111_ICMP_TRANSPORT_PERF_PHASE3.md`.
 
 ## Helper Notes
 - Bob throughput is bounded by Alice polling; improvements should not assume
@@ -44,7 +44,11 @@ so server-side tweaks are incremental.
 ## Plan
 1. Review the current ICMP client/server hot paths and confirm all changes
    stay within the asymmetry rules in doc/architecture/ASYMMETRY.md.
-2. Execute Phase 3 (phases are independent but ordered by risk and scope).
+2. All phases completed.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes (2026-01-11)
+- Completed phases 1 through 3; see the linked phase docs for details.
+- No tests were run.

@@ -38,14 +38,7 @@ from ... import time_provider
 _LOG = get_logger(__name__)
 
 
-class _PendingQuery(object):
-    """Tracks an in-flight DNS query."""
-
-    __slots__ = ('dns_id', 'qname')
-
-    def __init__(self, dns_id, qname):
-        self.dns_id = dns_id
-        self.qname = qname
+_PendingQuery = namedtuple('PendingQuery', ('dns_id', 'qname'))
 
 
 ParseResult = namedtuple(

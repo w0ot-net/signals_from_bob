@@ -127,6 +127,16 @@
   keepalive-sized responses), and no `dns.error_response` entries in that window.
 - This points to payload-bearing DNS responses being dropped on the return path
   while keepalive-sized responses still arrive.
+- Bob logs `tunnel.packet_send` with `content_flag=has_segments` and
+  `seg_count=1` after `channel.open` (example: seq 284 at 20:54:28), so control
+  segments are being packed and sent.
+- Alice's last `tunnel.packet_recv` with `seg_count=1` is at 20:54:22. After
+  that, `tunnel.packet_recv` entries are keepalive-only (`seg_count=0`) and
+  `tunnel.control_dispatch` shows only `t="tun"`/`t="mod"` (no `t="ch"`).
+- Bob `tunnel.reliability_state` at 20:56:25-20:56:26 shows
+  `send_data_unacked=10`, `send_keepalive_unacked=122`, and
+  `send_oldest_flags=4`, while retransmits in the same window are keepalive-only
+  (`seg_count=0`).
 
 ## Code path notes
 - `sfb/modules/socks/socks_server.py` starts `channel_open_timeout` as soon as

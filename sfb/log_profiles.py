@@ -436,6 +436,27 @@ LOG_PROFILES = {
         ),
         'log_event_blacklist': (),
     },
+    # Cross-transport throughput/pacing debugging.
+    'throughput_pacing_debug': {
+        'log_component_transport_dns': True,
+        'log_component_transport_icmp': True,
+        'log_component_transport_tls': True,
+        'log_component_tunnel': True,
+        'log_component_channel': True,
+        'log_component_module_relay': True,
+        'tunnel_pacer_summary_interval': 1.0,
+        'log_event_whitelist': (
+            'cli.*',
+            'tunnel.*',
+            'channel.*',
+            'icmp.*',
+            'dns.*',
+            'tls.*',
+            'sock.*',
+            'fwd.*',
+        ),
+        'log_event_blacklist': (),
+    },
     # Broad SOCKS instrumentation (relay, pumps, and channel lifecycle).
     'socks_instrumentation': {
         'log_component_tunnel': True,

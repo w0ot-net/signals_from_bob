@@ -331,7 +331,7 @@ class Config(object):
     # Relay accept loop timeout (seconds)
     relay_accept_timeout = 0.5
     # Channel open timeout for relay (seconds)
-    relay_channel_open_timeout = 10.0
+    relay_channel_open_timeout = 20.0
     # Relay connect request timeout (seconds)
     relay_connect_timeout = 30.0
     # Target connect timeout for relay (seconds)

@@ -56,6 +56,7 @@ module sfb.reliability.rtt role=common
 module sfb.reliability.send_window role=common
 module sfb.reliability role=common
 module sfb.transport.base32 role=common transport=common
+module sfb.transport.transport_base role=common transport=common
 module sfb.transport.dns.dns_codec role=common transport=dns
 module sfb.transport.dns.dns_utils role=common transport=dns
 module sfb.transport.dns.dns_constants role=common transport=dns
@@ -65,7 +66,6 @@ module sfb.transport.tls_handshake.tls_handshake_codec role=common transport=tls
 module sfb.transport.tls_handshake_bump.tls_handshake_bump_cert_template role=common transport=tls_handshake_bump
 module sfb.transport.tls_handshake_bump.tls_handshake_bump_cert role=common transport=tls_handshake_bump
 module sfb.transport.tls_handshake_bump.tls_handshake_bump_codec role=common transport=tls_handshake_bump
-module sfb.transport.transport_base role=common transport=common
 module sfb.transport.mtu_limits role=common transport=common
 module sfb.transport.icmp.icmp_client role=common transport=icmp
 module sfb.transport.icmp.icmp_server role=bob transport=icmp

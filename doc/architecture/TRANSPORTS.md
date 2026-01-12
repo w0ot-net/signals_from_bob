@@ -36,10 +36,11 @@ bytes by subtracting `PACKET_HEADER_SIZE`.
 Transport on-wire sizes can exceed `packet_mtu` due to protocol overhead
 (DNS, TLS, TLS bump). Each transport doc separates packet MTU from on-wire size.
 
-DNS note: the DNS client clamps its default `send_packet_mtu` so every query
-allows at least `MIN_PACKET_MTU` bytes in the response. If no query payload
-size can satisfy that minimum (given `base_domain`, `label_max_len`, and
-`edns_size`), DNS transport initialization fails with a TransportError.
+DNS note: for CNAME responses, both sides compute a fixed response payload cap
+(minimum across valid query payload sizes under compression) and clamp
+recv/send MTUs to it. Initialization fails if compression cannot be applied,
+no valid payload size yields a cap, the fixed cap is below `MIN_PACKET_MTU`, or
+the raw query packet MTU is below `MIN_PACKET_MTU`.
 
 ---
 
@@ -255,7 +256,7 @@ in place unless you have a specific path requirement.
 
 | Transport | MTU Basis | Caps / Notes |
 |-----------|-----------|--------------|
-| DNS | Query MTU from `base_domain` and `label_max_len`; response MTU from `cname_suffix`, `label_max_len`, and `dns_edns_size`; per-query CNAME caps apply | `dns_edns_size` is validated to <= 512; larger sizes require config changes |
+| DNS | Query MTU from `base_domain` and `label_max_len`; response MTU from `cname_suffix`, `label_max_len`, and `dns_edns_size`, then clamped to the fixed response cap; per-query caps are clamped to the fixed cap | `dns_edns_size` is validated to <= 512; larger sizes require config changes |
 | ICMP | IPv4 ICMP payload max, clamped by `icmp_packet_mtu` | Default cap 1350; higher values increase fragmentation risk |
 | UDP Ephemeral | IPv4 UDP payload max, clamped by `udp_ephemeral_packet_mtu` | Default cap 1350; higher values increase fragmentation risk |
 | TLS ClientHello | Payload caps derived from `tls_max_clienthello_bytes` / `tls_max_serverhello_bytes` plus SNI/ALPN/padding overhead | On-wire record includes 5-byte header |

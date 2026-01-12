@@ -116,9 +116,9 @@ keepalive packets in the same response.
 ## Retransmit Send Path (Packet Build And Encryption)
 
 Retransmits are sent via `_send_retransmit_response()`:
-- Rebuilds the packet with the original `seq` and stored `flags` plus
-  `POLL_HINT`, but with fresh `ack` and `sack` from the current recv window:
-  `packet = _rebuild_packet(seq, segments, flags=flags | FLAG_POLL_HINT)`.
+- Rebuilds the packet with the original `seq` and stored `flags`, but with
+  fresh `ack` and `sack` from the current recv window:
+  `packet = _rebuild_packet(seq, segments, flags=flags)`.
 - Uses cached `encrypted_body` if available (stored on first send).
 - If cached body is missing, re-encodes segments and re-encrypts using the
   original `seq` and outbound direction.
@@ -133,9 +133,8 @@ If the responder exposes `response_payload_cap`, retransmit checks:
   - `tunnel.retransmit_skip` with reason `cap`
   - `tunnel.retransmit_cap_blocked`
 - The unacked entry remains; Bob does not close the tunnel.
-- Bob responds with `KEEPALIVE` + `POLL_HINT` (zero segments) and keeps the
-  retransmit queued for a larger-cap poll. There are no control-only poll-hint
-  segments.
+- Bob responds with `KEEPALIVE` (zero segments) and keeps the retransmit queued
+  for a later poll.
 
 ### Side Effects On Successful Retransmit
 
@@ -195,8 +194,8 @@ means they can later be retransmitted:
 Keepalive responses are suppressed when any channel has pending data:
 - Pending data is sent as segments; keepalive is only sent when idle.
 - If pending data exists but no segments fit within the per-request response
-  cap (including retransmits), Bob responds with a KEEPALIVE + POLL_HINT
-  header-only packet and leaves the data queued for a larger-cap poll.
+  cap (including retransmits), Bob responds with a KEEPALIVE header-only packet
+  and leaves the data queued for a later poll.
 
 ## Instrumentation Events (Bob)
 

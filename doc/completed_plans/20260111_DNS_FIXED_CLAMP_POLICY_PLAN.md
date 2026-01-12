@@ -1,6 +1,6 @@
 # DNS Fixed Clamp Policy Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Replace the DNS poll-hint clamp modes with a fixed response cap computed from
@@ -8,19 +8,19 @@ worst-case CNAME response size under compression, and remove POLL_HINT from the
 protocol. This is a breaking change; both sides must be upgraded together.
 
 ## Related Plans
-- doc/plans/DNS_CNAME_COMPRESSION_PLAN.md (compression raises response caps)
+- doc/completed_plans/20260111_DNS_CNAME_COMPRESSION_PLAN.md (compression raises response caps)
 
 ## Phase Documents
 - Phase 1: Protocol and tunnel POLL_HINT removal
-  - doc/plans/DNS_FIXED_CLAMP_POLICY_PHASE1_PROTOCOL.md
+  - doc/completed_plans/20260111_DNS_FIXED_CLAMP_POLICY_PHASE1_PROTOCOL.md
 - Phase 2: Fixed DNS response cap implementation
-  - doc/plans/DNS_FIXED_CLAMP_POLICY_PHASE2_DNS_FIXED_CAP.md
+  - doc/completed_plans/20260111_DNS_FIXED_CLAMP_POLICY_PHASE2_DNS_FIXED_CAP.md
 - Phase 3: Documentation updates and flat build regeneration
-  - doc/plans/DNS_FIXED_CLAMP_POLICY_PHASE3_DOCS_FLAT.md
+  - doc/completed_plans/20260111_DNS_FIXED_CLAMP_POLICY_PHASE3_DOCS_FLAT.md
 
 ## Phase Order
 - Phase 1 -> Phase 2 -> Phase 3.
-- Phase 2 depends on DNS_CNAME_COMPRESSION_PLAN.md.
+- Phase 2 depends on doc/completed_plans/20260111_DNS_CNAME_COMPRESSION_PLAN.md.
 
 ## Goals
 - Remove the POLL_HINT flag and all poll-hint handling from protocol and tunnel
@@ -58,3 +58,8 @@ protocol. This is a breaking change; both sides must be upgraded together.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- 20260111: Completed Phases 1-3 (protocol/tunnel POLL_HINT removal, fixed DNS
+  response cap, and documentation/flat build updates).
+- Tests not run (per instructions).

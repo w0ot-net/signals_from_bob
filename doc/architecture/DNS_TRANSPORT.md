@@ -279,64 +279,41 @@ response_mtu = floor(usable_chars * 5 / 8)
 response_mtu = 142 bytes
 ```
 
-### CNAME Response Caps and Adaptive Clamp
+### Fixed Response Cap Policy
 
 When `dns_response_type=CNAME`, the full DNS response must fit within the EDNS
 size (minimum 512 bytes) and includes the original QNAME in both the question
-and answer sections. This means the usable response packet size depends on the
-query's QNAME wire length (which varies with payload length, base_domain, and
-label_max_len).
+and answer sections. This means the usable response payload depends on the
+query QNAME wire length (payload length, base_domain, and label_max_len).
 
-The client precomputes a lookup across all possible query packet sizes using
-the same sizing rules as the server (EDNS clamp plus OPT record length) to
-derive a per-query `response_payload_cap` in packet bytes. The maximum of that
-lookup bounds Alice's `recv_packet_mtu` and Bob's `send_packet_mtu`; init fails
-if the maximum response packet size is smaller than the minimum packet needed
-to carry one segment.
+To avoid per-poll clamp negotiation, both sides compute a fixed response
+payload cap at initialization:
+- Enumerate all valid query payload sizes from `MIN_PACKET_MTU` to the raw
+  query packet MTU.
+- For each payload size, compute the QNAME wire length and the CNAME response
+  payload cap using name compression.
+- The fixed cap is the minimum response cap across those payload sizes.
 
-Alice also enforces a minimum response cap before any POLL_HINT handling. She
-computes a safe-max query payload (largest payload that still yields
-`response_payload_cap >= MIN_PACKET_MTU`), ensuring Bob can always return at
-least one segment. If no query payload size can meet that floor, DNS client
-initialization fails with a TransportError that reports `base_domain`,
-`label_max_len`, and `edns_size`. The transport's negotiated send MTU remains
-the raw query MTU; per-send clamps reduce from that ceiling via the send permit.
+Both sides then clamp their MTUs to the fixed cap:
+- Alice recv_packet_mtu = min(calculated_recv_mtu, fixed_cap)
+- Bob send_packet_mtu = min(calculated_send_mtu, fixed_cap)
 
-Alice selects query payload caps using these clamp modes:
-- `clamp_safe_max_alice` (default): safe-max query payload (largest payload
-  that still yields a `MIN_PACKET_MTU` response cap).
-- `clamp_unsafe_alice_max`: when no poll-hint budget is active, Alice has real
-  data pending, and Bob is not believed to have pending real data. Chooses the
-  largest query payload that still yields a `PACKET_HEADER_SIZE` response cap
-  (header-only keepalive). Trade-off: maximizes Alice payloads but can leave
-  Bob unable to send segments until he sends `KEEPALIVE + POLL_HINT` to request
-  a smaller clamp; the next polls switch to `clamp_max_bob`.
-- `clamp_balanced`: for POLL_HINT + HAS_SEGMENTS when Alice has pending data,
-  choose the balanced query payload (largest payload where response cap
-  >= query payload). If no balanced point exists, fall back to
-  `clamp_max_bob`.
-- `clamp_max_bob`: for POLL_HINT + KEEPALIVE, or when POLL_HINT is active and
-  Alice has no pending data, choose the query payload that yields the maximum
-  response cap (largest response payload).
-Each poll consumes the clamp budget; another POLL_HINT refreshes it.
+Per-request caps are still computed from the actual query and then clamped to
+the fixed cap (defensive and for logging), so every response can fit without
+per-poll negotiation.
 
-Bob should use POLL_HINT whenever he needs Alice to clamp, such as when
-retransmits are blocked by per-request response caps or when pending data
-cannot fit within the current per-request response cap. POLL_HINT is advisory
-and is not gated by the per-request response cap. It does not imply data was
-sent; Alice treats real data only when `HAS_SEGMENTS` is set.
-Bob does not send control-only poll-hint segments; control segments are treated
-the same as data segments, and poll-hint keepalives are used when nothing fits.
-The chosen packet cap is attached to the send permit and applied at packet
-build time, so segments are sized before encoding the DNS query. Bob still
-enforces the per-request response cap for each response and retransmit.
+Initialization fails when:
+- CNAME compression cannot be applied for the base_domain/cname_suffix
+- No valid query payload size yields a response cap
+- The fixed response cap is below `MIN_PACKET_MTU`
+- The raw query packet MTU is below `MIN_PACKET_MTU`
 
 Response caps and MTUs are packet bytes; payload bytes are
 (`packet_mtu` - `PACKET_HEADER_SIZE`).
 
 ### MTU Examples by Domain Length
 
-| Base Domain | Length | Query MTU | Response MTU | CNAME Response Cap (512) |
+| Base Domain | Length | Query MTU | Response MTU | Fixed Response Cap (512) |
 |-------------|--------|-----------|--------------|-------------------------|
 | `t.co` | 4 | 149 | 151 | 93 |
 | `example.com` | 11 | 145 | 146 | 88 |
@@ -346,6 +323,8 @@ Response caps and MTUs are packet bytes; payload bytes are
 
 Shorter domains and shorter `cname_label` values provide higher MTU and payload
 cap, which improves throughput.
+The fixed response cap is the minimum across valid query payload sizes; with
+compression it typically matches the cap at the largest query MTU.
 
 Values above assume `dns_label_max_len=50`, `dns_cname_label=0`, and
 `dns_edns_size=512`.
@@ -682,20 +661,18 @@ Bob queues outbound packets. When Alice polls:
 1. Decode incoming packet from query
 2. Pass to reliability/muxer layers
 3. Check outbound queue for response data
-4. If data fits: encode and send segments (set `POLL_HINT` if more data remains)
+4. If data fits: encode and send segments
 5. If no channel data is queued: send `KEEPALIVE` (FLAG_KEEPALIVE, zero
    segments)
 6. If data is queued but no segments fit within the per-request response cap
-   (including retransmits): send `KEEPALIVE` + `POLL_HINT` (zero segments) and
-   keep the data queued
+   (including retransmits): send `KEEPALIVE` (zero segments) and keep the data
+   queued
 
 The response always contains a valid tunnel packet (with seq/ack headers). When
 no data is queued, the packet carries no segments and sets FLAG_KEEPALIVE. When
-pending data exists, Bob includes segments if they fit and sets POLL_HINT if
-more data remains; otherwise he uses a KEEPALIVE + POLL_HINT response to keep
-Alice polling.
-KEEPALIVE + POLL_HINT responses are still idle for real-data detection; only
-`HAS_SEGMENTS` responses count as data received.
+pending data exists, Bob includes segments if they fit; keepalive responses are
+only used when no segments are sent. Only `HAS_SEGMENTS` responses count as
+data received.
 
 ---
 
@@ -877,14 +854,14 @@ This section describes techniques to maximize throughput over the DNS transport.
 | Response overhead | 12 + qname_len + 4 + qname_len + 10 bytes | Header + question + answer (without RDATA) |
 | Encoding overhead (query/response) | 1.625x | Base32 in QNAME/CNAME |
 | MTU (label_max_len=50) | 132-151 bytes (query), 134-153 bytes (response) | Depends on domain and cname_label |
-| CNAME response cap (512) | 76-94 bytes | Depends on domain and cname_label |
+| Fixed response cap (512) | 76-94 bytes | Depends on domain and cname_label |
 
 ### Optimal Domain Selection
 
 Shorter base domains and shorter `dns_cname_label` values provide higher MTU
-and response caps:
+and fixed response caps:
 
-| Base Domain | Query MTU | CNAME Response Cap (512) |
+| Base Domain | Query MTU | Fixed Response Cap (512) |
 |-------------|-----------|-------------------------|
 | `t.co` | 149 | 93 |
 | `x.local` (direct mode) | 147 | 91 |
@@ -972,17 +949,17 @@ def prepare_response(mtu):
 
 ### Performance Summary
 
-| Configuration | Query MTU | Response MTU | CNAME Response Cap (512) |
+| Configuration | Query MTU | Response MTU | Fixed Response Cap (512) |
 |---------------|-----------|--------------|-------------------------|
 | `tunnel.example.com` | 140 | 142 | 84 |
 | `x` (direct mode) | 151 | 153 | 94 |
 
-With 512-byte DNS responses, the CNAME response cap often becomes the limiting
+With 512-byte DNS responses, the fixed response cap often becomes the limiting
 factor for response payload size.
 
 ### Throughput Estimates
 
-The estimates below assume CNAME responses with `tunnel.example.com` (response
+The estimates below assume CNAME responses with `tunnel.example.com` (fixed
 cap 84 bytes) unless noted otherwise. Payload bytes refer to tunnel packet
 bytes; application payload is smaller due to protocol headers.
 

@@ -74,7 +74,7 @@ Bit 0 (0x01): SYN - Handshake initiation
 Bit 1 (0x02): ACK - Handshake acknowledgment
 Bit 2 (0x04): KEEPALIVE - Idle keepalive packet (no segments)
 Bit 3 (0x08): HAS_SEGMENTS - Packet contains one or more segments
-Bit 4 (0x10): POLL_HINT - Advisory: keep clamp hot
+Bit 4 (0x10): Reserved (must be 0)
 Bits 5-7:     Reserved (must be 0)
 ```
 
@@ -85,7 +85,6 @@ every non-handshake packet must set exactly one content flag:
 Handshake constraints:
 - SYN/SYN+ACK/ACK packets MUST contain zero segments
 - SYN/SYN+ACK/ACK packets MUST NOT set any content flags
-- SYN/SYN+ACK/ACK packets MUST NOT set POLL_HINT
 - Once CONNECTED, any packet with SYN or ACK flags is treated as a stale
   handshake packet. Receivers MUST NOT reset connection state on these packets.
   They MAY ignore them for reliability processing; if processed, they are
@@ -97,10 +96,8 @@ Content-flag constraints (post-ACK):
 - `HAS_SEGMENTS` requires at least one segment
 - `KEEPALIVE` requires zero segments
 - Empty packets (zero segments) MUST set `KEEPALIVE` (ack-only packets are invalid)
-- `POLL_HINT` is only valid when paired with `KEEPALIVE` or `HAS_SEGMENTS`
-- `KEEPALIVE` + `POLL_HINT` means "no segments now, but keep clamp hot"
-- "Real data" for pacing is any packet with `HAS_SEGMENTS` (control or data);
-  `POLL_HINT` is advisory and does not imply data was sent
+- Reserved flag bits (4-7) MUST be 0
+- "Real data" for pacing is any packet with `HAS_SEGMENTS` (control or data)
 - Any violation is a fatal protocol error (log, drop, close)
 
 ---

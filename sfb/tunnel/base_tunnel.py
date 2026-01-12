@@ -214,6 +214,31 @@ class BaseTunnel(object):
     def _packet_mtu_from_payload(payload_bytes):
         return payload_bytes + PACKET_HEADER_SIZE
 
+    def _validate_send_packet_mtu(self, context):
+        max_send = self._proposed_send_packet_mtu
+        if max_send is None:
+            max_send = self._default_packet_mtu
+        if self._send_packet_mtu > max_send:
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'tunnel.send_mtu_invalid',
+                'Negotiated send MTU exceeds transport limit',
+                lambda: {
+                    'context': context,
+                    'send_packet_mtu': self._send_packet_mtu,
+                    'max_send_packet_mtu': max_send,
+                    'proposed_send_packet_mtu': self._proposed_send_packet_mtu,
+                    'side': 'alice' if self._is_initiator else 'bob',
+                },
+            )
+            raise TunnelError(
+                'Negotiated send MTU %d exceeds transport limit %d' % (
+                    self._send_packet_mtu,
+                    max_send,
+                )
+            )
+
     @property
     def state(self):
         """Current tunnel state."""
@@ -1133,6 +1158,8 @@ class BaseTunnel(object):
         else:
             self._pending_send_packet_mtu = agreed_send_packet_mtu
 
+        self._validate_send_packet_mtu('mtu_request')
+
         # Send confirmation (using small packets still)
         self.control.send_message(
             tun_mtu_ok(
@@ -1221,6 +1248,8 @@ class BaseTunnel(object):
         self._max_packet_size = agreed_recv_packet_mtu
         self._mtu_negotiated = True
 
+        self._validate_send_packet_mtu('mtu_ok')
+
         # Send ack so Bob knows he can also start sending larger packets
         self.control.send_message(tun_mtu_ack())
         log_event(
@@ -1262,6 +1291,7 @@ class BaseTunnel(object):
             self._send_packet_mtu = self._pending_send_packet_mtu
             self._pending_send_packet_mtu = None
         self._mtu_negotiated = True
+        self._validate_send_packet_mtu('mtu_ack')
         log_event(
             self._logger,
             logging.INFO,

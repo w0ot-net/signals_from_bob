@@ -685,6 +685,38 @@ class DnsServer(Server):
                     qname,
                 )
             )
+        min_required = None
+        if fixed_cap is not None:
+            min_required = fixed_cap
+        if self._send_packet_mtu is not None:
+            if min_required is None or self._send_packet_mtu > min_required:
+                min_required = self._send_packet_mtu
+        if (payload_cap is not None and min_required is not None and
+                payload_cap < min_required):
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'dns.response_payload_cap_invariant',
+                'DNS response payload cap below invariant minimum',
+                lambda: {
+                    'context': 'server',
+                    'qname': qname,
+                    'qname_wire_len': qname_wire_len,
+                    'response_payload_cap': payload_cap,
+                    'min_required': min_required,
+                    'send_packet_mtu': self._send_packet_mtu,
+                    'fixed_response_cap': fixed_cap,
+                    'max_packet_size': max_packet_size,
+                },
+            )
+            raise TransportFatalError(
+                'DNS response payload cap %d below invariant minimum %d '
+                '(qname=%s)' % (
+                    payload_cap,
+                    min_required,
+                    qname,
+                )
+            )
         return payload_cap, qname_wire_len, max_packet_size
 
     def _build_soa_record(self):

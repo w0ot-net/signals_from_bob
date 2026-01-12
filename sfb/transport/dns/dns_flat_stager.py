@@ -12,7 +12,7 @@ from . import dns_codec as codec
 from ...config import DNS_STANDARD_SIZE
 from ...logging_util import log_event
 from ...protocol.constants import MIN_PACKET_MTU
-from ..transport_base import TransportFatalError
+from ..transport_base import TransportError, TransportFatalError
 
 
 _CACHE_BUSTER_PREFIX = 'r-'
@@ -47,6 +47,7 @@ class DnsFlatStager(object):
         self._rtype = rtype
         self._cname_suffix = cname_suffix
         self._label_max_len = label_max_len
+        self._fixed_response_cap = None
         self._logger = logger
         self._send_response = send_response
         self._send_empty_response = send_empty_response
@@ -273,6 +274,37 @@ class DnsFlatStager(object):
             0,
             use_compression=True,
         )
+        fixed_cap = self._fixed_response_cap
+        if fixed_cap is None:
+            try:
+                fixed_cap, _, _, _ = codec.calc_fixed_cname_response_payload_cap(
+                    DNS_STANDARD_SIZE,
+                    DNS_STANDARD_SIZE,
+                    self._cname_suffix,
+                    self._base_domain,
+                    self._label_max_len,
+                    0,
+                )
+            except TransportError as exc:
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'dns.stager_fixed_response_cap_error',
+                    'DNS stager fixed response cap failed',
+                    lambda: {
+                        'error': str(exc),
+                        'base_domain': self._base_domain,
+                        'cname_suffix': self._cname_suffix,
+                        'label_max_len': self._label_max_len,
+                    },
+                )
+                raise TransportFatalError(
+                    'DNS stager fixed response cap failed: %s' % exc
+                )
+            self._fixed_response_cap = fixed_cap
+        if (payload_cap is not None and fixed_cap is not None and
+                payload_cap > fixed_cap):
+            payload_cap = fixed_cap
         if payload_cap is not None and payload_cap < MIN_PACKET_MTU:
             log_event(
                 self._logger,
@@ -292,6 +324,30 @@ class DnsFlatStager(object):
                 'DNS stager response payload cap %d below minimum %d (qname=%s)' % (
                     payload_cap,
                     MIN_PACKET_MTU,
+                    qname,
+                )
+            )
+        if (payload_cap is not None and fixed_cap is not None and
+                payload_cap < fixed_cap):
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'dns.response_payload_cap_invariant',
+                'DNS stager response payload cap below invariant minimum',
+                lambda: {
+                    'context': 'flat_stager',
+                    'qname': qname,
+                    'qname_wire_len': qname_wire_len,
+                    'response_payload_cap': payload_cap,
+                    'fixed_response_cap': fixed_cap,
+                    'max_packet_size': max_packet_size,
+                },
+            )
+            raise TransportFatalError(
+                'DNS stager response payload cap %d below invariant minimum %d '
+                '(qname=%s)' % (
+                    payload_cap,
+                    fixed_cap,
                     qname,
                 )
             )

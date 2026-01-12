@@ -76,7 +76,6 @@ class BobTunnel(BaseTunnel):
         # Timing
         self._last_request_time = None
         self._poll_interval_ewma = None
-        self._last_retransmit_cap_blocked_log = None
 
         # Handshake state
         self._handshake_complete = False
@@ -338,72 +337,14 @@ class BobTunnel(BaseTunnel):
             ),
         )
 
-    def _send_retransmit_response(self, responder, response_payload_cap, now,
-                                  seq, segments, flags, encrypted_body,
+    def _send_retransmit_response(self, responder, now, seq, segments, flags,
+                                  encrypted_body,
                                   context='retransmit', reason=None):
         packet = self._rebuild_packet(seq, segments, flags=flags)
         encrypted_body, response_data = self._encode_packet_for_send(
             packet,
             encrypted_body=encrypted_body,
         )
-        if (response_payload_cap is not None and
-                len(response_data) > response_payload_cap):
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.retransmit_skip',
-                'Retransmit exceeds per-request cap',
-                lambda: {
-                    'seq': seq,
-                    'reason': 'cap',
-                    'bytes': len(response_data),
-                    'cap': response_payload_cap,
-                    'side': 'bob',
-                },
-            )
-            log_now = now
-            if log_now is None:
-                log_now = time_provider.now()
-            last_log = self._last_retransmit_cap_blocked_log
-            if last_log is None or (log_now - last_log) >= 2.0:
-                self._last_retransmit_cap_blocked_log = log_now
-                log_event(
-                    self._logger,
-                    logging.WARNING,
-                    'tunnel.retransmit_cap_blocked',
-                    'Retransmit exceeds per-request cap; sending keepalive',
-                    lambda: {
-                        'seq': seq,
-                        'bytes': len(response_data),
-                        'cap': response_payload_cap,
-                        'segments': 0,
-                        'response': 'keepalive',
-                        'side': 'bob',
-                    },
-                )
-            if now is None:
-                now = log_now
-            if not self._send_window.can_send:
-                dropped_seq = self._send_window.drop_oldest_keepalive(
-                    reason='window_full', now=now
-                )
-                if dropped_seq is not None:
-                    self._log_reliability_state(
-                        logging.DEBUG,
-                        'tunnel.reliability_state',
-                        'Reliability state after keepalive drop',
-                        now=now,
-                        extra_fields={
-                            'context': 'keepalive',
-                            'reason': 'window_full',
-                            'seq': dropped_seq,
-                        },
-                    )
-            self._send_keepalive_response(
-                responder,
-                now,
-            )
-            return False
         prev_info = self._send_window.get_unacked_info(seq)
         prev_retransmit_count = None
         prev_age = None
@@ -737,7 +678,6 @@ class BobTunnel(BaseTunnel):
         if action == 'retransmit':
             self._send_retransmit_response(
                 responder,
-                response_payload_cap,
                 now,
                 decision['seq'],
                 decision['segments'],
@@ -752,7 +692,6 @@ class BobTunnel(BaseTunnel):
             if oldest_info is not None:
                 self._send_retransmit_response(
                     responder,
-                    response_payload_cap,
                     now,
                     oldest_info[0],
                     oldest_info[1],

@@ -126,15 +126,12 @@ Retransmits are sent via `_send_retransmit_response()`:
     deterministic even when re-encrypted.
 - Encodes `header + encrypted_body` into `response_data`.
 
-### Response Payload Cap (Retransmit Blocked)
+### Response Payload Cap (Invariant)
 
-If the responder exposes `response_payload_cap`, retransmit checks:
-- If `len(response_data) > response_payload_cap`, Bob logs:
-  - `tunnel.retransmit_skip` with reason `cap`
-  - `tunnel.retransmit_cap_blocked`
-- The unacked entry remains; Bob does not close the tunnel.
-- Bob responds with `KEEPALIVE` (zero segments) and keeps the retransmit queued
-  for a later poll.
+For DNS responders, `response_payload_cap` is fixed to the invariant cap and
+validated on every request. The DNS transport logs and raises a fatal
+transport error if a per-request cap falls below the fixed cap or the
+transport send MTU, so retransmits are never blocked by per-request caps.
 
 ### Side Effects On Successful Retransmit
 
@@ -193,9 +190,8 @@ means they can later be retransmitted:
 
 Keepalive responses are suppressed when any channel has pending data:
 - Pending data is sent as segments; keepalive is only sent when idle.
-- If pending data exists but no segments fit within the per-request response
-  cap (including retransmits), Bob responds with a KEEPALIVE header-only packet
-  and leaves the data queued for a later poll.
+- With invariant response caps, per-request caps do not block data or
+  retransmits.
 
 ## Instrumentation Events (Bob)
 
@@ -243,9 +239,7 @@ Relevant events emitted by Bob retransmit logic:
 - `tunnel.retransmit`: emitted for each retransmit; includes `seq`, `seg_count`,
   and optional `reason` (`window_full`, `window_distance`).
 - `tunnel.retransmit_skip`: emitted when a retransmit is skipped (reason
-  `cooldown`, `ack_progress`, or `cap`).
-- `tunnel.retransmit_cap_fatal`: emitted when a retransmit exceeds the response
-  cap and the tunnel is closed.
+  `cooldown` or `ack_progress`).
 - `tunnel.packet_send`: emitted for every retransmit send.
 
 Stats:

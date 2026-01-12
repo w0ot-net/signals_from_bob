@@ -299,7 +299,9 @@ Both sides then clamp their MTUs to the fixed cap:
 - Bob send_packet_mtu = min(calculated_send_mtu, fixed_cap)
 
 Per-request caps are still computed from the actual query and then clamped to
-the fixed cap (defensive and for logging), so every response can fit without
+the fixed cap. If a per-request cap falls below the fixed cap or the transport
+send MTU, the DNS transport logs and raises a fatal error before a responder is
+used. With the fixed clamp, retransmits and new data always fit without
 per-poll negotiation.
 
 Initialization fails when:
@@ -664,9 +666,9 @@ Bob queues outbound packets. When Alice polls:
 4. If data fits: encode and send segments
 5. If no channel data is queued: send `KEEPALIVE` (FLAG_KEEPALIVE, zero
    segments)
-6. If data is queued but no segments fit within the per-request response cap
-   (including retransmits): send `KEEPALIVE` (zero segments) and keep the data
-   queued
+
+With invariant response caps, per-request caps do not block retransmits or new
+data; keepalive responses are only sent when idle.
 
 The response always contains a valid tunnel packet (with seq/ack headers). When
 no data is queued, the packet carries no segments and sets FLAG_KEEPALIVE. When

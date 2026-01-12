@@ -1,6 +1,6 @@
 # DNS Cap-Blocked Retransmit Guarantee Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Guarantee that cap-blocked retransmit paths are eliminated entirely by making
@@ -49,3 +49,12 @@ the cap-blocked branch from Bob.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- Enforced invariant DNS response caps for tunnel and flat stager responses with
+  fatal checks on cap mismatches.
+- Removed the cap-blocked retransmit fallback from Bob and added send MTU
+  validation after MTU negotiation updates.
+- Updated architecture docs to document invariant response caps and the
+  removal of cap-blocked retransmits.
+- Manual verification not run (per instructions).

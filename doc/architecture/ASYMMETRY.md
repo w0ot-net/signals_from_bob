@@ -45,10 +45,10 @@ Both sides buffer unacked packets, but retransmission triggers differ:
 - Cannot act on timers; only transmits in response to polls
 - On each poll: if unacked packets exist and the retransmit cooldown has
   elapsed (including recent ACK progress), retransmit the oldest unacked packet
-- Retransmits preserve their original flags and are constrained by the
-  per-request response cap
-- If a retransmit would exceed the per-request response cap, Bob responds with
-  `KEEPALIVE` (no segments) and leaves the packet pending for a later poll
+- Retransmits preserve their original flags; per-request response caps are
+  fixed to the invariant cap
+- Any response-cap mismatch is treated as a fatal transport error before a
+  responder is used
 - Retransmits reuse existing sequence numbers; outstanding count stays capped
 - Retransmits when the opportunity arises, not when a timer fires
 - Does not track RTT (Alice's polling interval dominates latency)

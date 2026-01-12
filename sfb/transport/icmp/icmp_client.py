@@ -96,25 +96,12 @@ def _get_socket_buffer(sock, opt, opt_name, role):
         return None
 
 
-def _configure_socket_buffers(sock, rcvbuf, sndbuf, role):
+def _configure_socket_buffers(sock, rcvbuf, role):
     rcvbuf = _normalize_socket_buffer(rcvbuf)
-    sndbuf = _normalize_socket_buffer(sndbuf)
-    if rcvbuf is None and sndbuf is None:
+    if rcvbuf is None:
         return
-    if rcvbuf is not None:
-        _set_socket_buffer(sock, socket.SO_RCVBUF, 'rcvbuf', rcvbuf, role)
-    if sndbuf is not None:
-        _set_socket_buffer(sock, socket.SO_SNDBUF, 'sndbuf', sndbuf, role)
-    effective_rcv = None
-    effective_snd = None
-    if rcvbuf is not None:
-        effective_rcv = _get_socket_buffer(
-            sock, socket.SO_RCVBUF, 'rcvbuf', role
-        )
-    if sndbuf is not None:
-        effective_snd = _get_socket_buffer(
-            sock, socket.SO_SNDBUF, 'sndbuf', role
-        )
+    _set_socket_buffer(sock, socket.SO_RCVBUF, 'rcvbuf', rcvbuf, role)
+    effective_rcv = _get_socket_buffer(sock, socket.SO_RCVBUF, 'rcvbuf', role)
     log_event(
         _LOG,
         logging.INFO,
@@ -123,9 +110,7 @@ def _configure_socket_buffers(sock, rcvbuf, sndbuf, role):
         lambda: {
             'role': role,
             'rcvbuf_requested': rcvbuf,
-            'sndbuf_requested': sndbuf,
             'rcvbuf_effective': effective_rcv,
-            'sndbuf_effective': effective_snd,
         },
     )
 
@@ -156,7 +141,6 @@ class IcmpClient(Transport):
         _configure_socket_buffers(
             self._sock,
             config.icmp_socket_rcvbuf,
-            config.icmp_socket_sndbuf,
             role='client',
         )
 
@@ -205,7 +189,6 @@ class IcmpClient(Transport):
                 'max_in_flight': self._max_in_flight,
                 'pending_timeout': self._pending_timeout,
                 'socket_rcvbuf': config.icmp_socket_rcvbuf,
-                'socket_sndbuf': config.icmp_socket_sndbuf,
             },
         )
 

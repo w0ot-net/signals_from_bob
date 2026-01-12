@@ -153,7 +153,6 @@ Config fields:
 - `max_in_flight`: max concurrent ICMP requests in flight
 - `icmp_pending_timeout`: timeout before pruning stale ICMP requests
 - `icmp_socket_rcvbuf`: optional ICMP socket receive buffer size (bytes, 0 = default)
-- `icmp_socket_sndbuf`: optional ICMP socket send buffer size (bytes, 0 = default)
 - `non_blocking_poll_timeout`: poll timeout used by the tunnel loop
 - `tunnel_send_rate` / `tunnel_send_burst`: transport-agnostic pacing for Alice polls
 - `tunnel_pace_target_inflight_ratio` / `tunnel_pace_min_inflight` /

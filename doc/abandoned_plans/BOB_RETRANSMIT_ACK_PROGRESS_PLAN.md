@@ -1,6 +1,6 @@
 # Bob Retransmit Ack Progress Plan
 
-Status: draft
+Status: abandoned
 
 ## Summary
 Switch Bob's opportunistic retransmit gate to use ACK progress silence
@@ -45,3 +45,6 @@ ACK, while preserving the existing cooldown and window rules.
 
 ## Testing
 - Do not run tests.
+
+## Abandon Notes
+- Abandoned per request; revisit if ACK progress gating becomes a priority.

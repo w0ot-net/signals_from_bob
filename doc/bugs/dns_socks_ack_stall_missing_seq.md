@@ -141,6 +141,19 @@
   `send_oldest_flags=4`, while retransmits in the same window are keepalive-only
   (`seg_count=0`).
 
+### New occurrence (2026-01-12 21:47:14 to 21:47:59)
+- Alice `tunnel.response_decode` with `content_flag=has_segments` appears at
+  21:47:14 (`corr_id=561`, `seq=64`, `bytes=93`, `seg_count=1`), and there are
+  no later `has_segments` responses before shutdown.
+- Alice `tunnel.response_decode` after 21:47:14 is keepalive-only
+  (`bytes=38`, `seg_count=0`) despite continuous DNS responses.
+- Alice logs no `tunnel.response_decode_failed`, `dns.malformed_response`,
+  `dns.mismatched_response`, `dns.error_response`, `dns.stale_response`, or
+  `dns.prune_stale` events in this window.
+- Bob logs `tunnel.packet_send` with `content_flag=has_segments` at 21:47:33,
+  21:47:36, 21:47:38, and 21:47:54 (`seq=373/376/378/393`, `bytes=70-71`).
+  Those payload-bearing responses do not appear on Alice, while keepalives do.
+
 ## Code path notes
 - `sfb/modules/socks/socks_server.py` starts `channel_open_timeout` as soon as
   `open_channel()` returns, then waits on `channel.wait_open()` without any

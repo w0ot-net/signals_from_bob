@@ -238,7 +238,7 @@ class SocksRelayModule(BaseModule):
 
         # Wait for channel to open
         channel_wait_start = time_provider.now()
-        if not channel.wait_open(timeout=self._config.relay_channel_open_timeout):
+        if not channel.wait_open(timeout=self._config.channel_open_timeout):
             channel_wait_time = duration_secs(channel_wait_start)
             log_event(
                 self._logger,
@@ -477,7 +477,7 @@ class SocksRelayModule(BaseModule):
         """
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if timeout is None:
-            timeout = self._config.relay_target_connect_timeout
+            timeout = self._config.relay_connect_timeout
         sock.settimeout(timeout)
         sock.connect((host, port))
         sock.settimeout(None)  # Back to blocking for relay

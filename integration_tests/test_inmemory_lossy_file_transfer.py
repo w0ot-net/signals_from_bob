@@ -53,8 +53,7 @@ def _make_config():
     config.max_in_flight = 256
     config.tunnel_initial_window = 32
     config.file_transfer_chunk_size = 32768
-    config.channel_max_send_buf = 4 * 1024 * 1024
-    config.channel_max_recv_buf = 4 * 1024 * 1024
+    config.channel_max_buf = 4 * 1024 * 1024
     config.protocol_initial_rto_ms = 400
     config.protocol_min_rto_ms = 100
     config.protocol_max_rto_ms = 2000

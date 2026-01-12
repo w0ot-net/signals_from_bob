@@ -220,7 +220,7 @@ class SocksServer:
 Each SOCKS connection spawns two threads: one for socket-to-channel and one for
 channel-to-socket. After SOCKS negotiation/connect replies, sockets are switched
 to non-blocking mode and the pumps use `select` for read/write readiness.
-`relay_socket_timeout` applies to handshake/connect; `relay_write_timeout`
+`relay_connect_timeout` applies to handshake/connect; `relay_write_timeout`
 bounds stalled sends in the pumps.
 
 Socket EOF triggers `channel.close_write()`, which emits a channel `half_close`

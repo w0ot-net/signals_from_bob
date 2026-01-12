@@ -59,16 +59,13 @@ Port forwarding uses the shared relay settings from `sfb/config.py`:
 
 - `relay_listen_backlog`
 - `relay_accept_timeout`
-- `relay_channel_open_timeout`
+- `channel_open_timeout`
 - `relay_connect_timeout`
-- `relay_target_connect_timeout`
-- `relay_socket_timeout`
-- `relay_channel_timeout`
 - `relay_write_timeout`
 - `relay_buffer_size`
-- `relay_pump_poll_timeout`
+- `non_blocking_poll_timeout`
 - `relay_pump_backoff_max`
-- `relay_thread_join_timeout`
+- `module_shutdown_timeout`
 
 Port forward does not define additional tuning knobs.
 

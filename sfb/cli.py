@@ -664,8 +664,8 @@ def add_common_args(parser, config, require_domain=True, require_role=True):
         help=argparse.SUPPRESS
     )
     parser.add_argument(
-        '--channel-max-send-buf', type=int,
-        default=config.channel_max_send_buf,
+        '--channel-max-buf', type=int,
+        default=config.channel_max_buf,
         help=argparse.SUPPRESS
     )
     parser.add_argument(
@@ -1370,7 +1370,7 @@ def _build_logging_config(args):
         'db_log_queue': getattr(args, 'db_log_queue', None),
         'log_profile': getattr(args, 'log_profile', None),
         'relay_buffer_size': getattr(args, 'relay_buffer_size', None),
-        'channel_max_send_buf': getattr(args, 'channel_max_send_buf', None),
+        'channel_max_buf': getattr(args, 'channel_max_buf', None),
         'relay_pump_backoff_max': getattr(args, 'relay_pump_backoff_max', None),
         'non_blocking_poll_timeout': getattr(args, 'non_blocking_poll_timeout', None),
     }

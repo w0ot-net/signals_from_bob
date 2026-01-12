@@ -1,6 +1,6 @@
 # Channel + Relay Config Consolidation Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Reduce channel/relay config knobs and align ownership by consolidating duplicate
@@ -77,3 +77,11 @@ possible.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes (2026-01-12)
+- Consolidated channel, relay, and SOCKS config knobs per plan; defaulted `channel_open_timeout` to 20s and derived channel write backoff initial delay from `channel_write_backoff_max`.
+- Updated relay pumps to use `non_blocking_poll_timeout` and backoff, and aligned relay joins with `module_shutdown_timeout`.
+- Switched SOCKS listen config/CLI to `socks_listen_addr`/`--socks-listen`, and updated helper scripts plus docs.
+- Additional touchpoints: `sfb.py`, `integration_tests/test_inmemory_lossy_file_transfer.py`,
+  `doc/bugs/slow_icmp_socks_throughput.md`.
+- Tests not run (per plan).

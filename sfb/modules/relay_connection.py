@@ -296,5 +296,5 @@ class RelayConnection(object):
                 pass
 
         for t in self._threads:
-            t.join(timeout=self._config.relay_thread_join_timeout)
+            t.join(timeout=self._config.module_shutdown_timeout)
         self._log_stop()

@@ -48,5 +48,5 @@ quiet gaps between bursts and prints "stalled" even though bytes are still movin
 ## Smoothing changes applied (pending validation)
 - Read only what fits in the channel buffer before each SOCKS recv.
 - Cap SOCKS pump backoff at 0.05s to reduce long sleep gaps.
-- Increase `channel_max_send_buf` to 32768 and reduce
+- Increase `channel_max_buf` to 32768 and reduce
   `relay_buffer_size` to 2048 for steadier pacing.

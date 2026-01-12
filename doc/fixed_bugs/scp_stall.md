@@ -63,7 +63,7 @@ The following changes were tried but did not resolve the stall:
    - Rationale: Faster recovery from lost/delayed DNS queries
    - Result: No improvement, suggesting responses ARE arriving
 
-2. **Reduce `channel_max_send_buf` from 64KB to 1KB**
+2. **Reduce `channel_max_buf` from 64KB to 1KB**
    - Rationale: Faster TCP backpressure to SCP client
    - Result: No improvement
 

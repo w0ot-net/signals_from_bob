@@ -64,7 +64,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 ## Quick Config Tweaks to Try (runtime)
 - Relay buffer: `--relay-buffer-size 8192`
 - Pump backoff max: `--relay-pump-backoff-max 0.05` (or smaller)
-- Channel max send buf: `--channel-max-send-buf 65536` (if safe)
+- Channel max buf: `--channel-max-buf 65536` (if safe)
 - ICMP MTU: `--icmp-packet-mtu 1400`
 - Send rate/burst: `--send-rate 0 --send-burst 0`
 
@@ -78,7 +78,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
   ```
   python3 scripts/icmp_socks_diag.py --clients 1 --target 127.0.0.1 --timeout 120 \
     --log-profile socks_throughput_debug --verbose-cli \
-    --relay-buffer-size 8192 --channel-max-send-buf 65536 \
+    --relay-buffer-size 8192 --channel-max-buf 65536 \
     --icmp-packet-mtu 1400 --send-rate 0
   ```
 - Outcome:
@@ -94,7 +94,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
   - Raising MTU and buffers improved throughput to ~0.65 MB/s but the main bottleneck remains Alice-side in-flight limits and channel backpressure.
   - ICMP pending/window saturation (unacked=64) is the dominant limiter; channel send buffer remains full much of the time.
 - Next experiments:
-  - Increase buffers further (e.g., `--relay-buffer-size 16384`, `--channel-max-send-buf 131072`).
+  - Increase buffers further (e.g., `--relay-buffer-size 16384`, `--channel-max-buf 131072`).
   - Increase ICMP concurrency/window (consider bumping `max_in_flight` beyond 64) and ensure send window can grow; keep `--send-rate 0` and omit `--send-burst` to allow defaults.
   - Optionally reduce pump backoff (`non_blocking_poll_timeout`, `relay_pump_backoff_max`) if we add config overrides for them.
 
@@ -103,7 +103,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
   ```
   python3 scripts/icmp_socks_diag.py --clients 1 --target 127.0.0.1 \
     --icmp-packet-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug --verbose-cli \
-    --relay-buffer-size 32768 --channel-max-send-buf 262144 \
+    --relay-buffer-size 32768 --channel-max-buf 262144 \
     --relay-pump-backoff-max 0.002 --non-blocking-poll-timeout 0.00002
   ```
 - Outcome:
@@ -123,7 +123,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
   ```
   python3 scripts/icmp_socks_diag.py --clients 1 --target 127.0.0.1 \
     --icmp-packet-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug --verbose-cli \
-    --relay-buffer-size 32768 --channel-max-send-buf 262144 \
+    --relay-buffer-size 32768 --channel-max-buf 262144 \
     --relay-pump-backoff-max 0.0001 --non-blocking-poll-timeout 0
   ```
 - Outcome:
@@ -143,7 +143,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
   ```
   python3 scripts/icmp_socks_diag.py --clients 4 --target 127.0.0.1 \
     --icmp-packet-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug \
-    --relay-buffer-size 32768 --channel-max-send-buf 262144 \
+    --relay-buffer-size 32768 --channel-max-buf 262144 \
     --relay-pump-backoff-max 0.0001 --non-blocking-poll-timeout 0
   ```
 - Outcome:
@@ -161,7 +161,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
   ```
   python3 scripts/icmp_socks_diag.py --clients 8 --target 127.0.0.1 \
     --icmp-packet-mtu 1400 --send-rate 0 --log-profile socks_throughput_debug \
-    --relay-buffer-size 32768 --channel-max-send-buf 262144 \
+    --relay-buffer-size 32768 --channel-max-buf 262144 \
     --relay-pump-backoff-max 0.0001 --non-blocking-poll-timeout 0
   ```
 - Outcome:

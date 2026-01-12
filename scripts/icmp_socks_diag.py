@@ -203,8 +203,8 @@ def parse_args():
         help='Override relay-buffer-size (bytes)'
     )
     parser.add_argument(
-        '--channel-max-send-buf', type=int, default=None,
-        help='Override channel-max-send-buf (bytes)'
+        '--channel-max-buf', type=int, default=None,
+        help='Override channel-max-buf (bytes)'
     )
     parser.add_argument(
         '--relay-pump-backoff-max', type=float, default=None,
@@ -300,7 +300,7 @@ def wrap_profile(cmd, profile_dir, label):
 
 
 def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
-              relay_buffer_size=None, channel_max_send_buf=None,
+              relay_buffer_size=None, channel_max_buf=None,
               relay_pump_backoff_max=None, non_blocking_poll_timeout=None,
               db_log_path=SERVER_DB_LOG, db_log_flush=None, profile_dir=None):
     cmd = [
@@ -317,18 +317,18 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
         cmd.extend(['--db-log-flush', str(db_log_flush)])
     if relay_buffer_size is not None:
         cmd.extend(['--relay-buffer-size', str(relay_buffer_size)])
-    if channel_max_send_buf is not None:
-        cmd.extend(['--channel-max-send-buf', str(channel_max_send_buf)])
+    if channel_max_buf is not None:
+        cmd.extend(['--channel-max-buf', str(channel_max_buf)])
     if relay_pump_backoff_max is not None:
         cmd.extend(['--relay-pump-backoff-max', str(relay_pump_backoff_max)])
     if non_blocking_poll_timeout is not None:
         cmd.extend(['--non-blocking-poll-timeout', str(non_blocking_poll_timeout)])
     if icmp_mtu:
         cmd.extend(['--icmp-mtu', str(icmp_mtu)])
+    listen_addr = '127.0.0.1:%d' % socks_port
     cmd.extend([
         '--module', 'socks',
-        '--socks-host', '127.0.0.1',
-        '--socks-port', str(socks_port),
+        '--socks-listen', listen_addr,
     ])
     cmd = wrap_profile(cmd, profile_dir, 'bob')
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
@@ -336,7 +336,7 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
 
 def start_alice(target, icmp_mtu=None, send_rate=None, send_burst=None,
                 log_profile=None, verbose=False, relay_buffer_size=None,
-                channel_max_send_buf=None, relay_pump_backoff_max=None,
+                channel_max_buf=None, relay_pump_backoff_max=None,
                 non_blocking_poll_timeout=None, db_log_path=CLIENT_DB_LOG,
                 db_log_flush=None,
                 profile_dir=None):
@@ -355,8 +355,8 @@ def start_alice(target, icmp_mtu=None, send_rate=None, send_burst=None,
         cmd.extend(['--db-log-flush', str(db_log_flush)])
     if relay_buffer_size is not None:
         cmd.extend(['--relay-buffer-size', str(relay_buffer_size)])
-    if channel_max_send_buf is not None:
-        cmd.extend(['--channel-max-send-buf', str(channel_max_send_buf)])
+    if channel_max_buf is not None:
+        cmd.extend(['--channel-max-buf', str(channel_max_buf)])
     if relay_pump_backoff_max is not None:
         cmd.extend(['--relay-pump-backoff-max', str(relay_pump_backoff_max)])
     if non_blocking_poll_timeout is not None:
@@ -883,7 +883,7 @@ def main():
             log_profile=log_profile,
             verbose=args.verbose_cli,
             relay_buffer_size=args.relay_buffer_size,
-            channel_max_send_buf=args.channel_max_send_buf,
+            channel_max_buf=args.channel_max_buf,
             relay_pump_backoff_max=args.relay_pump_backoff_max,
             non_blocking_poll_timeout=args.non_blocking_poll_timeout,
             db_log_path=server_db_log,
@@ -898,7 +898,7 @@ def main():
             log_profile=log_profile,
             verbose=args.verbose_cli,
             relay_buffer_size=args.relay_buffer_size,
-            channel_max_send_buf=args.channel_max_send_buf,
+            channel_max_buf=args.channel_max_buf,
             relay_pump_backoff_max=args.relay_pump_backoff_max,
             non_blocking_poll_timeout=args.non_blocking_poll_timeout,
             db_log_path=client_db_log,

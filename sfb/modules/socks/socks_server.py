@@ -13,7 +13,8 @@ import socket
 import struct
 import threading
 
-from ..base_module import BaseModule, ModuleError
+from ..base_module import BaseModule, ModuleError, invalid_spec
+from ...compat import text_type
 from ...logging_util import log_event
 from ... import time_provider
 from ..relay_connection import RelayConnection
@@ -23,6 +24,7 @@ from ..relay_logging import (
     duration_secs,
     relay_fields,
 )
+from ...utils import build_host_port_error_map, parse_host_port_or_raise
 
 
 # SOCKS5 constants
@@ -57,6 +59,30 @@ ERROR_TO_SOCKS5 = {
     'unsupported_cmd': SOCKS5_REP_CMD_NOT_SUPPORTED,
     'unsupported_addr': SOCKS5_REP_ADDR_NOT_SUPPORTED,
 }
+
+_HOST_PORT_ERROR_MAP = build_host_port_error_map(
+    invalid_spec,
+    base_message='listen address must be host:port',
+    overrides={
+        'invalid_port': 'listen port invalid',
+        'port_range': 'listen port out of range',
+        'ipv6_unsupported': 'listen address must be host:port (IPv6 unsupported)',
+    },
+)
+
+
+def _coerce_text(value):
+    if isinstance(value, text_type):
+        return value
+    if isinstance(value, bytes):
+        try:
+            return value.decode('ascii')
+        except Exception:
+            return value.decode('ascii', 'replace')
+    try:
+        return text_type(value)
+    except Exception:
+        return text_type(repr(value))
 
 
 class Socks5Error(Exception):
@@ -95,22 +121,16 @@ class SocksServerModule(BaseModule):
     @classmethod
     def register_commands(cls, parser, role, config=None):
         """Register CLI arguments for the SOCKS server."""
-        host_default = '0.0.0.0'
-        port_default = 1080
+        listen_default = '0.0.0.0:1080'
         if config is not None:
-            host_default = config.socks_listen_host
-            port_default = config.socks_listen_port
+            listen_default = config.socks_listen_addr
         group = parser.add_argument_group(
             'socks options',
             'SOCKS5 proxy server settings.',
         )
         group.add_argument(
-            '--socks-host', default=host_default,
-            help='SOCKS server listen address (default: %s)' % host_default
-        )
-        group.add_argument(
-            '--socks-port', type=int, default=port_default,
-            help='SOCKS server listen port (default: %s)' % port_default
+            '--socks-listen', default=listen_default,
+            help='SOCKS server listen host:port (default: %s)' % listen_default
         )
 
     @classmethod
@@ -118,13 +138,10 @@ class SocksServerModule(BaseModule):
         """Start the SOCKS server and run until tunnel closes."""
         module = cls(tunnel, logger=logger, module_id=args.module_id)
         try:
-            host = getattr(args, 'socks_host', None)
-            port = getattr(args, 'socks_port', None)
-            if host is None:
-                host = module._config.socks_listen_host
-            if port is None:
-                port = module._config.socks_listen_port
-            module.start(listen_addr=host, listen_port=port)
+            listen_addr = getattr(args, 'socks_listen', None)
+            if not listen_addr:
+                listen_addr = module._config.socks_listen_addr
+            module.start(listen_addr=listen_addr)
 
             # Wait for tunnel to close
             while tunnel.connected:
@@ -164,25 +181,24 @@ class SocksServerModule(BaseModule):
         with self._connections_lock:
             return len(self._connections)
 
-    def start(self, listen_addr=None, listen_port=None):
+    def start(self, listen_addr=None):
         """
         Start the SOCKS5 server.
 
         Args:
-            listen_addr: Address to listen on
-            listen_port: Port to listen on
+            listen_addr: Address to listen on (host:port)
         """
         if self._running:
             raise ModuleError('already_running', 'SOCKS server already running')
 
         if listen_addr is None:
-            listen_addr = self._config.socks_listen_host
-        if listen_port is None:
-            listen_port = self._config.socks_listen_port
+            listen_addr = self._config.socks_listen_addr
+        listen_addr = _coerce_text(listen_addr)
+        host, port = parse_host_port_or_raise(listen_addr, _HOST_PORT_ERROR_MAP)
 
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._server_socket.bind((listen_addr, listen_port))
+        self._server_socket.bind((host, port))
         self._server_socket.listen(self._config.relay_listen_backlog)
 
         self._running = True
@@ -198,16 +214,16 @@ class SocksServerModule(BaseModule):
             logging.INFO,
             'sock.server_listen',
             'SOCKS5 server listening (host=%s port=%d backlog=%d)' % (
-                listen_addr,
-                listen_port,
+                host,
+                port,
                 self._config.relay_listen_backlog,
             ),
             lambda: add_fields(relay_fields(
                 side='bob',
                 peer='client',
             ), {
-                'host': listen_addr,
-                'port': listen_port,
+                'host': host,
+                'port': port,
                 'backlog': self._config.relay_listen_backlog,
             }),
         )
@@ -225,7 +241,7 @@ class SocksServerModule(BaseModule):
 
         # Wait for accept thread
         if self._accept_thread:
-            self._accept_thread.join(timeout=self._config.relay_thread_join_timeout)
+            self._accept_thread.join(timeout=self._config.module_shutdown_timeout)
 
         # Stop all connections
         with self._connections_lock:
@@ -349,7 +365,7 @@ class SocksServerModule(BaseModule):
         connect_request_time = None
 
         try:
-            sock.settimeout(self._config.relay_socket_timeout)
+            sock.settimeout(self._config.relay_connect_timeout)
             # SOCKS5 handshake
             method_start = time_provider.now()
             self._socks5_negotiate_method(sock)
@@ -379,7 +395,7 @@ class SocksServerModule(BaseModule):
             channel = self._tunnel.channel_manager.open_channel()
             ch_id = channel.id
             channel_wait_start = time_provider.now()
-            if not channel.wait_open(timeout=self._config.relay_channel_open_timeout):
+            if not channel.wait_open(timeout=self._config.channel_open_timeout):
                 channel_wait_time = duration_secs(channel_wait_start)
                 cleanup_reason = 'channel_open_failed'
                 connect_result = 'channel_open_failed'

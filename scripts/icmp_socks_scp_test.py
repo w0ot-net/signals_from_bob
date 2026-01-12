@@ -342,6 +342,7 @@ def build_ssh_base(cmd_bin, ssh_port, identity_file, ssh_options):
 
 def start_bob(socks_host, socks_port, icmp_mtu=None, max_in_flight=None,
               log_profile=None, verbose=False, db_log_flush=None):
+    listen_addr = '%s:%d' % (socks_host, socks_port)
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'bob',
@@ -359,8 +360,7 @@ def start_bob(socks_host, socks_port, icmp_mtu=None, max_in_flight=None,
         cmd.extend(['--max-in-flight', str(max_in_flight)])
     cmd.extend([
         '--module', 'socks',
-        '--socks-host', socks_host,
-        '--socks-port', str(socks_port),
+        '--socks-listen', listen_addr,
     ])
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 

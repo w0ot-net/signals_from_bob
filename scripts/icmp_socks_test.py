@@ -223,6 +223,7 @@ def start_http_server(root, port):
 
 
 def start_bob(socks_port):
+    listen_addr = '127.0.0.1:%d' % socks_port
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'bob',
@@ -230,8 +231,7 @@ def start_bob(socks_port):
         '--db-log', SERVER_DB_LOG,
         '--log-profile', 'scp_stalled_icmp_socks',
         '--module', 'socks',
-        '--socks-host', '127.0.0.1',
-        '--socks-port', str(socks_port),
+        '--socks-listen', listen_addr,
     ]
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 

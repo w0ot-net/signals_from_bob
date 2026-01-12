@@ -6,6 +6,8 @@ All configurable values in one place with sensible defaults.
 """
 
 from .protocol.constants import PACKET_HEADER_SIZE
+from .compat import text_type
+from .utils import HostPortError, parse_host_port
 
 DNS_STANDARD_SIZE = 512
 DNS_EDNS_MAX_SIZE = 4096
@@ -222,18 +224,12 @@ class Config(object):
     non_blocking_poll_timeout = 0.0001
 
     # --- Channel ---
-    # Maximum bytes to buffer for sending per channel
-    channel_max_send_buf = 1048576
-    # Maximum bytes to buffer for receiving per channel
-    channel_max_recv_buf = 1048576
+    # Maximum bytes to buffer per channel (send and receive)
+    channel_max_buf = 1048576
     # Timeout waiting for channel to open (seconds)
-    channel_open_timeout = 5.0
-    # Write backoff initial delay (seconds)
-    channel_write_backoff_initial = 0.01
+    channel_open_timeout = 20.0
     # Write backoff maximum delay (seconds)
     channel_write_backoff_max = 1.0
-    # Control channel read chunk size (bytes)
-    channel_control_read_chunk = 4096
     # Cooldown before reusing a closed channel ID (seconds, 0 = disabled)
     channel_id_reuse_cooldown = 10.0
 
@@ -322,36 +318,22 @@ class Config(object):
     log_component_module_nc_linux = True
 
     # --- SOCKS ---
-    # SOCKS server listen host
-    socks_listen_host = "0.0.0.0"
-    # SOCKS server listen port
-    socks_listen_port = 1080
+    # SOCKS server listen host:port
+    socks_listen_addr = "0.0.0.0:1080"
 
     # --- Relay ---
     # Relay server listen backlog
     relay_listen_backlog = 5
     # Relay accept loop timeout (seconds)
     relay_accept_timeout = 0.5
-    # Channel open timeout for relay (seconds)
-    relay_channel_open_timeout = 20.0
-    # Relay connect request timeout (seconds)
+    # Relay connect/handshake timeout (seconds)
     relay_connect_timeout = 30.0
-    # Target connect timeout for relay (seconds)
-    relay_target_connect_timeout = 30.0
-    # Relay socket timeout during handshake/connect (seconds)
-    relay_socket_timeout = 5.0
-    # Relay channel read poll timeout (seconds)
-    relay_channel_timeout = 0.5
     # Relay send stall timeout for non-blocking pumps (seconds)
     relay_write_timeout = None
     # Relay buffer size (bytes)
     relay_buffer_size = 2048
-    # Relay pump poll timeout (seconds)
-    relay_pump_poll_timeout = 0.0001
     # Maximum poll backoff for relay pump select/wait loops (seconds)
     relay_pump_backoff_max = 0.001
-    # Relay thread join timeout (seconds)
-    relay_thread_join_timeout = 2.0
 
     # --- Protocol (rarely need changing) ---
     # Buffer-sizing maximum packet size (bytes), not a transport MTU cap
@@ -459,12 +441,9 @@ class Config(object):
         'tunnel_poll_rtt_ratio',
         'tunnel_connect_poll_interval',
         'non_blocking_poll_timeout',
-        'channel_max_send_buf',
-        'channel_max_recv_buf',
+        'channel_max_buf',
         'channel_open_timeout',
-        'channel_write_backoff_initial',
         'channel_write_backoff_max',
-        'channel_control_read_chunk',
         'channel_id_reuse_cooldown',
         'file_transfer_max_size',
         'file_transfer_chunk_size',
@@ -492,20 +471,13 @@ class Config(object):
         'log_component_module_relay',
         'log_component_module_file_transfer',
         'log_component_module_nc_linux',
-        'socks_listen_host',
-        'socks_listen_port',
+        'socks_listen_addr',
         'relay_listen_backlog',
         'relay_accept_timeout',
-        'relay_channel_open_timeout',
         'relay_connect_timeout',
-        'relay_target_connect_timeout',
-        'relay_socket_timeout',
-        'relay_channel_timeout',
         'relay_write_timeout',
         'relay_buffer_size',
-        'relay_pump_poll_timeout',
         'relay_pump_backoff_max',
-        'relay_thread_join_timeout',
         'protocol_max_packet_mtu',
         'protocol_initial_packet_mtu',
         'protocol_initial_rto_ms',
@@ -649,22 +621,14 @@ class Config(object):
         worst_case_buf = payload_bytes * self.max_in_flight * 4
         if worst_case_buf < 1024:
             worst_case_buf = 1024
-        if self.channel_max_send_buf < worst_case_buf:
-            self.channel_max_send_buf = worst_case_buf
-        if self.channel_max_recv_buf < worst_case_buf:
-            self.channel_max_recv_buf = worst_case_buf
+        if self.channel_max_buf < worst_case_buf:
+            self.channel_max_buf = worst_case_buf
 
         # Channel validation
-        if self.channel_max_send_buf < 1024:
-            raise ValueError("channel_max_send_buf must be >= 1024")
-        if self.channel_max_recv_buf < 1024:
-            raise ValueError("channel_max_recv_buf must be >= 1024")
-        if self.channel_write_backoff_initial <= 0:
-            raise ValueError("channel_write_backoff_initial must be > 0")
-        if self.channel_write_backoff_max < self.channel_write_backoff_initial:
-            raise ValueError("channel_write_backoff_max must be >= channel_write_backoff_initial")
-        if self.channel_control_read_chunk < 1:
-            raise ValueError("channel_control_read_chunk must be >= 1")
+        if self.channel_max_buf < 1024:
+            raise ValueError("channel_max_buf must be >= 1024")
+        if self.channel_write_backoff_max <= 0:
+            raise ValueError("channel_write_backoff_max must be > 0")
         if self.channel_id_reuse_cooldown < 0:
             raise ValueError("channel_id_reuse_cooldown must be >= 0")
 
@@ -689,33 +653,32 @@ class Config(object):
             raise ValueError("module_shutdown_timeout must be > 0")
 
         # Relay/SOCKS validation
-        if self.socks_listen_port < 1 or self.socks_listen_port > 65535:
-            raise ValueError("socks_listen_port must be 1-65535")
+        listen_addr = self.socks_listen_addr
+        if not isinstance(listen_addr, text_type):
+            try:
+                listen_addr = listen_addr.decode('ascii')
+            except AttributeError:
+                raise ValueError("socks_listen_addr must be text")
+            except UnicodeError:
+                raise ValueError("socks_listen_addr must be ASCII")
+        try:
+            host, port = parse_host_port(listen_addr)
+        except HostPortError as exc:
+            raise ValueError("socks_listen_addr invalid: %s" % exc)
+        self.socks_listen_addr = '%s:%d' % (host, port)
         if self.relay_listen_backlog < 1:
             raise ValueError("relay_listen_backlog must be >= 1")
         if self.relay_accept_timeout <= 0:
             raise ValueError("relay_accept_timeout must be > 0")
-        if self.relay_channel_open_timeout <= 0:
-            raise ValueError("relay_channel_open_timeout must be > 0")
         if self.relay_connect_timeout <= 0:
             raise ValueError("relay_connect_timeout must be > 0")
-        if self.relay_target_connect_timeout <= 0:
-            raise ValueError("relay_target_connect_timeout must be > 0")
-        if self.relay_socket_timeout <= 0:
-            raise ValueError("relay_socket_timeout must be > 0")
-        if self.relay_channel_timeout <= 0:
-            raise ValueError("relay_channel_timeout must be > 0")
         if (self.relay_write_timeout is not None and
                 self.relay_write_timeout <= 0):
             raise ValueError("relay_write_timeout must be > 0 or None")
         if self.relay_buffer_size < 1:
             raise ValueError("relay_buffer_size must be >= 1")
-        if self.relay_pump_poll_timeout <= 0:
-            raise ValueError("relay_pump_poll_timeout must be > 0")
         if self.relay_pump_backoff_max <= 0:
             raise ValueError("relay_pump_backoff_max must be > 0")
-        if self.relay_thread_join_timeout <= 0:
-            raise ValueError("relay_thread_join_timeout must be > 0")
 
         # Protocol validation
         if self.protocol_min_rto_ms >= self.protocol_max_rto_ms:

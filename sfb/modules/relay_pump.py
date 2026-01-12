@@ -103,7 +103,7 @@ def _select(read_list, write_list, timeout):
 
 
 def _pump_poll_bounds(config):
-    base = config.relay_pump_poll_timeout
+    base = config.non_blocking_poll_timeout
     if base is None or base <= 0:
         base = 0.01
     max_wait = config.relay_pump_backoff_max
@@ -141,7 +141,7 @@ def _close_channel_on_socket_close(channel):
 
 def _outbound_cap(config):
     max_in_flight_bytes = config.max_in_flight * config.protocol_max_packet_mtu
-    cap = config.channel_max_recv_buf
+    cap = config.channel_max_buf
     if cap is None:
         cap = max_in_flight_bytes
     else:
@@ -353,7 +353,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                         )
                     break
 
-            available = config.channel_max_send_buf - channel.send_buf_size
+            available = config.channel_max_buf - channel.send_buf_size
             if available <= 0:
                 if stats_enabled:
                     buffer_full_count += 1
@@ -411,7 +411,7 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
                 backoff = base_backoff
 
             while rlist and not stop_event.is_set():
-                available = config.channel_max_send_buf - channel.send_buf_size
+                available = config.channel_max_buf - channel.send_buf_size
                 if available <= 0:
                     if stats_enabled:
                         buffer_full_count += 1
@@ -801,7 +801,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     if outbound_size:
                         read_timeout = 0.0
                     else:
-                        read_timeout = min(config.relay_channel_timeout, backoff)
+                        read_timeout = backoff
                     try:
                         if stats_enabled:
                             read_start = time_provider.now()

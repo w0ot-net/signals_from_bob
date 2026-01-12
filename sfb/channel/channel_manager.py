@@ -95,12 +95,13 @@ class ChannelManager(object):
         # Alice uses odd IDs (1, 3, 5...), Bob uses even (2, 4, 6...)
         self._next_channel_id = 1 if is_alice else 2
 
+        self._write_backoff_initial = min(0.01, config.channel_write_backoff_max)
+
         # Control channel (always exists)
         self._control = ControlChannel(
-            max_send_buf=config.channel_max_send_buf,
-            max_recv_buf=config.channel_max_recv_buf,
-            read_chunk_size=config.channel_control_read_chunk,
-            write_backoff_initial=config.channel_write_backoff_initial,
+            max_send_buf=config.channel_max_buf,
+            max_recv_buf=config.channel_max_buf,
+            write_backoff_initial=self._write_backoff_initial,
             write_backoff_max=config.channel_write_backoff_max,
             send_event_callback=self._on_control_send_event,
         )
@@ -196,9 +197,9 @@ class ChannelManager(object):
     def _new_channel(self, channel_id, state):
         channel = Channel(
             channel_id,
-            max_send_buf=self._config.channel_max_send_buf,
-            max_recv_buf=self._config.channel_max_recv_buf,
-            write_backoff_initial=self._config.channel_write_backoff_initial,
+            max_send_buf=self._config.channel_max_buf,
+            max_recv_buf=self._config.channel_max_buf,
+            write_backoff_initial=self._write_backoff_initial,
             write_backoff_max=self._config.channel_write_backoff_max,
         )
         channel._set_state(state)

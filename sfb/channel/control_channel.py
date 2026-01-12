@@ -12,6 +12,7 @@ from .channel import Channel, CHANNEL_CONTROL, ChannelError
 from .. import time_provider
 
 CONTROL_MESSAGE_MAX_LENGTH = 0x1000
+CONTROL_READ_CHUNK_SIZE = 4096
 
 
 class ControlChannel(Channel):
@@ -29,9 +30,9 @@ class ControlChannel(Channel):
     )
 
     def __init__(self, channel_id=CHANNEL_CONTROL, max_send_buf=1048576,
-                 max_recv_buf=1048576, read_chunk_size=4096,
-                 write_backoff_initial=0.01, write_backoff_max=1.0,
-                 send_event=None, send_event_callback=None):
+                 max_recv_buf=1048576, write_backoff_initial=0.01,
+                 write_backoff_max=1.0, send_event=None,
+                 send_event_callback=None):
         if channel_id != CHANNEL_CONTROL:
             raise ValueError('ControlChannel must use channel 0')
         Channel.__init__(self, channel_id, max_send_buf=max_send_buf,
@@ -39,7 +40,7 @@ class ControlChannel(Channel):
                          write_backoff_initial=write_backoff_initial,
                          write_backoff_max=write_backoff_max)
         self._line_buf = bytearray()
-        self._read_chunk_size = read_chunk_size
+        self._read_chunk_size = CONTROL_READ_CHUNK_SIZE
         self._send_event = send_event or threading.Event()
         self._send_event_callback = send_event_callback
 

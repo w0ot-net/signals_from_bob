@@ -224,7 +224,7 @@ class PortForwardServerModule(BaseModule):
                 pass
 
         if self._accept_thread:
-            self._accept_thread.join(timeout=self._config.relay_thread_join_timeout)
+            self._accept_thread.join(timeout=self._config.module_shutdown_timeout)
 
         with self._connections_lock:
             connections = list(self._connections.values())
@@ -362,7 +362,7 @@ class PortForwardServerModule(BaseModule):
             channel = self._tunnel.channel_manager.open_channel()
             ch_id = channel.id
             channel_wait_start = time_provider.now()
-            if not channel.wait_open(timeout=self._config.relay_channel_open_timeout):
+            if not channel.wait_open(timeout=self._config.channel_open_timeout):
                 channel_wait_time = duration_secs(channel_wait_start)
                 cleanup_reason = 'channel_open_failed'
                 connect_result = 'channel_open_failed'

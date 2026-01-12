@@ -116,6 +116,18 @@
   `dns.recv`, and Bob logs no `dns.recv` after 17:58:59, so the `ack=121`
   keepalives likely never reach Bob.
 
+### New occurrence (2026-01-12 20:54:27 to 20:57:02)
+- Bob logs `sock.server_connect` for rid 1-7 (hosts 104.16.184.241:80,
+  104.16.185.241:80, 104.18.26.120:80, 104.18.27.120:80, 142.250.191.46:80),
+  with `channel.open` for ch2/ch4/ch6/ch8/ch10/ch12/ch14, each ending in
+  `sock.server_channel_failed` after `channel_wait_time=20.0`.
+- Bob `dns.send` emits 10 responses with `payload_bytes` 70-100 (`oversize=false`)
+  between 20:54:28 and 20:56:15; `response_payload_cap` remains 137.
+- Alice logs zero `dns.recv` entries with `bytes > 38` after 20:54:24 (only
+  keepalive-sized responses), and no `dns.error_response` entries in that window.
+- This points to payload-bearing DNS responses being dropped on the return path
+  while keepalive-sized responses still arrive.
+
 ## Code path notes
 - `sfb/modules/socks/socks_server.py` starts `channel_open_timeout` as soon as
   `open_channel()` returns, then waits on `channel.wait_open()` without any

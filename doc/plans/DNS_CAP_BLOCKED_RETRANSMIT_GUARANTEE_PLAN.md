@@ -3,15 +3,15 @@
 Status: draft
 
 ## Summary
-Guarantee that Bob never hits a cap-blocked retransmit by enforcing invariant
-response caps at responder creation and treating any cap mismatch as fatal,
-then updating documentation to reflect the new guarantee.
+Guarantee that cap-blocked retransmit paths are eliminated entirely by making
+response caps invariant (always large enough for any retransmit) and removing
+the cap-blocked branch from Bob.
 
 ## Goals
-- Ensure `response_payload_cap` is always at least the fixed response cap and
-  large enough for any tunnel packet Bob can send or retransmit.
-- Make cap-blocked retransmit paths unreachable in normal operation.
-- Treat any cap mismatch as a fatal transport error with clear logging.
+- Ensure `response_payload_cap` is always large enough for any tunnel packet
+  Bob can send or retransmit.
+- Remove the cap-blocked retransmit branch so it no longer exists.
+- Treat any cap mismatch as a fatal transport error before a responder is used.
 - Document the guarantee in the architecture references.
 
 ## Non-Goals
@@ -29,13 +29,12 @@ then updating documentation to reflect the new guarantee.
 
 ## Plan
 1. Enforce invariant caps at DNS responder creation.
-   - If a per-request `response_payload_cap` is below the fixed cap or below
-     the effective send MTU, log and raise a fatal transport error.
+   - Require per-request `response_payload_cap` to be >= the fixed cap and the
+     effective send MTU, log and raise a fatal transport error otherwise.
    - Apply the same invariant check in the flat stager responder path.
-2. Remove the keepalive fallback for cap-blocked retransmits.
-   - Convert the cap-blocked branch in Bob's retransmit send path to a fatal
-     error and close the tunnel if it ever triggers.
-   - Add a dedicated log event for this fatal condition.
+2. Eliminate the cap-blocked retransmit path.
+   - Remove the cap check/keepalive fallback in Bob's retransmit send path.
+   - Remove the cap-blocked log events that become unreachable.
 3. Confirm send MTU is always clamped to the fixed cap for DNS.
    - Add an assertion or explicit check that negotiated `send_packet_mtu` does
      not exceed the fixed cap after handshake updates.

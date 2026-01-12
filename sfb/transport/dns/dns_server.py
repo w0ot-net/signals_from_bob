@@ -19,6 +19,7 @@ from .dns_constants import DNS_HEADER_LEN, DNS_QUESTION_FIXED_LEN
 from .dns_flat_stager import DnsFlatStager
 from ...config import Config
 from ...logging_util import get_logger, log_event
+from ...protocol.constants import MIN_PACKET_MTU
 from ...utils import parse_host_port
 from ... import time_provider
 
@@ -657,6 +658,28 @@ class DnsServer(Server):
         if (payload_cap is not None and fixed_cap is not None and
                 payload_cap > fixed_cap):
             payload_cap = fixed_cap
+        if payload_cap is not None and payload_cap < MIN_PACKET_MTU:
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'dns.response_payload_cap_invalid',
+                'DNS response payload cap below minimum',
+                lambda: {
+                    'qname': qname,
+                    'qname_wire_len': qname_wire_len,
+                    'response_payload_cap': payload_cap,
+                    'min_packet_mtu': MIN_PACKET_MTU,
+                    'max_packet_size': max_packet_size,
+                    'fixed_response_cap': fixed_cap,
+                },
+            )
+            raise TransportError(
+                'DNS response payload cap %d below minimum %d (qname=%s)' % (
+                    payload_cap,
+                    MIN_PACKET_MTU,
+                    qname,
+                )
+            )
         return payload_cap, qname_wire_len, max_packet_size
 
     def _build_soa_record(self):

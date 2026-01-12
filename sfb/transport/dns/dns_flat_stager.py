@@ -11,6 +11,8 @@ import struct
 from . import dns_codec as codec
 from ...config import DNS_STANDARD_SIZE
 from ...logging_util import log_event
+from ...protocol.constants import MIN_PACKET_MTU
+from ..transport_base import TransportError
 
 
 _CACHE_BUSTER_PREFIX = 'r-'
@@ -271,6 +273,28 @@ class DnsFlatStager(object):
             0,
             use_compression=True,
         )
+        if payload_cap is not None and payload_cap < MIN_PACKET_MTU:
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'dns.response_payload_cap_invalid',
+                'DNS stager response payload cap below minimum',
+                lambda: {
+                    'context': 'flat_stager',
+                    'qname': qname,
+                    'qname_wire_len': qname_wire_len,
+                    'response_payload_cap': payload_cap,
+                    'min_packet_mtu': MIN_PACKET_MTU,
+                    'max_packet_size': max_packet_size,
+                },
+            )
+            raise TransportError(
+                'DNS stager response payload cap %d below minimum %d (qname=%s)' % (
+                    payload_cap,
+                    MIN_PACKET_MTU,
+                    qname,
+                )
+            )
         return payload_cap, qname_wire_len, max_packet_size
 
     def _send_stager_response(self, query_id, qname, qtype, data, addr):

@@ -28,7 +28,7 @@ Both sides buffer unacked packets, but retransmission triggers differ:
 | Aspect | Alice | Bob |
 |--------|-------|-----|
 | Trigger | Timer (RTO expires) | Opportunity (poll arrives; cooldown allows) |
-| Decision | Can choose *when* to retransmit | Retransmits when polled if gates allow |
+| Decision | Can choose *when* to retransmit | Retransmits when polled if cooldown allows |
 | RTT tracking | Yes | No |
 
 **Alice (timer-driven):**
@@ -44,9 +44,9 @@ Both sides buffer unacked packets, but retransmission triggers differ:
 **Bob (opportunity-driven):**
 - Cannot act on timers; only transmits in response to polls
 - On each poll: if unacked packets exist and the retransmit cooldown has
-  elapsed (including recent ACK progress), retransmit the oldest unacked packet
-  by initial send time
+  elapsed, retransmit the oldest unacked packet by initial send time
 - Cooldown gating still uses time since last send to avoid per-poll spam
+- Bob uses a single cooldown gate for retransmits (no ACK-silence gating)
 - Retransmits preserve their original flags; per-request response caps are
   fixed to the invariant cap
 - Any response-cap mismatch is treated as a fatal transport error before a

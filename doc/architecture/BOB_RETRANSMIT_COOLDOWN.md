@@ -8,9 +8,8 @@ opportunistic retransmit path.
 
 Primary implementation locations:
 - `sfb/tunnel/bob_tunnel.py`: poll EWMA updates, cooldown computation, and
-  cooldown/ACK-progress gating during response selection.
-- `sfb/reliability/send_window.py`: last cumulative ACK timing used by the
-  ACK-progress gate.
+  cooldown gating during response selection.
+- `sfb/reliability/send_window.py`: unacked send timing used for cooldown age.
 - `sfb/config.py`: cooldown-related configuration defaults.
 - `doc/architecture/ASYMMETRY.md`: Bob is poll-driven, not timer-driven.
 
@@ -51,23 +50,17 @@ for Bob's throughput and retransmit opportunity.
 
 The send-window cap used here is the current `_send_window._max_in_flight`.
 
-## Cooldown And ACK-Progress Gates
+## Cooldown Gate
 
 During `_select_response_action()`:
 - Bob selects the oldest unacked packet by `send_time`.
 - `age = now - send_time` (if `send_time` is set).
-- `since_cum_ack = send_window.ack_silence(now)` measures time since the last
-  cumulative ACK advance (not the last time *any* packet was acked).
 
-Retransmit is skipped if either of these gates fires:
-- `age < cooldown` (reason `cooldown`), or
-- `since_cum_ack < cooldown` (reason `ack_progress`).
+Retransmit is skipped if the gate fires:
+- `age < cooldown` (reason `cooldown`).
 
 Notes:
-- The age gate is checked first; if it fires, the ACK-progress gate is not
-  evaluated.
-- If `send_time` or `since_cum_ack` is unavailable, the corresponding gate is
-  skipped.
+- If `send_time` is unavailable, the gate is skipped.
 - On a successful retransmit, `send_time` is updated, which resets the age
   gate for that packet.
 
@@ -76,20 +69,19 @@ the same response.
 
 ## Overrides (Cooldown Bypassed)
 
-The cooldown gates are bypassed for window enforcement cases:
+The cooldown gate is bypassed for window enforcement cases:
 - Send window full (`window_full`).
 - Send window distance exceeded (`window_distance`).
 
 In these cases, Bob retransmits the oldest unacked packet even if the cooldown
-or ACK-progress gate would have skipped it.
+gate would have skipped it.
 
 ## Logging
 
-When a retransmit is skipped due to cooldown or ACK progress, Bob logs
+When a retransmit is skipped due to cooldown, Bob logs
 `tunnel.retransmit_skip` with:
-- `reason`: `cooldown` or `ack_progress`
-- `age`, `cooldown`, `since_cum_ack`
-- `poll_ewma`, `unacked`, `max_in_flight`
+- `age`, `cooldown`
+- `poll_ewma`, `unacked`
 
 ## Configuration Defaults
 

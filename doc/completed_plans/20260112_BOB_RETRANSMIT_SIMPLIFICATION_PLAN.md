@@ -1,6 +1,6 @@
 # Bob Retransmit Simplification Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Replace Bob's retransmit decision flow with a minimal, poll-driven sequence
@@ -60,3 +60,11 @@ asymmetry.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- Simplified Bob retransmit selection to a cooldown-only gate with window
+  overrides and streamlined skip logging.
+- Preserved keepalive suppression by honoring pending-data signals when
+  selecting responses.
+- Updated Bob retransmit and asymmetry docs to match the new cooldown-only
+  gating description.

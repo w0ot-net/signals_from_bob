@@ -68,10 +68,10 @@ Bob considers a single retransmit candidate per poll:
 
 If there are no unacked packets, no retransmit is attempted.
 
-## Retransmit Cooldown And ACK-Progress Gate
+## Retransmit Cooldown Gate
 
 Bob suppresses opportunistic retransmits to avoid spamming responses when Alice
-polls rapidly or ACKs are actively progressing.
+polls rapidly.
 
 ### Poll EWMA Update
 
@@ -101,15 +101,12 @@ Cooldown is computed in `_retransmit_cooldown()`:
 
 Given the oldest unacked packet:
 - `age = now - send_time` (if `send_time` is set).
-- `since_cum_ack = send_window.ack_silence(now)` (if any cumulative ACK advance
-  was seen).
 
-The retransmit is skipped (and only logged) if either:
-- `age` is set and `age < cooldown` (reason `cooldown`), or
-- `since_cum_ack` is set and `since_cum_ack < cooldown` (reason `ack_progress`).
+The retransmit is skipped (and only logged) if:
+- `age` is set and `age < cooldown` (cooldown gate).
 
-This gate uses strict `<` comparisons. If either value is missing, that gate is
-not applied.
+This gate uses a strict `<` comparison. If `send_time` is missing, the cooldown
+gate is not applied.
 
 When a retransmit is skipped for these reasons, Bob may still send new data or
 keepalive packets in the same response.
@@ -162,7 +159,7 @@ If `send_window.can_send` is False:
 - If an unacked packet exists, he retransmits it with:
   - `context='window_full'`
   - `reason='window_full'` in `tunnel.retransmit`
-- Cooldown and ACK-progress gates are not applied here.
+- Cooldown gate is not applied here.
 
 ### Send Window Distance Exceeded
 
@@ -173,7 +170,7 @@ If `_send_window_distance_exceeded()` returns True:
 - He retransmits the oldest unacked packet with:
   - `context='window_distance'`
   - `reason='window_distance'` in `tunnel.retransmit`
-- Cooldown and ACK-progress gates are not applied here either.
+- Cooldown gate is not applied here either.
 
 If there are no unacked packets in these cases, Bob returns without sending.
 
@@ -182,7 +179,7 @@ If there are no unacked packets in these cases, Bob returns without sending.
 Retransmit priority:
 - If an opportunistic retransmit is sent, `_send_response()` returns immediately
   and no new data is sent in that poll.
-- If retransmit is skipped by cooldown/ACK-progress, Bob may send new data.
+- If retransmit is skipped by cooldown, Bob may send new data.
 
 New sends and keepalive packets are still tracked in the send window, which
 means they can later be retransmitted:
@@ -197,8 +194,8 @@ Keepalive responses are suppressed when any channel has pending data:
 ## Instrumentation Events (Bob)
 
 Key structured events emitted during opportunistic retransmits:
-- `tunnel.retransmit_skip`: cooldown/ACK-progress skips with age, cooldown,
-  and poll EWMA context.
+- `tunnel.retransmit_skip`: cooldown skips with age, cooldown, poll EWMA, and
+  unacked context.
 - `tunnel.retransmit`: retransmit send details (seq, ack/sack, flags, bytes,
   previous send age/count, first-send age).
 - `tunnel.ack_detail`: ACK/SACK processing detail and window snapshots.
@@ -211,8 +208,8 @@ Bob processes ACK/SACK on every valid request:
 - `send_window.process_ack_with_progress(ack, sack)` removes acked packets from
   the unacked set (cumulative ACK and SACK) while updating ACK tracking.
 - Once removed, a packet is no longer eligible for retransmit.
-- ACK advances update `send_window.last_cum_ack_time`, which feeds the
-  ACK-progress gate.
+- ACK advances update `send_window.last_cum_ack_time`, but Bob does not use
+  ACK-progress timing for retransmit gating.
 
 RTT samples are computed for first-transmission packets in `send_window`, but
 Bob does not use them for retransmit decisions.
@@ -221,8 +218,8 @@ Bob does not use them for retransmit decisions.
 
 - ACK regression guard is implemented in `SendWindow`: cumulative ACK tracking
   only updates when ACK advances in sequence space (or when unset). This
-  prevents stale polls from resetting the ACK-progress cooldown and from
-  skewing the window-distance check, which matters with pipelined polls.
+  prevents stale polls from skewing the window-distance check, which matters
+  with pipelined polls.
 
 ## Sequence Number And Window Semantics
 
@@ -241,8 +238,8 @@ selection reflects the original send order.
 Relevant events emitted by Bob retransmit logic:
 - `tunnel.retransmit`: emitted for each retransmit; includes `seq`, `seg_count`,
   and optional `reason` (`window_full`, `window_distance`).
-- `tunnel.retransmit_skip`: emitted when a retransmit is skipped (reason
-  `cooldown` or `ack_progress`).
+- `tunnel.retransmit_skip`: emitted when a retransmit is skipped due to
+  cooldown.
 - `tunnel.packet_send`: emitted for every retransmit send.
 
 Stats:

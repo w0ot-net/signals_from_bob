@@ -474,39 +474,15 @@ class BobTunnel(BaseTunnel):
         oldest_info = self._send_window.get_oldest_unacked_first_info()
         if oldest_info is not None:
             (seq, segments, flags, encrypted_body,
-             send_time, retransmit_count, first_send_time) = oldest_info
+             send_time, _retransmit_count, first_send_time) = oldest_info
             cooldown = self._retransmit_cooldown()
-            age = None
+            oldest_age = None
             if send_time is not None:
-                age = now - send_time
-            since_cum_ack = self._send_window.ack_silence(now=now)
-            skip_reason = None
-            if age is not None and age < cooldown:
-                skip_reason = 'cooldown'
-            elif since_cum_ack is not None and since_cum_ack < cooldown:
-                skip_reason = 'ack_progress'
-            if skip_reason is not None:
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.retransmit_skip',
-                    'Retransmit skipped',
-                    lambda: {
-                        'seq': seq,
-                        'reason': skip_reason,
-                        'age': round(age, 6) if age is not None else None,
-                        'cooldown': cooldown,
-                        'since_cum_ack': round(since_cum_ack, 6)
-                        if since_cum_ack is not None else None,
-                        'last_cum_ack': self._send_window.last_cum_ack,
-                        'retransmit_count': retransmit_count,
-                        'poll_ewma': self._poll_interval_ewma,
-                        'unacked': self._send_window.unacked_count,
-                        'max_in_flight': self._send_window._max_in_flight,
-                        'side': 'bob',
-                    },
-                )
-            else:
+                oldest_age = now - send_time
+            retransmit_due = False
+            if oldest_age is None or oldest_age >= cooldown:
+                retransmit_due = True
+            if retransmit_due:
                 decision.update({
                     'action': 'retransmit',
                     'context': 'retransmit',
@@ -542,6 +518,22 @@ class BobTunnel(BaseTunnel):
             })
             return decision
 
+        if oldest_info is not None:
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.retransmit_skip',
+                'Retransmit skipped',
+                lambda: {
+                    'age': round(oldest_age, 6)
+                    if oldest_age is not None else None,
+                    'cooldown': cooldown,
+                    'poll_ewma': self._poll_interval_ewma,
+                    'unacked': self._send_window.unacked_count,
+                    'side': 'bob',
+                },
+            )
+
         max_payload = self._payload_mtu_from_packet(self._send_packet_mtu)
         if response_payload_cap is not None:
             cap_payload = response_payload_cap - PACKET_HEADER_SIZE
@@ -549,9 +541,14 @@ class BobTunnel(BaseTunnel):
                 cap_payload = 0
             if cap_payload < max_payload:
                 max_payload = cap_payload
-        segments = self._collect_segments(max_payload)
+        segments, pending_data = self._collect_segments(
+            max_payload,
+            return_pending=True,
+        )
 
         if not segments:
+            if pending_data:
+                return decision
             decision.update({
                 'action': 'keepalive',
                 'context': 'keepalive',

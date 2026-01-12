@@ -80,6 +80,15 @@
   `recv_offset=254` (recv_ack in the low 20s), so module delivery never occurs.
 - Alice emits no non-keepalive `tunnel.packet_send` after 08:03:15, so there is
   no module response traffic in the 08:03:23-08:03:37 window.
+- Bob `tunnel.send_window_distance` shows the first-missing seq walking forward
+  (20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 39, 42, 43) with `missing_flags=4`
+  (keepalive) and `missing_in_unacked=true`; the last missing seq is 43.
+- Bob retransmits those missing seqs with `reason=window_distance`; for seq 42,
+  `tunnel.send_window_distance` reports `missing_seq=42` while
+  `oldest_unacked_seq=43`, yet retransmits are for seq 42 (indicating targeted
+  retransmit selection is firing).
+- Alice receives missing seqs 20-42 but never logs `tunnel.packet_recv` for
+  seq 43, so the cumulative ACK stays pinned at 43 despite three retransmits.
 
 ## Hypothesis
 - A single DNS response carrying seq 595 was dropped on the path (likely at the

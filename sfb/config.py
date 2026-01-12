@@ -69,10 +69,10 @@ class Config(object):
     icmp_pending_timeout = 10.0
     # Optional ICMP socket receive buffer size (bytes, 0 = default)
     # Double the normal default would be 2 * /proc/sys/net/core/rmem_default.
-    icmp_socket_rcvbuf = 0
+    icmp_socket_rcvbuf = 425984
     # Optional ICMP socket send buffer size (bytes, 0 = default)
     # Double the normal default would be 2 * /proc/sys/net/core/wmem_default.
-    icmp_socket_sndbuf = 0
+    icmp_socket_sndbuf = 425984
 
     # --- UDP Ephemeral Transport ---
     # Target host:port for Alice (IPv4 only)

@@ -98,8 +98,8 @@ class SocksServerModule(BaseModule):
         host_default = '0.0.0.0'
         port_default = 1080
         if config is not None:
-            host_default = config.relay_listen_host
-            port_default = config.relay_listen_port
+            host_default = config.socks_listen_host
+            port_default = config.socks_listen_port
         group = parser.add_argument_group(
             'socks options',
             'SOCKS5 proxy server settings.',
@@ -121,9 +121,9 @@ class SocksServerModule(BaseModule):
             host = getattr(args, 'socks_host', None)
             port = getattr(args, 'socks_port', None)
             if host is None:
-                host = module._config.relay_listen_host
+                host = module._config.socks_listen_host
             if port is None:
-                port = module._config.relay_listen_port
+                port = module._config.socks_listen_port
             module.start(listen_addr=host, listen_port=port)
 
             # Wait for tunnel to close
@@ -176,9 +176,9 @@ class SocksServerModule(BaseModule):
             raise ModuleError('already_running', 'SOCKS server already running')
 
         if listen_addr is None:
-            listen_addr = self._config.relay_listen_host
+            listen_addr = self._config.socks_listen_host
         if listen_port is None:
-            listen_port = self._config.relay_listen_port
+            listen_port = self._config.socks_listen_port
 
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

@@ -321,11 +321,13 @@ class Config(object):
     # Enable nc_linux module logging (stdout + SQLite)
     log_component_module_nc_linux = True
 
+    # --- SOCKS ---
+    # SOCKS server listen host
+    socks_listen_host = "0.0.0.0"
+    # SOCKS server listen port
+    socks_listen_port = 1080
+
     # --- Relay ---
-    # Relay server listen host
-    relay_listen_host = "0.0.0.0"
-    # Relay server listen port
-    relay_listen_port = 1080
     # Relay server listen backlog
     relay_listen_backlog = 5
     # Relay accept loop timeout (seconds)
@@ -490,8 +492,8 @@ class Config(object):
         'log_component_module_relay',
         'log_component_module_file_transfer',
         'log_component_module_nc_linux',
-        'relay_listen_host',
-        'relay_listen_port',
+        'socks_listen_host',
+        'socks_listen_port',
         'relay_listen_backlog',
         'relay_accept_timeout',
         'relay_channel_open_timeout',
@@ -686,9 +688,9 @@ class Config(object):
         if self.module_shutdown_timeout <= 0:
             raise ValueError("module_shutdown_timeout must be > 0")
 
-        # SOCKS validation
-        if self.relay_listen_port < 1 or self.relay_listen_port > 65535:
-            raise ValueError("relay_listen_port must be 1-65535")
+        # Relay/SOCKS validation
+        if self.socks_listen_port < 1 or self.socks_listen_port > 65535:
+            raise ValueError("socks_listen_port must be 1-65535")
         if self.relay_listen_backlog < 1:
             raise ValueError("relay_listen_backlog must be >= 1")
         if self.relay_accept_timeout <= 0:

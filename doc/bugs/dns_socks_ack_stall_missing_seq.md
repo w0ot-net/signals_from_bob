@@ -113,6 +113,22 @@
   sends keepalives with `ack=121` at 17:59:01-17:59:02, but Bob logs no
   `tunnel.packet_recv` with `ack>=119` (ACK update never reaches Bob).
 
+## Code path notes
+- `sfb/modules/socks/socks_server.py` starts `channel_open_timeout` as soon as
+  `open_channel()` returns, then waits on `channel.wait_open()` without any
+  awareness of tunnel stalls (the timeout is fixed at 20s in `sfb/config.py`).
+- `sfb/channel/channel_manager.py` sends `ch_open` immediately, but the control
+  message still sits behind any missing seq in the tunnel; `sfb/channel/channel.py`
+  only waits on `_open_event`, so a stalled tunnel looks identical to a lost
+  open message.
+- `sfb/tunnel/bob_tunnel.py` retransmits the oldest unacked packet by
+  `first_send_time` when polled, but only one per response and gated by cooldown;
+  missing seqs are only reported when `send_window.distance_exceeded()` fires
+  (so a long-lived gap can remain invisible until the window fills).
+- `sfb/reliability/send_window.py` treats the cumulative `last_cum_ack` as the
+  missing seq and keeps keepalives in the reliable stream; Bob never drops
+  keepalives, so a single lost keepalive blocks all later control/data.
+
 ## Hypothesis
 - A single DNS response carrying seq 595 was dropped on the path (likely at the
   recursive resolver or on-path), creating a cumulative ACK hole.

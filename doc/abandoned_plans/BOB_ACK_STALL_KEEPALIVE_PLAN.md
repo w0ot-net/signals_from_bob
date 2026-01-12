@@ -1,6 +1,6 @@
 # Bob Ack Stall Retransmit + Keepalive Suppression Plan
 
-Status: draft
+Status: abandoned
 
 ## Summary
 Reduce tunnel wedges when Alice keeps polling but Bob's cumulative ACK stops
@@ -48,3 +48,7 @@ suppression for pending-data edge cases.
 
 ## Testing
 - Do not run tests.
+
+## Abandon Notes
+- Abandoned after review; the stall symptoms point to response-cap blocked
+  retransmits rather than keepalive suppression or ACK-stall overrides.

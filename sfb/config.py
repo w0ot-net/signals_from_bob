@@ -68,8 +68,10 @@ class Config(object):
     # Timeout before considering an ICMP request stale (seconds)
     icmp_pending_timeout = 10.0
     # Optional ICMP socket receive buffer size (bytes, 0 = default)
+    # Double the normal default would be 2 * /proc/sys/net/core/rmem_default.
     icmp_socket_rcvbuf = 0
     # Optional ICMP socket send buffer size (bytes, 0 = default)
+    # Double the normal default would be 2 * /proc/sys/net/core/wmem_default.
     icmp_socket_sndbuf = 0
 
     # --- UDP Ephemeral Transport ---

@@ -3,8 +3,8 @@
 Status: draft
 
 ## Summary
-Target low-risk hot-path improvements in the ICMP client and server while
-preserving current protocol behavior. Note that Bob's ICMP throughput is
+Split ICMP performance work into three phases covering client hot paths,
+server hot paths, and operational tuning. Note that Bob's ICMP throughput is
 fundamentally bounded by Alice's poll rate per doc/architecture/ASYMMETRY.md,
 so server-side tweaks are incremental.
 
@@ -26,6 +26,14 @@ so server-side tweaks are incremental.
 - `sfb/config.py` (only if ICMP socket buffer sizing becomes configurable)
 - `doc/architecture/ICMP_TRANSPORT.md` (if config or behavior notes change)
 
+## Phases
+- Phase 1: ICMP client hot path and allocation work.
+  See `doc/plans/ICMP_TRANSPORT_PERF_PHASE1.md`.
+- Phase 2: ICMP server hot path and allocation work.
+  See `doc/plans/ICMP_TRANSPORT_PERF_PHASE2.md`.
+- Phase 3: ICMP socket buffer sizing and logging guidance.
+  See `doc/plans/ICMP_TRANSPORT_PERF_PHASE3.md`.
+
 ## Helper Notes
 - Bob throughput is bounded by Alice polling; improvements should not assume
   server-side receive throughput can exceed the poll rate.
@@ -36,35 +44,8 @@ so server-side tweaks are incremental.
 ## Plan
 1. Review the current ICMP client/server hot paths and confirm all changes
    stay within the asymmetry rules in doc/architecture/ASYMMETRY.md.
-2. ICMP client: reduce per-call allocations and syscalls.
-   - Cache `self._sock_list = [self._sock]` for select.
-   - Cache `self._target_addr = (self._target_ip, 0)` for sendto.
-   - For `timeout == 0`, try a direct non-blocking recv and treat
-     EAGAIN/EWOULDBLOCK as "no data" to skip select.
-   - After select readiness, drain multiple packets until EAGAIN/EWOULDBLOCK,
-     returning the first valid response.
-3. ICMP client: optional recv buffer reuse on Python 3.
-   - Allocate a persistent bytearray receive buffer.
-   - Use recvfrom_into and pass a bytes-like view to parse.
-   - Fall back to recvfrom on Python 2 to avoid buffer handling quirks.
-4. ICMP server: drain after select.
-   - Replace the single recvfrom with a loop that drains until
-     EAGAIN/EWOULDBLOCK, skipping malformed/oversize packets.
-   - Return the first valid request to the caller.
-5. ICMP server: optional recv buffer reuse on Python 3.
-   - Allocate a persistent bytearray receive buffer.
-   - Use recvfrom_into and pass a bytes-like view to parse.
-   - Fall back to recvfrom on Python 2.
-6. ICMP server: increase socket buffer sizes to reduce drops under bursts.
-   - Decide whether to add config keys (for example,
-     `icmp_socket_rcvbuf`/`icmp_socket_sndbuf`) or use a fixed default.
-   - Apply SO_RCVBUF/SO_SNDBUF after socket creation, handle errors
-     gracefully, and log the effective sizes.
-   - Update `sfb/config.py` and `doc/architecture/ICMP_TRANSPORT.md` if new
-     config is introduced.
-7. Document logging guidance.
-   - Add a short note in `doc/architecture/ICMP_TRANSPORT.md` about disabling
-     ICMP component logs or whitelisting events for production throughput.
+2. Execute Phase 1, then Phase 2, then Phase 3 (phases are independent but
+   ordered by risk and scope).
 
 ## Testing
 - Do not run tests.

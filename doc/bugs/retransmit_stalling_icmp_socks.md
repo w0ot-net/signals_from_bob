@@ -461,3 +461,24 @@ Use log profile `icmp_retransmit_debug` on both sides; it captures:
 - This looks like a short-term lock while pacer gating holds
   `send_next_seq - last_cum_ack` at the pacer target and RTO retransmits are
   deferred; a longer log window is needed to confirm recovery after 10s.
+
+## Latest findings (2026-01-12, window-distance stall with fast retransmits)
+- Sources: `logs/client_log.db` (Alice) only; Bob log is from 2026-01-11 and
+  does not overlap this window.
+- Log window: 2026-01-12 03:15:06-03:15:16 localtime.
+- Alice `tunnel.send_window_distance` repeats with `distance` 256
+  (`distance_limit` 256) while `buffered` is ~231-245 and `unacked` is 11-25.
+  `missing_seq` is stuck at 2093 with `missing_in_unacked=true` and
+  `missing_age` ~0.39-0.41s; `ack_miss_count` is ~28k-30k. The latest ACK
+  history shows SACKs beyond the hole (`ack_history_last_is_sack=true`) and
+  no missing hit, so cumulative ACK is blocked by a single hole.
+- Alice `tunnel.retransmit` fires fast retransmits for seq 2096-2103 and later
+  3455-3530 with `prev_send_age` ~0.37-1.29s, indicating repeated gap recovery.
+- Alice `tunnel.pacer_state` shows `block_reason=window_distance` with
+  `target_inflight` 203 (`feedback_target` 26, `ack_rate_ewma` ~221 pps,
+  `srtt_ms` ~95). `tunnel.send_blocked` is `reason=pacer` with
+  `inflight` 204/256, so the sender bursts until the distance cap and then
+  stalls while the missing seq is recovered.
+- `tunnel.retransmit_skip` is gated by `ack_silence` ~0.05-0.07s (RTO 0.5s),
+  so retransmit scans are deferred while ACKs are still moving, which can
+  lengthen the stall if the missing seq does not clear quickly.

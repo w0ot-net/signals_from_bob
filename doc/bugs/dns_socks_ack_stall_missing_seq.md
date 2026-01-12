@@ -74,8 +74,10 @@
 ## Open questions
 - Can we correlate the missing response to `dns.prune_stale` or other DNS
   client warnings in the same window?
-- Is the missing keepalive seq sufficient to block the control plane, or should
-  keepalive-only gaps be tolerated?
+
+## Decision
+- Keepalive-only gaps are not skippable; reliability is strict and control/data
+  must wait for the missing seq to be recovered.
 
 ## Next steps
 - Add targeted retransmit when cumulative ACK is stalled and SACK shows packets

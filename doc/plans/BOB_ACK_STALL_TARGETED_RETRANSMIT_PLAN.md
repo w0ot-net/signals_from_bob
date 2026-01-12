@@ -3,22 +3,22 @@
 Status: draft
 
 ## Summary
-When Bob's cumulative ACK stalls and Alice continues polling with SACK progress,
-force a targeted retransmit of the missing seq (the stalled cumulative ACK)
-instead of always retransmitting the oldest-by-send-time packet. This is meant
-to clear single-packet holes like the DNS SOCKS stall at seq 595 without
-changing normal opportunistic retransmit behavior.
+Keep Bob's retransmit selection pinned to the initial send order by tracking a
+`first_send_time` per packet and using it for "oldest" selection. This keeps a
+missing seq (like 595) prioritized across retransmits without changing
+cooldown/ack gating or Alice behavior.
 
 ## Goals
-- Retransmit the missing seq when ACK is stalled and SACK indicates progress
-  beyond the gap.
-- Keep the default "oldest-by-send-time" opportunistic retransmit for all
-  non-stall cases.
-- Add logging to explain stall detection and retransmit selection.
+- Ensure the oldest unacked packet is selected by initial send time, so a
+  missing seq remains highest priority even after retransmits.
+- Preserve Bob's existing cooldown and ack-silence gating (age still based on
+  the last send time).
+- Add logging to explain initial-send ordering when a retransmit is chosen.
 
 ## Non-Goals
-- Retransmit "oldest by sequence number" in all cases.
+- Add explicit stall detection or targeted retransmit logic.
 - Change Alice logic, poll cadence, or DNS transport behavior.
+- Change retransmit cooldown or ack-silence gating semantics.
 - Add or run automated tests.
 
 ## Affected Components
@@ -27,28 +27,25 @@ changing normal opportunistic retransmit behavior.
 - `doc/architecture/ASYMMETRY.md`
 
 ## Plan
-1. Add a stall-aware retransmit decision for Bob.
-   - Detect when cumulative ACK has not advanced for a runtime stall window:
-     `stall = 2 * rtt_ewma`, clamped to `[poll_interval_ewma, cap]` so Bob does
-     not fire before Alice could have reasonably polled.
-   - Set `cap` as a small constant in code (for example 5s), not a config knob.
-   - Require SACK progress or ack-miss activity to confirm a hole exists.
-   - Pick `missing_seq = last_cum_ack` and retransmit it if still unacked.
-2. Rate-limit stall retransmits per sequence number.
-   - Add a Bob-side limit (max per seq or minimum interval per seq) so the
-     forced retransmit does not spam during long stalls.
-   - Fall back to existing retransmit selection if the missing seq is not
-     in the send window.
-3. Add targeted logging.
-   - Log a distinct event when a stall retransmit fires, including stall age,
-     missing seq, send age, and retransmit count.
-   - Log a skip reason when a stall is detected but cannot be retried.
-4. Update asymmetry documentation.
-   - Document that Bob uses wall-clock stall detection to retransmit the
-     missing seq when Alice keeps polling and SACK progresses.
-5. Manual verification (log review only).
-   - Confirm the missing seq is retransmitted during ACK stalls and that
-     normal opportunistic retransmits remain unchanged.
+1. Track initial send time in the send window.
+   - Add `first_send_time` to `_UnackedPacket`, set once in `send()`.
+   - Leave `send_time` updates unchanged in `mark_retransmit()`.
+2. Add a Bob-only "oldest by initial send" selector.
+   - Implement `get_oldest_unacked_first_info()` in `SendWindow` using a simple
+     scan over unacked packets ordered by `first_send_time`.
+   - Keep existing `get_oldest_unacked_info()` behavior unchanged.
+3. Use initial-send ordering for Bob retransmits.
+   - Swap `bob_tunnel._select_response_action()` to use the new selector.
+   - Keep cooldown/ack-silence gates tied to `send_time` (age since last send).
+4. Add targeted logging.
+   - Include initial-send age or timestamp when a retransmit is selected to
+     explain why a seq stays oldest across retries.
+5. Update asymmetry documentation.
+   - Note that Bob's opportunistic retransmit selection is ordered by initial
+     send time, while cooldown uses time since last send.
+6. Manual verification (log review only).
+   - Confirm seq 595 remains the oldest selected across retransmits and that
+     gating still prevents per-poll spam.
 
 ## Testing
 - Do not run tests.

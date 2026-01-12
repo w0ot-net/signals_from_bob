@@ -100,6 +100,19 @@
   08:03:36, so the query carrying `ack=45` likely never reaches Bob before
   shutdown.
 
+### New occurrence (2026-01-12 17:58:23 to 17:59:02)
+- Bob logs `sock.server_connect` for rid 1 at 17:58:23 and rid 2 at 17:58:38
+  (104.16.185.241:80/104.16.184.241:80), both ending in
+  `sock.server_channel_failed` after `channel_wait_time=20.0`.
+- Bob `tunnel.send_window_distance` shows `missing_seq=118` (keepalive) with
+  `missing_in_unacked=true` and `send_keepalive_unacked=105-106`; cumulative
+  ACK is pinned at 118.
+- Bob retransmits seq 118 three times with `reason=window_distance`
+  (`first_send_age` ~40s), then shuts down at 17:58:59.
+- Alice `tunnel.recv_window` delivers seq 118 at 17:59:00 (`recv_ack=121`) and
+  sends keepalives with `ack=121` at 17:59:01-17:59:02, but Bob logs no
+  `tunnel.packet_recv` with `ack>=119` (ACK update never reaches Bob).
+
 ## Hypothesis
 - A single DNS response carrying seq 595 was dropped on the path (likely at the
   recursive resolver or on-path), creating a cumulative ACK hole.

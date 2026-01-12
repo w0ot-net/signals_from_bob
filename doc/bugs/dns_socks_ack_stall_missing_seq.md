@@ -73,6 +73,9 @@
 - Alice `tunnel.ack_detail` shows `recv_ack` stuck at 38-43 with
   `recv_buffered=138-141` and `recv_recv_delivered=36-41` while Alice's ACK to
   Bob advances to 1058-1065.
+- Bob `tunnel.response_cap` reports `response_payload_cap=137` while `dns.send`
+  responses in this window are `payload_bytes=38` with `oversize=false`, so the
+  response cap is not blocking retransmits.
 - Alice logs repeated `tunnel.retransmit_skip` due to `ack_silence` around
   08:03:38.
 - Bob sends a data packet (`content_flag=has_segments`, `seq=276`) at 08:03:24;

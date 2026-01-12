@@ -112,6 +112,9 @@
 - Alice `tunnel.recv_window` delivers seq 118 at 17:59:00 (`recv_ack=121`) and
   sends keepalives with `ack=121` at 17:59:01-17:59:02, but Bob logs no
   `tunnel.packet_recv` with `ack>=119` (ACK update never reaches Bob).
+- Alice `dns.send` corr_ids 2114/2115 at 17:59:01-17:59:02 have no matching
+  `dns.recv`, and Bob logs no `dns.recv` after 17:58:59, so the `ack=121`
+  keepalives likely never reach Bob.
 
 ## Code path notes
 - `sfb/modules/socks/socks_server.py` starts `channel_open_timeout` as soon as

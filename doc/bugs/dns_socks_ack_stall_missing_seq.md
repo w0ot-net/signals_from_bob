@@ -153,6 +153,8 @@
 - Bob logs `tunnel.packet_send` with `content_flag=has_segments` at 21:47:33,
   21:47:36, 21:47:38, and 21:47:54 (`seq=373/376/378/393`, `bytes=70-71`).
   Those payload-bearing responses do not appear on Alice, while keepalives do.
+- There are no `tunnel.retransmit` entries with `seg_count>0` for those seqs;
+  Bob did not retry these payload-bearing responses before shutdown.
 
 ## Code path notes
 - `sfb/modules/socks/socks_server.py` starts `channel_open_timeout` as soon as

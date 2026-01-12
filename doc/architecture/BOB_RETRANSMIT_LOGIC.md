@@ -56,14 +56,15 @@ per poll, and retransmit takes priority when selected.
 ## Retransmit Candidate Selection (Oldest Unacked)
 
 Bob considers a single retransmit candidate per poll:
-- `_send_window.get_oldest_unacked_info()` returns the unacked packet with the
-  oldest `send_time`. This is not necessarily the smallest sequence number.
-- Selection uses `send_time`, which is updated on retransmit, so a packet that
-  was just retransmitted will no longer be the oldest.
-- If `send_time` is missing (should not happen in normal sends), it is treated
-  as `0.0`, making it the oldest.
+- `_send_window.get_oldest_unacked_first_info()` returns the unacked packet
+  with the oldest initial send time (`first_send_time`). This is not
+  necessarily the smallest sequence number.
+- Selection uses `first_send_time`, which is set on first send and does not
+  change on retransmit, so the original oldest packet stays prioritized.
+- If `first_send_time` is missing (should not happen in normal sends), it is
+  treated as `0.0`, making it the oldest.
 - The returned info includes `(seq, segments, flags, encrypted_body,
-  send_time, retransmit_count)`.
+  send_time, retransmit_count, first_send_time)`.
 
 If there are no unacked packets, no retransmit is attempted.
 
@@ -199,7 +200,7 @@ Key structured events emitted during opportunistic retransmits:
 - `tunnel.retransmit_skip`: cooldown/ACK-progress skips with age, cooldown,
   and poll EWMA context.
 - `tunnel.retransmit`: retransmit send details (seq, ack/sack, flags, bytes,
-  previous send age/count).
+  previous send age/count, first-send age).
 - `tunnel.ack_detail`: ACK/SACK processing detail and window snapshots.
 - `tunnel.reliability_state`: structured snapshot of send/recv window and
   counters when drops or gating occur.
@@ -232,6 +233,8 @@ Retransmits reuse the original sequence number:
 
 `send_time` is updated only by `mark_retransmit()`, so cooldown age is always
 relative to the most recent transmission of that packet.
+`first_send_time` is set on the initial send and stays fixed, so oldest
+selection reflects the original send order.
 
 ## Logging And Stats Summary
 

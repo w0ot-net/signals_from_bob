@@ -1,6 +1,6 @@
 # Bob Ack Stall Targeted Retransmit Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Keep Bob's retransmit selection pinned to the initial send order by tracking a
@@ -49,3 +49,12 @@ cooldown/ack gating or Alice behavior.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- Added first-send tracking in the send window and a Bob-only oldest selector
+  based on initial send time.
+- Switched Bob retransmit selection to initial-send ordering while keeping
+  cooldown gating tied to last-send age, and logged first-send age on
+  retransmits.
+- Updated asymmetry and Bob retransmit documentation to reflect the new
+  ordering and logging.

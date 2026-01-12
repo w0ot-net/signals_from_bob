@@ -153,6 +153,7 @@ class SendWindow(object):
             flags=flags,
             encrypted_body=encrypted_body,
             send_time=now,
+            first_send_time=now,
             retransmit_count=0,
         )
         if segments:
@@ -341,6 +342,36 @@ class SendWindow(object):
             pkt.encrypted_body,
             pkt.send_time,
             pkt.retransmit_count,
+        )
+
+    def get_oldest_unacked_first_info(self):
+        """
+        Get oldest unacked packet by initial send time (Bob, opportunity-driven).
+
+        Returns:
+            tuple: (seq, segments, flags, encrypted_body, send_time,
+                retransmit_count, first_send_time) or None
+        """
+        oldest = None
+        oldest_time = None
+        for seq, pkt in self._unacked.items():
+            pkt_time = pkt.first_send_time
+            if pkt_time is None:
+                pkt_time = 0.0
+            if oldest is None or pkt_time < oldest_time:
+                oldest = (seq, pkt)
+                oldest_time = pkt_time
+        if oldest is None:
+            return None
+        seq, pkt = oldest
+        return (
+            seq,
+            pkt.segments,
+            pkt.flags,
+            pkt.encrypted_body,
+            pkt.send_time,
+            pkt.retransmit_count,
+            pkt.first_send_time,
         )
 
     def get_unacked_info(self, seq):
@@ -835,15 +866,18 @@ class _UnackedPacket(object):
         'flags',
         'encrypted_body',
         'send_time',
+        'first_send_time',
         'retransmit_count',
         'heap_token',
     )
 
-    def __init__(self, seq, segments, flags, encrypted_body, send_time, retransmit_count):
+    def __init__(self, seq, segments, flags, encrypted_body, send_time,
+                 first_send_time, retransmit_count):
         self.seq = seq
         self.segments = segments
         self.flags = flags
         self.encrypted_body = encrypted_body
         self.send_time = send_time
+        self.first_send_time = first_send_time
         self.retransmit_count = retransmit_count
         self.heap_token = None

@@ -339,7 +339,8 @@ class BobTunnel(BaseTunnel):
 
     def _send_retransmit_response(self, responder, now, seq, segments, flags,
                                   encrypted_body,
-                                  context='retransmit', reason=None):
+                                  context='retransmit', reason=None,
+                                  first_send_time=None):
         packet = self._rebuild_packet(seq, segments, flags=flags)
         encrypted_body, response_data = self._encode_packet_for_send(
             packet,
@@ -356,6 +357,12 @@ class BobTunnel(BaseTunnel):
                 if prev_age < 0:
                     prev_age = 0.0
                 prev_age = round(prev_age, 6)
+        first_age = None
+        if first_send_time is not None:
+            first_age = now - first_send_time
+            if first_age < 0:
+                first_age = 0.0
+            first_age = round(first_age, 6)
         self._send_window.mark_retransmit(seq, now=now)
         def build_fields():
             fields = {
@@ -376,6 +383,8 @@ class BobTunnel(BaseTunnel):
                 fields['prev_retransmit_count'] = prev_retransmit_count
             if prev_age is not None:
                 fields['prev_send_age'] = prev_age
+            if first_age is not None:
+                fields['first_send_age'] = first_age
             return fields
         log_event(
             self._logger,
@@ -462,10 +471,10 @@ class BobTunnel(BaseTunnel):
 
     def _select_response_action(self, now, response_payload_cap):
         decision = {'action': None}
-        oldest_info = self._send_window.get_oldest_unacked_info()
+        oldest_info = self._send_window.get_oldest_unacked_first_info()
         if oldest_info is not None:
             (seq, segments, flags, encrypted_body,
-             send_time, retransmit_count) = oldest_info
+             send_time, retransmit_count, first_send_time) = oldest_info
             cooldown = self._retransmit_cooldown()
             age = None
             if send_time is not None:
@@ -505,6 +514,7 @@ class BobTunnel(BaseTunnel):
                     'segments': segments,
                     'flags': flags,
                     'encrypted_body': encrypted_body,
+                    'first_send_time': first_send_time,
                 })
                 return decision
 
@@ -684,6 +694,7 @@ class BobTunnel(BaseTunnel):
                 decision['flags'],
                 decision['encrypted_body'],
                 context=decision.get('context', 'retransmit'),
+                first_send_time=decision.get('first_send_time'),
             )
             return
         if action in ('window_blocked', 'distance_blocked'):
@@ -699,6 +710,7 @@ class BobTunnel(BaseTunnel):
                     oldest_info[3],
                     context=decision.get('context'),
                     reason=decision.get('reason'),
+                    first_send_time=oldest_info[6],
                 )
             return
         if action == 'keepalive':

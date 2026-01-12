@@ -75,6 +75,11 @@
   Bob advances to 1058-1065.
 - Alice logs repeated `tunnel.retransmit_skip` due to `ack_silence` around
   08:03:38.
+- Bob sends a data packet (`content_flag=has_segments`, `seq=276`) at 08:03:24;
+  Alice receives `seq=276` at 08:03:25 but `tunnel.recv_window` buffers it with
+  `recv_offset=254` (recv_ack in the low 20s), so module delivery never occurs.
+- Alice emits no non-keepalive `tunnel.packet_send` after 08:03:15, so there is
+  no module response traffic in the 08:03:23-08:03:37 window.
 
 ## Hypothesis
 - A single DNS response carrying seq 595 was dropped on the path (likely at the

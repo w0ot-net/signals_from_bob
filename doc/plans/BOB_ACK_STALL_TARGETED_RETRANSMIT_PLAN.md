@@ -24,12 +24,14 @@ changing normal opportunistic retransmit behavior.
 ## Affected Components
 - `sfb/tunnel/bob_tunnel.py`
 - `sfb/reliability/send_window.py`
-- `sfb/config.py`
 - `doc/architecture/ASYMMETRY.md`
 
 ## Plan
 1. Add a stall-aware retransmit decision for Bob.
-   - Detect when cumulative ACK has not advanced for a configurable duration.
+   - Detect when cumulative ACK has not advanced for a runtime stall window:
+     `stall = 2 * rtt_ewma`, clamped to `[poll_interval_ewma, cap]` so Bob does
+     not fire before Alice could have reasonably polled.
+   - Set `cap` as a small constant in code (for example 5s), not a config knob.
    - Require SACK progress or ack-miss activity to confirm a hole exists.
    - Pick `missing_seq = last_cum_ack` and retransmit it if still unacked.
 2. Rate-limit stall retransmits per sequence number.

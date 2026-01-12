@@ -60,14 +60,20 @@ Alice initiates all transport-level connections. Bob cannot reach Alice directly
 
 ### Transport
 
-Handles medium-specific encoding/decoding. Exposes simple send/recv interface.
+Handles medium-specific encoding/decoding. Exposes a request/response interface:
+Alice sends requests (optionally pipelined) and Bob responds.
 
-Polling transports (DNS, ICMP): Alice beacons continuously, Bob responds.
+Implemented transports:
+- DNS
+- ICMP (Linux-only)
+- UDP ephemeral
+- TLS handshake
+- TLS handshake bump
+- In-memory (tests/simulation)
+- Lossy wrapper (impairs any transport for testing)
 
-TLS-handshake transport is future-only and not part of the current
-architecture.
-
-All transports start with a 100-byte packet limit until MTU_OK completes.
+MTU negotiation is asymmetric. Initial send/recv MTUs come from transport
+limits, with protocol_initial_packet_mtu as a fallback before MTU_OK.
 
 ### Crypto
 

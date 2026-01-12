@@ -1,6 +1,6 @@
 # ICMP Transport Perf Phase 2 - Server Hot Path
 
-Status: draft
+Status: completed
 
 ## Summary
 Improve the ICMP server receive path by draining the socket after select
@@ -45,3 +45,10 @@ and allocation churn when there is ICMP background noise or bursts.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes (2026-01-11)
+- Added cached socket list, would-block handling, and a drain loop in the ICMP
+  server receive path to reduce select/syscall overhead under noise.
+- Added optional Python 3 recvfrom_into buffer reuse with a bytearray backing
+  buffer; Python 2 remains on recvfrom.
+- No tests were run.

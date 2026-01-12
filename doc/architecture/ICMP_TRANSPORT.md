@@ -152,7 +152,6 @@ Config fields:
 - `icmp_packet_mtu`: max SFB packet size to send/receive (default conservative)
 - `max_in_flight`: max concurrent ICMP requests in flight
 - `icmp_pending_timeout`: timeout before pruning stale ICMP requests
-- `icmp_socket_rcvbuf`: optional ICMP socket receive buffer size (bytes, 0 = default)
 - `non_blocking_poll_timeout`: poll timeout used by the tunnel loop
 - `tunnel_send_rate` / `tunnel_send_burst`: transport-agnostic pacing for Alice polls
 - `tunnel_pace_target_inflight_ratio` / `tunnel_pace_min_inflight` /
@@ -171,6 +170,8 @@ CLI:
   `--pace-ack-ewma-alpha`, `--pace-rtt-floor-ms`,
   `--pace-ack-idle-reset-sec`
 - Bob: `--icmp-packet-mtu <bytes>` only
+
+ICMP socket buffer sizes use the system defaults and are not configurable.
 
 ---
 

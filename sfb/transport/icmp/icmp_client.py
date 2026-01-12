@@ -46,75 +46,6 @@ def _get_errno(exc):
     return err
 
 
-def _normalize_socket_buffer(value):
-    if value is None:
-        return None
-    try:
-        value = int(value)
-    except (TypeError, ValueError):
-        return None
-    if value <= 0:
-        return None
-    return value
-
-
-def _set_socket_buffer(sock, opt, opt_name, value, role):
-    try:
-        sock.setsockopt(socket.SOL_SOCKET, opt, value)
-        return True
-    except socket.error as e:
-        log_event(
-            _LOG,
-            logging.WARNING,
-            'icmp.socket_buffer_set_failed',
-            'ICMP socket buffer set failed',
-            lambda: {
-                'role': role,
-                'buffer': opt_name,
-                'value': value,
-                'error': str(e),
-            },
-        )
-        return False
-
-
-def _get_socket_buffer(sock, opt, opt_name, role):
-    try:
-        return sock.getsockopt(socket.SOL_SOCKET, opt)
-    except socket.error as e:
-        log_event(
-            _LOG,
-            logging.WARNING,
-            'icmp.socket_buffer_get_failed',
-            'ICMP socket buffer get failed',
-            lambda: {
-                'role': role,
-                'buffer': opt_name,
-                'error': str(e),
-            },
-        )
-        return None
-
-
-def _configure_socket_buffers(sock, rcvbuf, role):
-    rcvbuf = _normalize_socket_buffer(rcvbuf)
-    if rcvbuf is None:
-        return
-    _set_socket_buffer(sock, socket.SO_RCVBUF, 'rcvbuf', rcvbuf, role)
-    effective_rcv = _get_socket_buffer(sock, socket.SO_RCVBUF, 'rcvbuf', role)
-    log_event(
-        _LOG,
-        logging.INFO,
-        'icmp.socket_buffers',
-        'ICMP socket buffers',
-        lambda: {
-            'role': role,
-            'rcvbuf_requested': rcvbuf,
-            'rcvbuf_effective': effective_rcv,
-        },
-    )
-
-
 class IcmpClient(Transport):
     """
     ICMP client transport for Alice.
@@ -138,11 +69,6 @@ class IcmpClient(Transport):
         self._sock.setblocking(False)
         self._sock_list = [self._sock]
         self._target_addr = (self._target_ip, 0)
-        _configure_socket_buffers(
-            self._sock,
-            config.icmp_socket_rcvbuf,
-            role='client',
-        )
 
         send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
             'icmp', config, role='client'
@@ -188,7 +114,6 @@ class IcmpClient(Transport):
                 'recv_packet_mtu': self._recv_packet_mtu,
                 'max_in_flight': self._max_in_flight,
                 'pending_timeout': self._pending_timeout,
-                'socket_rcvbuf': config.icmp_socket_rcvbuf,
             },
         )
 

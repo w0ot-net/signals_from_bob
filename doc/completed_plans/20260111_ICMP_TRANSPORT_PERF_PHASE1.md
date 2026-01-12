@@ -1,6 +1,6 @@
 # ICMP Transport Perf Phase 1 - Client Hot Path
 
-Status: draft
+Status: completed
 
 ## Summary
 Reduce ICMP client hot-path overhead by caching select inputs, avoiding
@@ -50,3 +50,10 @@ receive buffer on Python 3 to cut allocation churn.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes (2026-01-11)
+- Implemented cached socket list/target address, would-block handling, and a
+  capped drain loop in the ICMP client receive path.
+- Added optional Python 3 recvfrom_into buffer reuse with a bytearray backing
+  buffer; Python 2 remains on recvfrom.
+- No tests were run.

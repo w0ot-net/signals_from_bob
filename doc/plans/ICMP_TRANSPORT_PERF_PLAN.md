@@ -27,8 +27,8 @@ so server-side tweaks are incremental.
 - `doc/architecture/ICMP_TRANSPORT.md` (if config or behavior notes change)
 
 ## Phases
-- Phase 1: ICMP client hot path and allocation work.
-  See `doc/plans/ICMP_TRANSPORT_PERF_PHASE1.md`.
+- Phase 1 (completed): ICMP client hot path and allocation work.
+  See `doc/completed_plans/20260111_ICMP_TRANSPORT_PERF_PHASE1.md`.
 - Phase 2: ICMP server hot path and allocation work.
   See `doc/plans/ICMP_TRANSPORT_PERF_PHASE2.md`.
 - Phase 3: ICMP socket buffer sizing and logging guidance.
@@ -44,8 +44,8 @@ so server-side tweaks are incremental.
 ## Plan
 1. Review the current ICMP client/server hot paths and confirm all changes
    stay within the asymmetry rules in doc/architecture/ASYMMETRY.md.
-2. Execute Phase 1, then Phase 2, then Phase 3 (phases are independent but
-   ordered by risk and scope).
+2. Execute Phase 2, then Phase 3 (phases are independent but ordered by risk
+   and scope).
 
 ## Testing
 - Do not run tests.

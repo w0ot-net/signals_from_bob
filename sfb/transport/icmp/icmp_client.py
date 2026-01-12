@@ -5,6 +5,7 @@ ICMP client transport for Alice.
 
 from __future__ import absolute_import
 
+import errno
 import logging
 import os
 import random
@@ -19,12 +20,30 @@ from ..transport_base import (
 )
 from ..mtu_limits import resolve_mtu_limits
 from .icmp_packet import ICMP_ECHO_REPLY, build_echo_request, parse_icmp_echo
-from ...compat import require_bytes_like
+from ...compat import PY2, buffer_view, require_bytes_like
 from ...config import Config
 from ...logging_util import get_logger, log_event
 from ... import time_provider
 
 _LOG = get_logger(__name__)
+_DRAIN_LIMIT = 32
+
+_WOULD_BLOCK = set([errno.EAGAIN, errno.EWOULDBLOCK])
+for name in ('WSAEWOULDBLOCK',):
+    value = getattr(errno, name, None)
+    if value is not None:
+        _WOULD_BLOCK.add(value)
+
+
+def _get_errno(exc):
+    err = getattr(exc, 'errno', None)
+    if err is None and getattr(exc, 'args', None):
+        if exc.args:
+            try:
+                err = int(exc.args[0])
+            except (TypeError, ValueError):
+                err = None
+    return err
 
 
 class IcmpClient(Transport):
@@ -48,6 +67,8 @@ class IcmpClient(Transport):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_RAW,
                                    socket.IPPROTO_ICMP)
         self._sock.setblocking(False)
+        self._sock_list = [self._sock]
+        self._target_addr = (self._target_ip, 0)
 
         send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
             'icmp', config, role='client'
@@ -57,6 +78,11 @@ class IcmpClient(Transport):
         self._max_in_flight = config.max_in_flight
         self._pending_timeout = config.icmp_pending_timeout
         self._recv_bufsize = 65535
+        self._recv_buffer = None
+        self._recvfrom_into = None
+        if not PY2 and hasattr(self._sock, 'recvfrom_into'):
+            self._recv_buffer = bytearray(self._recv_bufsize)
+            self._recvfrom_into = self._sock.recvfrom_into
 
         self._pending = PendingTracker(self._pending_timeout)
         self._next_seq = random.randint(0, 0xFFFF)
@@ -145,7 +171,7 @@ class IcmpClient(Transport):
         packet = build_echo_request(self._icmp_id, seq, data)
 
         try:
-            self._sock.sendto(packet, (self._target_ip, 0))
+            self._sock.sendto(packet, self._target_addr)
         except socket.error as e:
             log_event(
                 _LOG,
@@ -181,8 +207,9 @@ class IcmpClient(Transport):
     def recv(self, timeout=None):
         self._prune_stale()
         if timeout == 0:
-            if self._select_ready(0):
-                return self._try_recv()
+            result = self._try_recv_drain(_DRAIN_LIMIT)
+            if result[0] is not None:
+                return result
             return (None, None)
 
         deadline = None
@@ -200,21 +227,56 @@ class IcmpClient(Transport):
                 if timeout is None:
                     continue
                 return (None, None)
-            result = self._try_recv()
+            result = self._try_recv_drain(_DRAIN_LIMIT)
             if result[0] is not None:
                 return result
 
     def _select_ready(self, wait):
         try:
-            ready, _, _ = select.select([self._sock], [], [], wait)
+            ready, _, _ = select.select(self._sock_list, [], [], wait)
         except select.error as e:
             raise TransportError('Select failed: %s' % e)
         return ready
 
-    def _try_recv(self):
+    def _try_recv_drain(self, limit):
+        count = 0
+        while True:
+            if limit is not None and count >= limit:
+                return (None, None)
+            packet, addr = self._recv_packet()
+            if packet is None:
+                return (None, None)
+            result = self._parse_response(packet, addr)
+            if result[0] is not None:
+                return result
+            count += 1
+
+    def _recv_packet(self):
+        if self._recvfrom_into is not None and self._recv_buffer is not None:
+            if len(self._recv_buffer) != self._recv_bufsize:
+                self._recv_buffer = bytearray(self._recv_bufsize)
+            try:
+                recv_len, addr = self._recvfrom_into(self._recv_buffer)
+            except socket.error as e:
+                err = _get_errno(e)
+                if err in _WOULD_BLOCK:
+                    return (None, None)
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'icmp.recv_failed',
+                    'ICMP receive failed',
+                    lambda: {'error': str(e)},
+                )
+                raise TransportError('Receive failed: %s' % e)
+            packet = buffer_view(self._recv_buffer, length=recv_len)
+            return (packet, addr)
         try:
             packet, addr = self._sock.recvfrom(self._recv_bufsize)
         except socket.error as e:
+            err = _get_errno(e)
+            if err in _WOULD_BLOCK:
+                return (None, None)
             log_event(
                 _LOG,
                 logging.WARNING,
@@ -223,7 +285,9 @@ class IcmpClient(Transport):
                 lambda: {'error': str(e)},
             )
             raise TransportError('Receive failed: %s' % e)
+        return (packet, addr)
 
+    def _parse_response(self, packet, addr):
         result, reason = parse_icmp_echo(
             packet,
             expect_type=ICMP_ECHO_REPLY,
@@ -371,3 +435,4 @@ class IcmpClient(Transport):
         if self._sock:
             self._sock.close()
             self._sock = None
+            self._sock_list = None

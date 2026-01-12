@@ -63,6 +63,19 @@
 - Alice logs repeated `tunnel.retransmit_skip` due to `ack_silence` with
   `unacked=0` around 04:21:20.
 
+### New occurrence (2026-01-12 08:03:23 to 08:03:37)
+- Bob logs `sock.server_connect` for rid 1 at 08:03:23 (104.16.185.241:80) and
+  `channel.open` for ch2, but no `sock.server_connected` or
+  `sock.server_channel_failed` before shutdown at 08:03:37.
+- Bob `tunnel.ack_detail` keeps cumulative ACK pinned at 43 with
+  `send_keepalive_unacked=115`, `send_unacked=115`, and `send_oldest_seq=42-45`
+  while `recv_ack` advances to 1063-1065.
+- Alice `tunnel.ack_detail` shows `recv_ack` stuck at 38-43 with
+  `recv_buffered=138-141` and `recv_recv_delivered=36-41` while Alice's ACK to
+  Bob advances to 1058-1065.
+- Alice logs repeated `tunnel.retransmit_skip` due to `ack_silence` around
+  08:03:38.
+
 ## Hypothesis
 - A single DNS response carrying seq 595 was dropped on the path (likely at the
   recursive resolver or on-path), creating a cumulative ACK hole.

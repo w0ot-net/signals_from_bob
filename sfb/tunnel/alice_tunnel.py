@@ -520,7 +520,7 @@ class AliceTunnel(BaseTunnel):
             )
             if corr_id is None:
                 break
-            valid, resp_kind = self._handle_response(data, now)
+            valid, resp_kind = self._handle_response(corr_id, data, now)
             if valid:
                 received_valid = True
                 if resp_kind is not None:
@@ -537,7 +537,7 @@ class AliceTunnel(BaseTunnel):
             if pending >= threshold:
                 corr_id, data = self._transport.recv(timeout=0.05)
                 if corr_id is not None:
-                    valid, resp_kind = self._handle_response(data, now)
+                    valid, resp_kind = self._handle_response(corr_id, data, now)
                     if valid:
                         received_valid = True
                         if resp_kind is not None:
@@ -1735,14 +1735,43 @@ class AliceTunnel(BaseTunnel):
         )
         return True
 
-    def _handle_response(self, data, now):
+    def _handle_response(self, corr_id, data, now):
         """Handle a transport response."""
         packet, packet_size = self._decode_packet(data, return_size=True)
         if packet is None:
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.response_decode_failed',
+                'Transport response decode failed',
+                lambda: {
+                    'corr_id': corr_id,
+                    'bytes': len(data),
+                    'side': 'alice',
+                },
+            )
             return (False, None)
 
         self._bytes_received += len(data)
         self._last_recv_time = now
+        content_flag = self._content_flag_label(packet.flags)
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.response_decode',
+            'Transport response decoded',
+            lambda: {
+                'corr_id': corr_id,
+                'seq': packet.seq,
+                'ack': packet.ack,
+                'sack': packet.sack,
+                'flags': packet.flags,
+                'content_flag': content_flag,
+                'seg_count': len(packet.segments),
+                'bytes': packet_size,
+                'side': 'alice',
+            },
+        )
 
         if packet.flags & (FLAG_SYN | FLAG_ACK):
             log_event(
@@ -1757,7 +1786,7 @@ class AliceTunnel(BaseTunnel):
             )
             return (True, None)
 
-        response_kind = self._content_flag_label(packet.flags)
+        response_kind = content_flag
         if response_kind == 'has_segments':
             self._got_data = True
         elif response_kind not in ('keepalive',):

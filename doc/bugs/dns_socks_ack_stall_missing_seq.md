@@ -127,6 +127,9 @@
   keepalive-sized responses), and no `dns.error_response` entries in that window.
 - This points to payload-bearing DNS responses being dropped on the return path
   while keepalive-sized responses still arrive.
+- Alice logs `dns.prune_stale` at 20:54:29 (counts 4 and 1) and 20:54:37
+  (count 1); no `dns.malformed_response`, `dns.mismatched_response`,
+  `dns.error_response`, or `dns.stale_response` events appear in that window.
 - Bob logs `tunnel.packet_send` with `content_flag=has_segments` and
   `seg_count=1` after `channel.open` (example: seq 284 at 20:54:28), so control
   segments are being packed and sent.

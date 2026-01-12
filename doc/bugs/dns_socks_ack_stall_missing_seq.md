@@ -87,10 +87,14 @@
   `tunnel.send_window_distance` reports `missing_seq=42` while
   `oldest_unacked_seq=43`, yet retransmits are for seq 42 (indicating targeted
   retransmit selection is firing).
-- Alice logs `tunnel.packet_recv` for seq 43 at 08:03:37 and
-  `tunnel.recv_window` delivers it with `recv_ack=45`, but Bob never logs a
-  `tunnel.packet_recv` with `ack>=44` before shutdown, so the ACK update never
-  reaches Bob.
+- Alice receives missing seqs 20-42 but never logs `tunnel.packet_recv` for
+  seq 43, so the cumulative ACK stays pinned at 43 despite three retransmits.
+- Bob retransmits seq 43 at 08:03:35.482, 08:03:36.474, and 08:03:36.491; each
+  retransmit has nearby server `dns.send` responses (payload 38 bytes).
+- On Alice, there are no `dns.send` corr_ids in 08:03:35-08:03:36 that lack a
+  matching `dns.recv`; the only missing corr_ids are 1072/1073 at 08:03:37-08:03:38
+  during shutdown. This run shows no client-visible DNS corr_id gap aligned to
+  the seq 43 loss.
 
 ## Hypothesis
 - A single DNS response carrying seq 595 was dropped on the path (likely at the

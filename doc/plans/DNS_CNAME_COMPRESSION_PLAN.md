@@ -27,8 +27,11 @@ increase effective payload capacity for DNS transport.
 1. Add compression helpers in `sfb/transport/dns/dns_codec.py`.
    - Add a small helper to build a compression pointer (`0xC000 | offset`) and
      validate that `offset <= 0x3FFF`.
-   - Add a helper to compute the base-domain pointer offset inside a query
-     name given `qname_wire_len` and `base_domain_wire_len`.
+   - Add a helper to compute the base-domain pointer offset as an absolute
+     message offset (include the 12-byte DNS header and the fact QNAME starts
+     at offset 12). Use `qname_wire_len` and `base_domain_wire_len` to derive
+     the suffix start (offset = 12 + qname_wire_len - base_domain_wire_len),
+     and validate it fits the 14-bit pointer range.
    - Add a helper that builds CNAME RDATA with a compressed base-domain suffix:
      encode data labels + CNAME label, then append a compression pointer to the
      base-domain offset.

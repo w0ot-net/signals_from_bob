@@ -41,6 +41,5 @@ collection is enabled by early returning in pacer logging helpers.
 - Do not run tests.
 
 ## Execution Notes
-- Added `_pacer_debug_fields_enabled` and early returns in pacer debug logging
-  helpers to skip field construction when DEBUG is off and summaries are
-  disabled.
+- Added inline early-return guards in pacer debug logging helpers so field
+  construction is skipped when DEBUG is off and summaries are disabled.

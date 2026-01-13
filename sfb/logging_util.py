@@ -19,6 +19,8 @@ from . import time_provider
 
 
 DEFAULT_FORMAT = '%(asctime)s %(levelname)s %(name)s: %(message)s'
+_SQLITE_INT64_MIN = -9223372036854775808
+_SQLITE_INT64_MAX = 9223372036854775807
 
 
 class StructuredLogFormatter(logging.Formatter):
@@ -298,8 +300,8 @@ class SQLiteLogHandler(logging.Handler):
             _coerce_text(record.pathname),
             int(record.lineno),
             _coerce_text(record.funcName),
-            int(getattr(record, 'thread', 0) or 0),
-            int(getattr(record, 'process', 0) or 0),
+            _coerce_sqlite_int(getattr(record, 'thread', 0)),
+            _coerce_sqlite_int(getattr(record, 'process', 0)),
         )
         try:
             self._queue.put_nowait(event)
@@ -414,6 +416,18 @@ def _coerce_text(value):
         return text_type(value)
     except Exception:
         return text_type(repr(value))
+
+
+def _coerce_sqlite_int(value):
+    if value is None:
+        return 0
+    try:
+        value = int(value)
+    except Exception:
+        return 0
+    if value < _SQLITE_INT64_MIN or value > _SQLITE_INT64_MAX:
+        return _coerce_text(value)
+    return value
 
 
 def _resolve_fields(record):

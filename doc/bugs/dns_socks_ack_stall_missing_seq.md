@@ -176,6 +176,21 @@
   state keeps `send_oldest_flags=4` (keepalive) while `send_data_unacked=1-3`,
   so the data segments were not retried.
 
+### New occurrence (2026-01-13 03:14:50 to 03:15:00)
+- Bob `tunnel.send_window_distance` shows `missing_seq` stepping 10..31 with
+  `missing_flags=4` and `missing_in_unacked=true`; `last_cum_ack=31` while
+  `next_seq=287`, and `oldest_unacked_seq=33` when `missing_seq=31`, so the
+  gap is not the retransmit target.
+- Bob `tunnel.reliability_state` at 03:14:56 reports `send_keepalive_unacked=132`,
+  `send_unacked=132`, `send_data_unacked=0`, and `reason=window_distance`.
+- Alice `tunnel.poll_pace` collapses to `interval=0.000582` with
+  `target_inflight=256` (`srtt_ms=198.67`).
+- Alice retries `tunnel.window_propose` with `reason=retry` at 03:14:53-03:14:55
+  while Bob logs `tunnel.window_ok` at 03:14:51-03:14:53, indicating control
+  responses are delayed behind the keepalive gap.
+- No `dns.prune_stale`, `dns.mismatched_response`, or `dns.error_response`
+  entries appear in this window.
+
 ## Code path notes
 - `sfb/modules/socks/socks_server.py` starts `channel_open_timeout` as soon as
   `open_channel()` returns, then waits on `channel.wait_open()` without any

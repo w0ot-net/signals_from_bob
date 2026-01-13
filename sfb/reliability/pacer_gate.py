@@ -14,7 +14,7 @@ class PacerGateController(object):
     def check_send(self, send_window, pacer, now, srtt_ms, rto_sec,
                    min_age_ratio, keepalive_only, pacer_cap, max_window,
                    pacer_gate_cap=None, check_distance=True,
-                   check_pacer=True):
+                   check_pacer=True, pacer_target=None):
         """
         Return a decision dict with gating and optional freeze details.
         """
@@ -43,6 +43,7 @@ class PacerGateController(object):
                 srtt_ms,
                 keepalive_only,
                 pacer_gate_cap,
+                pacer_target=pacer_target,
             )
             if pacer_block is not None:
                 decision['can_send'] = False
@@ -100,7 +101,8 @@ class PacerGateController(object):
         }
         return decision
 
-    def _check_pacer(self, send_window, pacer, srtt_ms, keepalive_only, cap):
+    def _check_pacer(self, send_window, pacer, srtt_ms, keepalive_only, cap,
+                     pacer_target=None):
         if not self._pacer_enabled(pacer):
             return None
         if keepalive_only:
@@ -110,8 +112,12 @@ class PacerGateController(object):
         unacked, inflight = self._pacer_inflight_counts(send_window)
         if inflight is None:
             inflight = unacked
-        if pacer.can_send(inflight, cap, srtt_ms=srtt_ms):
-            return None
+        if pacer_target is None:
+            if pacer.can_send(inflight, cap, srtt_ms=srtt_ms):
+                return None
+        else:
+            if inflight < pacer_target:
+                return None
         return {
             'keepalive_only': keepalive_only,
             'unacked': unacked,

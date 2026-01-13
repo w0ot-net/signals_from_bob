@@ -1042,15 +1042,15 @@ class AliceTunnel(BaseTunnel):
             return False
         pacer_cap = None
         pacer_gate_cap = None
+        pacer_target = None
         if self._pacer.enabled:
             pacer_gate_cap = self._pacer_cap()
-            pacer_cap = min(
-                self._send_window._max_in_flight,
-                self._pacer.target_inflight(
+            if self._logger.isEnabledFor(logging.DEBUG):
+                pacer_target = self._pacer.target_inflight(
                     pacer_gate_cap,
                     srtt_ms=self._rtt.srtt_ms,
-                ),
-            )
+                )
+                pacer_cap = min(self._send_window._max_in_flight, pacer_target)
         decision = self._pacer_gate.check_send(
             send_window=self._send_window,
             pacer=self._pacer,
@@ -1063,6 +1063,7 @@ class AliceTunnel(BaseTunnel):
             max_window=self.MAX_WINDOW,
             pacer_gate_cap=pacer_gate_cap,
             check_pacer=False,
+            pacer_target=pacer_target,
         )
         freeze_action = decision.get('freeze_action')
         if freeze_action is not None:
@@ -1099,6 +1100,7 @@ class AliceTunnel(BaseTunnel):
             max_window=self.MAX_WINDOW,
             pacer_gate_cap=pacer_gate_cap,
             check_distance=False,
+            pacer_target=pacer_target,
         )
         if not decision.get('can_send'):
             blocked = dict(decision.get('block_details') or {})

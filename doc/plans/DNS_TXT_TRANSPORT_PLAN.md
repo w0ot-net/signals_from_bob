@@ -54,7 +54,8 @@ Alice-initiated, request/response asymmetry.
 - Use only the standard library; keep ASCII-only source and avoid list/dict/set
   comprehensions in `sfb/` modules for Python 2 minification safety.
 - `sfb/transport/dns_txt` modules must not import from `sfb/transport/dns`;
-  duplicate minimal DNS helpers locally.
+  copy `dns_utils.py` verbatim into `sfb/transport/dns_txt` and implement
+  remaining helpers locally.
 
 ## Implementation Steps
 
@@ -65,23 +66,26 @@ Alice-initiated, request/response asymmetry.
      - build/parse query/response packets with TXT answers and EDNS0 OPT.
    - Define TXT/QCLASS/flags/constants locally; do not import from
      `sfb.transport.dns`.
-2. Client transport.
+2. Shared DNS utilities.
+   - Copy `sfb/transport/dns/dns_utils.py` verbatim to
+     `sfb/transport/dns_txt/dns_utils.py` and use it for resolver discovery.
+3. Client transport.
    - Implement `DnsTxtClient` with pipelined queries, `PendingTracker`, and
      DNS-ID correlation.
    - Build TXT queries, parse TXT answers, and decode TXT payloads.
    - Enforce send MTU and derive recv MTU via `resolve_mtu_limits('dns_txt', ...)`.
-3. Server transport.
+4. Server transport.
    - Implement `DnsTxtServer` to parse TXT queries, decode query payloads, and
      respond with TXT answers or empty NOERROR responses for mismatches.
    - Use `dns_response_ttl` for answer TTL and include EDNS0 OPT when configured.
-4. Transport plumbing.
+5. Transport plumbing.
    - Register `dns_txt` in `sfb/transport/__init__.py`.
    - Add MTU resolution for `dns_txt` in `sfb/transport/mtu_limits.py`.
    - Update CLI to accept `--transport dns_txt`, require `--domain`, reuse DNS
      target/listen args, and wire `create_config` to the DNS builder.
    - Extend logging filter to recognize `dns_txt` logger/event prefixes under
      the DNS component.
-5. Documentation and flattener updates.
+6. Documentation and flattener updates.
    - Add `doc/architecture/DNS_TXT_TRANSPORT.md` describing framing, MTUs, and
      configuration.
    - Update `doc/architecture/TRANSPORTS.md`, `doc/architecture/ARCHITECTURE.md`,

@@ -156,6 +156,26 @@
 - There are no `tunnel.retransmit` entries with `seg_count>0` for those seqs;
   Bob did not retry these payload-bearing responses before shutdown.
 
+### New occurrence (2026-01-12 22:15:02 to 22:15:58)
+- Bob logs `sock.server_connect` for rid 1/2 (host 142.250.191.46:80) and
+  `channel.open` for ch2 at 22:15:02 and ch4 at 22:15:37; both end in
+  `sock.server_channel_failed` after `channel_wait_time=20.0`.
+- Bob `tunnel.packet_send` shows payload-bearing control segments
+  (`content_flag=has_segments`, `seg_count=1`, `seq=292` at 22:15:02 and
+  `seq=325` at 22:15:38); `dns.send` reports `payload_bytes=70`,
+  `oversize=false`, and `response_payload_cap=137`.
+- Alice logs only `dns.recv` with `bytes=38` during 22:15:02-22:15:04 and
+  22:15:37-22:15:40; no `tunnel.response_decode` entries with `seg_count>0`
+  and no `channel.open_in` entries appear.
+- Alice `tunnel.response_decode` stays `content_flag=keepalive` with
+  `seg_count=0` for the rest of the session.
+- `logs/server.pcap` shows the server sending UDP responses length 228 at
+  22:15:02.992 and 22:15:38.470 (payload-bearing responses); tcpdump reports
+  the pcap is truncated near the end but these packets are present.
+- Bob logs no `tunnel.retransmit` with `seg_count=1` in this window; reliability
+  state keeps `send_oldest_flags=4` (keepalive) while `send_data_unacked=1-3`,
+  so the data segments were not retried.
+
 ## Code path notes
 - `sfb/modules/socks/socks_server.py` starts `channel_open_timeout` as soon as
   `open_channel()` returns, then waits on `channel.wait_open()` without any

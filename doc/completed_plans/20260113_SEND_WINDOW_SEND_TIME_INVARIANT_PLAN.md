@@ -35,9 +35,9 @@ Bob retransmit docs/plans to remove the "treated as 0.0" behavior.
      `None` before storing to `_unacked`.
 
 2. Remove missing-`send_time` fallbacks in `SendWindow`.
-   - In `_select_oldest_from_scan()` and `_push_unacked_heap()`, raise
-     `SendWindowError` instead of coercing `None` to `0.0`.
-   - Keep heap rebuilds and selection logic otherwise unchanged.
+   - Remove `send_time` fallback handling in oldest selection and heap rebuilds.
+   - Validate `send_time` once per operation before retransmit scans, oldest
+     selection, and ACK processing.
 
 3. Treat invariant failures as fatal at the tunnel layer.
    - Catch `SendWindowError` in `AliceTunnel.tick()` and
@@ -63,5 +63,6 @@ Bob retransmit docs/plans to remove the "treated as 0.0" behavior.
 
 ## Execution Notes
 - 2026-01-13: Enforced non-None `send_time` in `SendWindow`, raised
-  `SendWindowError` on invariant violations, updated Alice/Bob tunnel handling,
-  and aligned retransmit docs with the invariant.
+  `SendWindowError` on invariant violations with centralized validation,
+  updated Alice/Bob tunnel handling, and aligned retransmit docs with the
+  invariant.

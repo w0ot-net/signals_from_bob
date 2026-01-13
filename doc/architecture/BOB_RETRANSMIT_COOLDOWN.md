@@ -54,13 +54,14 @@ The send-window cap used here is the current `_send_window._max_in_flight`.
 
 During `_select_response_action()`:
 - Bob selects the oldest unacked packet by `send_time`.
-- `age = now - send_time` (if `send_time` is set).
+- `age = now - send_time` (send_time is required).
 
 Retransmit is skipped if the gate fires:
 - `age < cooldown` (reason `cooldown`).
 
 Notes:
-- If `send_time` is unavailable, the gate is skipped.
+- Missing `send_time` is a fatal send-window inconsistency and closes the
+  tunnel.
 - On a successful retransmit, `send_time` is updated, which resets the age
   gate for that packet.
 

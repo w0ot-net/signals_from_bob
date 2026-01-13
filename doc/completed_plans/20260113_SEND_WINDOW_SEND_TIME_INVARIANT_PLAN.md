@@ -1,6 +1,6 @@
 # Send Window Send-Time Invariant Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Enforce a non-None `send_time` invariant strictly at write time in
@@ -55,3 +55,8 @@ tunnel loops.
 
 ## Testing
 - Do not run tests unless requested; use `python3` if needed later.
+
+## Execution Notes
+- 2026-01-13: Enforced non-None `send_time` on send/retransmit writes, removed
+  `send_time`/`first_send_time` fallbacks, added tunnel-level fatal logging for
+  invariant violations, and updated Bob retransmit docs.

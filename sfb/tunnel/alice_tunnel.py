@@ -23,6 +23,7 @@ from ..reliability import (
     PacerLoggingHelper,
     RttEstimator,
 )
+from ..reliability.send_window import SendWindowError
 from ..protocol import (
     Packet,
     FLAG_SYN,
@@ -405,109 +406,125 @@ class AliceTunnel(BaseTunnel):
         if self._state != TunnelState.CONNECTED:
             return False
 
-        now = time_provider.now()
-        self._tick_epoch += 1
-        self._retransmit_budget = self._retransmit_cap
-        packets_sent_before = self._packets_sent
-        serial_window = self._serial_window_negotiation()
-        # 1. Receive all available responses
-        received_any, received_valid, last_resp_kind = (
-            self._drain_transport_responses(now)
-        )
-        self._update_response_state(received_valid, last_resp_kind)
-
-        if not self._check_no_response_timeout(now):
-            return False
-
-        if self._fast_retransmit.enabled:
-            self._fast_retransmit.prune()
-
-        # 2. Check for retransmits
-        # Avoid RTO retransmits while ACKs are still advancing.
-        ack_silence = self._send_window.ack_silence(now=now)
-        if ack_silence is None or ack_silence >= self._rtt.rto_sec:
-            retransmits = self._send_window.get_retransmits(
-                self._rtt.rto_sec, now=now
+        try:
+            now = time_provider.now()
+            self._tick_epoch += 1
+            self._retransmit_budget = self._retransmit_cap
+            packets_sent_before = self._packets_sent
+            serial_window = self._serial_window_negotiation()
+            # 1. Receive all available responses
+            received_any, received_valid, last_resp_kind = (
+                self._drain_transport_responses(now)
             )
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.retransmit_scan',
-                'Retransmit scan',
-                lambda: {
-                    'count': len(retransmits),
-                    'rto_sec': self._rtt.rto_sec,
-                    'ack_silence': round(ack_silence, 6)
-                    if ack_silence is not None else None,
-                    'unacked': self._send_window.unacked_count,
-                    'budget': self._retransmit_budget,
-                    'side': 'alice',
-                },
-            )
-            for seq, segments, flags, encrypted_body in retransmits:
-                if not self._can_send_retransmit(now=now):
-                    break
-                reason = 'rto_keepalive' if flags & FLAG_KEEPALIVE else 'rto'
-                sent = self._send_retransmit(
-                    seq,
-                    segments,
-                    flags,
-                    encrypted_body,
-                    now,
-                    reason=reason,
+            self._update_response_state(received_valid, last_resp_kind)
+
+            if not self._check_no_response_timeout(now):
+                return False
+
+            if self._fast_retransmit.enabled:
+                self._fast_retransmit.prune()
+
+            # 2. Check for retransmits
+            # Avoid RTO retransmits while ACKs are still advancing.
+            ack_silence = self._send_window.ack_silence(now=now)
+            if ack_silence is None or ack_silence >= self._rtt.rto_sec:
+                retransmits = self._send_window.get_retransmits(
+                    self._rtt.rto_sec, now=now
                 )
-                if sent:
-                    self._backoff_rto_once()
-        else:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.retransmit_skip',
-                'Retransmit skipped due to ack silence',
-                lambda: {
-                    'reason': 'ack_silence',
-                    'rto_sec': self._rtt.rto_sec,
-                    'ack_silence': round(ack_silence, 6)
-                    if ack_silence is not None else None,
-                    'unacked': self._send_window.unacked_count,
-                    'side': 'alice',
-                },
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.retransmit_scan',
+                    'Retransmit scan',
+                    lambda: {
+                        'count': len(retransmits),
+                        'rto_sec': self._rtt.rto_sec,
+                        'ack_silence': round(ack_silence, 6)
+                        if ack_silence is not None else None,
+                        'unacked': self._send_window.unacked_count,
+                        'budget': self._retransmit_budget,
+                        'side': 'alice',
+                    },
+                )
+                for seq, segments, flags, encrypted_body in retransmits:
+                    if not self._can_send_retransmit(now=now):
+                        break
+                    reason = 'rto_keepalive' if flags & FLAG_KEEPALIVE else 'rto'
+                    sent = self._send_retransmit(
+                        seq,
+                        segments,
+                        flags,
+                        encrypted_body,
+                        now,
+                        reason=reason,
+                    )
+                    if sent:
+                        self._backoff_rto_once()
+            else:
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.retransmit_skip',
+                    'Retransmit skipped due to ack silence',
+                    lambda: {
+                        'reason': 'ack_silence',
+                        'rto_sec': self._rtt.rto_sec,
+                        'ack_silence': round(ack_silence, 6)
+                        if ack_silence is not None else None,
+                        'unacked': self._send_window.unacked_count,
+                        'side': 'alice',
+                    },
+                )
+
+            self._maybe_fast_retransmit(now, ack_silence)
+
+            # 3. Send new packets if we can
+            tick_slept = False
+            pacing_blocked, sent_any = self._send_pending_or_poll(
+                now,
+                serial_window,
+                packets_sent_before,
             )
 
-        self._maybe_fast_retransmit(now, ack_silence)
+            # 4. Opportunistically grow window after ACK progress or retry negotiation
+            if self._window_growth_enabled:
+                self._maybe_request_window(now)
 
-        # 3. Send new packets if we can
-        tick_slept = False
-        pacing_blocked, sent_any = self._send_pending_or_poll(
-            now,
-            serial_window,
-            packets_sent_before,
-        )
+            self._maybe_log_pacer_summary(time_provider.now())
 
-        # 4. Opportunistically grow window after ACK progress or retry negotiation
-        if self._window_growth_enabled:
-            self._maybe_request_window(now)
+            paced_sleep = False
+            if pacing_blocked and not sent_any:
+                paced_sleep = self._sleep_for_poll_pacing(time_provider.now())
+                if paced_sleep:
+                    tick_slept = True
 
-        self._maybe_log_pacer_summary(time_provider.now())
-
-        paced_sleep = False
-        if pacing_blocked and not sent_any:
-            paced_sleep = self._sleep_for_poll_pacing(time_provider.now())
-            if paced_sleep:
+            if (not paced_sleep and not received_any and not sent_any and
+                    not self._channel_manager.pending_send_event.is_set() and
+                    not self._got_data and not self._has_pending_data_acks):
+                idle_sleep = max(self._config.tunnel_tick_sleep, 0.01)
+                time_provider.sleep(idle_sleep)
                 tick_slept = True
 
-        if (not paced_sleep and not received_any and not sent_any and
-                not self._channel_manager.pending_send_event.is_set() and
-                not self._got_data and not self._has_pending_data_acks):
-            idle_sleep = max(self._config.tunnel_tick_sleep, 0.01)
-            time_provider.sleep(idle_sleep)
-            tick_slept = True
-
-        if received_any or sent_any or tick_slept:
-            self._tick_sleep_hint = 0.0
-        else:
-            self._tick_sleep_hint = self._config.tunnel_tick_sleep
-        return True
+            if received_any or sent_any or tick_slept:
+                self._tick_sleep_hint = 0.0
+            else:
+                self._tick_sleep_hint = self._config.tunnel_tick_sleep
+            return True
+        except SendWindowError as exc:
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'tunnel.send_window_inconsistent',
+                'Send window inconsistent',
+                lambda: {
+                    'seq': exc.seq,
+                    'context': exc.context,
+                    'side': 'alice',
+                    'error': str(exc),
+                },
+            )
+            self.close()
+            raise
 
     def _drain_transport_responses(self, now):
         """Receive all available responses from the transport."""
@@ -1646,11 +1663,10 @@ class AliceTunnel(BaseTunnel):
         if prev_info is not None:
             prev_retransmit_count = prev_info[5]
             prev_send_time = prev_info[4]
-            if prev_send_time is not None:
-                prev_age = now - prev_send_time
-                if prev_age < 0:
-                    prev_age = 0.0
-                prev_age = round(prev_age, 6)
+            prev_age = now - prev_send_time
+            if prev_age < 0:
+                prev_age = 0.0
+            prev_age = round(prev_age, 6)
         try:
             self._transport.send(packet_data, permit)
         except Exception as exc:

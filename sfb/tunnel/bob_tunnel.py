@@ -12,6 +12,7 @@ import logging
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
 from ..logging_util import log_event
+from ..reliability.send_window import SendWindowError
 from ..transport import TransportFatalError
 from .. import time_provider
 from ..protocol import (
@@ -199,26 +200,42 @@ class BobTunnel(BaseTunnel):
         now = time_provider.now()
         self._update_poll_ewma(now)
 
-        # Decode incoming packet
-        packet, packet_size = self._decode_packet(data, return_size=True)
-        if packet is None:
-            return
+        try:
+            # Decode incoming packet
+            packet, packet_size = self._decode_packet(data, return_size=True)
+            if packet is None:
+                return
 
-        self._bytes_received += len(data)
+            self._bytes_received += len(data)
 
-        # Handle based on state
-        if self._state in (TunnelState.DISCONNECTED, TunnelState.CONNECTING):
-            self._handle_handshake(packet, responder, now, packet_size=packet_size)
-        elif self._state == TunnelState.CONNECTED:
-            self._handle_data(packet, responder, now, packet_size=packet_size)
-        else:
+            # Handle based on state
+            if self._state in (TunnelState.DISCONNECTED, TunnelState.CONNECTING):
+                self._handle_handshake(packet, responder, now, packet_size=packet_size)
+            elif self._state == TunnelState.CONNECTED:
+                self._handle_data(packet, responder, now, packet_size=packet_size)
+            else:
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.request_state_unexpected',
+                    'Request in unexpected state',
+                    lambda: {'state': self._state, 'side': 'bob'},
+                )
+        except SendWindowError as exc:
             log_event(
                 self._logger,
-                logging.WARNING,
-                'tunnel.request_state_unexpected',
-                'Request in unexpected state',
-                lambda: {'state': self._state, 'side': 'bob'},
+                logging.ERROR,
+                'tunnel.send_window_inconsistent',
+                'Send window inconsistent',
+                lambda: {
+                    'seq': exc.seq,
+                    'context': exc.context,
+                    'side': 'bob',
+                    'error': str(exc),
+                },
             )
+            self.close()
+            raise
 
     def _handle_handshake(self, packet, responder, now, packet_size=None):
         """Handle handshake packets."""
@@ -352,17 +369,15 @@ class BobTunnel(BaseTunnel):
         if prev_info is not None:
             prev_retransmit_count = prev_info[5]
             prev_send_time = prev_info[4]
-            if prev_send_time is not None:
-                prev_age = now - prev_send_time
-                if prev_age < 0:
-                    prev_age = 0.0
-                prev_age = round(prev_age, 6)
+            prev_age = now - prev_send_time
+            if prev_age < 0:
+                prev_age = 0.0
+            prev_age = round(prev_age, 6)
         first_age = None
-        if first_send_time is not None:
-            first_age = now - first_send_time
-            if first_age < 0:
-                first_age = 0.0
-            first_age = round(first_age, 6)
+        first_age = now - first_send_time
+        if first_age < 0:
+            first_age = 0.0
+        first_age = round(first_age, 6)
         self._send_window.mark_retransmit(seq, now=now)
         def build_fields():
             fields = {
@@ -476,12 +491,8 @@ class BobTunnel(BaseTunnel):
             (seq, segments, flags, encrypted_body,
              send_time, _retransmit_count, first_send_time) = oldest_info
             cooldown = self._retransmit_cooldown()
-            oldest_age = None
-            if send_time is not None:
-                oldest_age = now - send_time
-            retransmit_due = False
-            if oldest_age is None or oldest_age >= cooldown:
-                retransmit_due = True
+            oldest_age = now - send_time
+            retransmit_due = oldest_age >= cooldown
             if retransmit_due:
                 decision.update({
                     'action': 'retransmit',
@@ -525,8 +536,7 @@ class BobTunnel(BaseTunnel):
                 'tunnel.retransmit_skip',
                 'Retransmit skipped',
                 lambda: {
-                    'age': round(oldest_age, 6)
-                    if oldest_age is not None else None,
+                    'age': round(oldest_age, 6),
                     'cooldown': cooldown,
                     'poll_ewma': self._poll_interval_ewma,
                     'unacked': self._send_window.unacked_count,

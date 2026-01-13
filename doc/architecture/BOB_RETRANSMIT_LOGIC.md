@@ -61,8 +61,8 @@ Bob considers a single retransmit candidate per poll:
   necessarily the smallest sequence number.
 - Selection uses `first_send_time`, which is set on first send and does not
   change on retransmit, so the original oldest packet stays prioritized.
-- If `first_send_time` is missing (should not happen in normal sends), it is
-  treated as `0.0`, making it the oldest.
+- `first_send_time` is required; a missing value is a fatal send-window
+  inconsistency.
 - The returned info includes `(seq, segments, flags, encrypted_body,
   send_time, retransmit_count, first_send_time)`.
 
@@ -100,13 +100,13 @@ Cooldown is computed in `_retransmit_cooldown()`:
 ### Skip Conditions
 
 Given the oldest unacked packet:
-- `age = now - send_time` (if `send_time` is set).
+- `age = now - send_time` (send_time is required).
 
 The retransmit is skipped (and only logged) if:
 - `age` is set and `age < cooldown` (cooldown gate).
 
-This gate uses a strict `<` comparison. If `send_time` is missing, the cooldown
-gate is not applied.
+This gate uses a strict `<` comparison. Missing `send_time` is a fatal
+send-window inconsistency and results in tunnel shutdown.
 
 When a retransmit is skipped for these reasons, Bob may still send new data or
 keepalive packets in the same response.

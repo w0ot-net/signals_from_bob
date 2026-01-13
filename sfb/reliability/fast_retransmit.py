@@ -70,8 +70,6 @@ class FastRetransmitController(object):
             return None
         (seq, segments, flags, encrypted_body,
          send_time, _retransmit_count) = missing_info
-        if send_time is None:
-            return None
         missing_age = now - send_time
         if missing_age < 0:
             missing_age = 0.0

@@ -41,7 +41,6 @@ class UdpEphemeralServer(Server):
 
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._sock.bind(self._listen_addr)
             self._sock.setblocking(False)
         except (socket.error, OSError) as exc:

@@ -59,7 +59,8 @@ increase effective payload capacity for DNS transport.
      calculations.
 5. Manual verification.
    - Confirm CNAME responses always include compression pointers and decode correctly.
-   - Confirm payload caps increase compared to uncompressed calculations.
+   - Confirm payload caps are >= uncompressed calculations (allow equality when
+     name length is the limiting factor).
 
 ## Testing
 - Do not run tests.

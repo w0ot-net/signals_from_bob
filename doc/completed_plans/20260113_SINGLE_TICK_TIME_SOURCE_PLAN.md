@@ -64,6 +64,7 @@ writes and age reads. Remove internal `time_provider.now()` fallbacks and the
 ## Execution Notes
 - Required caller-provided tick time for send-window timing and removed
   negative-age clamps in reliability/retransmit paths.
-- Added active-tunnel warnings for unclamped time sources.
+- Disallowed unclamped time sources; `set_time_source()` always clamps and
+  rejects `clamp=False`.
 - Updated retransmit/reliability architecture docs to document the
   single tick-time contract.

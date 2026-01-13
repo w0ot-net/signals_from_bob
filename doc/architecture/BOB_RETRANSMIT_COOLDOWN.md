@@ -19,8 +19,8 @@ Primary implementation locations:
 - Bob captures a single time per request and uses it for cooldown age and
   send-window timing.
 - Cooldown comparisons use seconds.
-- Unclamped/custom time sources are test-only; a warning is emitted if an
-  unclamped source is used while tunnels are active.
+- Unclamped/custom time sources are not allowed; `set_time_source()` always
+  clamps and rejects `clamp=False`.
 
 ## Poll Interval EWMA (Opportunity Rate)
 

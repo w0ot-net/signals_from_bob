@@ -151,7 +151,6 @@ class BaseTunnel(object):
         self._bg_thread = None
         self._bg_stop = False
         self._bg_lock = threading.Lock()
-        time_provider.register_tunnel()
 
     def _adjust_pending_control(self, delta):
         if not delta:
@@ -1565,7 +1564,6 @@ class BaseTunnel(object):
         self.stop_background()
         if self._module_loader is not None:
             self._module_loader.shutdown()
-        time_provider.unregister_tunnel()
         self._set_state(TunnelState.CLOSED)
         log_event(
             self._logger,

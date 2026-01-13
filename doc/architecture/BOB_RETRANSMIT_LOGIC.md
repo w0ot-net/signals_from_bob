@@ -28,8 +28,8 @@ from Alice. There are no timer-driven retransmits on Bob.
   time reads/writes (send_time, cooldown age, debug snapshots).
 - Retransmit cooldown comparisons use seconds.
 - There is no RTT estimator or RTO on Bob.
-- Unclamped/custom time sources are test-only; a warning is emitted if an
-  unclamped source is used while tunnels are active.
+- Unclamped/custom time sources are not allowed; `set_time_source()` always
+  clamps and rejects `clamp=False`.
 
 ## Handshake Resends (Pre-Data)
 

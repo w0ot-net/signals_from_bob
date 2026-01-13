@@ -29,8 +29,8 @@ and SACK-driven fast retransmit for missing ACK holes.
   send-window time reads/writes (send_time, ack silence, debug snapshots).
 - RTT samples are computed in milliseconds: `(now - send_time) * 1000`.
 - RTO comparisons use seconds via `RttEstimator.rto_sec`.
-- Unclamped/custom time sources are test-only; a warning is emitted if an
-  unclamped source is used while tunnels are active.
+- Unclamped/custom time sources are not allowed; `set_time_source()` always
+  clamps and rejects `clamp=False`.
 
 ## Handshake Retransmits
 

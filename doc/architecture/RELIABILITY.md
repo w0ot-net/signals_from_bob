@@ -81,8 +81,8 @@ packets are skipped during retransmit scans.
   per request. That `now` is required for all send-window time reads/writes
   (send_time, ack silence, debug snapshots), so ages are non-negative by
   construction.
-- Unclamped/custom time sources are test-only; a warning is emitted if an
-  unclamped source is used while tunnels are active.
+- Unclamped/custom time sources are not allowed; `set_time_source()` always
+  clamps and rejects `clamp=False`.
 
 ## RTT and Retransmission (Alice only)
 

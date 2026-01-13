@@ -5,13 +5,14 @@ Status: draft
 ## Summary
 
 Implement `sfb/transport/dns_txt/dns_txt_server.py` to provide the Bob-side
-TXT transport, decoding TXT queries and sending TXT responses without EDNS0.
+TXT transport, decoding TXT queries and sending TXT responses with optional
+EDNS0 support.
 
 ## Goals
 
 - Implement a DNS TXT server that matches the Server transport interface.
 - Keep `dns_txt` self-contained with no imports from `sfb.transport.dns`.
-- Omit EDNS0 support entirely (no OPT records, 512-byte DNS responses).
+- Support EDNS0 optionally when `dns_edns_size > 512`.
 - Preserve Python 2/3 compatibility and ASCII-only source.
 
 ## Non-Goals
@@ -38,14 +39,14 @@ TXT transport, decoding TXT queries and sending TXT responses without EDNS0.
    - Parse `dns_listen_addr` with `parse_host_port`, create a UDP socket, and
      bind; on bind failure, call `raise_bind_error`.
    - Initialize the logger and emit `dns_txt.server_config`.
-3. Disable EDNS0 explicitly.
-   - Do not build OPT records or advertise EDNS0 sizes.
-   - Ignore `dns_edns_size` for TXT; use `DNS_STANDARD_SIZE` (512) for sizing.
-   - Set `_recv_bufsize` to `max(DNS_STANDARD_SIZE, dns_recv_bufsize_min)` for
-     socket reads, but treat 512 as the protocol response cap.
+3. EDNS0 setup.
+   - Build and cache the OPT record when `dns_edns_size > 512`; store
+     `_opt_record` and `_opt_arcount`.
+   - Set `_recv_bufsize` to `max(dns_edns_size, dns_recv_bufsize_min)`.
 4. MTU resolution and response caps.
    - Call `resolve_mtu_limits('dns_txt', config, role='server')` to set
-     `send_packet_mtu` and `recv_packet_mtu` (using 512-byte TXT response MTU).
+     `send_packet_mtu` and `recv_packet_mtu` (using TXT response MTU derived
+     from `dns_edns_size`).
    - Log `transport.mtu_limits` with constraints from the MTU resolver.
 5. Query parsing and filtering.
    - Implement `_parse_query` to validate DNS headers, decode QNAME, and return
@@ -57,16 +58,18 @@ TXT transport, decoding TXT queries and sending TXT responses without EDNS0.
 6. TXT payload decoding and responder creation.
    - Decode the query payload from `qname` using `dns_txt_codec`.
    - Create a responder that sends a TXT answer with the decoded payload cap
-     from `dns_txt_codec.calc_response_mtu(QTYPE_TXT, DNS_STANDARD_SIZE)`.
+     from `dns_txt_codec.calc_response_mtu(QTYPE_TXT, dns_edns_size)`.
    - Emit `dns_txt.recv` logs with `dns_id`, `qtype`, query sizes, and cap.
 7. Response helpers.
    - Implement `_send_response` to build a TXT answer with name compression,
      QCLASS IN, TTL from `dns_response_ttl`, and TXT RDATA.
-   - Enforce the 512-byte response size; if the TXT RDATA would overflow,
-     log and raise `TransportError`.
+   - Include the OPT record when `dns_edns_size > 512`.
+   - Enforce the response size from `dns_edns_size`; if the TXT RDATA would
+     overflow, log and raise `TransportError`.
    - Implement `_send_empty_response` to return NOERROR with no answers;
      optionally include a minimal SOA record (TTL=0) to avoid negative caching,
      built locally in `dns_txt_server.py` using `dns_txt_codec` helpers.
+   - Include the OPT record in empty responses when `dns_edns_size > 512`.
 8. Cleanup.
    - Implement `close()` to close the UDP socket.
 

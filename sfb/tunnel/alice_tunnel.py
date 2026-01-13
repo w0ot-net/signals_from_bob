@@ -1353,7 +1353,14 @@ class AliceTunnel(BaseTunnel):
         time_provider.sleep(sleep_time)
         return True
 
+    def _pacer_debug_fields_enabled(self):
+        if self._logger.isEnabledFor(logging.DEBUG):
+            return True
+        return self._pacer_logger.summary_interval > 0
+
     def _maybe_log_pacer_target_change(self, cap, reason=None):
+        if not self._pacer_debug_fields_enabled():
+            return
         decision = self._pacer_logger.maybe_target_event(
             self._pacer,
             self._send_window.unacked_count,
@@ -1439,6 +1446,8 @@ class AliceTunnel(BaseTunnel):
 
     def _log_pacer_state(self, cap, unacked_count, action=None,
                          inflight_count=None):
+        if not self._pacer_debug_fields_enabled():
+            return
         fields = self._pacer_logger.state_fields(
             self._pacer,
             unacked_count,

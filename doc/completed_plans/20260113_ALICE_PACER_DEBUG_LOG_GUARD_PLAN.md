@@ -1,6 +1,6 @@
 # Alice Pacer Debug Guard Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Avoid building pacer debug fields when neither DEBUG logging nor pacer summary
@@ -39,3 +39,8 @@ collection is enabled by early returning in pacer logging helpers.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- Added `_pacer_debug_fields_enabled` and early returns in pacer debug logging
+  helpers to skip field construction when DEBUG is off and summaries are
+  disabled.

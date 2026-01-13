@@ -1,14 +1,16 @@
-# Pacer Baseline Cache Plan
+# Pacer Gate Merge Plan
 
 Status: draft
 
 ## Summary
-Reduce per-tick pacing overhead by caching baseline target computations keyed
-by (cap, srtt_ms, unacked) so repeated calls in a tick reuse the same result.
+Reduce per-tick pacing overhead by moving pacer gate decisions into
+`AdaptivePacer` and removing `PacerGateController`, avoiding repeated baseline
+computations and cross-module indirection.
 
 ## Goals
-- Cut repeated `pacing._baseline_target` work during `pacer_gate.check_send`.
-- Preserve pacing behavior and decision outputs.
+- Eliminate `PacerGateController` by folding its `check_send` logic into
+  `AdaptivePacer`.
+- Preserve pacing behavior and decision outputs with identical inputs.
 - Keep Python 2.7/3 compatibility and standard library usage.
 
 ## Non-Goals
@@ -18,20 +20,32 @@ by (cap, srtt_ms, unacked) so repeated calls in a tick reuse the same result.
 
 ## Affected Components
 - `sfb/pacing.py`
-- `sfb/pacer_gate.py`
+- `sfb/reliability/pacer_gate.py`
+- `sfb/reliability/__init__.py`
+- `sfb/tunnel/alice_tunnel.py`
 
 ## Plan
-1. Add a small cache in `pacing.py` for baseline target results.
-   - Store the last `(cap, srtt_ms, unacked)` inputs and computed target.
-   - Keep the cache minimal (single-entry) to avoid churn and complexity.
+1. Move `check_send` logic into `AdaptivePacer`.
+   - Introduce a new method (for example, `check_send_gate`) on
+     `AdaptivePacer` that accepts the same inputs used today by
+     `PacerGateController.check_send` and returns the same decision dict.
+   - Keep helper logic (baseline target, window distance checks) within
+     `pacing.py` so it can be reused without cross-module calls.
 
-2. Use the cached baseline in `pacer_gate.check_send`.
-   - Thread the inputs through the same call path as today and replace direct
-     baseline calls with the cached helper.
-   - Ensure cache is bypassed when any input is None or invalid.
+2. Remove `PacerGateController`.
+   - Delete `sfb/reliability/pacer_gate.py` and the export from
+     `sfb/reliability/__init__.py`.
+   - Update all call sites in the same change (breaking change) to call the
+     new `AdaptivePacer` method directly.
 
-3. Verify behavior parity in pacing decisions.
-   - Confirm no logic changes beyond avoiding recomputation.
+3. Update tunnel call sites and preserve logging fields.
+   - Replace `self._pacer_gate.check_send(...)` in
+     `sfb/tunnel/alice_tunnel.py` with the new pacer method.
+   - Ensure the decision dict uses the same keys so logging and metrics remain
+     unchanged.
+
+4. Verify behavior parity in pacing decisions.
+   - Confirm the same inputs produce the same block/allow decisions.
    - Keep all logging fields unchanged.
 
 ## Testing

@@ -1,7 +1,5 @@
 # DNS TXT Codec Plan
 
-Status: draft
-
 ## Summary
 
 Create `sfb/transport/dns_txt/dns_txt_codec.py` to handle TXT-only DNS query and
@@ -48,3 +46,8 @@ focused slice of `doc/plans/DNS_TXT_TRANSPORT_PLAN.md`.
 ## Cross-References
 
 - Parent plan: `doc/plans/DNS_TXT_TRANSPORT_PLAN.md`.
+
+## Execution Notes
+- Added `sfb/transport/dns_txt/dns_txt_codec.py` with TXT constants, query name
+  helpers, TXT RDATA encode/decode, packet builder/parser, and MTU helpers.
+- Tests not run (not requested).

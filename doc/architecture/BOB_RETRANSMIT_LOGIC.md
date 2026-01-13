@@ -60,8 +60,8 @@ Bob considers a single retransmit candidate per poll:
   oldest `send_time`. This is not necessarily the smallest sequence number.
 - Selection uses `send_time`, which is updated on retransmit, so a packet that
   was just retransmitted will no longer be the oldest.
-- If `send_time` is missing (should not happen in normal sends), it is treated
-  as `0.0`, making it the oldest.
+- `send_time` is required; if it is missing, the send window raises
+  `SendWindowError` and the tunnel closes.
 - The returned info includes `(seq, segments, flags, encrypted_body,
   send_time, retransmit_count)`.
 

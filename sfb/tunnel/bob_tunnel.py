@@ -11,6 +11,7 @@ from __future__ import absolute_import
 import logging
 
 from .base_tunnel import BaseTunnel, TunnelState, TunnelError
+from ..reliability import SendWindowError
 from ..logging_util import log_event
 from .. import time_provider
 from ..protocol import (
@@ -183,29 +184,45 @@ class BobTunnel(BaseTunnel):
             data: Encrypted packet bytes from Alice
             responder: Callable to send response
         """
-        now = time_provider.now()
-        self._update_poll_ewma(now)
+        try:
+            now = time_provider.now()
+            self._update_poll_ewma(now)
 
-        # Decode incoming packet
-        packet, packet_size = self._decode_packet(data, return_size=True)
-        if packet is None:
-            return
+            # Decode incoming packet
+            packet, packet_size = self._decode_packet(data, return_size=True)
+            if packet is None:
+                return
 
-        self._bytes_received += len(data)
+            self._bytes_received += len(data)
 
-        # Handle based on state
-        if self._state in (TunnelState.DISCONNECTED, TunnelState.CONNECTING):
-            self._handle_handshake(packet, responder, now, packet_size=packet_size)
-        elif self._state == TunnelState.CONNECTED:
-            self._handle_data(packet, responder, now, packet_size=packet_size)
-        else:
+            # Handle based on state
+            if self._state in (TunnelState.DISCONNECTED, TunnelState.CONNECTING):
+                self._handle_handshake(packet, responder, now, packet_size=packet_size)
+            elif self._state == TunnelState.CONNECTED:
+                self._handle_data(packet, responder, now, packet_size=packet_size)
+            else:
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.request_state_unexpected',
+                    'Request in unexpected state',
+                    lambda: {'state': self._state, 'side': 'bob'},
+                )
+        except SendWindowError as exc:
             log_event(
                 self._logger,
-                logging.WARNING,
-                'tunnel.request_state_unexpected',
-                'Request in unexpected state',
-                lambda: {'state': self._state, 'side': 'bob'},
+                logging.ERROR,
+                'tunnel.send_window_inconsistent',
+                'Send window invariant violated',
+                lambda: {
+                    'seq': exc.seq,
+                    'context': exc.context,
+                    'error': str(exc),
+                    'side': 'bob',
+                },
             )
+            self.close()
+            raise
 
     def _handle_handshake(self, packet, responder, now, packet_size=None):
         """Handle handshake packets."""
@@ -400,11 +417,10 @@ class BobTunnel(BaseTunnel):
         if prev_info is not None:
             prev_retransmit_count = prev_info[5]
             prev_send_time = prev_info[4]
-            if prev_send_time is not None:
-                prev_age = now - prev_send_time
-                if prev_age < 0:
-                    prev_age = 0.0
-                prev_age = round(prev_age, 6)
+            prev_age = now - prev_send_time
+            if prev_age < 0:
+                prev_age = 0.0
+            prev_age = round(prev_age, 6)
         self._send_window.mark_retransmit(seq, now=now)
         def build_fields():
             fields = {
@@ -521,12 +537,10 @@ class BobTunnel(BaseTunnel):
             (seq, segments, flags, encrypted_body,
              send_time, retransmit_count) = oldest_info
             cooldown = self._retransmit_cooldown()
-            age = None
-            if send_time is not None:
-                age = now - send_time
+            age = now - send_time
             since_cum_ack = self._send_window.ack_silence(now=now)
             skip_reason = None
-            if age is not None and age < cooldown:
+            if age < cooldown:
                 skip_reason = 'cooldown'
             elif since_cum_ack is not None and since_cum_ack < cooldown:
                 skip_reason = 'ack_progress'

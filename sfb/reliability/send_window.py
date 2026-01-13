@@ -21,6 +21,15 @@ from ..protocol import (
 from .stats import NoopReliabilityStats
 
 
+class SendWindowError(Exception):
+    """Send window invariant violation."""
+
+    def __init__(self, message, context=None, seq=None):
+        Exception.__init__(self, message)
+        self.context = context
+        self.seq = seq
+
+
 class SendWindow(object):
     """
     Send window tracking unacked packets.
@@ -104,6 +113,15 @@ class SendWindow(object):
         """Time when unacked count last decreased, or None."""
         return self._last_ack_progress_time
 
+    def _require_send_time(self, send_time, context, seq):
+        if send_time is None:
+            raise SendWindowError(
+                'send_time is None',
+                context=context,
+                seq=seq,
+            )
+        return send_time
+
     def ack_silence(self, now=None):
         """Seconds since last cumulative ACK advance, or None."""
         if self._last_cum_ack_time is None:
@@ -145,6 +163,7 @@ class SendWindow(object):
             raise ValueError('Send window full')
 
         seq = self._next_seq
+        now = self._require_send_time(now, 'send', seq)
         self._next_seq = (self._next_seq + 1) & SEQ_MAX
 
         self._unacked[seq] = _UnackedPacket(
@@ -293,9 +312,14 @@ class SendWindow(object):
 
         retransmits = []
         for seq, pkt in self._unacked.items():
-            if now - pkt.send_time >= rto_sec:
+            send_time = self._require_send_time(
+                pkt.send_time,
+                'retransmit_scan',
+                seq,
+            )
+            if now - send_time >= rto_sec:
                 retransmits.append(
-                    (pkt.send_time, seq, pkt)
+                    (send_time, seq, pkt)
                 )
 
         if not retransmits:
@@ -334,12 +358,17 @@ class SendWindow(object):
         if oldest is None:
             return None
         seq, pkt = oldest
+        send_time = self._require_send_time(
+            pkt.send_time,
+            'get_oldest_unacked_info',
+            seq,
+        )
         return (
             seq,
             pkt.segments,
             pkt.flags,
             pkt.encrypted_body,
-            pkt.send_time,
+            send_time,
             pkt.retransmit_count,
         )
 
@@ -354,12 +383,17 @@ class SendWindow(object):
         pkt = self._unacked.get(seq)
         if pkt is None:
             return None
+        send_time = self._require_send_time(
+            pkt.send_time,
+            'get_unacked_info',
+            seq,
+        )
         return (
             seq,
             pkt.segments,
             pkt.flags,
             pkt.encrypted_body,
-            pkt.send_time,
+            send_time,
             pkt.retransmit_count,
         )
 
@@ -374,6 +408,7 @@ class SendWindow(object):
         if pkt is None:
             return
 
+        now = self._require_send_time(now, 'mark_retransmit', seq)
         pkt.retransmit_count += 1
         pkt.send_time = now
         if self._unacked_heap_enabled:
@@ -537,7 +572,7 @@ class SendWindow(object):
         }
         missing_info = self.get_unacked_info(last_cum_ack)
         if missing_info is not None:
-            (_, segments, flags, _,
+            (missing_seq, segments, flags, _,
              send_time, retransmit_count) = missing_info
             details['missing_in_unacked'] = True
             details['missing_retransmit_count'] = retransmit_count
@@ -545,11 +580,10 @@ class SendWindow(object):
             details['missing_seg_count'] = (
                 len(segments) if segments is not None else 0
             )
-            if send_time is not None:
-                age = now - send_time
-                if age < 0:
-                    age = 0.0
-                details['missing_age'] = round(age, 6)
+            age = now - send_time
+            if age < 0:
+                age = 0.0
+            details['missing_age'] = round(age, 6)
         oldest_info = self.get_oldest_unacked_info()
         if oldest_info is not None:
             (seq, segments, flags, _,
@@ -560,11 +594,10 @@ class SendWindow(object):
             details['oldest_unacked_seg_count'] = (
                 len(segments) if segments is not None else 0
             )
-            if send_time is not None:
-                age = now - send_time
-                if age < 0:
-                    age = 0.0
-                details['oldest_unacked_age'] = round(age, 6)
+            age = now - send_time
+            if age < 0:
+                age = 0.0
+            details['oldest_unacked_age'] = round(age, 6)
         ack_info = self.get_ack_debug_info(
             seq=last_cum_ack, now=now
         )
@@ -607,12 +640,10 @@ class SendWindow(object):
         oldest_info = self.get_oldest_unacked_info()
         if oldest_info is not None:
             seq, segments, flags, _encrypted, send_time, retransmit_count = oldest_info
-            age = None
-            if send_time is not None:
-                age = now - send_time
-                if age < 0:
-                    age = 0.0
-                age = round(age, 6)
+            age = now - send_time
+            if age < 0:
+                age = 0.0
+            age = round(age, 6)
             state.update({
                 'oldest_seq': seq,
                 'oldest_age': age,
@@ -690,7 +721,12 @@ class SendWindow(object):
         if pkt.retransmit_count == 0:
             self._stats.on_ack_first_tx()
             if sample_rtt and not (pkt.flags & FLAG_KEEPALIVE):
-                rtt_ms = (now - pkt.send_time) * 1000
+                send_time = self._require_send_time(
+                    pkt.send_time,
+                    'ack_rtt',
+                    seq,
+                )
+                rtt_ms = (now - send_time) * 1000
                 rtt_samples.append(rtt_ms)
                 self._stats.on_rtt_sample()
         data_acked = 1 if pkt.segments else 0
@@ -714,6 +750,7 @@ class SendWindow(object):
             if pkt is None or pkt.heap_token != token:
                 heapq.heappop(self._unacked_heap)
                 continue
+            self._require_send_time(pkt.send_time, 'select_oldest_heap', seq)
             return (seq, pkt)
         return None
 
@@ -721,9 +758,11 @@ class SendWindow(object):
         oldest = None
         oldest_time = None
         for seq, pkt in self._unacked.items():
-            pkt_time = pkt.send_time
-            if pkt_time is None:
-                pkt_time = 0.0
+            pkt_time = self._require_send_time(
+                pkt.send_time,
+                'select_oldest_scan',
+                seq,
+            )
             if oldest is None or pkt_time < oldest_time:
                 oldest = (seq, pkt)
                 oldest_time = pkt_time
@@ -741,9 +780,11 @@ class SendWindow(object):
         self._unacked_heap_token += 1
         token = self._unacked_heap_token
         pkt.heap_token = token
-        pkt_time = pkt.send_time
-        if pkt_time is None:
-            pkt_time = 0.0
+        pkt_time = self._require_send_time(
+            pkt.send_time,
+            'push_unacked_heap',
+            pkt.seq,
+        )
         heapq.heappush(self._unacked_heap, (pkt_time, token, pkt.seq))
 
     def _ack_is_future(self, ack):

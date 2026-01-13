@@ -1,6 +1,6 @@
 # Send Window Send-Time Invariant Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Enforce a non-None `send_time` invariant in `SendWindow` and treat missing
@@ -60,3 +60,8 @@ Bob retransmit docs/plans to remove the "treated as 0.0" behavior.
 
 ## Testing
 - Do not run tests unless requested; use `python3` if needed later.
+
+## Execution Notes
+- 2026-01-13: Enforced non-None `send_time` in `SendWindow`, raised
+  `SendWindowError` on invariant violations, updated Alice/Bob tunnel handling,
+  and aligned retransmit docs with the invariant.

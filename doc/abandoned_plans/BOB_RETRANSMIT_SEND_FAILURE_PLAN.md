@@ -1,6 +1,6 @@
 # Bob Retransmit Send Failure Plan
 
-Status: draft
+Status: abandoned
 
 ## Summary
 Ensure Bob only updates retransmit counters and cooldown timestamps after a
@@ -38,3 +38,6 @@ successful retransmit response send. Avoid skew when a responder send fails
 
 ## Testing
 - Do not run tests.
+
+## Abandon Notes
+- Abandoned per request.

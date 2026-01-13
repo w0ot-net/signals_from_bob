@@ -122,15 +122,6 @@ class SendWindow(object):
             )
         return send_time
 
-    def _validate_send_times(self, context):
-        for seq, pkt in self._unacked.items():
-            if pkt.send_time is None:
-                raise SendWindowError(
-                    'send_time is None',
-                    context=context,
-                    seq=seq,
-                )
-
     def ack_silence(self, now=None):
         """Seconds since last cumulative ACK advance, or None."""
         if self._last_cum_ack_time is None:
@@ -260,9 +251,6 @@ class SendWindow(object):
         if now is None:
             now = time_provider.now()
 
-        if self._unacked:
-            self._validate_send_times('process_ack')
-
         if self._ack_is_future(ack):
             return ([], 0, 0)
 
@@ -321,9 +309,6 @@ class SendWindow(object):
 
         if max_count is not None and max_count <= 0:
             return []
-
-        if self._unacked:
-            self._validate_send_times('retransmit_scan')
 
         retransmits = []
         for seq, pkt in self._unacked.items():
@@ -385,8 +370,6 @@ class SendWindow(object):
             tuple: (seq, segments, flags, encrypted_body, send_time, retransmit_count)
                 or None if not found.
         """
-        if self._unacked:
-            self._validate_send_times('get_unacked_info')
         pkt = self._unacked.get(seq)
         if pkt is None:
             return None
@@ -732,7 +715,6 @@ class SendWindow(object):
     def _select_oldest_unacked(self):
         if not self._unacked:
             return None
-        self._validate_send_times('select_oldest_unacked')
         if not self._unacked_heap_enabled:
             self._rebuild_unacked_heap()
             self._unacked_heap_enabled = True
@@ -874,6 +856,12 @@ class _UnackedPacket(object):
         self.segments = segments
         self.flags = flags
         self.encrypted_body = encrypted_body
+        if send_time is None:
+            raise SendWindowError(
+                'send_time is None',
+                context='unacked_init',
+                seq=seq,
+            )
         self.send_time = send_time
         self.retransmit_count = retransmit_count
         self.heap_token = None

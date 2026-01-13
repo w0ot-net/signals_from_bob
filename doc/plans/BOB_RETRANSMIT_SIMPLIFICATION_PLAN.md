@@ -41,8 +41,8 @@ safety, and existing cooldown configuration.
    - If `oldest_info` exists, unpack `(seq, segments, flags, encrypted_body,
      send_time, retransmit_count)` and compute:
      - `cooldown = self._retransmit_cooldown()` (unchanged).
-     - `oldest_age = None` if `send_time` is `None`, else `now - send_time`.
-     - `retransmit_due = (oldest_age is not None and oldest_age >= cooldown)`.
+     - `oldest_age = now - send_time` (send_time invariant enforced).
+     - `retransmit_due = (oldest_age >= cooldown)`.
    - If `retransmit_due` is True, return decision
      `{'action': 'retransmit', 'context': 'retransmit', ...}` using the oldest
      packet.

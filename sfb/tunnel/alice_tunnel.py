@@ -1398,6 +1398,8 @@ class AliceTunnel(BaseTunnel):
         )
 
     def _log_pacer_adjust(self, prev_target, reason, block_reason=None):
+        if not self._logger.isEnabledFor(logging.DEBUG):
+            return
         fields = self._pacer_logger.adjust_fields(
             self._pacer,
             self._send_window.unacked_count,

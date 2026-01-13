@@ -7,8 +7,6 @@ from __future__ import absolute_import
 
 from collections import OrderedDict, deque
 import heapq
-
-from .. import time_provider
 from ..protocol import (
     seq_lt,
     seq_gt,
@@ -39,6 +37,8 @@ class SendWindow(object):
 
     Stores segments and encrypted body so packets can be rebuilt
     with fresh ACK/SACK while reusing ciphertext on retransmit.
+
+    Callers must supply a monotonic tick time for all time-based operations.
     """
 
     def __init__(self, max_in_flight, stats=None):
@@ -113,26 +113,27 @@ class SendWindow(object):
         """Time when unacked count last decreased, or None."""
         return self._last_ack_progress_time
 
+    def _require_now(self, now, context):
+        if now is None:
+            raise SendWindowError(
+                'Send window missing now',
+                context=context,
+            )
+
     def ack_silence(self, now=None):
         """Seconds since last cumulative ACK advance, or None."""
+        self._require_now(now, 'ack_silence')
         if self._last_cum_ack_time is None:
             return None
-        if now is None:
-            now = time_provider.now()
         silence = now - self._last_cum_ack_time
-        if silence < 0:
-            silence = 0.0
         return silence
 
     def ack_progress_silence(self, now=None):
         """Seconds since last ACK progress (unacked decreased), or None."""
+        self._require_now(now, 'ack_progress_silence')
         if self._last_ack_progress_time is None:
             return None
-        if now is None:
-            now = time_provider.now()
         silence = now - self._last_ack_progress_time
-        if silence < 0:
-            silence = 0.0
         return silence
 
     def send(self, segments, flags=0, encrypted_body=None, now=None):
@@ -151,8 +152,6 @@ class SendWindow(object):
             raise ValueError('Send window full')
 
         seq = self._next_seq
-        if now is None:
-            now = time_provider.now()
         if now is None:
             raise SendWindowError(
                 'Send window missing send_time',
@@ -187,9 +186,7 @@ class SendWindow(object):
                 unacked_after, prev_cum_ack, prev_cum_ack_time, ack_advanced,
                 ack_progressed)
         """
-        if now is None:
-            now = time_provider.now()
-
+        self._require_now(now, 'process_ack_with_progress')
         if self._ack_is_future(ack):
             unacked = len(self._unacked)
             return (
@@ -244,9 +241,7 @@ class SendWindow(object):
                 acked_count: count of newly acked packets (all acks)
                 data_acked_count: count of newly acked packets with segments
         """
-        if now is None:
-            now = time_provider.now()
-
+        self._require_now(now, 'process_ack')
         if self._ack_is_future(ack):
             return ([], 0, 0)
 
@@ -300,9 +295,7 @@ class SendWindow(object):
         Returns:
             list: List of (seq, segments, flags, encrypted_body) to retransmit
         """
-        if now is None:
-            now = time_provider.now()
-
+        self._require_now(now, 'get_retransmits')
         if max_count is not None and max_count <= 0:
             return []
 
@@ -415,8 +408,6 @@ class SendWindow(object):
             return
 
         if now is None:
-            now = time_provider.now()
-        if now is None:
             raise SendWindowError(
                 'Send window missing send_time',
                 seq=seq,
@@ -433,8 +424,7 @@ class SendWindow(object):
         """
         Drop an unacked keepalive-only packet.
         """
-        if now is None:
-            now = time_provider.now()
+        self._require_now(now, 'drop_keepalive')
         pkt = self._unacked.get(seq)
         if pkt is None:
             return False
@@ -454,8 +444,7 @@ class SendWindow(object):
         """
         Drop the oldest unacked keepalive-only packet.
         """
-        if now is None:
-            now = time_provider.now()
+        self._require_now(now, 'drop_oldest_keepalive')
         for seq, pkt in self._unacked.items():
             if pkt.flags & FLAG_KEEPALIVE:
                 count_before = len(self._unacked)
@@ -488,15 +477,12 @@ class SendWindow(object):
         return seqs
 
     def get_keepalive_drop_info(self, now=None):
+        self._require_now(now, 'get_keepalive_drop_info')
         if self._last_keepalive_drop_seq is None:
             return None
-        if now is None:
-            now = time_provider.now()
         age = None
         if self._last_keepalive_drop_time is not None:
             age = now - self._last_keepalive_drop_time
-            if age < 0:
-                age = 0.0
             age = round(age, 6)
         return {
             'keepalive_drop_seq': self._last_keepalive_drop_seq,
@@ -567,8 +553,7 @@ class SendWindow(object):
         """
         Build debug fields to explain send-window distance stalls.
         """
-        if now is None:
-            now = time_provider.now()
+        self._require_now(now, 'distance_details')
         last_cum_ack = self._last_cum_ack
         details = {
             'missing_seq': last_cum_ack,
@@ -594,8 +579,6 @@ class SendWindow(object):
                 len(segments) if segments is not None else 0
             )
             age = now - send_time
-            if age < 0:
-                age = 0.0
             details['missing_age'] = round(age, 6)
         oldest_info = self.get_oldest_unacked_info()
         if oldest_info is not None:
@@ -608,8 +591,6 @@ class SendWindow(object):
                 len(segments) if segments is not None else 0
             )
             age = now - send_time
-            if age < 0:
-                age = 0.0
             details['oldest_unacked_age'] = round(age, 6)
         ack_info = self.get_ack_debug_info(
             seq=last_cum_ack, now=now
@@ -628,8 +609,7 @@ class SendWindow(object):
         """
         Return a snapshot of send-window state for logging.
         """
-        if now is None:
-            now = time_provider.now()
+        self._require_now(now, 'debug_state')
         state = {
             'unacked': len(self._unacked),
             'max_in_flight': self._max_in_flight,
@@ -654,8 +634,6 @@ class SendWindow(object):
         if oldest_info is not None:
             seq, segments, flags, _encrypted, send_time, retransmit_count = oldest_info
             age = now - send_time
-            if age < 0:
-                age = 0.0
             age = round(age, 6)
             state.update({
                 'oldest_seq': seq,
@@ -790,8 +768,7 @@ class SendWindow(object):
         return seq_gt(ack, self._next_seq)
 
     def get_ack_debug_info(self, seq=None, now=None):
-        if now is None:
-            now = time_provider.now()
+        self._require_now(now, 'get_ack_debug_info')
         info = {
             'ack_history_len': len(self._ack_history),
             'ack_miss_count': self._ack_miss_count,
@@ -802,8 +779,6 @@ class SendWindow(object):
         }
         if self._ack_miss_last_time is not None:
             miss_age = now - self._ack_miss_last_time
-            if miss_age < 0:
-                miss_age = 0.0
             info['ack_miss_last_age'] = round(miss_age, 6)
         last = self._ack_history[-1] if self._ack_history else None
         if last is not None:
@@ -818,8 +793,6 @@ class SendWindow(object):
             )
             if last.get('acked_time') is not None:
                 age = now - last['acked_time']
-                if age < 0:
-                    age = 0.0
                 info['ack_history_last_age'] = round(age, 6)
         if seq is not None:
             missing = None
@@ -839,8 +812,6 @@ class SendWindow(object):
                 )
                 if missing.get('acked_time') is not None:
                     age = now - missing['acked_time']
-                    if age < 0:
-                        age = 0.0
                     info['ack_history_missing_age'] = round(age, 6)
         return info
 

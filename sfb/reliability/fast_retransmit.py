@@ -71,8 +71,6 @@ class FastRetransmitController(object):
         (seq, segments, flags, encrypted_body,
          send_time, _retransmit_count) = missing_info
         missing_age = now - send_time
-        if missing_age < 0:
-            missing_age = 0.0
         count = self._counts.get(seq, 0)
         min_age = self._rtt.rto_sec * self._min_age_ratio
         min_rto_sec = self._min_rto_sec

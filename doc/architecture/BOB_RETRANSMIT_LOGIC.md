@@ -24,8 +24,12 @@ from Alice. There are no timer-driven retransmits on Bob.
 ## Time Source And Units
 
 - All timing uses `time_provider.now()` (monotonic seconds).
+- Bob captures a single time per request and threads it through send-window
+  time reads/writes (send_time, cooldown age, debug snapshots).
 - Retransmit cooldown comparisons use seconds.
 - There is no RTT estimator or RTO on Bob.
+- Unclamped/custom time sources are test-only; a warning is emitted if an
+  unclamped source is used while tunnels are active.
 
 ## Handshake Resends (Pre-Data)
 
@@ -76,7 +80,7 @@ polls rapidly.
 ### Poll EWMA Update
 
 Each request updates a poll interval EWMA used to derive the cooldown:
-- `interval = now - last_request_time` (clamped to 0 if negative).
+- `interval = now - last_request_time`.
 - On the first request, `_last_request_time` is set and no EWMA is computed.
 - Subsequent requests update `_poll_interval_ewma`:
   `ewma = alpha * interval + (1 - alpha) * ewma`.

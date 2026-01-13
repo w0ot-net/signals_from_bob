@@ -16,15 +16,18 @@ Primary implementation locations:
 ## Time Source And Units
 
 - All protocol timing uses `time_provider.now()` (monotonic seconds).
+- Bob captures a single time per request and uses it for cooldown age and
+  send-window timing.
 - Cooldown comparisons use seconds.
+- Unclamped/custom time sources are test-only; a warning is emitted if an
+  unclamped source is used while tunnels are active.
 
 ## Poll Interval EWMA (Opportunity Rate)
 
 Bob tracks the cadence of Alice's polls and uses it as the base signal for
 cooldown:
 - On each request, `_update_poll_ewma()` runs before packet decode.
-- It computes `interval = now - last_request_time` and clamps negative values
-  to 0.
+- It computes `interval = now - last_request_time`.
 - The EWMA is updated as:
   `ewma = alpha * interval + (1 - alpha) * ewma`.
 - `alpha` comes from `tunnel_bob_poll_ewma_alpha`.

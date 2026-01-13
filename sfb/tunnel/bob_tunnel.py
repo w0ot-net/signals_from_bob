@@ -370,13 +370,9 @@ class BobTunnel(BaseTunnel):
             prev_retransmit_count = prev_info[5]
             prev_send_time = prev_info[4]
             prev_age = now - prev_send_time
-            if prev_age < 0:
-                prev_age = 0.0
             prev_age = round(prev_age, 6)
         first_age = None
         first_age = now - first_send_time
-        if first_age < 0:
-            first_age = 0.0
         first_age = round(first_age, 6)
         self._send_window.mark_retransmit(seq, now=now)
         def build_fields():
@@ -827,8 +823,6 @@ class BobTunnel(BaseTunnel):
             self._last_request_time = now
             return
         interval = now - self._last_request_time
-        if interval < 0:
-            interval = 0.0
         self._last_request_time = now
         alpha = self._config.tunnel_bob_poll_ewma_alpha
         if self._poll_interval_ewma is None:

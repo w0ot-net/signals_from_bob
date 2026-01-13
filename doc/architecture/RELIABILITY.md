@@ -74,6 +74,16 @@ packets are skipped during retransmit scans.
 
 ---
 
+## Time Source And Tick-Time Contract
+
+- All protocol timing uses `time_provider.now()` (monotonic seconds).
+- Alice captures a single tick time per `tick()`; Bob captures a single time
+  per request. That `now` is required for all send-window time reads/writes
+  (send_time, ack silence, debug snapshots), so ages are non-negative by
+  construction.
+- Unclamped/custom time sources are test-only; a warning is emitted if an
+  unclamped source is used while tunnels are active.
+
 ## RTT and Retransmission (Alice only)
 
 RTT estimation uses an exponentially weighted moving average:

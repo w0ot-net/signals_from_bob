@@ -10,6 +10,7 @@ from __future__ import absolute_import
 import sys
 import threading
 import time
+import warnings
 
 
 # Direct aliases avoid wrapper overhead.
@@ -30,6 +31,39 @@ _time_source = _DEFAULT_TIME_SOURCE
 _use_clamp = _DEFAULT_CLAMP
 _clamp_lock = threading.Lock()
 _clamp_last = None
+_active_tunnel_lock = threading.Lock()
+_active_tunnel_count = 0
+
+
+def _should_warn_unclamped():
+    if _use_clamp:
+        return False
+    if _time_source is _DEFAULT_TIME_SOURCE:
+        return _DEFAULT_CLAMP
+    return True
+
+
+def _warn_unclamped_active():
+    warnings.warn(
+        'Unclamped time source in use while tunnels are active',
+        RuntimeWarning,
+    )
+
+
+def register_tunnel():
+    global _active_tunnel_count
+    with _active_tunnel_lock:
+        _active_tunnel_count += 1
+        active = _active_tunnel_count
+    if active == 1 and _should_warn_unclamped():
+        _warn_unclamped_active()
+
+
+def unregister_tunnel():
+    global _active_tunnel_count
+    with _active_tunnel_lock:
+        if _active_tunnel_count > 0:
+            _active_tunnel_count -= 1
 
 
 def now():
@@ -61,6 +95,11 @@ def set_time_source(source, clamp=None):
         _use_clamp = bool(clamp)
     with _clamp_lock:
         _clamp_last = None
+    active = False
+    with _active_tunnel_lock:
+        active = _active_tunnel_count > 0
+    if active and _should_warn_unclamped():
+        _warn_unclamped_active()
 
 
 def reset_time_source():

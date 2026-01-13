@@ -490,7 +490,7 @@ class AliceTunnel(BaseTunnel):
             if self._window_growth_enabled:
                 self._maybe_request_window(now)
 
-            self._maybe_log_pacer_summary(time_provider.now())
+            self._maybe_log_pacer_summary(now)
 
             paced_sleep = False
             if pacing_blocked and not sent_any:
@@ -579,8 +579,6 @@ class AliceTunnel(BaseTunnel):
         if not self._last_recv_time:
             return True
         silence = now - self._last_recv_time
-        if silence < 0:
-            silence = 0.0
         if silence < self._no_response_timeout:
             return True
         self._set_state(TunnelState.CLOSED)
@@ -1218,11 +1216,11 @@ class AliceTunnel(BaseTunnel):
         self._transport.notify_send_pending(has_data_pending)
         permit = self._transport.reserve_send(now=now)
         if permit is None:
-            self._log_transport_blocked()
+            self._log_transport_blocked(now)
             return None
         return permit
 
-    def _log_transport_blocked(self):
+    def _log_transport_blocked(self, now):
         def build_fields():
             fields = {'side': 'alice'}
             if hasattr(self._transport, 'pending_count'):
@@ -1244,7 +1242,7 @@ class AliceTunnel(BaseTunnel):
             logging.DEBUG,
             'tunnel.reliability_state',
             'Reliability state after transport blocked',
-            now=time_provider.now(),
+            now=now,
             extra_fields={
                 'context': 'send_blocked',
                 'reason': 'transport',
@@ -1664,8 +1662,6 @@ class AliceTunnel(BaseTunnel):
             prev_retransmit_count = prev_info[5]
             prev_send_time = prev_info[4]
             prev_age = now - prev_send_time
-            if prev_age < 0:
-                prev_age = 0.0
             prev_age = round(prev_age, 6)
         try:
             self._transport.send(packet_data, permit)

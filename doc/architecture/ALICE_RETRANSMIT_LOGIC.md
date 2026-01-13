@@ -25,8 +25,12 @@ and SACK-driven fast retransmit for missing ACK holes.
 ## Time Source And Units
 
 - All protocol timing uses `time_provider.now()` (monotonic seconds).
+- Alice captures a single tick time per `tick()` and threads it through all
+  send-window time reads/writes (send_time, ack silence, debug snapshots).
 - RTT samples are computed in milliseconds: `(now - send_time) * 1000`.
 - RTO comparisons use seconds via `RttEstimator.rto_sec`.
+- Unclamped/custom time sources are test-only; a warning is emitted if an
+  unclamped source is used while tunnels are active.
 
 ## Handshake Retransmits
 

@@ -53,17 +53,18 @@ Alice-initiated, request/response asymmetry.
   component toggle (`log_component_transport_dns`).
 - Use only the standard library; keep ASCII-only source and avoid list/dict/set
   comprehensions in `sfb/` modules for Python 2 minification safety.
+- `sfb/transport/dns_txt` modules must not import from `sfb/transport/dns`;
+  duplicate minimal DNS helpers locally.
 
 ## Implementation Steps
 
 1. Codec module.
    - Create `dns_txt_codec.py` with TXT query/response helpers:
-     - encode/decode query names (reuse `dns_codec` label helpers).
-     - encode/decode TXT RDATA (reuse `dns_codec.encode_txt_rdata` and
-       `dns_codec.decode_txt_rdata`).
+     - encode/decode query names implemented locally.
+     - encode/decode TXT RDATA implemented locally.
      - build/parse query/response packets with TXT answers and EDNS0 OPT.
-   - Add minimal constants for TXT/QCLASS/flags or import them from
-     `sfb.transport.dns.dns_codec`.
+   - Define TXT/QCLASS/flags/constants locally; do not import from
+     `sfb.transport.dns`.
 2. Client transport.
    - Implement `DnsTxtClient` with pipelined queries, `PendingTracker`, and
      DNS-ID correlation.

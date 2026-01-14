@@ -212,8 +212,8 @@ class Config(object):
     tunnel_pacer_summary_interval = 0.0
     # Alice: poll pacing enabled
     tunnel_poll_pacing_enabled = True
-    # Alice: minimum seconds between polls
-    tunnel_poll_min_interval = 0.0005
+    # Alice: minimum seconds between polls (0 = no minimum)
+    tunnel_poll_min_interval = 0.0
     # Alice: maximum seconds between polls
     tunnel_poll_max_interval = 1.0
     # Alice: fraction of RTT to distribute target inflight
@@ -600,8 +600,8 @@ class Config(object):
             raise ValueError("tunnel_pace_ack_idle_reset_sec must be > 0")
         if self.tunnel_pacer_summary_interval < 0:
             raise ValueError("tunnel_pacer_summary_interval must be >= 0")
-        if self.tunnel_poll_min_interval <= 0:
-            raise ValueError("tunnel_poll_min_interval must be > 0")
+        if self.tunnel_poll_min_interval < 0:
+            raise ValueError("tunnel_poll_min_interval must be >= 0")
         if self.tunnel_poll_max_interval <= 0:
             raise ValueError("tunnel_poll_max_interval must be > 0")
         if self.tunnel_poll_min_interval > self.tunnel_poll_max_interval:

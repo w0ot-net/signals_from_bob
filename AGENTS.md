@@ -13,6 +13,8 @@
   unrelated changes.
 - Breaking changes: prefer clean breaks over compatibility shims; update all
   call sites in the same change.
+- Invariants: always prefer invariants to fallbacks; be certain about behavior
+  and fail fast when expectations are violated.
 - Reviews: answer your own questions when possible; otherwise propose best
   options grounded in facts; ignore tests unless explicitly asked; ignore
   doc/completed_plans and doc/abandoned_plans.

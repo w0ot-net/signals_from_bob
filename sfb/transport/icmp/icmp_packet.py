@@ -13,11 +13,10 @@ import sys
 from ...compat import (
     array_frombytes,
     buffer_view,
+    bytearray_to_bytes,
     byte_at,
-    PY2,
     require_bytes_like,
     require_bytes_like_or_bytearray,
-    to_bytes,
 )
 
 ICMP_ECHO_REQUEST = 8
@@ -156,8 +155,5 @@ def parse_icmp_echo(data, expect_type=None, expect_ident=None,
         return None, 'ident_mismatch'
     if validate_checksum and checksum(icmp) != 0:
         return None, 'bad_checksum'
-    if PY2:
-        payload = to_bytes(icmp[ICMP_HEADER_LEN:])
-    else:
-        payload = buffer_view(icmp)[ICMP_HEADER_LEN:]
+    payload = bytearray_to_bytes(buffer_view(icmp)[ICMP_HEADER_LEN:])
     return (icmp_type, ident, seq, payload), None

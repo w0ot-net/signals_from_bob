@@ -187,7 +187,7 @@ class Config(object):
     # Bob: EWMA alpha for poll interval smoothing (0-1)
     tunnel_bob_poll_ewma_alpha = 0.2
     # Alice: sleep between ticks when running (seconds)
-    tunnel_tick_sleep = 0.001
+    tunnel_tick_sleep = 0.0
     # Alice: max send rate (packets per second, 0 = unlimited)
     tunnel_send_rate = 0.0
     # Alice: burst capacity for send rate (packets, None=rate)

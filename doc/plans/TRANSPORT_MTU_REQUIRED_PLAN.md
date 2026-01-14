@@ -10,6 +10,7 @@ only on transport-derived limits and explicit control-message fields.
 ## Goals
 - Remove the protocol-level default MTU constant and config knob.
 - Require explicit tx/rx payload MTUs in tun.mtu/tun.mtu_ok messages.
+- Treat missing/invalid MTU fields as protocol violations (log + close).
 - Keep asymmetric MTU negotiation and transport-specific MTU calculations.
 - Align architecture and protocol docs with transport-derived MTUs.
 
@@ -35,11 +36,12 @@ only on transport-derived limits and explicit control-message fields.
 1. Remove `DEFAULT_MTU` and `protocol_initial_packet_mtu` from protocol constants,
    config defaults, validation, and exports.
 2. Tighten tunnel MTU negotiation to require `tx` and `rx` fields in `tun.mtu`
-   and `tun.mtu_ok`. Decide whether missing/invalid fields trigger a protocol
-   violation close or a logged drop, then implement consistently.
+   and `tun.mtu_ok`. Missing/invalid fields are protocol violations (log + close)
+   and must be handled consistently.
 3. Remove `_default_packet_mtu` fallbacks in BaseTunnel so negotiated MTUs are
    computed strictly from transport-derived limits and peer-provided payload
-   sizes.
+   sizes. Add an explicit guard (TunnelError/assert) so MTU negotiation cannot
+   run unless `_proposed_send_packet_mtu` and `_proposed_recv_packet_mtu` are set.
 4. Sweep docs for references to the protocol-level initial MTU and update them
    to describe transport-derived initial MTUs only.
 5. Regenerate `sfb_flat.py` and `sfb_flat.py.gz` after config changes.
@@ -47,4 +49,4 @@ only on transport-derived limits and explicit control-message fields.
 ## Compatibility Notes
 - Breaking change: configs that set `protocol_initial_packet_mtu` will fail.
 - Breaking change: peers that omit `tx`/`rx` in MTU control messages will be
-  rejected under the new rules.
+  closed under the new rules.

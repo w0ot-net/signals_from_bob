@@ -331,7 +331,7 @@ class Config(object):
     # Relay send stall timeout for non-blocking pumps (seconds)
     relay_write_timeout = None
     # Relay buffer size (bytes)
-    relay_buffer_size = 2048
+    relay_buffer_size = 32768
     # Maximum poll backoff for relay pump select/wait loops (seconds)
     relay_pump_backoff_max = 0.001
 

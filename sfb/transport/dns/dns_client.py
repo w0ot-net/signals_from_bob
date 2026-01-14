@@ -93,23 +93,24 @@ class DnsClient(Transport):
                 raise TransportError('No system resolvers found')
             self._resolver = resolvers[0]
 
-        log_event(
-            _LOG,
-            logging.INFO,
-            'dns.client_config',
-            'DNS client config',
-            lambda: {
-                'base_domain': self._base_domain,
-                'resolver': '%s:%d' % (self._resolver[0], self._resolver[1]),
-                'qtype': config.dns_query_type,
-                'rtype': config.dns_response_type,
-                'edns_size': self._edns_size,
-                'max_in_flight': self._max_in_flight,
-                'pending_timeout': self._pending_timeout,
-                'label_max_len': self._label_max_len,
-                'cname_suffix': self._cname_suffix,
-            },
-        )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'dns.client_config',
+                'DNS client config',
+                lambda: {
+                    'base_domain': self._base_domain,
+                    'resolver': '%s:%d' % (self._resolver[0], self._resolver[1]),
+                    'qtype': config.dns_query_type,
+                    'rtype': config.dns_response_type,
+                    'edns_size': self._edns_size,
+                    'max_in_flight': self._max_in_flight,
+                    'pending_timeout': self._pending_timeout,
+                    'label_max_len': self._label_max_len,
+                    'cname_suffix': self._cname_suffix,
+                },
+            )
 
         # Create non-blocking UDP socket
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -144,51 +145,54 @@ class DnsClient(Transport):
                     )
                 )
             except TransportError as exc:
-                log_event(
-                    _LOG,
-                    logging.ERROR,
-                    'dns.fixed_response_cap_error',
-                    'DNS fixed response cap failed',
-                    lambda: {
-                        'error': str(exc),
-                    },
-                )
+                if _LOG.isEnabledFor(logging.ERROR):
+                    log_event(
+                        _LOG,
+                        logging.ERROR,
+                        'dns.fixed_response_cap_error',
+                        'DNS fixed response cap failed',
+                        lambda: {
+                            'error': str(exc),
+                        },
+                    )
                 raise
             self._fixed_response_cap = fixed_response_cap
-            log_event(
-                _LOG,
-                logging.INFO,
-                'dns.fixed_response_cap',
-                'DNS fixed response cap',
-                lambda: {
-                    'base_domain': self._base_domain,
-                    'cname_suffix': self._cname_suffix,
-                    'label_max_len': self._label_max_len,
-                    'edns_size': self._edns_size,
-                    'raw_query_packet_mtu': self._raw_query_packet_mtu,
-                    'opt_record_len': self._opt_record_len,
-                    'fixed_response_cap': fixed_response_cap,
-                    'max_packet_size': max_packet_size,
-                    'min_payload_len': min_payload_len,
-                    'min_qname_wire_len': min_qname_wire_len,
-                },
-            )
+            if _LOG.isEnabledFor(logging.INFO):
+                log_event(
+                    _LOG,
+                    logging.INFO,
+                    'dns.fixed_response_cap',
+                    'DNS fixed response cap',
+                    lambda: {
+                        'base_domain': self._base_domain,
+                        'cname_suffix': self._cname_suffix,
+                        'label_max_len': self._label_max_len,
+                        'edns_size': self._edns_size,
+                        'raw_query_packet_mtu': self._raw_query_packet_mtu,
+                        'opt_record_len': self._opt_record_len,
+                        'fixed_response_cap': fixed_response_cap,
+                        'max_packet_size': max_packet_size,
+                        'min_payload_len': min_payload_len,
+                        'min_qname_wire_len': min_qname_wire_len,
+                    },
+                )
             effective_recv_mtu = min(
                 calculated_recv_mtu,
                 fixed_response_cap,
             )
             if effective_recv_mtu < calculated_recv_mtu:
-                log_event(
-                    _LOG,
-                    logging.INFO,
-                    'dns.mtu_clamp',
-                    'DNS response MTU clamped',
-                    lambda: {
-                        'calculated_mtu': calculated_recv_mtu,
-                        'max_response_packet_mtu': fixed_response_cap,
-                        'effective_mtu': effective_recv_mtu,
-                    },
-                )
+                if _LOG.isEnabledFor(logging.INFO):
+                    log_event(
+                        _LOG,
+                        logging.INFO,
+                        'dns.mtu_clamp',
+                        'DNS response MTU clamped',
+                        lambda: {
+                            'calculated_mtu': calculated_recv_mtu,
+                            'max_response_packet_mtu': fixed_response_cap,
+                            'effective_mtu': effective_recv_mtu,
+                        },
+                    )
             self._recv_packet_mtu = effective_recv_mtu
         else:
             self._recv_packet_mtu = calculated_recv_mtu
@@ -201,13 +205,14 @@ class DnsClient(Transport):
             'raw_query_packet_mtu': self._raw_query_packet_mtu,
         }
         mtu_details.update(mtu_constraints)
-        log_event(
-            _LOG,
-            logging.INFO,
-            'transport.mtu_limits',
-            'Transport MTU limits',
-            lambda: mtu_details,
-        )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'transport.mtu_limits',
+                'Transport MTU limits',
+                lambda: mtu_details,
+            )
         self._recv_bufsize = max(self._edns_size, config.dns_recv_bufsize_min)
 
         # Pending query tracking
@@ -237,18 +242,19 @@ class DnsClient(Transport):
         reserved = len(self._reserved)
         pending_total = pending_before + reserved
         if pending_total >= self._max_in_flight:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'dns.send_blocked',
-                'DNS send blocked',
-                lambda: {
-                    'pending': pending_before,
-                    'reserved': reserved,
-                    'pending_total': pending_total,
-                    'max_in_flight': self._max_in_flight,
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'dns.send_blocked',
+                    'DNS send blocked',
+                    lambda: {
+                        'pending': pending_before,
+                        'reserved': reserved,
+                        'pending_total': pending_total,
+                        'max_in_flight': self._max_in_flight,
+                    },
+                )
             return None
         permit = self._reserve_permit(now=now, pending_before=pending_before)
         return permit
@@ -298,20 +304,21 @@ class DnsClient(Transport):
         self._pending.add(corr_id, pending, now=permit.now)
         self._dns_to_corr[dns_id] = corr_id
 
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'dns.send',
-            'DNS query sent',
-            lambda: {
-                'corr_id': corr_id,
-                'dns_id': dns_id,
-                'resolver': '%s:%d' % (self._resolver[0], self._resolver[1]),
-                'bytes': len(query_pkt),
-                'payload_bytes': len(data),
-                'pending': pending_before + 1,
-            },
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'dns.send',
+                'DNS query sent',
+                lambda: {
+                    'corr_id': corr_id,
+                    'dns_id': dns_id,
+                    'resolver': '%s:%d' % (self._resolver[0], self._resolver[1]),
+                    'bytes': len(query_pkt),
+                    'payload_bytes': len(data),
+                    'pending': pending_before + 1,
+                },
+            )
         return corr_id
 
     def recv(self, timeout=None):
@@ -381,16 +388,17 @@ class DnsClient(Transport):
 
         result = self._parse_response(resp_data)
         if result is None:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'dns.malformed_response',
-                'DNS response malformed',
-                lambda: {
-                    'bytes': len(resp_data),
-                    'addr': '%s:%d' % (addr[0], addr[1]),
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'dns.malformed_response',
+                    'DNS response malformed',
+                    lambda: {
+                        'bytes': len(resp_data),
+                        'addr': '%s:%d' % (addr[0], addr[1]),
+                    },
+                )
             return (None, None)  # Malformed packet
 
         dns_id = result.dns_id
@@ -401,67 +409,71 @@ class DnsClient(Transport):
 
         corr_id = self._dns_to_corr[dns_id]
         if corr_id is None:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'dns.stale_response',
-                'DNS response stale',
-                lambda: {
-                    'dns_id': dns_id,
-                    'pending': len(self._pending),
-                    'addr': '%s:%d' % (addr[0], addr[1]),
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'dns.stale_response',
+                    'DNS response stale',
+                    lambda: {
+                        'dns_id': dns_id,
+                        'pending': len(self._pending),
+                        'addr': '%s:%d' % (addr[0], addr[1]),
+                    },
+                )
             return (None, None)  # Stale or unknown query
 
         pending = self._pending.get(corr_id)
         if pending is None:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'dns.missing_pending',
-                'DNS response missing pending entry',
-                lambda: {
-                    'corr_id': corr_id,
-                    'dns_id': dns_id,
-                    'addr': '%s:%d' % (addr[0], addr[1]),
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'dns.missing_pending',
+                    'DNS response missing pending entry',
+                    lambda: {
+                        'corr_id': corr_id,
+                        'dns_id': dns_id,
+                        'addr': '%s:%d' % (addr[0], addr[1]),
+                    },
+                )
             return (None, None)
         error_response = False
         if qname is None:
             error_response = True
         elif pending.qname != qname:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'dns.mismatched_response',
-                'DNS response qname mismatch',
-                lambda: {
-                    'dns_id': dns_id,
-                    'corr_id': corr_id,
-                    'addr': '%s:%d' % (addr[0], addr[1]),
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'dns.mismatched_response',
+                    'DNS response qname mismatch',
+                    lambda: {
+                        'dns_id': dns_id,
+                        'corr_id': corr_id,
+                        'addr': '%s:%d' % (addr[0], addr[1]),
+                    },
+                )
             return (None, None)
 
         if payload is None:
             error_response = True
 
         if error_response:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'dns.error_response',
-                'DNS error response',
-                lambda: {
-                    'corr_id': corr_id,
-                    'dns_id': dns_id,
-                    'rcode': rcode,
-                    'reason': reason,
-                    'addr': '%s:%d' % (addr[0], addr[1]),
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'dns.error_response',
+                    'DNS error response',
+                    lambda: {
+                        'corr_id': corr_id,
+                        'dns_id': dns_id,
+                        'rcode': rcode,
+                        'reason': reason,
+                        'addr': '%s:%d' % (addr[0], addr[1]),
+                    },
+                )
             # Clean up tracking to avoid pending exhaustion
             self._pending.pop(corr_id)
             self._dns_to_corr[dns_id] = None
@@ -470,13 +482,14 @@ class DnsClient(Transport):
         # Clean up tracking
         self._pending.pop(corr_id)
         self._dns_to_corr[dns_id] = None
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'dns.recv',
-            'DNS response received',
-            lambda: {'corr_id': corr_id, 'dns_id': dns_id, 'bytes': len(payload)},
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'dns.recv',
+                'DNS response received',
+                lambda: {'corr_id': corr_id, 'dns_id': dns_id, 'bytes': len(payload)},
+            )
         return (corr_id, payload)
 
     def _on_prune(self, stale):
@@ -489,13 +502,14 @@ class DnsClient(Transport):
             now = time_provider.now()
         stale = self._pending.prune(now=now)
         if stale:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'dns.prune_stale',
-                'Pruned stale DNS queries',
-                lambda: {'count': len(stale)},
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'dns.prune_stale',
+                    'Pruned stale DNS queries',
+                    lambda: {'count': len(stale)},
+                )
         return stale
 
     def _encode_query(self, data):

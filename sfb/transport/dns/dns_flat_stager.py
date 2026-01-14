@@ -56,37 +56,39 @@ class DnsFlatStager(object):
         )
         if self._enabled:
             meta_count = self._parse_flat_meta_count(self._flat_meta)
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'dns.flat_stager_init',
-                'DNS flat stager initialized',
-                lambda: {
-                    'requested_count': requested_count,
-                    'flat_count': self._flat_count,
-                    'meta_count': meta_count,
-                    'meta_bytes': len(self._flat_meta) if self._flat_meta else 0,
-                    'clamped': clamped,
-                    'chunks': len(self._flat_chunks),
-                    'chunk_size': self._flat_chunk_size,
-                },
-            )
-            if self._flat_meta and meta_count != self._flat_count:
-                self._flat_meta = struct.pack(
-                    '>2sBI', b'SF', 1, self._flat_count
-                )
+            if self._logger.isEnabledFor(logging.DEBUG):
                 log_event(
                     self._logger,
                     logging.DEBUG,
-                    'dns.flat_meta_rebuilt',
-                    'DNS flat stager meta rebuilt',
+                    'dns.flat_stager_init',
+                    'DNS flat stager initialized',
                     lambda: {
                         'requested_count': requested_count,
                         'flat_count': self._flat_count,
                         'meta_count': meta_count,
+                        'meta_bytes': len(self._flat_meta) if self._flat_meta else 0,
                         'clamped': clamped,
+                        'chunks': len(self._flat_chunks),
+                        'chunk_size': self._flat_chunk_size,
                     },
                 )
+            if self._flat_meta and meta_count != self._flat_count:
+                self._flat_meta = struct.pack(
+                    '>2sBI', b'SF', 1, self._flat_count
+                )
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'dns.flat_meta_rebuilt',
+                        'DNS flat stager meta rebuilt',
+                        lambda: {
+                            'requested_count': requested_count,
+                            'flat_count': self._flat_count,
+                            'meta_count': meta_count,
+                            'clamped': clamped,
+                        },
+                    )
             elif not self._flat_meta:
                 self._flat_meta = struct.pack(
                     '>2sBI', b'SF', 1, self._flat_count
@@ -175,26 +177,28 @@ class DnsFlatStager(object):
                     reason='flat_missing',
                     include_opt=False,
                 )
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'dns.flat_invalid',
+                        'DNS flat stager count missing',
+                        lambda: {'dns_id': query_id},
+                    )
+                return True
+            self._send_stager_response(query_id, qname, qtype, self._flat_meta, addr)
+            if self._logger.isEnabledFor(logging.DEBUG):
                 log_event(
                     self._logger,
                     logging.DEBUG,
-                    'dns.flat_invalid',
-                    'DNS flat stager count missing',
-                    lambda: {'dns_id': query_id},
+                    'dns.flat_count',
+                    'DNS flat stager count sent',
+                    lambda: {
+                        'dns_id': query_id,
+                        'count': self._flat_count,
+                        'bytes': len(self._flat_meta),
+                    },
                 )
-                return True
-            self._send_stager_response(query_id, qname, qtype, self._flat_meta, addr)
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'dns.flat_count',
-                'DNS flat stager count sent',
-                lambda: {
-                    'dns_id': query_id,
-                    'count': self._flat_count,
-                    'bytes': len(self._flat_meta),
-                },
-            )
             return True
         token_text = selector
         if not self._is_hex_token(token_text):
@@ -203,13 +207,14 @@ class DnsFlatStager(object):
                 reason='flat_invalid',
                 include_opt=False,
             )
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'dns.flat_invalid',
-                'DNS flat stager invalid token',
-                lambda: {'dns_id': query_id, 'token': token_text},
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'dns.flat_invalid',
+                    'DNS flat stager invalid token',
+                    lambda: {'dns_id': query_id, 'token': token_text},
+                )
             return True
         try:
             token = int(token_text, 16)
@@ -221,13 +226,14 @@ class DnsFlatStager(object):
                 reason='flat_invalid',
                 include_opt=False,
             )
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'dns.flat_invalid',
-                'DNS flat stager token parse failed',
-                lambda: {'dns_id': query_id, 'token': token_text},
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'dns.flat_invalid',
+                    'DNS flat stager token parse failed',
+                    lambda: {'dns_id': query_id, 'token': token_text},
+                )
             return True
         index = (token ^ self._index_seed) & _INDEX_TOKEN_MASK
         if index < 1 or index > self._flat_count:
@@ -236,29 +242,31 @@ class DnsFlatStager(object):
                 reason='flat_invalid',
                 include_opt=False,
             )
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'dns.flat_invalid',
-                'DNS flat stager index out of range',
-                lambda: {'dns_id': query_id, 'index': index, 'token': token_text},
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'dns.flat_invalid',
+                    'DNS flat stager index out of range',
+                    lambda: {'dns_id': query_id, 'index': index, 'token': token_text},
+                )
             return True
         payload = self._flat_chunks[index - 1]
         self._send_stager_response(query_id, qname, qtype, payload, addr)
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'dns.flat_piece',
-            'DNS flat stager piece sent',
-            lambda: {
-                'dns_id': query_id,
-                'index': index,
-                'token': token_text,
-                'count': self._flat_count,
-                'bytes': len(payload),
-            },
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'dns.flat_piece',
+                'DNS flat stager piece sent',
+                lambda: {
+                    'dns_id': query_id,
+                    'index': index,
+                    'token': token_text,
+                    'count': self._flat_count,
+                    'bytes': len(payload),
+                },
+            )
         return True
 
     def _stager_response_payload_cap(self, qname):
@@ -286,18 +294,19 @@ class DnsFlatStager(object):
                     0,
                 )
             except TransportError as exc:
-                log_event(
-                    self._logger,
-                    logging.ERROR,
-                    'dns.stager_fixed_response_cap_error',
-                    'DNS stager fixed response cap failed',
-                    lambda: {
-                        'error': str(exc),
-                        'base_domain': self._base_domain,
-                        'cname_suffix': self._cname_suffix,
-                        'label_max_len': self._label_max_len,
-                    },
-                )
+                if self._logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        self._logger,
+                        logging.ERROR,
+                        'dns.stager_fixed_response_cap_error',
+                        'DNS stager fixed response cap failed',
+                        lambda: {
+                            'error': str(exc),
+                            'base_domain': self._base_domain,
+                            'cname_suffix': self._cname_suffix,
+                            'label_max_len': self._label_max_len,
+                        },
+                    )
                 raise TransportFatalError(
                     'DNS stager fixed response cap failed: %s' % exc
                 )
@@ -306,20 +315,21 @@ class DnsFlatStager(object):
                 payload_cap > fixed_cap):
             payload_cap = fixed_cap
         if payload_cap is not None and payload_cap < MIN_PACKET_MTU:
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'dns.response_payload_cap_invalid',
-                'DNS stager response payload cap below minimum',
-                lambda: {
-                    'context': 'flat_stager',
-                    'qname': qname,
-                    'qname_wire_len': qname_wire_len,
-                    'response_payload_cap': payload_cap,
-                    'min_packet_mtu': MIN_PACKET_MTU,
-                    'max_packet_size': max_packet_size,
-                },
-            )
+            if self._logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'dns.response_payload_cap_invalid',
+                    'DNS stager response payload cap below minimum',
+                    lambda: {
+                        'context': 'flat_stager',
+                        'qname': qname,
+                        'qname_wire_len': qname_wire_len,
+                        'response_payload_cap': payload_cap,
+                        'min_packet_mtu': MIN_PACKET_MTU,
+                        'max_packet_size': max_packet_size,
+                    },
+                )
             raise TransportFatalError(
                 'DNS stager response payload cap %d below minimum %d (qname=%s)' % (
                     payload_cap,
@@ -329,20 +339,21 @@ class DnsFlatStager(object):
             )
         if (payload_cap is not None and fixed_cap is not None and
                 payload_cap < fixed_cap):
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'dns.response_payload_cap_invariant',
-                'DNS stager response payload cap below invariant minimum',
-                lambda: {
-                    'context': 'flat_stager',
-                    'qname': qname,
-                    'qname_wire_len': qname_wire_len,
-                    'response_payload_cap': payload_cap,
-                    'fixed_response_cap': fixed_cap,
-                    'max_packet_size': max_packet_size,
-                },
-            )
+            if self._logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'dns.response_payload_cap_invariant',
+                    'DNS stager response payload cap below invariant minimum',
+                    lambda: {
+                        'context': 'flat_stager',
+                        'qname': qname,
+                        'qname_wire_len': qname_wire_len,
+                        'response_payload_cap': payload_cap,
+                        'fixed_response_cap': fixed_cap,
+                        'max_packet_size': max_packet_size,
+                    },
+                )
             raise TransportFatalError(
                 'DNS stager response payload cap %d below invariant minimum %d '
                 '(qname=%s)' % (

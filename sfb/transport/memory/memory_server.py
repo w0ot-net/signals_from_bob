@@ -43,13 +43,14 @@ class InMemoryServer(Server):
             'min_packet_mtu': min_packet_mtu,
         }
         mtu_details.update(mtu_constraints)
-        log_event(
-            _LOG,
-            logging.INFO,
-            'transport.mtu_limits',
-            'Transport MTU limits',
-            lambda: mtu_details,
-        )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'transport.mtu_limits',
+                'Transport MTU limits',
+                lambda: mtu_details,
+            )
 
     @property
     def send_packet_mtu(self):

@@ -102,31 +102,33 @@ class TlsServer(Server):
             'min_packet_mtu': min_packet_mtu,
         }
         mtu_details.update(mtu_constraints)
-        log_event(
-            _LOG,
-            logging.INFO,
-            'transport.mtu_limits',
-            'Transport MTU limits',
-            lambda: mtu_details,
-        )
-        log_event(
-            _LOG,
-            logging.INFO,
-            'tls.server_config',
-            'TLS server config',
-            lambda: {
-                'listen_addr': '%s:%d' % (self._listen_addr[0], self._listen_addr[1]),
-                'max_in_flight': self._max_in_flight,
-                'pending_timeout': self._pending_timeout,
-                'handshake_timeout': self._handshake_timeout,
-                'max_clienthello_bytes': self._max_record_recv,
-                'max_serverhello_bytes': self._max_record_send,
-                'recv_packet_mtu': self._recv_packet_mtu,
-                'send_packet_mtu': self._send_packet_mtu,
-                'alpn': self._alpn_list,
-                'clienthello_padding_target': self._clienthello_padding_target,
-            },
-        )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'transport.mtu_limits',
+                'Transport MTU limits',
+                lambda: mtu_details,
+            )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'tls.server_config',
+                'TLS server config',
+                lambda: {
+                    'listen_addr': '%s:%d' % (self._listen_addr[0], self._listen_addr[1]),
+                    'max_in_flight': self._max_in_flight,
+                    'pending_timeout': self._pending_timeout,
+                    'handshake_timeout': self._handshake_timeout,
+                    'max_clienthello_bytes': self._max_record_recv,
+                    'max_serverhello_bytes': self._max_record_send,
+                    'recv_packet_mtu': self._recv_packet_mtu,
+                    'send_packet_mtu': self._send_packet_mtu,
+                    'alpn': self._alpn_list,
+                    'clienthello_padding_target': self._clienthello_padding_target,
+                },
+            )
 
         self._active = {}
 
@@ -256,13 +258,14 @@ class TlsServer(Server):
         state.ready_to_respond = True
         state.cipher_suite = cipher_suite
         responder = _ResponseSender(self, state)
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'tls.recv',
-            'TLS ClientHello received',
-            lambda: {'payload_bytes': len(payload)},
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'tls.recv',
+                'TLS ClientHello received',
+                lambda: {'payload_bytes': len(payload)},
+            )
         return payload, responder
 
     def _enqueue_response(self, state, data):
@@ -294,16 +297,17 @@ class TlsServer(Server):
         state.response_buf = record
         state.response_off = 0
         state.responder_used = True
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'tls.send',
-            'TLS ServerHello queued',
-            lambda: {
-                'record_bytes': len(record),
-                'payload_bytes': len(data),
-            },
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'tls.send',
+                'TLS ServerHello queued',
+                lambda: {
+                    'record_bytes': len(record),
+                    'payload_bytes': len(data),
+                },
+            )
 
     def _flush_response(self, sock):
         state = self._active.get(sock)
@@ -340,13 +344,14 @@ class TlsServer(Server):
         for sock in stale:
             self._close_conn(sock)
         if stale:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'tls.prune_stale',
-                'Pruned stale TLS connections',
-                lambda: {'count': len(stale)},
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'tls.prune_stale',
+                    'Pruned stale TLS connections',
+                    lambda: {'count': len(stale)},
+                )
 
     def _build_select_lists(self):
         read_list = [self._sock]
@@ -388,13 +393,14 @@ class TlsServer(Server):
         state.sock = None
 
     def _log_parse_error(self, reason):
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'tls.parse_error',
-            'TLS parse error',
-            lambda: {'reason': reason},
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'tls.parse_error',
+                'TLS parse error',
+                lambda: {'reason': reason},
+            )
 
     def close(self):
         for sock in list(self._active.keys()):

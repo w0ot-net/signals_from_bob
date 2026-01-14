@@ -147,13 +147,14 @@ def _load_windows_resolvers():
         result = _run_nslookup()
         output = _coerce_output(getattr(result, 'stdout', ''))
     except _subprocess_error_types() as e:
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'dns.resolver_lookup_failed',
-            'nslookup failed',
-            lambda: {'error': str(e)},
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'dns.resolver_lookup_failed',
+                'nslookup failed',
+                lambda: {'error': str(e)},
+            )
         return []
 
     # Parse output like:
@@ -164,20 +165,22 @@ def _load_windows_resolvers():
     # ...
     ip = _parse_nslookup_output(output)
     if ip:
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'dns.resolver_found',
+                'Found system resolver',
+                lambda: {'ip': ip},
+            )
+        return [(ip, 53)]
+
+    if _LOG.isEnabledFor(logging.DEBUG):
         log_event(
             _LOG,
             logging.DEBUG,
-            'dns.resolver_found',
-            'Found system resolver',
-            lambda: {'ip': ip},
+            'dns.resolver_parse_failed',
+            'Could not parse resolver from nslookup output',
+            lambda: None,
         )
-        return [(ip, 53)]
-
-    log_event(
-        _LOG,
-        logging.DEBUG,
-        'dns.resolver_parse_failed',
-        'Could not parse resolver from nslookup output',
-        lambda: None,
-    )
     return []

@@ -95,27 +95,29 @@ class IcmpClient(Transport):
             'min_packet_mtu': min_packet_mtu,
         }
         mtu_details.update(mtu_constraints)
-        log_event(
-            _LOG,
-            logging.INFO,
-            'transport.mtu_limits',
-            'Transport MTU limits',
-            lambda: mtu_details,
-        )
-        log_event(
-            _LOG,
-            logging.INFO,
-            'icmp.client_config',
-            'ICMP client config',
-            lambda: {
-                'target': config.icmp_target,
-                'target_ip': self._target_ip,
-                'send_packet_mtu': self._send_packet_mtu,
-                'recv_packet_mtu': self._recv_packet_mtu,
-                'max_in_flight': self._max_in_flight,
-                'pending_timeout': self._pending_timeout,
-            },
-        )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'transport.mtu_limits',
+                'Transport MTU limits',
+                lambda: mtu_details,
+            )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'icmp.client_config',
+                'ICMP client config',
+                lambda: {
+                    'target': config.icmp_target,
+                    'target_ip': self._target_ip,
+                    'send_packet_mtu': self._send_packet_mtu,
+                    'recv_packet_mtu': self._recv_packet_mtu,
+                    'max_in_flight': self._max_in_flight,
+                    'pending_timeout': self._pending_timeout,
+                },
+            )
 
     @property
     def send_packet_mtu(self):
@@ -139,18 +141,19 @@ class IcmpClient(Transport):
         reserved = len(self._reserved)
         pending_total = pending_before + reserved
         if pending_total >= self._max_in_flight:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'icmp.send_blocked',
-                'ICMP send blocked',
-                lambda: {
-                    'pending': pending_before,
-                    'reserved': reserved,
-                    'pending_total': pending_total,
-                    'max_in_flight': self._max_in_flight,
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'icmp.send_blocked',
+                    'ICMP send blocked',
+                    lambda: {
+                        'pending': pending_before,
+                        'reserved': reserved,
+                        'pending_total': pending_total,
+                        'max_in_flight': self._max_in_flight,
+                    },
+                )
             return None
         return self._reserve_permit(now=now, pending_before=pending_before)
 
@@ -173,35 +176,37 @@ class IcmpClient(Transport):
         try:
             self._sock.sendto(packet, self._target_addr)
         except socket.error as e:
-            log_event(
-                _LOG,
-                logging.WARNING,
-                'icmp.send_failed',
-                'ICMP echo request send failed',
-                lambda: {
-                    'target': self._target_ip,
-                    'bytes': len(packet),
-                    'payload_bytes': len(data),
-                    'error': str(e),
-                },
-            )
+            if _LOG.isEnabledFor(logging.WARNING):
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'icmp.send_failed',
+                    'ICMP echo request send failed',
+                    lambda: {
+                        'target': self._target_ip,
+                        'bytes': len(packet),
+                        'payload_bytes': len(data),
+                        'error': str(e),
+                    },
+                )
             raise TransportError('Send failed: %s' % e)
 
         self._pending.add(seq, True, now=permit.now)
 
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'icmp.send',
-            'ICMP echo request sent',
-            lambda: {
-                'corr_id': seq,
-                'target': self._target_ip,
-                'bytes': len(packet),
-                'payload_bytes': len(data),
-                'pending': pending_before + 1,
-            },
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'icmp.send',
+                'ICMP echo request sent',
+                lambda: {
+                    'corr_id': seq,
+                    'target': self._target_ip,
+                    'bytes': len(packet),
+                    'payload_bytes': len(data),
+                    'pending': pending_before + 1,
+                },
+            )
         return seq
 
     def recv(self, timeout=None):
@@ -261,13 +266,14 @@ class IcmpClient(Transport):
                 err = _get_errno(e)
                 if err in _WOULD_BLOCK:
                     return (None, None)
-                log_event(
-                    _LOG,
-                    logging.WARNING,
-                    'icmp.recv_failed',
-                    'ICMP receive failed',
-                    lambda: {'error': str(e)},
-                )
+                if _LOG.isEnabledFor(logging.WARNING):
+                    log_event(
+                        _LOG,
+                        logging.WARNING,
+                        'icmp.recv_failed',
+                        'ICMP receive failed',
+                        lambda: {'error': str(e)},
+                    )
                 raise TransportError('Receive failed: %s' % e)
             packet = buffer_view(self._recv_buffer, length=recv_len)
             return (packet, addr)
@@ -277,13 +283,14 @@ class IcmpClient(Transport):
             err = _get_errno(e)
             if err in _WOULD_BLOCK:
                 return (None, None)
-            log_event(
-                _LOG,
-                logging.WARNING,
-                'icmp.recv_failed',
-                'ICMP receive failed',
-                lambda: {'error': str(e)},
-            )
+            if _LOG.isEnabledFor(logging.WARNING):
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'icmp.recv_failed',
+                    'ICMP receive failed',
+                    lambda: {'error': str(e)},
+                )
             raise TransportError('Receive failed: %s' % e)
         return (packet, addr)
 
@@ -295,59 +302,63 @@ class IcmpClient(Transport):
             validate_checksum=False,
         )
         if result is None:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'icmp.malformed_response',
-                'ICMP response malformed',
-                lambda: {
-                    'bytes': len(packet),
-                    'addr': '%s:%d' % (addr[0], addr[1]),
-                    'reason': reason,
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'icmp.malformed_response',
+                    'ICMP response malformed',
+                    lambda: {
+                        'bytes': len(packet),
+                        'addr': '%s:%d' % (addr[0], addr[1]),
+                        'reason': reason,
+                    },
+                )
             return (None, None)
 
         _, _, seq, payload = result
         if len(payload) > self._recv_packet_mtu:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'icmp.oversize_response',
-                'ICMP response oversized',
-                lambda: {
-                    'corr_id': seq,
-                    'bytes': len(payload),
-                    'recv_packet_mtu': self._recv_packet_mtu,
-                    'addr': '%s:%d' % (addr[0], addr[1]),
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'icmp.oversize_response',
+                    'ICMP response oversized',
+                    lambda: {
+                        'corr_id': seq,
+                        'bytes': len(payload),
+                        'recv_packet_mtu': self._recv_packet_mtu,
+                        'addr': '%s:%d' % (addr[0], addr[1]),
+                    },
+                )
             return (None, None)
 
         pending = self._pending.pop(seq)
         if pending is None:
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'icmp.missing_pending',
+                    'ICMP response missing pending entry',
+                    lambda: {
+                        'corr_id': seq,
+                        'bytes': len(payload),
+                    },
+                )
+            return (None, None)
+
+        if _LOG.isEnabledFor(logging.DEBUG):
             log_event(
                 _LOG,
                 logging.DEBUG,
-                'icmp.missing_pending',
-                'ICMP response missing pending entry',
+                'icmp.recv',
+                'ICMP echo reply received',
                 lambda: {
                     'corr_id': seq,
                     'bytes': len(payload),
                 },
             )
-            return (None, None)
-
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'icmp.recv',
-            'ICMP echo reply received',
-            lambda: {
-                'corr_id': seq,
-                'bytes': len(payload),
-            },
-        )
         return (seq, payload)
 
     def _prune_stale(self, now=None):
@@ -355,13 +366,14 @@ class IcmpClient(Transport):
             now = time_provider.now()
         stale = self._pending.prune(now=now)
         if stale:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'icmp.prune_stale',
-                'Pruned stale ICMP requests',
-                lambda: {'count': len(stale)},
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'icmp.prune_stale',
+                    'Pruned stale ICMP requests',
+                    lambda: {'count': len(stale)},
+                )
         return stale
 
     def _next_sequence(self):
@@ -377,57 +389,62 @@ class IcmpClient(Transport):
             infos = socket.getaddrinfo(target, None, socket.AF_INET,
                                        socket.SOCK_DGRAM)
         except socket.gaierror as e:
-            log_event(
-                _LOG,
-                logging.WARNING,
-                'icmp.resolve_failed',
-                'Failed to resolve icmp_target',
-                lambda: {
-                    'target': target,
-                    'error': str(e),
-                },
-            )
+            if _LOG.isEnabledFor(logging.WARNING):
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'icmp.resolve_failed',
+                    'Failed to resolve icmp_target',
+                    lambda: {
+                        'target': target,
+                        'error': str(e),
+                    },
+                )
             raise TransportError('Failed to resolve icmp_target: %s' % target)
         if not infos:
-            log_event(
-                _LOG,
-                logging.WARNING,
-                'icmp.resolve_failed',
-                'No IPv4 address for icmp_target',
-                lambda: {'target': target},
-            )
+            if _LOG.isEnabledFor(logging.WARNING):
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'icmp.resolve_failed',
+                    'No IPv4 address for icmp_target',
+                    lambda: {'target': target},
+                )
             raise TransportError('No IPv4 address for icmp_target: %s' % target)
         ip = infos[0][4][0]
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'icmp.resolve_target',
-            'Resolved icmp target',
-            lambda: {
-                'target': target,
-                'ip': ip,
-            },
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'icmp.resolve_target',
+                'Resolved icmp target',
+                lambda: {
+                    'target': target,
+                    'ip': ip,
+                },
+            )
         return ip
 
     def _require_privileges(self):
         if os.name != 'posix':
-            log_event(
-                _LOG,
-                logging.WARNING,
-                'icmp.unsupported_os',
-                'ICMP transport requires Linux raw sockets',
-                lambda: {'os': os.name},
-            )
+            if _LOG.isEnabledFor(logging.WARNING):
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'icmp.unsupported_os',
+                    'ICMP transport requires Linux raw sockets',
+                    lambda: {'os': os.name},
+                )
             raise TransportError('ICMP transport requires Linux raw sockets')
         if not hasattr(os, 'geteuid') or os.geteuid() != 0:
-            log_event(
-                _LOG,
-                logging.WARNING,
-                'icmp.privileges_required',
-                'ICMP transport requires root privileges',
-                lambda: None,
-            )
+            if _LOG.isEnabledFor(logging.WARNING):
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'icmp.privileges_required',
+                    'ICMP transport requires root privileges',
+                    lambda: None,
+                )
             raise TransportError('ICMP transport requires root privileges')
 
     def close(self):

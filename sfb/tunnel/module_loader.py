@@ -86,13 +86,14 @@ class ModuleLoader(object):
         elif cmd == 'unload_err':
             self._handle_unload_err(msg)
         else:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'module_loader.command_unknown',
-                'Unknown module loader command',
-                lambda: {'cmd': cmd},
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'module_loader.command_unknown',
+                    'Unknown module loader command',
+                    lambda: {'cmd': cmd},
+                )
 
     def _handle_load(self, msg):
         """Handle module load request."""
@@ -110,25 +111,27 @@ class ModuleLoader(object):
 
         key = (name, module_id)
         if key in self._loaded_modules:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'module_loader.already_loaded',
-                'Module already loaded',
-                lambda: {'module': name, 'mid': module_id},
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'module_loader.already_loaded',
+                    'Module already loaded',
+                    lambda: {'module': name, 'mid': module_id},
+                )
             self._send(mod_load_ok(name, module_id))
             return
 
         module_class = get_available_module_class(name)
         if module_class is None:
-            log_event(
-                self._logger,
-                logging.WARNING,
-                'module_loader.unknown',
-                'Unknown module',
-                lambda: {'module': name, 'mid': module_id},
-            )
+            if self._logger.isEnabledFor(logging.WARNING):
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'module_loader.unknown',
+                    'Unknown module',
+                    lambda: {'module': name, 'mid': module_id},
+                )
             self._send(mod_load_err(name, 'unknown module', module_id))
             return
 
@@ -136,27 +139,29 @@ class ModuleLoader(object):
             module_logger = get_logger('sfb.modules.%s' % name)
             module = module_class(self._tunnel, module_logger, module_id=module_id)
             self._loaded_modules[key] = module
-            log_event(
-                self._logger,
-                logging.INFO,
-                'module_loader.loaded',
-                'Loaded module',
-                lambda: {'module': name, 'mid': module_id},
-            )
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'module_loader.loaded',
+                    'Loaded module',
+                    lambda: {'module': name, 'mid': module_id},
+                )
             self._send(mod_load_ok(name, module_id))
         except Exception as e:
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'module_loader.load_failed',
-                'Failed to load module',
-                lambda: {
-                    'module': name,
-                    'mid': module_id,
-                    'error': to_native_str(e),
-                },
-                exc_info=True,
-            )
+            if self._logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'module_loader.load_failed',
+                    'Failed to load module',
+                    lambda: {
+                        'module': name,
+                        'mid': module_id,
+                        'error': to_native_str(e),
+                    },
+                    exc_info=True,
+                )
             self._send(mod_load_err(name, to_native_str(e), module_id))
 
     def _handle_unload(self, msg):
@@ -173,42 +178,45 @@ class ModuleLoader(object):
         key = (name, module_id)
         module = self._loaded_modules.get(key)
         if module is None:
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'module_loader.unload_failed',
-                'Module not loaded',
-                lambda: {'module': name, 'mid': module_id, 'reason': 'not loaded'},
-            )
+            if self._logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'module_loader.unload_failed',
+                    'Module not loaded',
+                    lambda: {'module': name, 'mid': module_id, 'reason': 'not loaded'},
+                )
             self._send(mod_unload_err(name, module_id, 'not loaded'))
             return
 
         try:
             module.shutdown()
         except Exception as e:
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'module_loader.unload_failed',
-                'Failed to unload module',
-                lambda: {
-                    'module': name,
-                    'mid': module_id,
-                    'reason': to_native_str(e),
-                },
-                exc_info=True,
-            )
+            if self._logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'module_loader.unload_failed',
+                    'Failed to unload module',
+                    lambda: {
+                        'module': name,
+                        'mid': module_id,
+                        'reason': to_native_str(e),
+                    },
+                    exc_info=True,
+                )
             self._send(mod_unload_err(name, module_id, to_native_str(e)))
             return
 
         self._loaded_modules.pop(key, None)
-        log_event(
-            self._logger,
-            logging.INFO,
-            'module_loader.local_unload',
-            'Unloaded local module',
-            lambda: {'module': name, 'mid': module_id},
-        )
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'module_loader.local_unload',
+                'Unloaded local module',
+                lambda: {'module': name, 'mid': module_id},
+            )
         self._send(mod_unload_ok(name, module_id))
 
     def _handle_load_ok(self, msg):
@@ -217,13 +225,14 @@ class ModuleLoader(object):
         module_id = msg.get('mid')
         if name and self._valid_module_id(module_id):
             self._remote_modules[(name, module_id)] = True
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'module_loader.remote_loaded',
-            'Module loaded on remote',
-            lambda: {'module': name, 'mid': module_id},
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'module_loader.remote_loaded',
+                'Module loaded on remote',
+                lambda: {'module': name, 'mid': module_id},
+            )
         self._signal_pending(name, module_id, success=True)
 
     def _handle_load_err(self, msg):
@@ -233,13 +242,14 @@ class ModuleLoader(object):
         reason = msg.get('reason', 'unknown error')
         if name and self._valid_module_id(module_id):
             self._remote_modules.pop((name, module_id), None)
-        log_event(
-            self._logger,
-            logging.ERROR,
-            'module_loader.remote_failed',
-            'Failed to load module on remote',
-            lambda: {'module': name, 'mid': module_id, 'reason': reason},
-        )
+        if self._logger.isEnabledFor(logging.ERROR):
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'module_loader.remote_failed',
+                'Failed to load module on remote',
+                lambda: {'module': name, 'mid': module_id, 'reason': reason},
+            )
         self._signal_pending(name, module_id, success=False, reason=reason)
 
     def _handle_unload_ok(self, msg):
@@ -248,13 +258,14 @@ class ModuleLoader(object):
         module_id = msg.get('mid')
         if name and self._valid_module_id(module_id):
             self._remote_modules.pop((name, module_id), None)
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'module_loader.remote_unload',
-            'Module unloaded on remote',
-            lambda: {'module': name, 'mid': module_id},
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'module_loader.remote_unload',
+                'Module unloaded on remote',
+                lambda: {'module': name, 'mid': module_id},
+            )
         self._signal_pending(
             name,
             module_id,
@@ -267,13 +278,14 @@ class ModuleLoader(object):
         name = msg.get('name')
         module_id = msg.get('mid')
         reason = msg.get('reason', 'unknown error')
-        log_event(
-            self._logger,
-            logging.ERROR,
-            'module_loader.unload_failed',
-            'Failed to unload module on remote',
-            lambda: {'module': name, 'mid': module_id, 'reason': reason},
-        )
+        if self._logger.isEnabledFor(logging.ERROR):
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'module_loader.unload_failed',
+                'Failed to unload module on remote',
+                lambda: {'module': name, 'mid': module_id, 'reason': reason},
+            )
         self._signal_pending(
             name,
             module_id,
@@ -339,13 +351,14 @@ class ModuleLoader(object):
             if send_request:
                 # Send load request
                 self._send(mod_load(name, module_id))
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'module_loader.send_load',
-                    'Sent module load request',
-                    lambda: {'module': name, 'mid': module_id},
-                )
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'module_loader.send_load',
+                        'Sent module load request',
+                        lambda: {'module': name, 'mid': module_id},
+                    )
 
             # Wait for response
             if not waiter['event'].wait(timeout=timeout):
@@ -412,17 +425,18 @@ class ModuleLoader(object):
                 self._send(mod_unload(name, module_id))
 
             if not waiter['event'].wait(timeout=timeout):
-                log_event(
-                    self._logger,
-                    logging.ERROR,
-                    'module_loader.unload_failed',
-                    'Timeout waiting for module unload',
-                    lambda: {
-                        'module': name,
-                        'mid': module_id,
-                        'reason': 'timeout',
-                    },
-                )
+                if self._logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        self._logger,
+                        logging.ERROR,
+                        'module_loader.unload_failed',
+                        'Timeout waiting for module unload',
+                        lambda: {
+                            'module': name,
+                            'mid': module_id,
+                            'reason': 'timeout',
+                        },
+                    )
                 raise ModuleLoadError(
                     'Timeout waiting for module unload: %s/%s' % (
                         name, module_id
@@ -458,14 +472,15 @@ class ModuleLoader(object):
             try:
                 module.shutdown()
             except Exception:
-                log_event(
-                    self._logger,
-                    logging.ERROR,
-                    'module_loader.shutdown_error',
-                    'Error shutting down module',
-                    lambda: {'module': name, 'mid': module_id},
-                    exc_info=True,
-                )
+                if self._logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        self._logger,
+                        logging.ERROR,
+                        'module_loader.shutdown_error',
+                        'Error shutting down module',
+                        lambda: {'module': name, 'mid': module_id},
+                        exc_info=True,
+                    )
         self._loaded_modules.clear()
         self._remote_modules.clear()
         try:

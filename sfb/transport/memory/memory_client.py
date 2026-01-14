@@ -46,13 +46,14 @@ class InMemoryTransport(Transport):
             'min_packet_mtu': min_packet_mtu,
         }
         mtu_details.update(mtu_constraints)
-        log_event(
-            _LOG,
-            logging.INFO,
-            'transport.mtu_limits',
-            'Transport MTU limits',
-            lambda: mtu_details,
-        )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'transport.mtu_limits',
+                'Transport MTU limits',
+                lambda: mtu_details,
+            )
 
     @property
     def send_packet_mtu(self):
@@ -74,18 +75,19 @@ class InMemoryTransport(Transport):
         reserved = len(self._reserved)
         pending_total = pending_before + reserved
         if pending_total >= self._max_in_flight:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'memory.send_blocked',
-                'In-memory transport send blocked',
-                lambda: {
-                    'pending': pending_before,
-                    'reserved': reserved,
-                    'pending_total': pending_total,
-                    'max_in_flight': self._max_in_flight,
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'memory.send_blocked',
+                    'In-memory transport send blocked',
+                    lambda: {
+                        'pending': pending_before,
+                        'reserved': reserved,
+                        'pending_total': pending_total,
+                        'max_in_flight': self._max_in_flight,
+                    },
+                )
             return None
         return self._reserve_permit(now=now, pending_before=pending_before)
 

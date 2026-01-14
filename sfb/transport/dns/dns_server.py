@@ -158,13 +158,14 @@ class DnsServer(Server):
             stager_fields['flat_index_seed'] = seed_hex
         if stager_reason:
             stager_fields['reason'] = stager_reason
-        log_event(
-            self._logger,
-            logging.INFO,
-            'dns.stager_config',
-            'DNS stager config',
-            lambda: stager_fields,
-        )
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'dns.stager_config',
+                'DNS stager config',
+                lambda: stager_fields,
+            )
 
         # Calculate MTUs
         send_mtu, recv_mtu, min_packet_mtu, mtu_constraints = resolve_mtu_limits(
@@ -186,51 +187,54 @@ class DnsServer(Server):
                     )
                 )
             except TransportError as exc:
-                log_event(
-                    self._logger,
-                    logging.ERROR,
-                    'dns.fixed_response_cap_error',
-                    'DNS fixed response cap failed',
-                    lambda: {
-                        'error': str(exc),
-                    },
-                )
+                if self._logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        self._logger,
+                        logging.ERROR,
+                        'dns.fixed_response_cap_error',
+                        'DNS fixed response cap failed',
+                        lambda: {
+                            'error': str(exc),
+                        },
+                    )
                 raise
             self._fixed_response_cap = fixed_response_cap
-            log_event(
-                self._logger,
-                logging.INFO,
-                'dns.fixed_response_cap',
-                'DNS fixed response cap',
-                lambda: {
-                    'base_domain': self._base_domain,
-                    'cname_suffix': self._cname_suffix,
-                    'label_max_len': self._label_max_len,
-                    'edns_size': self._edns_size,
-                    'raw_query_packet_mtu': self._recv_packet_mtu,
-                    'opt_record_len': self._opt_record_len,
-                    'fixed_response_cap': fixed_response_cap,
-                    'max_packet_size': max_packet_size,
-                    'min_payload_len': min_payload_len,
-                    'min_qname_wire_len': min_qname_wire_len,
-                },
-            )
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'dns.fixed_response_cap',
+                    'DNS fixed response cap',
+                    lambda: {
+                        'base_domain': self._base_domain,
+                        'cname_suffix': self._cname_suffix,
+                        'label_max_len': self._label_max_len,
+                        'edns_size': self._edns_size,
+                        'raw_query_packet_mtu': self._recv_packet_mtu,
+                        'opt_record_len': self._opt_record_len,
+                        'fixed_response_cap': fixed_response_cap,
+                        'max_packet_size': max_packet_size,
+                        'min_payload_len': min_payload_len,
+                        'min_qname_wire_len': min_qname_wire_len,
+                    },
+                )
             effective_send_mtu = min(
                 calculated_send_mtu,
                 fixed_response_cap,
             )
             if effective_send_mtu < calculated_send_mtu:
-                log_event(
-                    self._logger,
-                    logging.INFO,
-                    'dns.mtu_clamp',
-                    'DNS response MTU clamped',
-                    lambda: {
-                        'calculated_mtu': calculated_send_mtu,
-                        'max_response_packet_mtu': fixed_response_cap,
-                        'effective_mtu': effective_send_mtu,
-                    },
-                )
+                if self._logger.isEnabledFor(logging.INFO):
+                    log_event(
+                        self._logger,
+                        logging.INFO,
+                        'dns.mtu_clamp',
+                        'DNS response MTU clamped',
+                        lambda: {
+                            'calculated_mtu': calculated_send_mtu,
+                            'max_response_packet_mtu': fixed_response_cap,
+                            'effective_mtu': effective_send_mtu,
+                        },
+                    )
             self._send_packet_mtu = effective_send_mtu
         else:
             self._send_packet_mtu = calculated_send_mtu
@@ -242,52 +246,56 @@ class DnsServer(Server):
             'min_packet_mtu': min_packet_mtu,
         }
         mtu_details.update(mtu_constraints)
-        log_event(
-            self._logger,
-            logging.INFO,
-            'transport.mtu_limits',
-            'Transport MTU limits',
-            lambda: mtu_details,
-        )
-        log_event(
-            self._logger,
-            logging.INFO,
-            'dns.server_config',
-            'DNS server config',
-            lambda: {
-                'base_domain': self._base_domain,
-                'listen_addr': '%s:%d' % (self._listen_addr[0], self._listen_addr[1]),
-                'qtype': config.dns_query_type,
-                'rtype': config.dns_response_type,
-                'edns_size': self._edns_size,
-                'label_max_len': self._label_max_len,
-                'cname_suffix': self._cname_suffix,
-                'response_ttl': self._response_ttl,
-            },
-        )
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'transport.mtu_limits',
+                'Transport MTU limits',
+                lambda: mtu_details,
+            )
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'dns.server_config',
+                'DNS server config',
+                lambda: {
+                    'base_domain': self._base_domain,
+                    'listen_addr': '%s:%d' % (self._listen_addr[0], self._listen_addr[1]),
+                    'qtype': config.dns_query_type,
+                    'rtype': config.dns_response_type,
+                    'edns_size': self._edns_size,
+                    'label_max_len': self._label_max_len,
+                    'cname_suffix': self._cname_suffix,
+                    'response_ttl': self._response_ttl,
+                },
+            )
         try:
             self._cname_a_addr_bytes = socket.inet_aton(self._cname_a_addr)
         except (socket.error, OSError):
+            if self._logger.isEnabledFor(logging.WARNING):
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'dns.cname_invalid_addr',
+                    'Invalid cname_a_addr, using 0.0.0.0',
+                    lambda: {'addr': self._cname_a_addr},
+                )
+            self._cname_a_addr_bytes = b'\x00\x00\x00\x00'
+        if self._logger.isEnabledFor(logging.DEBUG):
             log_event(
                 self._logger,
-                logging.WARNING,
-                'dns.cname_invalid_addr',
-                'Invalid cname_a_addr, using 0.0.0.0',
-                lambda: {'addr': self._cname_a_addr},
+                logging.DEBUG,
+                'dns.mtu_calc',
+                'DNS MTU calc',
+                lambda: {
+                    'base_domain': self._base_domain,
+                    'label_max': self._label_max_len,
+                    'recv_packet_mtu': self._recv_packet_mtu,
+                    'send_packet_mtu': self._send_packet_mtu,
+                },
             )
-            self._cname_a_addr_bytes = b'\x00\x00\x00\x00'
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'dns.mtu_calc',
-            'DNS MTU calc',
-            lambda: {
-                'base_domain': self._base_domain,
-                'label_max': self._label_max_len,
-                'recv_packet_mtu': self._recv_packet_mtu,
-                'send_packet_mtu': self._send_packet_mtu,
-            },
-        )
 
     @property
     def recv_packet_mtu(self):
@@ -345,13 +353,14 @@ class DnsServer(Server):
                 query_id, qname, qtype = self._parse_query(pkt_data)
             except (ValueError, TransportError) as e:
                 # Malformed query, ignore
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'dns.invalid_query',
-                    'DNS invalid query',
-                    lambda: {'error': str(e)},
-                )
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'dns.invalid_query',
+                        'DNS invalid query',
+                        lambda: {'error': str(e)},
+                    )
                 continue
 
             # Check if it's for our domain (subdomain or exact match)
@@ -397,22 +406,23 @@ class DnsServer(Server):
                 qname_wire_len, max_packet_size
             )
 
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'dns.recv',
-                'DNS query received',
-                lambda: {
-                    'dns_id': query_id,
-                    'qtype': qtype,
-                    'addr': '%s:%d' % (client_addr[0], client_addr[1]),
-                    'query_bytes': len(pkt_data),
-                    'bytes': len(data),
-                    'response_payload_cap': response_payload_cap,
-                    'qname_wire_len': qname_wire_len,
-                    'max_packet_size': max_packet_size,
-                },
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'dns.recv',
+                    'DNS query received',
+                    lambda: {
+                        'dns_id': query_id,
+                        'qtype': qtype,
+                        'addr': '%s:%d' % (client_addr[0], client_addr[1]),
+                        'query_bytes': len(pkt_data),
+                        'bytes': len(data),
+                        'response_payload_cap': response_payload_cap,
+                        'qname_wire_len': qname_wire_len,
+                        'max_packet_size': max_packet_size,
+                    },
+                )
             return data, responder
 
     def _parse_query(self, data):
@@ -488,18 +498,19 @@ class DnsServer(Server):
                 data, self._cname_suffix, self._label_max_len
             )
         except ValueError as exc:
-            log_event(
-                self._logger,
-                logging.WARNING,
-                'dns.encode_error',
-                'DNS response encode failed',
-                lambda: {
-                    'dns_id': query_id,
-                    'qtype': qtype,
-                    'payload_bytes': len(data),
-                    'error': str(exc),
-                },
-            )
+            if self._logger.isEnabledFor(logging.WARNING):
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'dns.encode_error',
+                    'DNS response encode failed',
+                    lambda: {
+                        'dns_id': query_id,
+                        'qtype': qtype,
+                        'payload_bytes': len(data),
+                        'error': str(exc),
+                    },
+                )
             raise TransportError('Invalid response data: %s' % exc)
 
         rdata = None
@@ -540,25 +551,26 @@ class DnsServer(Server):
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'dns.send',
-            'DNS response sent',
-            lambda: {
-                'dns_id': query_id,
-                'qtype': qtype,
-                'rtype': self._rtype,
-                'addr': '%s:%d' % (addr[0], addr[1]),
-                'bytes': response_len,
-                'payload_bytes': len(data),
-                'response_payload_cap': response_payload_cap,
-                'qname_wire_len': qname_wire_len,
-                'rdata_len': len(rdata),
-                'max_packet_size': max_packet_size,
-                'oversize': oversize,
-            },
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'dns.send',
+                'DNS response sent',
+                lambda: {
+                    'dns_id': query_id,
+                    'qtype': qtype,
+                    'rtype': self._rtype,
+                    'addr': '%s:%d' % (addr[0], addr[1]),
+                    'bytes': response_len,
+                    'payload_bytes': len(data),
+                    'response_payload_cap': response_payload_cap,
+                    'qname_wire_len': qname_wire_len,
+                    'rdata_len': len(rdata),
+                    'max_packet_size': max_packet_size,
+                    'oversize': oversize,
+                },
+            )
 
     def _send_empty_response(self, query_id, qname, qtype, addr, reason=None,
                              include_opt=True):
@@ -585,19 +597,20 @@ class DnsServer(Server):
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'dns.send_empty',
-            'DNS empty response sent',
-            lambda: {
-                'dns_id': query_id,
-                'qtype': qtype,
-                'addr': '%s:%d' % (addr[0], addr[1]),
-                'bytes': len(response),
-                'reason': reason,
-            },
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'dns.send_empty',
+                'DNS empty response sent',
+                lambda: {
+                    'dns_id': query_id,
+                    'qtype': qtype,
+                    'addr': '%s:%d' % (addr[0], addr[1]),
+                    'bytes': len(response),
+                    'reason': reason,
+                },
+            )
 
     def _send_cname_followup(self, query_id, qname, qtype, addr):
         """Respond to resolver follow-up queries for CNAME targets."""
@@ -632,18 +645,19 @@ class DnsServer(Server):
             self._sock.sendto(response, addr)
         except socket.error as e:
             raise TransportError('Send failed: %s' % e)
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'dns.cname_followup',
-            'DNS CNAME followup sent',
-            lambda: {
-                'dns_id': query_id,
-                'qtype': qtype,
-                'addr': '%s:%d' % (addr[0], addr[1]),
-                'bytes': len(response),
-            },
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'dns.cname_followup',
+                'DNS CNAME followup sent',
+                lambda: {
+                    'dns_id': query_id,
+                    'qtype': qtype,
+                    'addr': '%s:%d' % (addr[0], addr[1]),
+                    'bytes': len(response),
+                },
+            )
 
     def _response_payload_cap(self, qname):
         if self._rtype != codec.QTYPE_CNAME:
@@ -663,20 +677,21 @@ class DnsServer(Server):
                 payload_cap > fixed_cap):
             payload_cap = fixed_cap
         if payload_cap is not None and payload_cap < MIN_PACKET_MTU:
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'dns.response_payload_cap_invalid',
-                'DNS response payload cap below minimum',
-                lambda: {
-                    'qname': qname,
-                    'qname_wire_len': qname_wire_len,
-                    'response_payload_cap': payload_cap,
-                    'min_packet_mtu': MIN_PACKET_MTU,
-                    'max_packet_size': max_packet_size,
-                    'fixed_response_cap': fixed_cap,
-                },
-            )
+            if self._logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'dns.response_payload_cap_invalid',
+                    'DNS response payload cap below minimum',
+                    lambda: {
+                        'qname': qname,
+                        'qname_wire_len': qname_wire_len,
+                        'response_payload_cap': payload_cap,
+                        'min_packet_mtu': MIN_PACKET_MTU,
+                        'max_packet_size': max_packet_size,
+                        'fixed_response_cap': fixed_cap,
+                    },
+                )
             raise TransportFatalError(
                 'DNS response payload cap %d below minimum %d (qname=%s)' % (
                     payload_cap,
@@ -692,22 +707,23 @@ class DnsServer(Server):
                 min_required = self._send_packet_mtu
         if (payload_cap is not None and min_required is not None and
                 payload_cap < min_required):
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'dns.response_payload_cap_invariant',
-                'DNS response payload cap below invariant minimum',
-                lambda: {
-                    'context': 'server',
-                    'qname': qname,
-                    'qname_wire_len': qname_wire_len,
-                    'response_payload_cap': payload_cap,
-                    'min_required': min_required,
-                    'send_packet_mtu': self._send_packet_mtu,
-                    'fixed_response_cap': fixed_cap,
-                    'max_packet_size': max_packet_size,
-                },
-            )
+            if self._logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'dns.response_payload_cap_invariant',
+                    'DNS response payload cap below invariant minimum',
+                    lambda: {
+                        'context': 'server',
+                        'qname': qname,
+                        'qname_wire_len': qname_wire_len,
+                        'response_payload_cap': payload_cap,
+                        'min_required': min_required,
+                        'send_packet_mtu': self._send_packet_mtu,
+                        'fixed_response_cap': fixed_cap,
+                        'max_packet_size': max_packet_size,
+                    },
+                )
             raise TransportFatalError(
                 'DNS response payload cap %d below invariant minimum %d '
                 '(qname=%s)' % (

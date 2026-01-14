@@ -245,13 +245,14 @@ class NcLinuxModule(RequestResponseMixin, BaseModule):
     @classmethod
     def run_command(cls, args, tunnel, logger):
         if not _is_linux():
-            log_event(
-                logger,
-                logging.ERROR,
-                'nc.unsupported_platform',
-                'nc_linux is only supported on linux',
-                lambda: {'side': 'bob'},
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    'nc.unsupported_platform',
+                    'nc_linux is only supported on linux',
+                    lambda: {'side': 'bob'},
+                )
             return 1
         module = cls(tunnel, logger=logger, module_id=args.module_id)
         timeout = getattr(args, 'timeout', None)
@@ -306,13 +307,14 @@ class NcLinuxModule(RequestResponseMixin, BaseModule):
         rid = self._alloc_rid()
         pending = self._register_pending(rid)
         self.send_message(nc_bind(rid, channel.id, remote_spec))
-        log_event(
-            self._logger,
-            logging.INFO,
-            'nc.bind_send',
-            'Bind request sent',
-            lambda: {'rid': rid, 'ch': channel.id, 'side': 'bob'},
-        )
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'nc.bind_send',
+                'Bind request sent',
+                lambda: {'rid': rid, 'ch': channel.id, 'side': 'bob'},
+            )
         try:
             resp = self._wait_response(rid, pending, timeout=timeout)
         except ModuleError:
@@ -345,13 +347,14 @@ class NcLinuxModule(RequestResponseMixin, BaseModule):
         with self._connections_lock:
             self._connections[channel.id] = conn
         conn.start()
-        log_event(
-            self._logger,
-            logging.INFO,
-            'nc.bind_ok_recv',
-            'Bind ok received',
-            lambda: {'rid': rid, 'ch': channel.id, 'side': 'bob'},
-        )
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'nc.bind_ok_recv',
+                'Bind ok received',
+                lambda: {'rid': rid, 'ch': channel.id, 'side': 'bob'},
+            )
         return conn
 
     def _on_connection_close(self, ch):
@@ -364,13 +367,14 @@ class NcLinuxModule(RequestResponseMixin, BaseModule):
         ch = msg.get('ch')
         spec = msg.get('fd')
 
-        log_event(
-            self._logger,
-            logging.INFO,
-            'nc.bind_recv',
-            'Bind request received',
-            lambda: {'rid': rid, 'ch': ch, 'side': 'alice'},
-        )
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'nc.bind_recv',
+                'Bind request received',
+                lambda: {'rid': rid, 'ch': ch, 'side': 'alice'},
+            )
 
         if not _is_linux():
             self._send_err(rid, ch, 'not_linux', 'nc_linux is linux-only')
@@ -427,47 +431,51 @@ class NcLinuxModule(RequestResponseMixin, BaseModule):
 
         conn.start()
         self.send_message(nc_bind_ok(rid, ch))
-        log_event(
-            self._logger,
-            logging.INFO,
-            'nc.bind_ok_send',
-            'Bind ok sent',
-            lambda: {'rid': rid, 'ch': ch, 'side': 'alice'},
-        )
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'nc.bind_ok_send',
+                'Bind ok sent',
+                lambda: {'rid': rid, 'ch': ch, 'side': 'alice'},
+            )
 
     def handle_bind_ok(self, msg):
         if not self._complete_pending(msg):
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'nc.bind_ok_unexpected',
-                'Unexpected bind_ok',
-                lambda: {'rid': msg.get('rid'), 'ch': msg.get('ch')},
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'nc.bind_ok_unexpected',
+                    'Unexpected bind_ok',
+                    lambda: {'rid': msg.get('rid'), 'ch': msg.get('ch')},
+                )
 
     def handle_err(self, msg):
         if not self._complete_pending(msg):
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'nc.err_unexpected',
-                'Unexpected error response',
-                lambda: {
-                    'rid': msg.get('rid'),
-                    'ch': msg.get('ch'),
-                    'code': msg.get('code'),
-                },
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'nc.err_unexpected',
+                    'Unexpected error response',
+                    lambda: {
+                        'rid': msg.get('rid'),
+                        'ch': msg.get('ch'),
+                        'code': msg.get('code'),
+                    },
+                )
 
     def _send_err(self, rid, ch, code, reason):
         self.send_message(nc_err(rid, ch, code, reason))
-        log_event(
-            self._logger,
-            logging.WARNING,
-            'nc.bind_err_send',
-            'Bind error sent',
-            lambda: {'rid': rid, 'ch': ch, 'code': code},
-        )
+        if self._logger.isEnabledFor(logging.WARNING):
+            log_event(
+                self._logger,
+                logging.WARNING,
+                'nc.bind_err_send',
+                'Bind error sent',
+                lambda: {'rid': rid, 'ch': ch, 'code': code},
+            )
 
     def _close_channel(self, ch):
         channel = self._tunnel.channel_manager.get_channel(ch)

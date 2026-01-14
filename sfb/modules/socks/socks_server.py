@@ -209,15 +209,16 @@ class SocksServerModule(BaseModule):
         self._accept_thread.daemon = True
         self._accept_thread.start()
 
-        log_event(
-            self._logger,
-            logging.INFO,
-            'sock.server_listen',
-            'SOCKS5 server listening (host=%s port=%d backlog=%d)' % (
-                host,
-                port,
-                self._config.relay_listen_backlog,
-            ),
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.server_listen',
+                'SOCKS5 server listening (host=%s port=%d backlog=%d)' % (
+                    host,
+                    port,
+                    self._config.relay_listen_backlog,
+                ),
             lambda: add_fields(relay_fields(
                 side='bob',
                 peer='client',
@@ -250,15 +251,16 @@ class SocksServerModule(BaseModule):
         for conn in connections:
             conn.stop()
 
-        log_event(
-            self._logger,
-            logging.INFO,
-            'sock.server_stop',
-            'SOCKS5 server stopped',
-            lambda: add_fields(relay_fields(
-                side='bob',
-                peer='client',
-            ), {
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.server_stop',
+                'SOCKS5 server stopped',
+                lambda: add_fields(relay_fields(
+                    side='bob',
+                    peer='client',
+                ), {
                 'connections': self._connection_count(),
                 'pending': self._pending_count(),
             }),
@@ -275,16 +277,17 @@ class SocksServerModule(BaseModule):
             rid = self._next_rid
             self._next_rid += 1
             next_rid = self._next_rid
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'sock.server_rid_alloc',
-            'Allocated SOCKS request id',
-            lambda: add_fields(relay_fields(
-                rid=rid,
-                side='bob',
-                peer='client',
-            ), {
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'sock.server_rid_alloc',
+                'Allocated SOCKS request id',
+                lambda: add_fields(relay_fields(
+                    rid=rid,
+                    side='bob',
+                    peer='client',
+                ), {
                 'next_rid': next_rid,
                 'connections': self._connection_count(),
                 'pending': self._pending_count(),
@@ -306,15 +309,16 @@ class SocksServerModule(BaseModule):
                     continue
 
                 backoff = self._config.non_blocking_poll_timeout
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'sock.server_accept',
-                    'Accepted connection',
-                    lambda: add_fields(relay_fields(
-                        side='bob',
-                        peer='client',
-                    ), {
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'sock.server_accept',
+                        'Accepted connection',
+                        lambda: add_fields(relay_fields(
+                            side='bob',
+                            peer='client',
+                        ), {
                         'host': addr[0],
                         'port': addr[1],
                     }),
@@ -331,15 +335,16 @@ class SocksServerModule(BaseModule):
 
             except Exception as e:
                 if self._running:
-                    log_event(
-                        self._logger,
-                        logging.ERROR,
-                        'sock.server_accept_error',
-                        'Accept error',
-                        lambda: add_fields(relay_fields(
-                            side='bob',
-                            peer='client',
-                        ), {'error': str(e)}),
+                    if self._logger.isEnabledFor(logging.ERROR):
+                        log_event(
+                            self._logger,
+                            logging.ERROR,
+                            'sock.server_accept_error',
+                            'Accept error',
+                            lambda: add_fields(relay_fields(
+                                side='bob',
+                                peer='client',
+                            ), {'error': str(e)}),
                         exc_info=True,
                     )
                     time_provider.sleep(backoff)
@@ -374,16 +379,17 @@ class SocksServerModule(BaseModule):
             host, port = self._socks5_read_connect(sock)
             request_time = duration_secs(request_start)
 
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.server_connect',
-                'SOCKS connect requested',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    side='bob',
-                    peer='client',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.server_connect',
+                    'SOCKS connect requested',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        side='bob',
+                        peer='client',
+                    ), {
                     'host': host,
                     'port': port,
                     'client_host': addr[0],
@@ -399,17 +405,18 @@ class SocksServerModule(BaseModule):
                 channel_wait_time = duration_secs(channel_wait_start)
                 cleanup_reason = 'channel_open_failed'
                 connect_result = 'channel_open_failed'
-                log_event(
-                    self._logger,
-                    logging.WARNING,
-                    'sock.server_channel_failed',
-                    'Channel open failed',
-                    lambda: add_fields(relay_fields(
-                        rid=rid,
-                        ch=ch_id,
-                        side='bob',
-                        peer='client',
-                    ), {'host': host, 'port': port}),
+                if self._logger.isEnabledFor(logging.WARNING):
+                    log_event(
+                        self._logger,
+                        logging.WARNING,
+                        'sock.server_channel_failed',
+                        'Channel open failed',
+                        lambda: add_fields(relay_fields(
+                            rid=rid,
+                            ch=ch_id,
+                            side='bob',
+                            peer='client',
+                        ), {'host': host, 'port': port}),
                 )
                 self._socks5_send_reply(sock, SOCKS5_REP_GENERAL_FAILURE)
                 channel.close()
@@ -437,30 +444,32 @@ class SocksServerModule(BaseModule):
             with self._pending_lock:
                 self._pending[rid] = pending
                 pending_count = len(self._pending)
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'sock.server_pending_add',
-                'SOCKS connect pending',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=channel.id,
-                    side='bob',
-                    peer='client',
-                ), {'pending': pending_count}),
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'sock.server_pending_add',
+                    'SOCKS connect pending',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=channel.id,
+                        side='bob',
+                        peer='client',
+                    ), {'pending': pending_count}),
             )
 
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.connect_send',
-                'SOCKS connect send',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=channel.id,
-                    side='bob',
-                    peer='client',
-                ), {'host': host, 'port': port}),
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.connect_send',
+                    'SOCKS connect send',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=channel.id,
+                        side='bob',
+                        peer='client',
+                    ), {'host': host, 'port': port}),
             )
             connect_request_time = time_provider.now()
             self.send_message(sock_connect(rid, channel.id, host, port))
@@ -470,17 +479,18 @@ class SocksServerModule(BaseModule):
                 connect_latency = duration_secs(connect_request_time)
                 cleanup_reason = 'connect_timeout'
                 connect_result = 'timeout'
-                log_event(
-                    self._logger,
-                    logging.WARNING,
-                    'sock.server_connect_timeout',
-                    'Connect timeout',
-                    lambda: add_fields(relay_fields(
-                        rid=rid,
-                        ch=channel.id,
-                        side='bob',
-                        peer='client',
-                    ), {'host': host, 'port': port}),
+                if self._logger.isEnabledFor(logging.WARNING):
+                    log_event(
+                        self._logger,
+                        logging.WARNING,
+                        'sock.server_connect_timeout',
+                        'Connect timeout',
+                        lambda: add_fields(relay_fields(
+                            rid=rid,
+                            ch=channel.id,
+                            side='bob',
+                            peer='client',
+                        ), {'host': host, 'port': port}),
                 )
                 self._socks5_send_reply(sock, SOCKS5_REP_TTL_EXPIRED)
                 return
@@ -491,17 +501,18 @@ class SocksServerModule(BaseModule):
                 cleanup_reason = 'connect_failed'
                 connect_result = 'error'
                 connect_error = pending.error
-                log_event(
-                    self._logger,
-                    logging.INFO,
-                    'sock.server_connect_failed',
-                    'Connect failed',
-                    lambda: add_fields(relay_fields(
-                        rid=rid,
-                        ch=channel.id,
-                        side='bob',
-                        peer='client',
-                    ), {'host': host, 'port': port, 'error': pending.error}),
+                if self._logger.isEnabledFor(logging.INFO):
+                    log_event(
+                        self._logger,
+                        logging.INFO,
+                        'sock.server_connect_failed',
+                        'Connect failed',
+                        lambda: add_fields(relay_fields(
+                            rid=rid,
+                            ch=channel.id,
+                            side='bob',
+                            peer='client',
+                        ), {'host': host, 'port': port, 'error': pending.error}),
                 )
                 self._socks5_send_reply(sock, error_code)
                 return
@@ -512,17 +523,18 @@ class SocksServerModule(BaseModule):
             self._socks5_send_reply(sock, SOCKS5_REP_SUCCESS, bind_host, bind_port)
             connect_result = 'ok'
 
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.server_connected',
-                'Connected',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=channel.id,
-                    side='bob',
-                    peer='client',
-                ), {'host': host, 'port': port, 'bhost': bind_host, 'bport': bind_port}),
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.server_connected',
+                    'Connected',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=channel.id,
+                        side='bob',
+                        peer='client',
+                    ), {'host': host, 'port': port, 'bhost': bind_host, 'bport': bind_port}),
             )
 
             # Start relay and wait for completion
@@ -534,47 +546,50 @@ class SocksServerModule(BaseModule):
             cleanup_reason = 'socks5_error'
             connect_result = 'protocol_error'
             connect_error = str(e)
-            log_event(
-                self._logger,
-                logging.WARNING,
-                'sock.server_error',
-                'SOCKS5 error',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch_id,
-                    side='bob',
-                    peer='client',
-                ), {'error': str(e)}),
+            if self._logger.isEnabledFor(logging.WARNING):
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'sock.server_error',
+                    'SOCKS5 error',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch_id,
+                        side='bob',
+                        peer='client',
+                    ), {'error': str(e)}),
             )
         except Exception as e:
             cleanup_reason = 'client_handler_error'
             connect_result = 'handler_error'
             connect_error = str(e)
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'sock.server_client_error',
-                'Client handler error',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch_id,
-                    side='bob',
-                    peer='client',
-                ), {'error': str(e)}),
+            if self._logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'sock.server_client_error',
+                    'Client handler error',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch_id,
+                        side='bob',
+                        peer='client',
+                    ), {'error': str(e)}),
                 exc_info=True,
             )
         finally:
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.server_handshake',
-                'SOCKS server handshake',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch_id,
-                    side='bob',
-                    peer='client',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.server_handshake',
+                    'SOCKS server handshake',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch_id,
+                        side='bob',
+                        peer='client',
+                    ), {
                     'host': host,
                     'port': port,
                     'client_host': addr[0],
@@ -605,17 +620,18 @@ class SocksServerModule(BaseModule):
 
         if conn:
             conn.stop()
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'sock.server_cleanup',
-                'Cleaned up connection',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=conn.ch,
-                    side='bob',
-                    peer='client',
-                ), {
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'sock.server_cleanup',
+                    'Cleaned up connection',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=conn.ch,
+                        side='bob',
+                        peer='client',
+                    ), {
                     'reason': reason,
                     'pending_removed': pending_removed,
                     'connections': self._connection_count(),
@@ -736,17 +752,18 @@ class SocksServerModule(BaseModule):
             pending.bind_host = msg.get('bhost')
             pending.bind_port = msg.get('bport')
             pending.event.set()
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.connect_ok_recv',
-                'SOCKS connect ok recv',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=msg.get('ch'),
-                    side='bob',
-                    peer='client',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.connect_ok_recv',
+                    'SOCKS connect ok recv',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=msg.get('ch'),
+                        side='bob',
+                        peer='client',
+                    ), {
                     'bhost': msg.get('bhost'),
                     'bport': msg.get('bport'),
                 }),
@@ -764,17 +781,18 @@ class SocksServerModule(BaseModule):
         if pending:
             pending.error = msg.get('code', 'general')
             pending.event.set()
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.connect_err_recv',
-                'SOCKS connect err recv',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=msg.get('ch'),
-                    side='bob',
-                    peer='client',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.connect_err_recv',
+                    'SOCKS connect err recv',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=msg.get('ch'),
+                        side='bob',
+                        peer='client',
+                    ), {
                     'code': msg.get('code'),
                     'reason': msg.get('reason'),
                 }),

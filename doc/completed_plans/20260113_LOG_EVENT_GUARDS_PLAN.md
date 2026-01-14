@@ -65,3 +65,8 @@
 
 ## Testing
 - Do not run tests here. The user will run tests as needed with python3.
+
+## Execution Notes
+- 20260113: Wrapped every `log_event(...)` call with a per-level
+  `logger.isEnabledFor(level)` guard; kept per-call guards rather than grouping
+  adjacent calls to keep the change mechanical and predictable.

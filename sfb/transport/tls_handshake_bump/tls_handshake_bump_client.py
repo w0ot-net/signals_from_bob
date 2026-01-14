@@ -159,32 +159,34 @@ class TlsHandshakeBumpClient(Transport):
             'min_packet_mtu': min_packet_mtu,
         }
         mtu_details.update(mtu_constraints)
-        log_event(
-            _LOG,
-            logging.INFO,
-            'transport.mtu_limits',
-            'Transport MTU limits',
-            lambda: mtu_details,
-        )
-        log_event(
-            _LOG,
-            logging.INFO,
-            'tls_bump.client_config',
-            'TLS bump client config',
-            lambda: {
-                'target': target_desc,
-                'proxy': self._proxy_label,
-                'proxy_timeout': validated['proxy_timeout'],
-                'max_in_flight': self._max_in_flight,
-                'pending_timeout': self._pending_timeout,
-                'connect_timeout': self._connect_timeout,
-                'handshake_timeout': self._handshake_timeout,
-                'send_packet_mtu': self._send_packet_mtu,
-                'recv_packet_mtu': self._recv_packet_mtu,
-                'base_domain': self._base_domain,
-                'request_path': self._request_path,
-            },
-        )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'transport.mtu_limits',
+                'Transport MTU limits',
+                lambda: mtu_details,
+            )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'tls_bump.client_config',
+                'TLS bump client config',
+                lambda: {
+                    'target': target_desc,
+                    'proxy': self._proxy_label,
+                    'proxy_timeout': validated['proxy_timeout'],
+                    'max_in_flight': self._max_in_flight,
+                    'pending_timeout': self._pending_timeout,
+                    'connect_timeout': self._connect_timeout,
+                    'handshake_timeout': self._handshake_timeout,
+                    'send_packet_mtu': self._send_packet_mtu,
+                    'recv_packet_mtu': self._recv_packet_mtu,
+                    'base_domain': self._base_domain,
+                    'request_path': self._request_path,
+                },
+            )
 
         self._pending = PendingTracker(self._pending_timeout)
         self._pending_state = {}
@@ -218,18 +220,19 @@ class TlsHandshakeBumpClient(Transport):
         reserved = len(self._reserved)
         pending_total = pending_before + reserved
         if pending_total >= self._max_in_flight:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'tls_bump.send_blocked',
-                'TLS bump send blocked',
-                lambda: {
-                    'pending': pending_before,
-                    'reserved': reserved,
-                    'pending_total': pending_total,
-                    'max_in_flight': self._max_in_flight,
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'tls_bump.send_blocked',
+                    'TLS bump send blocked',
+                    lambda: {
+                        'pending': pending_before,
+                        'reserved': reserved,
+                        'pending_total': pending_total,
+                        'max_in_flight': self._max_in_flight,
+                    },
+                )
             return None
         return self._reserve_permit(now=now, pending_before=pending_before)
 
@@ -297,28 +300,30 @@ class TlsHandshakeBumpClient(Transport):
             state.phase = PHASE_CONNECT
         else:
             self._close_pending(corr_id, state)
-            log_event(
-                _LOG,
-                logging.WARNING,
-                'tls_bump.connect_error',
-                'TLS bump connect error',
-                lambda: {'error': err},
-            )
+            if _LOG.isEnabledFor(logging.WARNING):
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'tls_bump.connect_error',
+                    'TLS bump connect error',
+                    lambda: {'error': err},
+                )
             if err in SOFT_CONNECT_ERRORS:
                 return corr_id
             raise TransportError('TLS bump connect failed: %s' % err)
 
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'tls_bump.send',
-            'TLS bump request queued',
-            lambda: {
-                'corr_id': corr_id,
-                'payload_bytes': len(data),
-                'pending': pending_before + 1,
-            },
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'tls_bump.send',
+                'TLS bump request queued',
+                lambda: {
+                    'corr_id': corr_id,
+                    'payload_bytes': len(data),
+                    'pending': pending_before + 1,
+                },
+            )
         return corr_id
 
     def recv(self, timeout=None):
@@ -427,13 +432,14 @@ class TlsHandshakeBumpClient(Transport):
         err = state.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
         if err != 0:
             self._close_pending(corr_id, state)
-            log_event(
-                _LOG,
-                logging.WARNING,
-                'tls_bump.connect_error',
-                'TLS bump connect error',
-                lambda: {'error': err},
-            )
+            if _LOG.isEnabledFor(logging.WARNING):
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'tls_bump.connect_error',
+                    'TLS bump connect error',
+                    lambda: {'error': err},
+                )
             if err in SOFT_CONNECT_ERRORS:
                 return None
             raise TransportError('TLS bump connect failed: %s' % err)
@@ -593,16 +599,17 @@ class TlsHandshakeBumpClient(Transport):
             self._close_pending(corr_id, state)
             return None
         self._close_pending(corr_id, state)
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'tls_bump.recv',
-            'TLS bump response received',
-            lambda: {
-                'corr_id': corr_id,
-                'payload_bytes': len(payload),
-            },
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'tls_bump.recv',
+                'TLS bump response received',
+                lambda: {
+                    'corr_id': corr_id,
+                    'payload_bytes': len(payload),
+                },
+            )
         return (corr_id, payload)
 
     def _extract_payload(self, state, corr_id):
@@ -635,13 +642,14 @@ class TlsHandshakeBumpClient(Transport):
         for corr_id, state in stale:
             self._close_pending(corr_id, state)
         if stale:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'tls_bump.prune_stale',
-                'Pruned stale TLS bump connections',
-                lambda: {'count': len(stale)},
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'tls_bump.prune_stale',
+                    'Pruned stale TLS bump connections',
+                    lambda: {'count': len(stale)},
+                )
         return stale
 
     def _on_prune(self, stale):
@@ -713,22 +721,24 @@ class TlsHandshakeBumpClient(Transport):
             data = {'reason': reason, 'corr_id': corr_id}
             data.update(extra)
             return data
-        log_event(
-            _LOG,
-            logging.WARNING,
-            'tls_bump.proxy_error',
-            'TLS bump proxy error',
-            _fields,
-        )
+        if _LOG.isEnabledFor(logging.WARNING):
+            log_event(
+                _LOG,
+                logging.WARNING,
+                'tls_bump.proxy_error',
+                'TLS bump proxy error',
+                _fields,
+            )
 
     def _log_parse_error(self, reason, corr_id):
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'tls_bump.parse_error',
-            'TLS bump parse error',
-            lambda: {'reason': reason, 'corr_id': corr_id},
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'tls_bump.parse_error',
+                'TLS bump parse error',
+                lambda: {'reason': reason, 'corr_id': corr_id},
+            )
 
     def close(self):
         for corr_id, state in list(self._pending_state.items()):

@@ -136,35 +136,37 @@ class TlsClient(Transport):
             'min_packet_mtu': min_packet_mtu,
         }
         mtu_details.update(mtu_constraints)
-        log_event(
-            _LOG,
-            logging.INFO,
-            'transport.mtu_limits',
-            'Transport MTU limits',
-            lambda: mtu_details,
-        )
-        log_event(
-            _LOG,
-            logging.INFO,
-            'tls.client_config',
-            'TLS client config',
-            lambda: {
-                'target': target_desc,
-                'proxy': self._proxy_label,
-                'proxy_timeout': self._proxy_timeout,
-                'max_in_flight': self._max_in_flight,
-                'pending_timeout': self._pending_timeout,
-                'connect_timeout': self._connect_timeout,
-                'handshake_timeout': self._handshake_timeout,
-                'max_clienthello_bytes': self._max_record_send,
-                'max_serverhello_bytes': self._max_record_recv,
-                'send_packet_mtu': self._send_packet_mtu,
-                'recv_packet_mtu': self._recv_packet_mtu,
-                'sni': self._sni,
-                'alpn': self._alpn_list,
-                'clienthello_padding_target': self._clienthello_padding_target,
-            },
-        )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'transport.mtu_limits',
+                'Transport MTU limits',
+                lambda: mtu_details,
+            )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'tls.client_config',
+                'TLS client config',
+                lambda: {
+                    'target': target_desc,
+                    'proxy': self._proxy_label,
+                    'proxy_timeout': self._proxy_timeout,
+                    'max_in_flight': self._max_in_flight,
+                    'pending_timeout': self._pending_timeout,
+                    'connect_timeout': self._connect_timeout,
+                    'handshake_timeout': self._handshake_timeout,
+                    'max_clienthello_bytes': self._max_record_send,
+                    'max_serverhello_bytes': self._max_record_recv,
+                    'send_packet_mtu': self._send_packet_mtu,
+                    'recv_packet_mtu': self._recv_packet_mtu,
+                    'sni': self._sni,
+                    'alpn': self._alpn_list,
+                    'clienthello_padding_target': self._clienthello_padding_target,
+                },
+            )
 
         self._pending = PendingTracker(self._pending_timeout)
         self._pending_state = {}
@@ -197,18 +199,19 @@ class TlsClient(Transport):
         reserved = len(self._reserved)
         pending_total = pending_before + reserved
         if pending_total >= self._max_in_flight:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'tls.send_blocked',
-                'TLS send blocked',
-                lambda: {
-                    'pending': pending_before,
-                    'reserved': reserved,
-                    'pending_total': pending_total,
-                    'max_in_flight': self._max_in_flight,
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'tls.send_blocked',
+                    'TLS send blocked',
+                    lambda: {
+                        'pending': pending_before,
+                        'reserved': reserved,
+                        'pending_total': pending_total,
+                        'max_in_flight': self._max_in_flight,
+                    },
+                )
             return None
         return self._reserve_permit(now=now, pending_before=pending_before)
 
@@ -270,29 +273,31 @@ class TlsClient(Transport):
             state.phase = PHASE_CONNECT
         else:
             self._close_pending(corr_id, state)
-            log_event(
-                _LOG,
-                logging.WARNING,
-                'tls.connect_error',
-                'TLS connect error',
-                lambda: {'error': err},
-            )
+            if _LOG.isEnabledFor(logging.WARNING):
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'tls.connect_error',
+                    'TLS connect error',
+                    lambda: {'error': err},
+                )
             if err in SOFT_CONNECT_ERRORS:
                 return corr_id
             raise TransportError('TLS connect failed: %s' % err)
 
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'tls.send',
-            'TLS ClientHello queued',
-            lambda: {
-                'corr_id': corr_id,
-                'payload_bytes': len(data),
-                'record_bytes': len(record),
-                'pending': pending_before + 1,
-            },
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'tls.send',
+                'TLS ClientHello queued',
+                lambda: {
+                    'corr_id': corr_id,
+                    'payload_bytes': len(data),
+                    'record_bytes': len(record),
+                    'pending': pending_before + 1,
+                },
+            )
         return corr_id
 
     def recv(self, timeout=None):
@@ -387,13 +392,14 @@ class TlsClient(Transport):
         err = state.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
         if err != 0:
             self._close_pending(corr_id, state)
-            log_event(
-                _LOG,
-                logging.WARNING,
-                'tls.connect_error',
-                'TLS connect error',
-                lambda: {'error': err},
-            )
+            if _LOG.isEnabledFor(logging.WARNING):
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'tls.connect_error',
+                    'TLS connect error',
+                    lambda: {'error': err},
+                )
             if err in SOFT_CONNECT_ERRORS:
                 return None
             raise TransportError('TLS connect failed: %s' % err)
@@ -507,16 +513,17 @@ class TlsClient(Transport):
             self._close_pending(corr_id, state)
             return None
         self._close_pending(corr_id, state)
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'tls.recv',
-            'TLS ServerHello received',
-            lambda: {
-                'corr_id': corr_id,
-                'payload_bytes': len(payload),
-            },
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'tls.recv',
+                'TLS ServerHello received',
+                lambda: {
+                    'corr_id': corr_id,
+                    'payload_bytes': len(payload),
+                },
+            )
         return (corr_id, payload)
 
     def _prune_deadlines(self, now=None):
@@ -532,13 +539,14 @@ class TlsClient(Transport):
         for corr_id, state in stale:
             self._close_pending(corr_id, state)
         if stale:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'tls.prune_stale',
-                'Pruned stale TLS connections',
-                lambda: {'count': len(stale)},
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'tls.prune_stale',
+                    'Pruned stale TLS connections',
+                    lambda: {'count': len(stale)},
+                )
         return stale
 
     def _on_prune(self, stale):
@@ -627,22 +635,24 @@ class TlsClient(Transport):
             data = {'reason': reason, 'corr_id': corr_id}
             data.update(extra)
             return data
-        log_event(
-            _LOG,
-            logging.WARNING,
-            'tls.proxy_error',
-            'TLS proxy error',
-            _fields,
-        )
+        if _LOG.isEnabledFor(logging.WARNING):
+            log_event(
+                _LOG,
+                logging.WARNING,
+                'tls.proxy_error',
+                'TLS proxy error',
+                _fields,
+            )
 
     def _log_parse_error(self, reason, corr_id):
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'tls.parse_error',
-            'TLS parse error',
-            lambda: {'reason': reason, 'corr_id': corr_id},
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'tls.parse_error',
+                'TLS parse error',
+                lambda: {'reason': reason, 'corr_id': corr_id},
+            )
 
     def close(self):
         for corr_id, state in list(self._pending_state.items()):

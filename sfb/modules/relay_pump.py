@@ -163,39 +163,41 @@ def _notify_stop(stop_callback, fields):
 def _log_pump_error(logger, rid, ch, side, direction, label, msg, exc,
                     event_prefix):
     peer = normalize_peer(label)
-    log_event(
-        logger,
-        logging.DEBUG,
-        _event_name(event_prefix, 'relay_error'),
-        msg,
-        lambda: {
-            'rid': rid,
-            'ch': ch,
-            'direction': direction,
-            'error': str(exc),
-            'side': side,
-            'label': label,
-            'peer': peer,
-        },
-    )
+    if logger.isEnabledFor(logging.DEBUG):
+        log_event(
+            logger,
+            logging.DEBUG,
+            _event_name(event_prefix, 'relay_error'),
+            msg,
+            lambda: {
+                'rid': rid,
+                'ch': ch,
+                'direction': direction,
+                'error': str(exc),
+                'side': side,
+                'label': label,
+                'peer': peer,
+            },
+        )
 
 
 def _log_pump_start(logger, rid, ch, side, direction, label, event_prefix):
     peer = normalize_peer(label)
-    log_event(
-        logger,
-        logging.DEBUG,
-        _event_name(event_prefix, 'pump_start'),
-        'Relay pump start',
-        lambda: {
-            'rid': rid,
-            'ch': ch,
-            'direction': direction,
-            'label': label,
-            'side': side,
-            'peer': peer,
-        },
-    )
+    if logger.isEnabledFor(logging.DEBUG):
+        log_event(
+            logger,
+            logging.DEBUG,
+            _event_name(event_prefix, 'pump_start'),
+            'Relay pump start',
+            lambda: {
+                'rid': rid,
+                'ch': ch,
+                'direction': direction,
+                'label': label,
+                'side': side,
+                'peer': peer,
+            },
+        )
 
 
 def _log_pump_stop(logger, rid, ch, side, direction, label, reason,
@@ -232,13 +234,14 @@ def _log_pump_stop(logger, rid, ch, side, direction, label, reason,
     if stop_callback is not None:
         _notify_stop(stop_callback, fields)
     if should_log:
-        log_event(
-            logger,
-            logging.DEBUG,
-            _event_name(event_prefix, 'pump_stop'),
-            'Relay pump stop',
-            lambda: fields,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                logger,
+                logging.DEBUG,
+                _event_name(event_prefix, 'pump_stop'),
+                'Relay pump stop',
+                lambda: fields,
+            )
 
 
 def pump_socket_to_channel(sock, channel, config, logger, stop_event,
@@ -457,52 +460,55 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
 
                 if not data:
                     exit_reason = 'socket_eof'
-                    log_event(
-                        logger,
-                        logging.DEBUG,
-                        _event_name(event_prefix, 'pump_socket_eof'),
-                        'Relay pump socket EOF',
-                        lambda: add_fields(relay_fields(
-                            rid=rid,
-                            ch=ch,
-                            side=side,
-                            peer=normalize_peer(recv_label),
-                            direction=direction,
-                            label=recv_label,
-                        ), {
+                    if logger.isEnabledFor(logging.DEBUG):
+                        log_event(
+                            logger,
+                            logging.DEBUG,
+                            _event_name(event_prefix, 'pump_socket_eof'),
+                            'Relay pump socket EOF',
+                            lambda: add_fields(relay_fields(
+                                rid=rid,
+                                ch=ch,
+                                side=side,
+                                peer=normalize_peer(recv_label),
+                                direction=direction,
+                                label=recv_label,
+                            ), {
                             'source': 'socket',
                             'channel_state': _channel_state_snapshot(channel),
                         }),
                     )
-                    log_event(
-                        logger,
-                        logging.DEBUG,
-                        _event_name(event_prefix, 'relay_eof'),
-                        'Relay EOF',
-                        lambda: add_fields(relay_fields(
-                            rid=rid,
-                            ch=ch,
-                            side=side,
-                            peer=normalize_peer(recv_label),
-                            direction=direction,
-                            label=recv_label,
-                        ), {'source': 'socket'}),
+                    if logger.isEnabledFor(logging.DEBUG):
+                        log_event(
+                            logger,
+                            logging.DEBUG,
+                            _event_name(event_prefix, 'relay_eof'),
+                            'Relay EOF',
+                            lambda: add_fields(relay_fields(
+                                rid=rid,
+                                ch=ch,
+                                side=side,
+                                peer=normalize_peer(recv_label),
+                                direction=direction,
+                                label=recv_label,
+                            ), {'source': 'socket'}),
                     )
                     if eof_callback is not None:
                         if not stop_event.is_set():
-                            log_event(
-                                logger,
-                                logging.DEBUG,
-                                _event_name(event_prefix, 'relay_half_close_request'),
-                                'Relay half-close requested',
-                                lambda: add_fields(relay_fields(
-                                    rid=rid,
-                                    ch=ch,
-                                    side=side,
-                                    peer=normalize_peer(recv_label),
-                                    direction=direction,
-                                    label=recv_label,
-                                ), {'channel_state': _channel_state_snapshot(channel)}),
+                            if logger.isEnabledFor(logging.DEBUG):
+                                log_event(
+                                    logger,
+                                    logging.DEBUG,
+                                    _event_name(event_prefix, 'relay_half_close_request'),
+                                    'Relay half-close requested',
+                                    lambda: add_fields(relay_fields(
+                                        rid=rid,
+                                        ch=ch,
+                                        side=side,
+                                        peer=normalize_peer(recv_label),
+                                        direction=direction,
+                                        label=recv_label,
+                                    ), {'channel_state': _channel_state_snapshot(channel)}),
                             )
                             invoke_close_callback()
                     return
@@ -552,19 +558,20 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
             if stats_enabled:
                 now = time_provider.now()
                 if now - last_stats >= 1.0:
-                    log_event(
-                        logger,
-                        logging.DEBUG,
-                        _event_name(event_prefix, 'pump_stats'),
-                        'Relay pump stats',
-                        lambda: add_fields(relay_fields(
-                            rid=rid,
-                            ch=ch,
-                            side=side,
-                            peer=normalize_peer(recv_label),
-                            direction=direction,
-                            label=recv_label,
-                        ), {
+                    if logger.isEnabledFor(logging.DEBUG):
+                        log_event(
+                            logger,
+                            logging.DEBUG,
+                            _event_name(event_prefix, 'pump_stats'),
+                            'Relay pump stats',
+                            lambda: add_fields(relay_fields(
+                                rid=rid,
+                                ch=ch,
+                                side=side,
+                                peer=normalize_peer(recv_label),
+                                direction=direction,
+                                label=recv_label,
+                            ), {
                             'bytes_in': bytes_recv,
                             'bytes_out': bytes_written,
                             'bytes_recv': bytes_recv,
@@ -595,19 +602,20 @@ def pump_socket_to_channel(sock, channel, config, logger, stop_event,
         if fatal_error:
             stop_event.set()
         if exit_reason == 'stop_event':
-            log_event(
-                logger,
-                logging.DEBUG,
-                _event_name(event_prefix, 'pump_stop_event'),
-                'Relay pump stop event',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch,
-                    side=side,
-                    peer=normalize_peer(recv_label),
-                    direction=direction,
-                    label=recv_label,
-                ), {'duration': duration_secs(start_time), 'stop_event': True}),
+            if logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    _event_name(event_prefix, 'pump_stop_event'),
+                    'Relay pump stop event',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch,
+                        side=side,
+                        peer=normalize_peer(recv_label),
+                        direction=direction,
+                        label=recv_label,
+                    ), {'duration': duration_secs(start_time), 'stop_event': True}),
             )
         stop_stats = None
         if stats_enabled:
@@ -692,19 +700,20 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     exit_reason = 'socket_send_timeout'
                     exit_error = socket.timeout()
                     if not stop_event.is_set():
-                        log_event(
-                            logger,
-                            logging.DEBUG,
-                            _event_name(event_prefix, 'pump_timeout'),
-                            'Relay pump socket send timeout',
-                            lambda: add_fields(relay_fields(
-                                rid=rid,
-                                ch=ch,
-                                side=side,
-                                peer=normalize_peer(send_label),
-                                direction=direction,
-                                label=send_label,
-                            ), {
+                        if logger.isEnabledFor(logging.DEBUG):
+                            log_event(
+                                logger,
+                                logging.DEBUG,
+                                _event_name(event_prefix, 'pump_timeout'),
+                                'Relay pump socket send timeout',
+                                lambda: add_fields(relay_fields(
+                                    rid=rid,
+                                    ch=ch,
+                                    side=side,
+                                    peer=normalize_peer(send_label),
+                                    direction=direction,
+                                    label=send_label,
+                                ), {
                                 'timeout': write_timeout,
                                 'elapsed': round(now - last_send, 3),
                                 'kind': 'socket_send',
@@ -823,36 +832,38 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                             channel_timeouts += 1
                         pass
                     elif data == b'':
-                        log_event(
-                            logger,
-                            logging.DEBUG,
-                            _event_name(event_prefix, 'pump_channel_eof'),
-                            'Relay pump channel EOF',
-                            lambda: add_fields(relay_fields(
-                                rid=rid,
-                                ch=ch,
-                                side=side,
-                                peer=normalize_peer(send_label),
-                                direction=direction,
-                                label=send_label,
-                            ), {
+                        if logger.isEnabledFor(logging.DEBUG):
+                            log_event(
+                                logger,
+                                logging.DEBUG,
+                                _event_name(event_prefix, 'pump_channel_eof'),
+                                'Relay pump channel EOF',
+                                lambda: add_fields(relay_fields(
+                                    rid=rid,
+                                    ch=ch,
+                                    side=side,
+                                    peer=normalize_peer(send_label),
+                                    direction=direction,
+                                    label=send_label,
+                                ), {
                                 'source': 'channel',
                                 'channel_state': _channel_state_snapshot(channel),
                             }),
                         )
-                        log_event(
-                            logger,
-                            logging.DEBUG,
-                            _event_name(event_prefix, 'relay_eof'),
-                            'Channel EOF',
-                            lambda: add_fields(relay_fields(
-                                rid=rid,
-                                ch=ch,
-                                side=side,
-                                peer=normalize_peer(send_label),
-                                direction=direction,
-                                label=send_label,
-                            ), {'source': 'channel'}),
+                        if logger.isEnabledFor(logging.DEBUG):
+                            log_event(
+                                logger,
+                                logging.DEBUG,
+                                _event_name(event_prefix, 'relay_eof'),
+                                'Channel EOF',
+                                lambda: add_fields(relay_fields(
+                                    rid=rid,
+                                    ch=ch,
+                                    side=side,
+                                    peer=normalize_peer(send_label),
+                                    direction=direction,
+                                    label=send_label,
+                                ), {'source': 'channel'}),
                         )
                         channel_closed = True
                         if channel.is_closed:
@@ -872,19 +883,20 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
 
             if channel_closed and outbound_size == 0:
                 if shutdown_pending:
-                    log_event(
-                        logger,
-                        logging.DEBUG,
-                        _event_name(event_prefix, 'relay_shutdown_write'),
-                        'Relay socket write shutdown',
-                        lambda: add_fields(relay_fields(
-                            rid=rid,
-                            ch=ch,
-                            side=side,
-                            peer=normalize_peer(send_label),
-                            direction=direction,
-                            label=send_label,
-                        ), {
+                    if logger.isEnabledFor(logging.DEBUG):
+                        log_event(
+                            logger,
+                            logging.DEBUG,
+                            _event_name(event_prefix, 'relay_shutdown_write'),
+                            'Relay socket write shutdown',
+                            lambda: add_fields(relay_fields(
+                                rid=rid,
+                                ch=ch,
+                                side=side,
+                                peer=normalize_peer(send_label),
+                                direction=direction,
+                                label=send_label,
+                            ), {
                             'reason': channel_closed_reason,
                             'outbound_size': outbound_size,
                             'channel_state': _channel_state_snapshot(channel),
@@ -904,19 +916,20 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
             if stats_enabled:
                 now = time_provider.now()
                 if now - last_stats >= 1.0:
-                    log_event(
-                        logger,
-                        logging.DEBUG,
-                        _event_name(event_prefix, 'pump_stats'),
-                        'Relay pump stats',
-                        lambda: add_fields(relay_fields(
-                            rid=rid,
-                            ch=ch,
-                            side=side,
-                            peer=normalize_peer(send_label),
-                            direction=direction,
-                            label=send_label,
-                        ), {
+                    if logger.isEnabledFor(logging.DEBUG):
+                        log_event(
+                            logger,
+                            logging.DEBUG,
+                            _event_name(event_prefix, 'pump_stats'),
+                            'Relay pump stats',
+                            lambda: add_fields(relay_fields(
+                                rid=rid,
+                                ch=ch,
+                                side=side,
+                                peer=normalize_peer(send_label),
+                                direction=direction,
+                                label=send_label,
+                            ), {
                             'bytes_in': bytes_read,
                             'bytes_out': bytes_sent,
                             'bytes_read': bytes_read,
@@ -949,19 +962,20 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
         if fatal_error:
             stop_event.set()
         if exit_reason == 'stop_event':
-            log_event(
-                logger,
-                logging.DEBUG,
-                _event_name(event_prefix, 'pump_stop_event'),
-                'Relay pump stop event',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch,
-                    side=side,
-                    peer=normalize_peer(send_label),
-                    direction=direction,
-                    label=send_label,
-                ), {'duration': duration_secs(start_time), 'stop_event': True}),
+            if logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    _event_name(event_prefix, 'pump_stop_event'),
+                    'Relay pump stop event',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch,
+                        side=side,
+                        peer=normalize_peer(send_label),
+                        direction=direction,
+                        label=send_label,
+                    ), {'duration': duration_secs(start_time), 'stop_event': True}),
             )
         stop_stats = None
         if stats_enabled:

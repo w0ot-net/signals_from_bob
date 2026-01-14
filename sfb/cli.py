@@ -1436,40 +1436,44 @@ def create_crypto(args, logger):
     """Create crypto instance from args."""
     if args.xor is not None:
         crypto = XOR(_normalize_psk(args.xor))
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.crypto',
-            'Encryption enabled',
-            lambda: {'mode': 'xor'},
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.crypto',
+                'Encryption enabled',
+                lambda: {'mode': 'xor'},
+            )
     elif args.rc4 is not None:
         crypto = RC4(_normalize_psk(args.rc4))
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.crypto',
-            'Encryption enabled',
-            lambda: {'mode': 'rc4'},
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.crypto',
+                'Encryption enabled',
+                lambda: {'mode': 'rc4'},
+            )
     elif args.sha256 is not None:
         crypto = SHA256(_normalize_psk(args.sha256))
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.crypto',
-            'Encryption enabled',
-            lambda: {'mode': 'sha256'},
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.crypto',
+                'Encryption enabled',
+                lambda: {'mode': 'sha256'},
+            )
     else:
         crypto = Plain()
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.crypto',
-            'Encryption disabled',
-            lambda: {'mode': 'none'},
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.crypto',
+                'Encryption disabled',
+                lambda: {'mode': 'none'},
+            )
     return crypto
 
 
@@ -1588,28 +1592,29 @@ def _wrap_lossy_transport(transport, args, role, logger):
             send_impairment=send_impairment,
             stats_enabled=stats_enabled,
         )
-    log_event(
-        logger,
-        logging.INFO,
-        'cli.lossy_transport',
-        'Lossy transport enabled',
-        lambda: {
-            'role': role,
-            'transport': args.transport,
-            'tx_loss_percent': tx_loss_percent,
-            'rx_loss_percent': rx_loss_percent,
-            'tx_loss_rate': tx_loss_rate,
-            'rx_loss_rate': rx_loss_rate,
-            'tx_dup_percent': tx_dup_percent,
-            'rx_dup_percent': rx_dup_percent,
-            'tx_dup_rate': tx_dup_rate,
-            'rx_dup_rate': rx_dup_rate,
-            'tx_corrupt_percent': tx_corrupt_percent,
-            'rx_corrupt_percent': rx_corrupt_percent,
-            'tx_corrupt_rate': tx_corrupt_rate,
-            'rx_corrupt_rate': rx_corrupt_rate,
-        },
-    )
+    if logger.isEnabledFor(logging.INFO):
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.lossy_transport',
+            'Lossy transport enabled',
+            lambda: {
+                'role': role,
+                'transport': args.transport,
+                'tx_loss_percent': tx_loss_percent,
+                'rx_loss_percent': rx_loss_percent,
+                'tx_loss_rate': tx_loss_rate,
+                'rx_loss_rate': rx_loss_rate,
+                'tx_dup_percent': tx_dup_percent,
+                'rx_dup_percent': rx_dup_percent,
+                'tx_dup_rate': tx_dup_rate,
+                'rx_dup_rate': rx_dup_rate,
+                'tx_corrupt_percent': tx_corrupt_percent,
+                'rx_corrupt_percent': rx_corrupt_percent,
+                'tx_corrupt_rate': tx_corrupt_rate,
+                'rx_corrupt_rate': rx_corrupt_rate,
+            },
+        )
     return wrapped
 
 
@@ -1618,22 +1623,24 @@ def run_server(args, config, crypto, logger):
     # Change to root directory for file transfers
     root = os.path.abspath(config.file_transfer_root)
     if not os.path.isdir(root):
-        log_event(
-            logger,
-            logging.ERROR,
-            'cli.root_missing',
-            'Root directory does not exist',
-            lambda: {'path': root},
-        )
+        if logger.isEnabledFor(logging.ERROR):
+            log_event(
+                logger,
+                logging.ERROR,
+                'cli.root_missing',
+                'Root directory does not exist',
+                lambda: {'path': root},
+            )
         return 1
     os.chdir(root)
-    log_event(
-        logger,
-        logging.INFO,
-        'cli.working_dir',
-        'Working directory',
-        lambda: {'path': root},
-    )
+    if logger.isEnabledFor(logging.INFO):
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.working_dir',
+            'Working directory',
+            lambda: {'path': root},
+        )
 
     # Create transport and tunnel
     try:
@@ -1654,13 +1661,14 @@ def run_server(args, config, crypto, logger):
             # Force exit without raising SystemExit during atexit cleanup.
             os._exit(1)
         shutdown_requested[0] = True
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.shutdown',
-            'Shutting down',
-            lambda: None,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.shutdown',
+                'Shutting down',
+                lambda: None,
+            )
         tunnel.close()
 
     signal.signal(signal.SIGINT, handle_signal)
@@ -1677,82 +1685,90 @@ def run_server_passive(args, tunnel, logger):
     """Run server in passive mode (no command, just wait for connections)."""
     if args.transport == 'dns':
         host, port = parse_host_port(tunnel._config.dns_listen_addr, default_port=53)
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.listen',
-            'Listening (passive mode)',
-            lambda: {'transport': 'dns', 'host': host, 'port': port, 'domain': args.domain},
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.listen',
+                'Listening (passive mode)',
+                lambda: {'transport': 'dns', 'host': host, 'port': port, 'domain': args.domain},
+            )
     elif args.transport == 'icmp':
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.listen',
-            'Listening (passive mode)',
-            lambda: {'transport': 'icmp'},
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.listen',
+                'Listening (passive mode)',
+                lambda: {'transport': 'icmp'},
+            )
     try:
         tunnel.serve_forever()
     except Exception as e:
-        log_event(
-            logger,
-            logging.ERROR,
-            'cli.serve_error',
-            'Error in serve loop',
-            lambda: {'error': str(e)},
-        )
-        log_event(
-            logger,
-            logging.ERROR,
-            'cli.traceback',
-            'Serve loop traceback',
-            lambda: {'context': 'serve_loop'},
-            exc_info=True,
-        )
+        if logger.isEnabledFor(logging.ERROR):
+            log_event(
+                logger,
+                logging.ERROR,
+                'cli.serve_error',
+                'Error in serve loop',
+                lambda: {'error': str(e)},
+            )
+        if logger.isEnabledFor(logging.ERROR):
+            log_event(
+                logger,
+                logging.ERROR,
+                'cli.traceback',
+                'Serve loop traceback',
+                lambda: {'context': 'serve_loop'},
+                exc_info=True,
+            )
         return 1
     finally:
         tunnel.close()
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.shutdown_complete',
-            'Shutdown complete',
-            lambda: None,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.shutdown_complete',
+                'Shutdown complete',
+                lambda: None,
+            )
     return 0
 
 
 def _wait_for_client(tunnel, args, logger, shutdown_requested):
     if args.transport == 'dns':
         host, port = parse_host_port(tunnel._config.dns_listen_addr, default_port=53)
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.wait_client',
-            'Waiting for client',
-            lambda: {'transport': 'dns', 'host': host, 'port': port},
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.wait_client',
+                'Waiting for client',
+                lambda: {'transport': 'dns', 'host': host, 'port': port},
+            )
     elif args.transport == 'icmp':
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.wait_client',
-            'Waiting for client',
-            lambda: {'transport': 'icmp'},
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.wait_client',
+                'Waiting for client',
+                lambda: {'transport': 'icmp'},
+            )
     while tunnel._state != TunnelState.CONNECTED:
         if shutdown_requested[0]:
             return False
         time_provider.sleep(tunnel._config.tunnel_connect_poll_interval)
 
-    log_event(
-        logger,
-        logging.INFO,
-        'cli.client_connected',
-        'Client connected',
-        lambda: None,
-    )
+    if logger.isEnabledFor(logging.INFO):
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.client_connected',
+            'Client connected',
+            lambda: None,
+        )
     return True
 
 
@@ -1764,21 +1780,23 @@ def _load_remote_module(tunnel, args, logger, module_loader):
         raise ModuleError('invalid_module', 'unknown module: %s' % module_name)
     module_logger = get_logger('sfb.modules.%s' % module_name)
     remote_module = module_cls.REMOTE_MODULE or module_name
-    log_event(
-        logger,
-        logging.INFO,
-        'cli.module_load',
-        'Loading module on peer',
-        lambda: {'module': remote_module, 'mid': module_id},
-    )
+    if logger.isEnabledFor(logging.INFO):
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.module_load',
+            'Loading module on peer',
+            lambda: {'module': remote_module, 'mid': module_id},
+        )
     module_loader.load_remote(remote_module, module_id)
-    log_event(
-        logger,
-        logging.INFO,
-        'cli.module_loaded',
-        'Module loaded (module=%s)' % remote_module,
-        lambda: {'module': remote_module, 'mid': module_id},
-    )
+    if logger.isEnabledFor(logging.INFO):
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.module_loaded',
+            'Module loaded (module=%s)' % remote_module,
+            lambda: {'module': remote_module, 'mid': module_id},
+        )
     return module_cls, module_logger
 
 
@@ -1789,13 +1807,14 @@ def _resolve_module_command(args, module_cls, logger):
             if default_cmd:
                 args.command = default_cmd
             elif getattr(module_cls, 'REQUIRES_COMMAND', False):
-                log_event(
-                    logger,
-                    logging.ERROR,
-                    'cli.module_command_required',
-                    'Module requires a command',
-                    lambda: {'module': args.module, 'mid': args.module_id},
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        logger,
+                        logging.ERROR,
+                        'cli.module_command_required',
+                        'Module requires a command',
+                        lambda: {'module': args.module, 'mid': args.module_id},
+                    )
                 return False
     return True
 
@@ -1845,47 +1864,51 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
         module_label = getattr(args, 'module', None) or 'module'
         reason = e.reason or str(e) or e.code
         _print_error('%s error: %s' % (module_label, reason))
-        log_event(
-            logger,
-            logging.ERROR,
-            'cli.module_error',
-            'Module error',
-            lambda: {
-                'module': module_label,
-                'mid': getattr(args, 'module_id', None),
-                'code': e.code,
-                'reason': reason,
-            },
-        )
-        return 1
-    except Exception as e:
-        log_event(
-            logger,
-            logging.ERROR,
-            'cli.error',
-            'Error',
-            lambda: {'error': str(e)},
-        )
-        if args.verbose:
+        if logger.isEnabledFor(logging.ERROR):
             log_event(
                 logger,
                 logging.ERROR,
-                'cli.traceback',
-                'Full traceback',
-                lambda: {'context': 'server_command'},
-                exc_info=True,
+                'cli.module_error',
+                'Module error',
+                lambda: {
+                    'module': module_label,
+                    'mid': getattr(args, 'module_id', None),
+                    'code': e.code,
+                    'reason': reason,
+                },
             )
+        return 1
+    except Exception as e:
+        if logger.isEnabledFor(logging.ERROR):
+            log_event(
+                logger,
+                logging.ERROR,
+                'cli.error',
+                'Error',
+                lambda: {'error': str(e)},
+            )
+        if args.verbose:
+            if logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    'cli.traceback',
+                    'Full traceback',
+                    lambda: {'context': 'server_command'},
+                    exc_info=True,
+                )
         return 1
 
     finally:
         tunnel.close()
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.shutdown_complete',
-            'Shutdown complete',
-            lambda: None,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.shutdown_complete',
+                'Shutdown complete',
+                lambda: None,
+            )
 
 
 def run_client(args, config, crypto, logger):
@@ -1909,13 +1932,14 @@ def run_client(args, config, crypto, logger):
             # Force exit without raising SystemExit during atexit cleanup.
             os._exit(1)
         shutdown_requested[0] = True
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.shutdown',
-            'Shutting down',
-            lambda: None,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.shutdown',
+                'Shutting down',
+                lambda: None,
+            )
         tunnel.close()
 
     signal.signal(signal.SIGINT, handle_signal)
@@ -1925,41 +1949,45 @@ def run_client(args, config, crypto, logger):
         # Connect
         if args.transport == 'dns':
             resolver_desc = getattr(args, 'target', None) or 'system resolver'
-            log_event(
-                logger,
-                logging.INFO,
-                'cli.connect',
-                'Connecting',
-                lambda: {'transport': 'dns', 'domain': args.domain, 'resolver': resolver_desc},
-            )
+            if logger.isEnabledFor(logging.INFO):
+                log_event(
+                    logger,
+                    logging.INFO,
+                    'cli.connect',
+                    'Connecting',
+                    lambda: {'transport': 'dns', 'domain': args.domain, 'resolver': resolver_desc},
+                )
         elif args.transport == 'icmp':
             target = getattr(args, 'target', None)
+            if logger.isEnabledFor(logging.INFO):
+                log_event(
+                    logger,
+                    logging.INFO,
+                    'cli.connect',
+                    'Connecting',
+                    lambda: {'transport': 'icmp', 'target': target},
+                )
+        tunnel.connect()
+        if logger.isEnabledFor(logging.INFO):
             log_event(
                 logger,
                 logging.INFO,
-                'cli.connect',
-                'Connecting',
-                lambda: {'transport': 'icmp', 'target': target},
+                'cli.connected',
+                'Connected',
+                lambda: None,
             )
-        tunnel.connect()
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.connected',
-            'Connected',
-            lambda: None,
-        )
 
         # Start background tick loop
         tunnel.start_background()
 
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.wait_commands',
-            'Waiting for commands',
-            lambda: None,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.wait_commands',
+                'Waiting for commands',
+                lambda: None,
+            )
 
         # Run until connection closes or signal received
         while tunnel._state == TunnelState.CONNECTED and not shutdown_requested[0]:
@@ -1968,33 +1996,36 @@ def run_client(args, config, crypto, logger):
         return 0
 
     except Exception as e:
-        log_event(
-            logger,
-            logging.ERROR,
-            'cli.error',
-            'Error',
-            lambda: {'error': str(e)},
-        )
-        if args.verbose:
+        if logger.isEnabledFor(logging.ERROR):
             log_event(
                 logger,
                 logging.ERROR,
-                'cli.traceback',
-                'Full traceback',
-                lambda: {'context': 'client'},
-                exc_info=True,
+                'cli.error',
+                'Error',
+                lambda: {'error': str(e)},
             )
+        if args.verbose:
+            if logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    'cli.traceback',
+                    'Full traceback',
+                    lambda: {'context': 'client'},
+                    exc_info=True,
+                )
         return 1
 
     finally:
         tunnel.close()
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.shutdown_complete',
-            'Shutdown complete',
-            lambda: None,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.shutdown_complete',
+                'Shutdown complete',
+                lambda: None,
+            )
 
 
 def _ensure_db_log_path(parsed):
@@ -2055,18 +2086,19 @@ def _configure_root_logging(parsed, cprofile_path):
 
 
 def _log_startup(logger, parsed, cprofile_path, config):
-    log_event(
-        logger,
-        logging.INFO,
-        'cli.log_startup',
-        'Log configuration snapshot',
-        lambda: {
-            'role': parsed.role,
-            'transport': parsed.transport,
-            'log_profile': parsed.log_profile,
-            'log_profile_explicit': bool(
-                getattr(parsed, 'log_profile_explicit', False)
-            ),
+    if logger.isEnabledFor(logging.INFO):
+        log_event(
+            logger,
+            logging.INFO,
+            'cli.log_startup',
+            'Log configuration snapshot',
+            lambda: {
+                'role': parsed.role,
+                'transport': parsed.transport,
+                'log_profile': parsed.log_profile,
+                'log_profile_explicit': bool(
+                    getattr(parsed, 'log_profile_explicit', False)
+                ),
             'cprofile_path': cprofile_path,
             'db_log_path': parsed.db_log,
             'db_log_flush': parsed.db_log_flush,
@@ -2089,13 +2121,14 @@ def _log_startup(logger, parsed, cprofile_path, config):
         },
     )
     if cprofile_path:
-        log_event(
-            logger,
-            logging.INFO,
-            'cli.cprofile',
-            'cProfile enabled',
-            lambda: {'path': cprofile_path, 'mode': 'threads'},
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'cli.cprofile',
+                'cProfile enabled',
+                lambda: {'path': cprofile_path, 'mode': 'threads'},
+            )
 
 
 def _prepare_sfb_flat(parsed):

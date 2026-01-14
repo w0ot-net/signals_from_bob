@@ -196,15 +196,16 @@ class PortForwardServerModule(BaseModule):
         self._accept_thread.daemon = True
         self._accept_thread.start()
 
-        log_event(
-            self._logger,
-            logging.INFO,
-            'fwd.server_listen',
-            'Port forward listening',
-            lambda: add_fields(relay_fields(
-                side='bob',
-                peer='local',
-            ), {
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'fwd.server_listen',
+                'Port forward listening',
+                lambda: add_fields(relay_fields(
+                    side='bob',
+                    peer='local',
+                ), {
                 'host': listen_host,
                 'port': listen_port,
                 'backlog': self._config.relay_listen_backlog,
@@ -232,15 +233,16 @@ class PortForwardServerModule(BaseModule):
         for conn in connections:
             conn.stop()
 
-        log_event(
-            self._logger,
-            logging.INFO,
-            'fwd.server_stop',
-            'Port forward stopped',
-            lambda: add_fields(relay_fields(
-                side='bob',
-                peer='local',
-            ), {
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'fwd.server_stop',
+                'Port forward stopped',
+                lambda: add_fields(relay_fields(
+                    side='bob',
+                    peer='local',
+                ), {
                 'connections': self._connection_count(),
                 'pending': self._pending_count(),
             }),
@@ -257,16 +259,17 @@ class PortForwardServerModule(BaseModule):
             rid = self._next_rid
             self._next_rid += 1
             next_rid = self._next_rid
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'fwd.server_rid_alloc',
-            'Allocated forward request id',
-            lambda: add_fields(relay_fields(
-                rid=rid,
-                side='bob',
-                peer='local',
-            ), {
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'fwd.server_rid_alloc',
+                'Allocated forward request id',
+                lambda: add_fields(relay_fields(
+                    rid=rid,
+                    side='bob',
+                    peer='local',
+                ), {
                 'next_rid': next_rid,
                 'connections': self._connection_count(),
                 'pending': self._pending_count(),
@@ -288,15 +291,16 @@ class PortForwardServerModule(BaseModule):
                     continue
 
                 backoff = self._config.non_blocking_poll_timeout
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'fwd.server_accept',
-                    'Accepted connection',
-                    lambda: add_fields(relay_fields(
-                        side='bob',
-                        peer='local',
-                    ), {
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'fwd.server_accept',
+                        'Accepted connection',
+                        lambda: add_fields(relay_fields(
+                            side='bob',
+                            peer='local',
+                        ), {
                         'host': addr[0],
                         'port': addr[1],
                     }),
@@ -312,15 +316,16 @@ class PortForwardServerModule(BaseModule):
 
             except Exception as exc:
                 if self._running:
-                    log_event(
-                        self._logger,
-                        logging.ERROR,
-                        'fwd.server_accept_error',
-                        'Accept error',
-                        lambda: add_fields(relay_fields(
-                            side='bob',
-                            peer='local',
-                        ), {'error': str(exc)}),
+                    if self._logger.isEnabledFor(logging.ERROR):
+                        log_event(
+                            self._logger,
+                            logging.ERROR,
+                            'fwd.server_accept_error',
+                            'Accept error',
+                            lambda: add_fields(relay_fields(
+                                side='bob',
+                                peer='local',
+                            ), {'error': str(exc)}),
                         exc_info=True,
                     )
                     time_provider.sleep(backoff)
@@ -342,16 +347,17 @@ class PortForwardServerModule(BaseModule):
         session_start = time_provider.now()
 
         try:
-            log_event(
-                self._logger,
-                logging.INFO,
-                'fwd.server_connect',
-                'Port forward connect requested',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    side='bob',
-                    peer='local',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'fwd.server_connect',
+                    'Port forward connect requested',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        side='bob',
+                        peer='local',
+                    ), {
                     'client_host': addr[0],
                     'client_port': addr[1],
                     'remote_host': self._remote_host,
@@ -366,17 +372,18 @@ class PortForwardServerModule(BaseModule):
                 channel_wait_time = duration_secs(channel_wait_start)
                 cleanup_reason = 'channel_open_failed'
                 connect_result = 'channel_open_failed'
-                log_event(
-                    self._logger,
-                    logging.WARNING,
-                    'fwd.server_channel_failed',
-                    'Channel open failed',
-                    lambda: add_fields(relay_fields(
-                        rid=rid,
-                        ch=ch_id,
-                        side='bob',
-                        peer='local',
-                    ), {
+                if self._logger.isEnabledFor(logging.WARNING):
+                    log_event(
+                        self._logger,
+                        logging.WARNING,
+                        'fwd.server_channel_failed',
+                        'Channel open failed',
+                        lambda: add_fields(relay_fields(
+                            rid=rid,
+                            ch=ch_id,
+                            side='bob',
+                            peer='local',
+                        ), {
                         'remote_host': self._remote_host,
                         'remote_port': self._remote_port,
                     }),
@@ -404,30 +411,32 @@ class PortForwardServerModule(BaseModule):
             with self._pending_lock:
                 self._pending[rid] = pending
                 pending_count = len(self._pending)
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'fwd.server_pending_add',
-                'Forward connect pending',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=channel.id,
-                    side='bob',
-                    peer='local',
-                ), {'pending': pending_count}),
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'fwd.server_pending_add',
+                    'Forward connect pending',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=channel.id,
+                        side='bob',
+                        peer='local',
+                    ), {'pending': pending_count}),
             )
 
-            log_event(
-                self._logger,
-                logging.INFO,
-                'fwd.connect_send',
-                'Forward connect send',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=channel.id,
-                    side='bob',
-                    peer='local',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'fwd.connect_send',
+                    'Forward connect send',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=channel.id,
+                        side='bob',
+                        peer='local',
+                    ), {
                     'remote_host': self._remote_host,
                     'remote_port': self._remote_port,
                 }),
@@ -441,17 +450,18 @@ class PortForwardServerModule(BaseModule):
                 connect_latency = duration_secs(connect_request_time)
                 cleanup_reason = 'connect_timeout'
                 connect_result = 'timeout'
-                log_event(
-                    self._logger,
-                    logging.WARNING,
-                    'fwd.server_connect_timeout',
-                    'Connect timeout',
-                    lambda: add_fields(relay_fields(
-                        rid=rid,
-                        ch=channel.id,
-                        side='bob',
-                        peer='local',
-                    ), {
+                if self._logger.isEnabledFor(logging.WARNING):
+                    log_event(
+                        self._logger,
+                        logging.WARNING,
+                        'fwd.server_connect_timeout',
+                        'Connect timeout',
+                        lambda: add_fields(relay_fields(
+                            rid=rid,
+                            ch=channel.id,
+                            side='bob',
+                            peer='local',
+                        ), {
                         'remote_host': self._remote_host,
                         'remote_port': self._remote_port,
                     }),
@@ -463,17 +473,18 @@ class PortForwardServerModule(BaseModule):
                 cleanup_reason = 'connect_failed'
                 connect_result = 'error'
                 connect_error = pending.error
-                log_event(
-                    self._logger,
-                    logging.INFO,
-                    'fwd.server_connect_failed',
-                    'Connect failed',
-                    lambda: add_fields(relay_fields(
-                        rid=rid,
-                        ch=channel.id,
-                        side='bob',
-                        peer='local',
-                    ), {
+                if self._logger.isEnabledFor(logging.INFO):
+                    log_event(
+                        self._logger,
+                        logging.INFO,
+                        'fwd.server_connect_failed',
+                        'Connect failed',
+                        lambda: add_fields(relay_fields(
+                            rid=rid,
+                            ch=channel.id,
+                            side='bob',
+                            peer='local',
+                        ), {
                         'remote_host': self._remote_host,
                         'remote_port': self._remote_port,
                         'error': pending.error,
@@ -483,17 +494,18 @@ class PortForwardServerModule(BaseModule):
                 return
 
             connect_result = 'ok'
-            log_event(
-                self._logger,
-                logging.INFO,
-                'fwd.server_connected',
-                'Connected',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=channel.id,
-                    side='bob',
-                    peer='local',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'fwd.server_connected',
+                    'Connected',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=channel.id,
+                        side='bob',
+                        peer='local',
+                    ), {
                     'remote_host': self._remote_host,
                     'remote_port': self._remote_port,
                 }),
@@ -507,31 +519,33 @@ class PortForwardServerModule(BaseModule):
             cleanup_reason = 'client_handler_error'
             connect_result = 'handler_error'
             connect_error = str(exc)
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'fwd.server_client_error',
-                'Client handler error',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch_id,
-                    side='bob',
-                    peer='local',
-                ), {'error': str(exc)}),
+            if self._logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'fwd.server_client_error',
+                    'Client handler error',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch_id,
+                        side='bob',
+                        peer='local',
+                    ), {'error': str(exc)}),
                 exc_info=True,
             )
         finally:
-            log_event(
-                self._logger,
-                logging.INFO,
-                'fwd.server_session',
-                'Port forward session',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch_id,
-                    side='bob',
-                    peer='local',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'fwd.server_session',
+                    'Port forward session',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch_id,
+                        side='bob',
+                        peer='local',
+                    ), {
                     'client_host': addr[0],
                     'client_port': addr[1],
                     'remote_host': self._remote_host,
@@ -568,17 +582,18 @@ class PortForwardServerModule(BaseModule):
 
         if conn:
             conn.stop()
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'fwd.server_cleanup',
-                'Cleaned up connection',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=conn.ch,
-                    side='bob',
-                    peer='local',
-                ), {
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'fwd.server_cleanup',
+                    'Cleaned up connection',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=conn.ch,
+                        side='bob',
+                        peer='local',
+                    ), {
                     'reason': reason,
                     'pending_removed': pending_removed,
                     'connections': self._connection_count(),
@@ -599,17 +614,18 @@ class PortForwardServerModule(BaseModule):
 
         if pending:
             pending.event.set()
-            log_event(
-                self._logger,
-                logging.INFO,
-                'fwd.connect_ok_recv',
-                'Forward connect ok recv',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=msg.get('ch'),
-                    side='bob',
-                    peer='local',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'fwd.connect_ok_recv',
+                    'Forward connect ok recv',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=msg.get('ch'),
+                        side='bob',
+                        peer='local',
+                    ), {
                     'bhost': msg.get('bhost'),
                     'bport': msg.get('bport'),
                 }),
@@ -628,17 +644,18 @@ class PortForwardServerModule(BaseModule):
             pending.error = msg.get('code', 'general')
             pending.reason = msg.get('reason')
             pending.event.set()
-            log_event(
-                self._logger,
-                logging.INFO,
-                'fwd.connect_err_recv',
-                'Forward connect err recv',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=msg.get('ch'),
-                    side='bob',
-                    peer='local',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'fwd.connect_err_recv',
+                    'Forward connect err recv',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=msg.get('ch'),
+                        side='bob',
+                        peer='local',
+                    ), {
                     'code': msg.get('code'),
                     'reason': msg.get('reason'),
                 }),

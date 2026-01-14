@@ -201,13 +201,14 @@ class Channel(object):
             current_size = self._send_buf_size
             if max_send_buf is not None and current_size >= max_send_buf:
                 self._send_space_event.clear()
-                log_event(
-                    logger,
-                    logging.DEBUG,
-                    'channel.send_buf_full',
-                    'Send buffer full',
-                    lambda: {'ch': self.id, 'size': current_size, 'max': max_send_buf},
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        'channel.send_buf_full',
+                        'Send buffer full',
+                        lambda: {'ch': self.id, 'size': current_size, 'max': max_send_buf},
+                    )
                 raise ChannelError('buffer_full', 'Send buffer full')
 
             # Limit to available space
@@ -232,19 +233,20 @@ class Channel(object):
                 self._send_state_seq += 1
                 notify = (True, self._send_state_seq)
             if queued_len < data_len:
-                log_event(
-                    logger,
-                    logging.DEBUG,
-                    'channel.send_buf_high',
-                    'Send buffer near capacity',
-                    lambda: {
-                        'ch': self.id,
-                        'queued': queued_len,
-                        'attempted': data_len,
-                        'size': self._send_buf_size,
-                        'max': max_send_buf,
-                    },
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        'channel.send_buf_high',
+                        'Send buffer near capacity',
+                        lambda: {
+                            'ch': self.id,
+                            'queued': queued_len,
+                            'attempted': data_len,
+                            'size': self._send_buf_size,
+                            'max': max_send_buf,
+                        },
+                    )
             if max_send_buf is None or self._send_buf_size < max_send_buf:
                 self._send_space_event.set()
             else:
@@ -339,18 +341,19 @@ class Channel(object):
                 if not logged_wait:
                     with self._lock:
                         current_size = self._send_buf_size
-                    log_event(
-                        logger,
-                        logging.DEBUG,
-                        'channel.write_wait',
-                        'Waiting for send buffer space',
-                        lambda: {
-                            'ch': self.id,
-                            'size': current_size,
-                            'max': self._max_send_buf,
-                            'backoff': backoff,
-                        },
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        log_event(
+                            logger,
+                            logging.DEBUG,
+                            'channel.write_wait',
+                            'Waiting for send buffer space',
+                            lambda: {
+                                'ch': self.id,
+                                'size': current_size,
+                                'max': self._max_send_buf,
+                                'backoff': backoff,
+                            },
+                        )
                     logged_wait = True
                 wait_timeout = backoff
                 if deadline is not None:
@@ -515,28 +518,30 @@ class Channel(object):
                 self._half_close_pending = True
 
         if pending_size is not None:
-            log_event(
-                logger,
-                logging.DEBUG,
-                'channel.half_close_request',
-                'Half-close requested',
-                lambda: {
-                    'ch': self.id,
-                    'pending_bytes': pending_size,
-                    'state': state,
-                    'send_closed_before': send_closed_before,
-                    'recv_closed': recv_closed,
-                    'immediate': immediate,
-                },
-            )
-            if not immediate and pending_size:
+            if logger.isEnabledFor(logging.DEBUG):
                 log_event(
                     logger,
                     logging.DEBUG,
-                    'channel.half_close_pending_close',
-                    'Half-close pending until send buffer drains',
-                    lambda: {'ch': self.id, 'pending_bytes': pending_size},
+                    'channel.half_close_request',
+                    'Half-close requested',
+                    lambda: {
+                        'ch': self.id,
+                        'pending_bytes': pending_size,
+                        'state': state,
+                        'send_closed_before': send_closed_before,
+                        'recv_closed': recv_closed,
+                        'immediate': immediate,
+                    },
                 )
+            if not immediate and pending_size:
+                if logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        'channel.half_close_pending_close',
+                        'Half-close pending until send buffer drains',
+                        lambda: {'ch': self.id, 'pending_bytes': pending_size},
+                    )
         if callback is not None:
             callback(self.id)
 

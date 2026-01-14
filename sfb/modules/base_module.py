@@ -118,13 +118,14 @@ class BaseModule(object):
         Returns:
             Exit code (0 for success).
         """
-        log_event(
-            logger,
-            logging.WARNING,
-            'module.command_missing',
-            'Module does not implement run_command',
-            lambda: {'module': cls.__name__},
-        )
+        if logger.isEnabledFor(logging.WARNING):
+            log_event(
+                logger,
+                logging.WARNING,
+                'module.command_missing',
+                'Module does not implement run_command',
+                lambda: {'module': cls.__name__},
+            )
         return 1
 
     def __init__(self, tunnel, logger=None, module_id=1):
@@ -166,14 +167,15 @@ class BaseModule(object):
         try:
             self.unregister()
         except Exception:
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'module.unregister_failed',
-                'Failed to unregister module',
-                lambda: {'type': self.TYPE, 'mid': self._module_id},
-                exc_info=True,
-            )
+            if self._logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'module.unregister_failed',
+                    'Failed to unregister module',
+                    lambda: {'type': self.TYPE, 'mid': self._module_id},
+                    exc_info=True,
+                )
         with self._threads_lock:
             threads = list(self._threads)
         timeout = getattr(self._tunnel._config, 'module_shutdown_timeout', 5.0)
@@ -204,13 +206,14 @@ class BaseModule(object):
             raise ValueError('message mid mismatch: %s != %s' % (
                 msg_mid, self._module_id
             ))
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'module.send',
-            'Module send',
-            lambda: {'type': self.TYPE, 'mid': self._module_id, 'msg': msg},
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'module.send',
+                'Module send',
+                lambda: {'type': self.TYPE, 'mid': self._module_id, 'msg': msg},
+            )
         self._tunnel.control.send_message(msg)
 
     def _dispatch(self, msg):
@@ -221,13 +224,14 @@ class BaseModule(object):
         """
         if self._shutdown:
             return
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'module.recv',
-            'Module recv',
-            lambda: {'type': self.TYPE, 'mid': self._module_id, 'msg': msg},
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'module.recv',
+                'Module recv',
+                lambda: {'type': self.TYPE, 'mid': self._module_id, 'msg': msg},
+            )
         cmd = msg.get('c')
         if not cmd:
             return
@@ -237,13 +241,14 @@ class BaseModule(object):
         if handler is None:
             handler = getattr(self, 'handle_unknown', None)
         if handler is None:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'module.command_unknown',
-                'No handler for command',
-                lambda: {'type': self.TYPE, 'mid': self._module_id, 'cmd': cmd},
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'module.command_unknown',
+                    'No handler for command',
+                    lambda: {'type': self.TYPE, 'mid': self._module_id, 'cmd': cmd},
+                )
             return
 
         # Run blocking handlers in separate thread
@@ -278,18 +283,19 @@ class BaseModule(object):
         try:
             handler(msg)
         except Exception as e:
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'module.handler_error',
-                'Handler error',
-                lambda: {
-                    'type': self.TYPE,
-                    'mid': self._module_id,
-                    'error': str(e),
-                },
-                exc_info=True,
-            )
+            if self._logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'module.handler_error',
+                    'Handler error',
+                    lambda: {
+                        'type': self.TYPE,
+                        'mid': self._module_id,
+                        'error': str(e),
+                    },
+                    exc_info=True,
+                )
 
 
 class RequestResponseMixin(object):

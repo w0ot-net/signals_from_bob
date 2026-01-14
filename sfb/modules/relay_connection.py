@@ -108,18 +108,19 @@ class RelayConnection(object):
 
     def _log_start(self):
         peer = normalize_peer(self._peer_label)
-        log_event(
-            self._logger,
-            logging.INFO,
-            _event_name(self._event_prefix, 'relay_start'),
-            'Relay start',
-            lambda: add_fields(relay_fields(
-                rid=self.rid,
-                ch=self.ch,
-                side=self._side,
-                peer=peer,
-                label=self._peer_label,
-            ), {
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                _event_name(self._event_prefix, 'relay_start'),
+                'Relay start',
+                lambda: add_fields(relay_fields(
+                    rid=self.rid,
+                    ch=self.ch,
+                    side=self._side,
+                    peer=peer,
+                    label=self._peer_label,
+                ), {
                 'threads': list(self._thread_names),
                 'direction_in': self._socket_to_channel_label,
                 'direction_out': self._channel_to_socket_label,
@@ -219,18 +220,19 @@ class RelayConnection(object):
         self._stop_logged = True
         summary = self._build_summary()
         peer = normalize_peer(self._peer_label)
-        log_event(
-            self._logger,
-            logging.INFO,
-            _event_name(self._event_prefix, 'relay_stop'),
-            'Relay stop',
-            lambda: add_fields(relay_fields(
-                rid=self.rid,
-                ch=self.ch,
-                side=self._side,
-                peer=peer,
-                label=self._peer_label,
-            ), summary),
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                _event_name(self._event_prefix, 'relay_stop'),
+                'Relay stop',
+                lambda: add_fields(relay_fields(
+                    rid=self.rid,
+                    ch=self.ch,
+                    side=self._side,
+                    peer=peer,
+                    label=self._peer_label,
+                ), summary),
         )
 
     def _relay_socket_to_channel(self):

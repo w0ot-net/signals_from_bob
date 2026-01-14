@@ -93,28 +93,30 @@ class UdpEphemeralClient(Transport):
             'min_packet_mtu': min_packet_mtu,
         }
         mtu_details.update(mtu_constraints)
-        log_event(
-            _LOG,
-            logging.INFO,
-            'transport.mtu_limits',
-            'Transport MTU limits',
-            lambda: mtu_details,
-        )
-        log_event(
-            _LOG,
-            logging.INFO,
-            'udp_ephemeral.client_config',
-            'UDP ephemeral client config',
-            lambda: {
-                'target': '%s:%d' % (target_host, target_port),
-                'target_ip': '%s:%d' % (self._target_addr[0], self._target_addr[1]),
-                'send_packet_mtu': self._send_packet_mtu,
-                'recv_packet_mtu': self._recv_packet_mtu,
-                'max_in_flight': self._max_in_flight,
-                'pending_timeout': self._pending_timeout,
-                'source_port_reuse_seconds': self._reuse_seconds,
-            },
-        )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'transport.mtu_limits',
+                'Transport MTU limits',
+                lambda: mtu_details,
+            )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'udp_ephemeral.client_config',
+                'UDP ephemeral client config',
+                lambda: {
+                    'target': '%s:%d' % (target_host, target_port),
+                    'target_ip': '%s:%d' % (self._target_addr[0], self._target_addr[1]),
+                    'send_packet_mtu': self._send_packet_mtu,
+                    'recv_packet_mtu': self._recv_packet_mtu,
+                    'max_in_flight': self._max_in_flight,
+                    'pending_timeout': self._pending_timeout,
+                    'source_port_reuse_seconds': self._reuse_seconds,
+                },
+            )
 
     @property
     def send_packet_mtu(self):
@@ -138,18 +140,19 @@ class UdpEphemeralClient(Transport):
         reserved = len(self._reserved)
         pending_total = pending_before + reserved
         if pending_total >= self._max_in_flight:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'udp_ephemeral.send_blocked',
-                'UDP ephemeral send blocked',
-                lambda: {
-                    'pending': pending_before,
-                    'reserved': reserved,
-                    'pending_total': pending_total,
-                    'max_in_flight': self._max_in_flight,
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'udp_ephemeral.send_blocked',
+                    'UDP ephemeral send blocked',
+                    lambda: {
+                        'pending': pending_before,
+                        'reserved': reserved,
+                        'pending_total': pending_total,
+                        'max_in_flight': self._max_in_flight,
+                    },
+                )
             return None
         return self._reserve_permit(now=now, pending_before=pending_before)
 
@@ -176,15 +179,16 @@ class UdpEphemeralClient(Transport):
             sock.send(data)
         except socket.error as e:
             self._close_socket(sock, local_port, now)
-            log_event(
-                _LOG,
-                logging.WARNING,
-                'udp_ephemeral.send_failed',
-                'UDP ephemeral send failed',
-                lambda: {
-                    'target': '%s:%d' % (
-                        self._target_addr[0], self._target_addr[1]
-                    ),
+            if _LOG.isEnabledFor(logging.WARNING):
+                log_event(
+                    _LOG,
+                    logging.WARNING,
+                    'udp_ephemeral.send_failed',
+                    'UDP ephemeral send failed',
+                    lambda: {
+                        'target': '%s:%d' % (
+                            self._target_addr[0], self._target_addr[1]
+                        ),
                     'bytes': len(data),
                     'local_port': local_port,
                     'error': str(e),
@@ -196,19 +200,20 @@ class UdpEphemeralClient(Transport):
         self._pending.add(corr_id, state, now=permit.now)
         self._sock_to_corr[sock] = corr_id
 
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'udp_ephemeral.send',
-            'UDP ephemeral request sent',
-            lambda: {
-                'corr_id': corr_id,
-                'bytes': len(data),
-                'pending': pending_before + 1,
-                'local_port': local_port,
-                'target': '%s:%d' % (
-                    self._target_addr[0], self._target_addr[1]
-                ),
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'udp_ephemeral.send',
+                'UDP ephemeral request sent',
+                lambda: {
+                    'corr_id': corr_id,
+                    'bytes': len(data),
+                    'pending': pending_before + 1,
+                    'local_port': local_port,
+                    'target': '%s:%d' % (
+                        self._target_addr[0], self._target_addr[1]
+                    ),
             },
         )
         return corr_id
@@ -294,60 +299,64 @@ class UdpEphemeralClient(Transport):
         except socket.error as e:
             err = _get_errno(e)
             if err in _SOFT_RECV_ERRORS:
+                if _LOG.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        _LOG,
+                        logging.DEBUG,
+                        'udp_ephemeral.recv_refused',
+                        'UDP ephemeral receive refused',
+                        lambda: {
+                            'corr_id': corr_id,
+                            'local_port': state.local_port,
+                            'error': str(e),
+                        },
+                    )
+                now = time_provider.now()
+                self._drop_pending(corr_id, state, now)
+                return None
+            if _LOG.isEnabledFor(logging.WARNING):
                 log_event(
                     _LOG,
-                    logging.DEBUG,
-                    'udp_ephemeral.recv_refused',
-                    'UDP ephemeral receive refused',
+                    logging.WARNING,
+                    'udp_ephemeral.recv_failed',
+                    'UDP ephemeral receive failed',
                     lambda: {
                         'corr_id': corr_id,
                         'local_port': state.local_port,
                         'error': str(e),
                     },
                 )
-                now = time_provider.now()
-                self._drop_pending(corr_id, state, now)
-                return None
-            log_event(
-                _LOG,
-                logging.WARNING,
-                'udp_ephemeral.recv_failed',
-                'UDP ephemeral receive failed',
-                lambda: {
-                    'corr_id': corr_id,
-                    'local_port': state.local_port,
-                    'error': str(e),
-                },
-            )
             raise TransportError('Receive failed: %s' % e)
 
         now = time_provider.now()
         self._drop_pending(corr_id, state, now)
 
         if len(data) > self._recv_packet_mtu:
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'udp_ephemeral.oversize_response',
+                    'UDP ephemeral response oversized',
+                    lambda: {
+                        'corr_id': corr_id,
+                        'bytes': len(data),
+                        'recv_packet_mtu': self._recv_packet_mtu,
+                    },
+                )
+            return None
+
+        if _LOG.isEnabledFor(logging.DEBUG):
             log_event(
                 _LOG,
                 logging.DEBUG,
-                'udp_ephemeral.oversize_response',
-                'UDP ephemeral response oversized',
+                'udp_ephemeral.recv',
+                'UDP ephemeral response received',
                 lambda: {
                     'corr_id': corr_id,
                     'bytes': len(data),
-                    'recv_packet_mtu': self._recv_packet_mtu,
                 },
             )
-            return None
-
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'udp_ephemeral.recv',
-            'UDP ephemeral response received',
-            lambda: {
-                'corr_id': corr_id,
-                'bytes': len(data),
-            },
-        )
         return (corr_id, data)
 
     def _drop_pending(self, corr_id, state, now, already_pruned=False):
@@ -368,13 +377,14 @@ class UdpEphemeralClient(Transport):
             now = time_provider.now()
         stale = self._pending.prune(now=now)
         if stale:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'udp_ephemeral.prune_stale',
-                'Pruned stale UDP ephemeral requests',
-                lambda: {'count': len(stale)},
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'udp_ephemeral.prune_stale',
+                    'Pruned stale UDP ephemeral requests',
+                    lambda: {'count': len(stale)},
+                )
         return stale
 
     def _prune_invalid_sockets(self, now=None):
@@ -396,13 +406,14 @@ class UdpEphemeralClient(Transport):
                 self._close_socket(sock, local_port, now)
                 continue
             self._drop_pending(corr_id, state, now)
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'udp_ephemeral.prune_invalid',
-            'Pruned invalid UDP ephemeral sockets',
-            lambda: {'count': len(invalid)},
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'udp_ephemeral.prune_invalid',
+                'Pruned invalid UDP ephemeral sockets',
+                lambda: {'count': len(invalid)},
+            )
         return len(invalid)
 
     def _on_prune(self, stale):
@@ -436,16 +447,17 @@ class UdpEphemeralClient(Transport):
                 sock.close()
                 raise TransportError('Connect failed: %s' % e)
             return sock, local_port
-        log_event(
-            _LOG,
-            logging.WARNING,
-            'udp_ephemeral.port_reuse_exhausted',
-            'UDP ephemeral source ports exhausted',
-            lambda: {
-                'attempts': self._max_port_bind_attempts,
-                'reuse_seconds': self._reuse_seconds,
-            },
-        )
+        if _LOG.isEnabledFor(logging.WARNING):
+            log_event(
+                _LOG,
+                logging.WARNING,
+                'udp_ephemeral.port_reuse_exhausted',
+                'UDP ephemeral source ports exhausted',
+                lambda: {
+                    'attempts': self._max_port_bind_attempts,
+                    'reuse_seconds': self._reuse_seconds,
+                },
+            )
         raise TransportError(
             'No available UDP source port after %d attempts' %
             self._max_port_bind_attempts

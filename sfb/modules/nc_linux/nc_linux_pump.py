@@ -79,19 +79,20 @@ def _poll_bounds(config):
 
 
 def _log_pump_start(logger, rid, ch, side, direction, label):
-    log_event(
-        logger,
-        logging.DEBUG,
-        'nc.pump_start',
-        'NC pump start',
-        lambda: {
-            'rid': rid,
-            'ch': ch,
-            'side': side,
-            'direction': direction,
-            'label': label,
-        },
-    )
+    if logger.isEnabledFor(logging.DEBUG):
+        log_event(
+            logger,
+            logging.DEBUG,
+            'nc.pump_start',
+            'NC pump start',
+            lambda: {
+                'rid': rid,
+                'ch': ch,
+                'side': side,
+                'direction': direction,
+                'label': label,
+            },
+        )
 
 
 def _log_pump_stop(logger, rid, ch, side, direction, label, reason,
@@ -121,13 +122,14 @@ def _log_pump_stop(logger, rid, ch, side, direction, label, reason,
             fields.update(stats)
         return fields
 
-    log_event(
-        logger,
-        logging.DEBUG,
-        'nc.pump_stop',
-        'NC pump stop',
-        lambda: build_fields(),
-    )
+    if logger.isEnabledFor(logging.DEBUG):
+        log_event(
+            logger,
+            logging.DEBUG,
+            'nc.pump_stop',
+            'NC pump stop',
+            lambda: build_fields(),
+        )
 
 
 def pump_fd_to_channel(fd, channel, config, logger, stop_event,

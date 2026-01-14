@@ -44,13 +44,14 @@ class SocksRelayModule(BaseModule):
     def run_command(cls, args, tunnel, logger):
         """Run the relay (passive - just responds to requests)."""
         module = cls(tunnel, logger=logger, module_id=args.module_id)
-        log_event(
-            logger,
-            logging.INFO,
-            'sock.relay_ready',
-            'SOCKS relay ready',
-            lambda: relay_fields(side='alice', peer='target'),
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'sock.relay_ready',
+                'SOCKS relay ready',
+                lambda: relay_fields(side='alice', peer='target'),
+            )
         try:
             # Wait for tunnel to close
             while tunnel.connected:
@@ -93,31 +94,33 @@ class SocksRelayModule(BaseModule):
         host = msg.get('host')
         port = msg.get('port')
 
-        log_event(
-            self._logger,
-            logging.INFO,
-            'sock.connect_recv',
-            'SOCKS connect recv',
-            lambda: add_fields(relay_fields(
-                rid=rid,
-                ch=ch,
-                side='alice',
-                peer='target',
-            ), {'host': host, 'port': port}),
-        )
-
-        if not all([rid is not None, ch is not None, host, port]):
+        if self._logger.isEnabledFor(logging.INFO):
             log_event(
                 self._logger,
-                logging.WARNING,
-                'sock.connect_invalid',
-                'Invalid connect request',
+                logging.INFO,
+                'sock.connect_recv',
+                'SOCKS connect recv',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=ch,
                     side='alice',
                     peer='target',
-                ), {
+                ), {'host': host, 'port': port}),
+        )
+
+        if not all([rid is not None, ch is not None, host, port]):
+            if self._logger.isEnabledFor(logging.WARNING):
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'sock.connect_invalid',
+                    'Invalid connect request',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch,
+                        side='alice',
+                        peer='target',
+                    ), {
                     'host': host,
                     'port': port,
                     'reason': 'missing_fields',
@@ -125,46 +128,49 @@ class SocksRelayModule(BaseModule):
             )
             return
 
-        log_event(
-            self._logger,
-            logging.INFO,
-            'sock.connect',
-            'SOCKS connect request received',
-            lambda: add_fields(relay_fields(
-                rid=rid,
-                ch=ch,
-                side='alice',
-                peer='target',
-            ), {'host': host, 'port': port}),
-        )
-
-        # Get channel
-        channel = self._tunnel.channel_manager.get_channel(ch)
-        if channel is None:
+        if self._logger.isEnabledFor(logging.INFO):
             log_event(
                 self._logger,
-                logging.WARNING,
-                'sock.connect_channel_missing',
-                'Channel not found for connect request',
+                logging.INFO,
+                'sock.connect',
+                'SOCKS connect request received',
                 lambda: add_fields(relay_fields(
                     rid=rid,
                     ch=ch,
                     side='alice',
                     peer='target',
                 ), {'host': host, 'port': port}),
+        )
+
+        # Get channel
+        channel = self._tunnel.channel_manager.get_channel(ch)
+        if channel is None:
+            if self._logger.isEnabledFor(logging.WARNING):
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'sock.connect_channel_missing',
+                    'Channel not found for connect request',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch,
+                        side='alice',
+                        peer='target',
+                    ), {'host': host, 'port': port}),
             )
             self.send_message(sock_err(rid, ch, 'general', 'channel not found'))
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.connect_err_send',
-                'SOCKS connect err send',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch,
-                    side='alice',
-                    peer='target',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.connect_err_send',
+                    'SOCKS connect err send',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch,
+                        side='alice',
+                        peer='target',
+                    ), {
                     'host': host,
                     'port': port,
                     'code': 'general',
@@ -190,30 +196,32 @@ class SocksRelayModule(BaseModule):
                 bind_host, bind_port = reuse_sock.getsockname()
             except Exception:
                 bind_host, bind_port = '0.0.0.0', 0
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'sock.connect_duplicate',
-                'Duplicate connect, reusing session',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch,
-                    side='alice',
-                    peer='target',
-                ), {'state': 'reuse', 'host': host, 'port': port}),
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'sock.connect_duplicate',
+                    'Duplicate connect, reusing session',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch,
+                        side='alice',
+                        peer='target',
+                    ), {'state': 'reuse', 'host': host, 'port': port}),
             )
             self.send_message(sock_connect_ok(rid, ch, bind_host, bind_port))
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.connect_ok_send',
-                'SOCKS connect ok send',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch,
-                    side='alice',
-                    peer='target',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.connect_ok_send',
+                    'SOCKS connect ok send',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch,
+                        side='alice',
+                        peer='target',
+                    ), {
                     'host': host,
                     'port': port,
                     'bhost': bind_host,
@@ -222,17 +230,18 @@ class SocksRelayModule(BaseModule):
             )
             return
         if pending:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'sock.connect_duplicate',
-                'Duplicate connect while pending',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch,
-                    side='alice',
-                    peer='target',
-                ), {'state': 'pending', 'host': host, 'port': port}),
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'sock.connect_duplicate',
+                    'Duplicate connect while pending',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch,
+                        side='alice',
+                        peer='target',
+                    ), {'state': 'pending', 'host': host, 'port': port}),
             )
             return
 
@@ -240,34 +249,36 @@ class SocksRelayModule(BaseModule):
         channel_wait_start = time_provider.now()
         if not channel.wait_open(timeout=self._config.channel_open_timeout):
             channel_wait_time = duration_secs(channel_wait_start)
-            log_event(
-                self._logger,
-                logging.WARNING,
-                'sock.connect_channel_failed',
-                'Channel failed to open',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch,
-                    side='alice',
-                    peer='target',
-                ), {
+            if self._logger.isEnabledFor(logging.WARNING):
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'sock.connect_channel_failed',
+                    'Channel failed to open',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch,
+                        side='alice',
+                        peer='target',
+                    ), {
                     'host': host,
                     'port': port,
                     'wait_time': channel_wait_time,
                 }),
             )
             self.send_message(sock_err(rid, ch, 'general', 'channel open failed'))
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.connect_err_send',
-                'SOCKS connect err send',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch,
-                    side='alice',
-                    peer='target',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.connect_err_send',
+                    'SOCKS connect err send',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch,
+                        side='alice',
+                        peer='target',
+                    ), {
                     'host': host,
                     'port': port,
                     'code': 'general',
@@ -286,17 +297,18 @@ class SocksRelayModule(BaseModule):
 
         def _send_connect_error(code, reason, level=logging.INFO, exc_info=False):
             target_connect_time = duration_secs(target_connect_start)
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.relay_target_connect',
-                'SOCKS relay target connect',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch,
-                    side='alice',
-                    peer='target',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.relay_target_connect',
+                    'SOCKS relay target connect',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch,
+                        side='alice',
+                        peer='target',
+                    ), {
                     'host': host,
                     'port': port,
                     'result': 'error',
@@ -305,17 +317,18 @@ class SocksRelayModule(BaseModule):
                     'duration': target_connect_time,
                 }),
             )
-            log_event(
-                self._logger,
-                level,
-                'sock.connect_err',
-                'SOCKS connect error',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch,
-                    side='alice',
-                    peer='target',
-                ), {
+            if self._logger.isEnabledFor(level):
+                log_event(
+                    self._logger,
+                    level,
+                    'sock.connect_err',
+                    'SOCKS connect error',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch,
+                        side='alice',
+                        peer='target',
+                    ), {
                     'host': host,
                     'port': port,
                     'code': code,
@@ -326,17 +339,18 @@ class SocksRelayModule(BaseModule):
                 exc_info=exc_info,
             )
             self.send_message(sock_err(rid, ch, code, reason))
-            log_event(
-                self._logger,
-                logging.INFO,
-                'sock.connect_err_send',
-                'SOCKS connect err send',
-                lambda: add_fields(relay_fields(
-                    rid=rid,
-                    ch=ch,
-                    side='alice',
-                    peer='target',
-                ), {
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'sock.connect_err_send',
+                    'SOCKS connect err send',
+                    lambda: add_fields(relay_fields(
+                        rid=rid,
+                        ch=ch,
+                        side='alice',
+                        peer='target',
+                    ), {
                     'host': host,
                     'port': port,
                     'code': code,
@@ -378,17 +392,18 @@ class SocksRelayModule(BaseModule):
         except Exception:
             bind_host, bind_port = '0.0.0.0', 0
 
-        log_event(
-            self._logger,
-            logging.INFO,
-            'sock.relay_target_connect',
-            'SOCKS relay target connect',
-            lambda: add_fields(relay_fields(
-                rid=rid,
-                ch=ch,
-                side='alice',
-                peer='target',
-            ), {
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.relay_target_connect',
+                'SOCKS relay target connect',
+                lambda: add_fields(relay_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {
                 'host': host,
                 'port': port,
                 'result': 'ok',
@@ -397,17 +412,18 @@ class SocksRelayModule(BaseModule):
                 'bport': bind_port,
             }),
         )
-        log_event(
-            self._logger,
-            logging.INFO,
-            'sock.connect_ok',
-            'SOCKS connect ok',
-            lambda: add_fields(relay_fields(
-                rid=rid,
-                ch=ch,
-                side='alice',
-                peer='target',
-            ), {
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect_ok',
+                'SOCKS connect ok',
+                lambda: add_fields(relay_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {
                 'host': host,
                 'port': port,
                 'bhost': bind_host,
@@ -435,17 +451,18 @@ class SocksRelayModule(BaseModule):
 
         # Send success response
         self.send_message(sock_connect_ok(rid, ch, bind_host, bind_port))
-        log_event(
-            self._logger,
-            logging.INFO,
-            'sock.connect_ok_send',
-            'SOCKS connect ok send',
-            lambda: add_fields(relay_fields(
-                rid=rid,
-                ch=ch,
-                side='alice',
-                peer='target',
-            ), {
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.connect_ok_send',
+                'SOCKS connect ok send',
+                lambda: add_fields(relay_fields(
+                    rid=rid,
+                    ch=ch,
+                    side='alice',
+                    peer='target',
+                ), {
                 'host': host,
                 'port': port,
                 'bhost': bind_host,
@@ -493,27 +510,29 @@ class SocksRelayModule(BaseModule):
 
         conn.stop()
         summary = conn.get_summary()
-        log_event(
-            self._logger,
-            logging.INFO,
-            'sock.relay_complete',
-            'SOCKS relay complete',
-            lambda: add_fields(relay_fields(
-                rid=conn.rid,
-                ch=conn.ch,
-                side='alice',
-                peer='target',
-            ), summary),
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'sock.relay_complete',
+                'SOCKS relay complete',
+                lambda: add_fields(relay_fields(
+                    rid=conn.rid,
+                    ch=conn.ch,
+                    side='alice',
+                    peer='target',
+                ), summary),
         )
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'sock.cleanup',
-            'Cleaned up connection',
-            lambda: add_fields(relay_fields(
-                rid=conn.rid,
-                ch=conn.ch,
-                side='alice',
-                peer='target',
-            ), {'connections': len(self._connections)}),
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'sock.cleanup',
+                'Cleaned up connection',
+                lambda: add_fields(relay_fields(
+                    rid=conn.rid,
+                    ch=conn.ch,
+                    side='alice',
+                    peer='target',
+                ), {'connections': len(self._connections)}),
         )

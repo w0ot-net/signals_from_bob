@@ -56,22 +56,24 @@ class UdpEphemeralServer(Server):
             'min_packet_mtu': min_packet_mtu,
         }
         mtu_details.update(mtu_constraints)
-        log_event(
-            _LOG,
-            logging.INFO,
-            'transport.mtu_limits',
-            'Transport MTU limits',
-            lambda: mtu_details,
-        )
-        log_event(
-            _LOG,
-            logging.INFO,
-            'udp_ephemeral.server_config',
-            'UDP ephemeral server config',
-            lambda: {
-                'listen_addr': '%s:%d' % (
-                    self._listen_addr[0], self._listen_addr[1]
-                ),
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'transport.mtu_limits',
+                'Transport MTU limits',
+                lambda: mtu_details,
+            )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'udp_ephemeral.server_config',
+                'UDP ephemeral server config',
+                lambda: {
+                    'listen_addr': '%s:%d' % (
+                        self._listen_addr[0], self._listen_addr[1]
+                    ),
                 'recv_packet_mtu': self._recv_packet_mtu,
                 'send_packet_mtu': self._send_packet_mtu,
             },
@@ -109,66 +111,71 @@ class UdpEphemeralServer(Server):
                     return (None, None)
                 data, addr = self._sock.recvfrom(self._recv_bufsize)
             except select.error as e:
-                log_event(
-                    _LOG,
-                    logging.WARNING,
-                    'udp_ephemeral.select_failed',
-                    'UDP ephemeral select failed',
-                    lambda: {'error': str(e)},
-                )
+                if _LOG.isEnabledFor(logging.WARNING):
+                    log_event(
+                        _LOG,
+                        logging.WARNING,
+                        'udp_ephemeral.select_failed',
+                        'UDP ephemeral select failed',
+                        lambda: {'error': str(e)},
+                    )
                 raise TransportError('Select failed: %s' % e)
             except socket.error as e:
-                log_event(
-                    _LOG,
-                    logging.WARNING,
-                    'udp_ephemeral.recv_failed',
-                    'UDP ephemeral receive failed',
-                    lambda: {'error': str(e)},
-                )
+                if _LOG.isEnabledFor(logging.WARNING):
+                    log_event(
+                        _LOG,
+                        logging.WARNING,
+                        'udp_ephemeral.recv_failed',
+                        'UDP ephemeral receive failed',
+                        lambda: {'error': str(e)},
+                    )
                 raise TransportError('Receive failed: %s' % e)
 
             if len(data) > self._recv_packet_mtu:
-                log_event(
-                    _LOG,
-                    logging.DEBUG,
-                    'udp_ephemeral.oversize_request',
-                    'UDP ephemeral request oversized',
-                    lambda: {
-                        'addr': '%s:%d' % (addr[0], addr[1]),
-                        'bytes': len(data),
-                        'recv_packet_mtu': self._recv_packet_mtu,
-                    },
-                )
+                if _LOG.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        _LOG,
+                        logging.DEBUG,
+                        'udp_ephemeral.oversize_request',
+                        'UDP ephemeral request oversized',
+                        lambda: {
+                            'addr': '%s:%d' % (addr[0], addr[1]),
+                            'bytes': len(data),
+                            'recv_packet_mtu': self._recv_packet_mtu,
+                        },
+                    )
                 continue
 
             responder = self._make_responder(addr)
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'udp_ephemeral.recv',
-                'UDP ephemeral request received',
-                lambda: {
-                    'addr': '%s:%d' % (addr[0], addr[1]),
-                    'bytes': len(data),
-                },
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'udp_ephemeral.recv',
+                    'UDP ephemeral request received',
+                    lambda: {
+                        'addr': '%s:%d' % (addr[0], addr[1]),
+                        'bytes': len(data),
+                    },
+                )
             return (data, responder)
 
     def _make_responder(self, addr):
         def responder(data):
             data = require_bytes_like(data)
             if len(data) > self._send_packet_mtu:
-                log_event(
-                    _LOG,
-                    logging.DEBUG,
-                    'udp_ephemeral.send_oversize',
-                    'UDP ephemeral response oversized',
-                    lambda: {
-                        'addr': '%s:%d' % (addr[0], addr[1]),
-                        'bytes': len(data),
-                        'send_packet_mtu': self._send_packet_mtu,
-                    },
-                )
+                if _LOG.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        _LOG,
+                        logging.DEBUG,
+                        'udp_ephemeral.send_oversize',
+                        'UDP ephemeral response oversized',
+                        lambda: {
+                            'addr': '%s:%d' % (addr[0], addr[1]),
+                            'bytes': len(data),
+                            'send_packet_mtu': self._send_packet_mtu,
+                        },
+                    )
                 raise TransportError(
                     'Data size %d exceeds send MTU %d' %
                     (len(data), self._send_packet_mtu)
@@ -176,28 +183,30 @@ class UdpEphemeralServer(Server):
             try:
                 self._sock.sendto(data, addr)
             except socket.error as e:
+                if _LOG.isEnabledFor(logging.WARNING):
+                    log_event(
+                        _LOG,
+                        logging.WARNING,
+                        'udp_ephemeral.send_failed',
+                        'UDP ephemeral response send failed',
+                        lambda: {
+                            'addr': '%s:%d' % (addr[0], addr[1]),
+                            'bytes': len(data),
+                            'error': str(e),
+                        },
+                    )
+                raise TransportError('Send failed: %s' % e)
+            if _LOG.isEnabledFor(logging.DEBUG):
                 log_event(
                     _LOG,
-                    logging.WARNING,
-                    'udp_ephemeral.send_failed',
-                    'UDP ephemeral response send failed',
+                    logging.DEBUG,
+                    'udp_ephemeral.send',
+                    'UDP ephemeral response sent',
                     lambda: {
                         'addr': '%s:%d' % (addr[0], addr[1]),
                         'bytes': len(data),
-                        'error': str(e),
                     },
                 )
-                raise TransportError('Send failed: %s' % e)
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'udp_ephemeral.send',
-                'UDP ephemeral response sent',
-                lambda: {
-                    'addr': '%s:%d' % (addr[0], addr[1]),
-                    'bytes': len(data),
-                },
-            )
         return responder
 
     def close(self):

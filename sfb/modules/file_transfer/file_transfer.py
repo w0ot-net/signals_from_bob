@@ -182,90 +182,98 @@ class FileTransferModule(RequestResponseMixin, BaseModule):
                         print('- %10d %s' % (entry.get('size', 0), entry['name']))
 
             elif args.command == 'hash':
-                log_event(
-                    logger,
-                    logging.INFO,
-                    'file.hash',
-                    'Hashing remote file',
-                    lambda: {'remote': args.path},
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        'file.hash',
+                        'Hashing remote file',
+                        lambda: {'remote': args.path},
+                    )
                 result = module.hash_file(args.path, timeout=timeout)
                 digest = result.get('hash')
                 sys.stdout.write('%s  %s\n' % (digest, args.path))
                 sys.stdout.flush()
-                log_event(
-                    logger,
-                    logging.INFO,
-                    'file.hash_complete',
-                    'Hash complete',
-                    lambda: {
-                        'remote': args.path,
-                        'hash': digest,
-                        'size': result.get('size'),
-                    },
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        'file.hash_complete',
+                        'Hash complete',
+                        lambda: {
+                            'remote': args.path,
+                            'hash': digest,
+                            'size': result.get('size'),
+                        },
+                    )
 
             elif args.command == 'get':
                 local_path = args.local or os.path.basename(args.remote)
-                log_event(
-                    logger,
-                    logging.INFO,
-                    'file.download',
-                    'Downloading file',
-                    lambda: {'remote': args.remote, 'local': local_path},
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        'file.download',
+                        'Downloading file',
+                        lambda: {'remote': args.remote, 'local': local_path},
+                    )
                 module.get(args.remote, local_path, timeout=timeout)
                 stats = module.last_stats
-                log_event(
-                    logger,
-                    logging.INFO,
-                    'file.download_complete',
-                    'Download complete',
-                    lambda: _build_transfer_fields('local', local_path, stats),
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        'file.download_complete',
+                        'Download complete',
+                        lambda: _build_transfer_fields('local', local_path, stats),
+                    )
                 if stats is not None:
                     sys.stdout.write('Download stats: %s\n' % stats.format_summary())
                     sys.stdout.flush()
 
             elif args.command == 'put':
                 if not os.path.isfile(args.local):
-                    log_event(
-                        logger,
-                        logging.ERROR,
-                        'file.local_missing',
-                        'Local file not found',
-                        lambda: {'local': args.local},
-                    )
+                    if logger.isEnabledFor(logging.ERROR):
+                        log_event(
+                            logger,
+                            logging.ERROR,
+                            'file.local_missing',
+                            'Local file not found',
+                            lambda: {'local': args.local},
+                        )
                     return 1
                 size = os.path.getsize(args.local)
-                log_event(
-                    logger,
-                    logging.INFO,
-                    'file.upload',
-                    'Uploading file',
-                    lambda: {'local': args.local, 'bytes': size, 'remote': args.remote},
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        'file.upload',
+                        'Uploading file',
+                        lambda: {'local': args.local, 'bytes': size, 'remote': args.remote},
+                    )
                 module.put(args.local, args.remote, timeout=timeout)
                 stats = module.last_stats
-                log_event(
-                    logger,
-                    logging.INFO,
-                    'file.upload_complete',
-                    'Upload complete',
-                    lambda: _build_transfer_fields('remote', args.remote, stats),
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        'file.upload_complete',
+                        'Upload complete',
+                        lambda: _build_transfer_fields('remote', args.remote, stats),
+                    )
                 if stats is not None:
                     sys.stdout.write('Upload stats: %s\n' % stats.format_summary())
                     sys.stdout.flush()
 
             else:
-                log_event(
-                    logger,
-                    logging.ERROR,
-                    'file.command_unknown',
-                    'Unknown command',
-                    lambda: {'command': args.command},
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        logger,
+                        logging.ERROR,
+                        'file.command_unknown',
+                        'Unknown command',
+                        lambda: {'command': args.command},
+                    )
                 return 1
 
             return 0

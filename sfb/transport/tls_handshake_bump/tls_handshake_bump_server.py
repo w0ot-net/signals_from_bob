@@ -100,30 +100,32 @@ class TlsHandshakeBumpServer(Server):
             'min_packet_mtu': min_packet_mtu,
         }
         mtu_details.update(mtu_constraints)
-        log_event(
-            _LOG,
-            logging.INFO,
-            'transport.mtu_limits',
-            'Transport MTU limits',
-            lambda: mtu_details,
-        )
-        log_event(
-            _LOG,
-            logging.INFO,
-            'tls_bump.server_config',
-            'TLS bump server config',
-            lambda: {
-                'listen_addr': '%s:%d' % (self._listen_addr[0], self._listen_addr[1]),
-                'pending_timeout': self._pending_timeout,
-                'handshake_timeout': self._handshake_timeout,
-                'max_clienthello_bytes': self._max_record_recv,
-                'recv_packet_mtu': self._recv_packet_mtu,
-                'send_packet_mtu': self._send_packet_mtu,
-                'max_in_flight': self._max_in_flight,
-                'base_domain': self._base_domain,
-                'cn_max_len': self._cn_max_len,
-            },
-        )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'transport.mtu_limits',
+                'Transport MTU limits',
+                lambda: mtu_details,
+            )
+        if _LOG.isEnabledFor(logging.INFO):
+            log_event(
+                _LOG,
+                logging.INFO,
+                'tls_bump.server_config',
+                'TLS bump server config',
+                lambda: {
+                    'listen_addr': '%s:%d' % (self._listen_addr[0], self._listen_addr[1]),
+                    'pending_timeout': self._pending_timeout,
+                    'handshake_timeout': self._handshake_timeout,
+                    'max_clienthello_bytes': self._max_record_recv,
+                    'recv_packet_mtu': self._recv_packet_mtu,
+                    'send_packet_mtu': self._send_packet_mtu,
+                    'max_in_flight': self._max_in_flight,
+                    'base_domain': self._base_domain,
+                    'cn_max_len': self._cn_max_len,
+                },
+            )
 
         self._active = {}
         self._selector = bump_selector.SocketSelector()
@@ -252,13 +254,14 @@ class TlsHandshakeBumpServer(Server):
             return None
         state.ready_to_respond = True
         responder = _ResponseSender(self, state)
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'tls_bump.recv',
-            'TLS bump request received',
-            lambda: {'payload_bytes': len(payload)},
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'tls_bump.recv',
+                'TLS bump request received',
+                lambda: {'payload_bytes': len(payload)},
+            )
         return payload, responder
 
     def _enqueue_response(self, state, data):
@@ -289,16 +292,17 @@ class TlsHandshakeBumpServer(Server):
         state.response_buf = record
         state.response_off = 0
         state.responder_used = True
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'tls_bump.send',
-            'TLS bump response queued',
-            lambda: {
-                'record_bytes': len(record),
-                'payload_bytes': len(data),
-            },
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'tls_bump.send',
+                'TLS bump response queued',
+                lambda: {
+                    'record_bytes': len(record),
+                    'payload_bytes': len(data),
+                },
+            )
 
     def _flush_response(self, sock):
         state = self._active.get(sock)
@@ -329,13 +333,14 @@ class TlsHandshakeBumpServer(Server):
         for sock in stale:
             self._close_conn(sock)
         if stale:
-            log_event(
-                _LOG,
-                logging.DEBUG,
-                'tls_bump.prune_stale',
-                'Pruned stale TLS bump connections',
-                lambda: {'count': len(stale)},
-            )
+            if _LOG.isEnabledFor(logging.DEBUG):
+                log_event(
+                    _LOG,
+                    logging.DEBUG,
+                    'tls_bump.prune_stale',
+                    'Pruned stale TLS bump connections',
+                    lambda: {'count': len(stale)},
+                )
 
     def _build_select_lists(self):
         read_list = [self._sock]
@@ -377,13 +382,14 @@ class TlsHandshakeBumpServer(Server):
         state.sock = None
 
     def _log_parse_error(self, reason):
-        log_event(
-            _LOG,
-            logging.DEBUG,
-            'tls_bump.parse_error',
-            'TLS bump parse error',
-            lambda: {'reason': reason},
-        )
+        if _LOG.isEnabledFor(logging.DEBUG):
+            log_event(
+                _LOG,
+                logging.DEBUG,
+                'tls_bump.parse_error',
+                'TLS bump parse error',
+                lambda: {'reason': reason},
+            )
 
     def close(self):
         for sock in list(self._active.keys()):

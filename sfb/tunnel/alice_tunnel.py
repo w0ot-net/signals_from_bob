@@ -179,13 +179,14 @@ class AliceTunnel(BaseTunnel):
                 self._recv_window.set_initial_seq(0)
 
             attempt += 1
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.handshake_attempt',
-                'Handshake attempt',
-                lambda: {'attempt': attempt, 'side': 'alice'},
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.handshake_attempt',
+                    'Handshake attempt',
+                    lambda: {'attempt': attempt, 'side': 'alice'},
+                )
 
             # Build SYN packet
             syn_packet = Packet(
@@ -246,13 +247,14 @@ class AliceTunnel(BaseTunnel):
                 # Check if tunnel was closed during handshake
                 if self._state == TunnelState.CLOSED:
                     raise TunnelError('Tunnel closed during handshake')
-                log_event(
-                    self._logger,
-                    logging.WARNING,
-                    'tunnel.handshake_error',
-                    'Handshake error',
-                    lambda: {'error': str(e), 'side': 'alice'},
-                )
+                if self._logger.isEnabledFor(logging.WARNING):
+                    log_event(
+                        self._logger,
+                        logging.WARNING,
+                        'tunnel.handshake_error',
+                        'Handshake error',
+                        lambda: {'error': str(e), 'side': 'alice'},
+                    )
                 self._rtt.backoff()
 
             # Check state before sleeping
@@ -308,16 +310,17 @@ class AliceTunnel(BaseTunnel):
                     response = self._decode_packet(response_data)
                     if response:
                         if response.flags & (FLAG_SYN | FLAG_ACK):
-                            log_event(
-                                self._logger,
-                                logging.DEBUG,
-                                'tunnel.handshake_late_packet',
-                                'Ignored stale handshake packet',
-                                lambda: {
-                                    'flags': response.flags,
-                                    'side': 'alice',
-                                },
-                            )
+                            if self._logger.isEnabledFor(logging.DEBUG):
+                                log_event(
+                                    self._logger,
+                                    logging.DEBUG,
+                                    'tunnel.handshake_late_packet',
+                                    'Ignored stale handshake packet',
+                                    lambda: {
+                                        'flags': response.flags,
+                                        'side': 'alice',
+                                    },
+                                )
                             continue
                         self._process_incoming_packet(response)
                         self._set_state(TunnelState.CONNECTED)
@@ -325,31 +328,33 @@ class AliceTunnel(BaseTunnel):
 
                 self._rtt.backoff()
 
-            log_event(
-                self._logger,
-                logging.INFO,
-                'tunnel.connected',
-                'Connected',
-                lambda: {
-                    'local_isn': self._local_isn,
-                    'remote_isn': self._remote_isn,
-                    'mode': 'syn_ack',
-                    'side': 'alice',
-                },
-            )
+            if self._logger.isEnabledFor(logging.INFO):
+                log_event(
+                    self._logger,
+                    logging.INFO,
+                    'tunnel.connected',
+                    'Connected',
+                    lambda: {
+                        'local_isn': self._local_isn,
+                        'remote_isn': self._remote_isn,
+                        'mode': 'syn_ack',
+                        'side': 'alice',
+                    },
+                )
 
             self._rtt.reset()
             # Initiate MTU and window negotiation
             self._send_negotiation()
 
         except Exception as e:
-            log_event(
-                self._logger,
-                logging.WARNING,
-                'tunnel.ack_send_failed',
-                'Failed to send ACK',
-                lambda: {'error': str(e), 'side': 'alice'},
-            )
+            if self._logger.isEnabledFor(logging.WARNING):
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.ack_send_failed',
+                    'Failed to send ACK',
+                    lambda: {'error': str(e), 'side': 'alice'},
+                )
             self._set_state(TunnelState.DISCONNECTED)
             raise
 
@@ -365,32 +370,34 @@ class AliceTunnel(BaseTunnel):
         self.control.send_message(
             tun_mtu(send_payload, recv_payload)
         )
-        log_event(
-            self._logger,
-            logging.INFO,
-            'tunnel.mtu_propose',
-            'MTU request',
-            lambda: {
-                'tx_payload': send_payload,
-                'rx_payload': recv_payload,
-                'tx_packet_mtu': self._proposed_send_packet_mtu,
-                'rx_packet_mtu': self._proposed_recv_packet_mtu,
-                'side': 'alice',
-            },
-        )
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'tunnel.mtu_propose',
+                'MTU request',
+                lambda: {
+                    'tx_payload': send_payload,
+                    'rx_payload': recv_payload,
+                    'tx_packet_mtu': self._proposed_send_packet_mtu,
+                    'rx_packet_mtu': self._proposed_recv_packet_mtu,
+                    'side': 'alice',
+                },
+            )
 
         # Queue window request
         self.control.send_message(tun_window(self._proposed_window))
-        log_event(
-            self._logger,
-            logging.INFO,
-            'tunnel.window_propose',
-            'Window request',
-            lambda: {
-                'size': self._proposed_window,
-                'side': 'alice',
-            },
-        )
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'tunnel.window_propose',
+                'Window request',
+                lambda: {
+                    'size': self._proposed_window,
+                    'side': 'alice',
+                },
+            )
 
     def tick(self):
         """
@@ -431,21 +438,22 @@ class AliceTunnel(BaseTunnel):
                 retransmits = self._send_window.get_retransmits(
                     self._rtt.rto_sec, now=now
                 )
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.retransmit_scan',
-                    'Retransmit scan',
-                    lambda: {
-                        'count': len(retransmits),
-                        'rto_sec': self._rtt.rto_sec,
-                        'ack_silence': round(ack_silence, 6)
-                        if ack_silence is not None else None,
-                        'unacked': self._send_window.unacked_count,
-                        'budget': self._retransmit_budget,
-                        'side': 'alice',
-                    },
-                )
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'tunnel.retransmit_scan',
+                        'Retransmit scan',
+                        lambda: {
+                            'count': len(retransmits),
+                            'rto_sec': self._rtt.rto_sec,
+                            'ack_silence': round(ack_silence, 6)
+                            if ack_silence is not None else None,
+                            'unacked': self._send_window.unacked_count,
+                            'budget': self._retransmit_budget,
+                            'side': 'alice',
+                        },
+                    )
                 for seq, segments, flags, encrypted_body in retransmits:
                     if not self._can_send_retransmit(now=now):
                         break
@@ -461,20 +469,21 @@ class AliceTunnel(BaseTunnel):
                     if sent:
                         self._backoff_rto_once()
             else:
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.retransmit_skip',
-                    'Retransmit skipped due to ack silence',
-                    lambda: {
-                        'reason': 'ack_silence',
-                        'rto_sec': self._rtt.rto_sec,
-                        'ack_silence': round(ack_silence, 6)
-                        if ack_silence is not None else None,
-                        'unacked': self._send_window.unacked_count,
-                        'side': 'alice',
-                    },
-                )
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'tunnel.retransmit_skip',
+                        'Retransmit skipped due to ack silence',
+                        lambda: {
+                            'reason': 'ack_silence',
+                            'rto_sec': self._rtt.rto_sec,
+                            'ack_silence': round(ack_silence, 6)
+                            if ack_silence is not None else None,
+                            'unacked': self._send_window.unacked_count,
+                            'side': 'alice',
+                        },
+                    )
 
             self._maybe_fast_retransmit(now, ack_silence)
 
@@ -511,18 +520,19 @@ class AliceTunnel(BaseTunnel):
                 self._tick_sleep_hint = self._config.tunnel_tick_sleep
             return True
         except SendWindowError as exc:
-            log_event(
-                self._logger,
-                logging.ERROR,
-                'tunnel.send_window_inconsistent',
-                'Send window inconsistent',
-                lambda: {
-                    'seq': exc.seq,
-                    'context': exc.context,
-                    'side': 'alice',
-                    'error': str(exc),
-                },
-            )
+            if self._logger.isEnabledFor(logging.ERROR):
+                log_event(
+                    self._logger,
+                    logging.ERROR,
+                    'tunnel.send_window_inconsistent',
+                    'Send window inconsistent',
+                    lambda: {
+                        'seq': exc.seq,
+                        'context': exc.context,
+                        'side': 'alice',
+                        'error': str(exc),
+                    },
+                )
             self.close()
             raise
 
@@ -582,17 +592,18 @@ class AliceTunnel(BaseTunnel):
         if silence < self._no_response_timeout:
             return True
         self._set_state(TunnelState.CLOSED)
-        log_event(
-            self._logger,
-            logging.ERROR,
-            'tunnel.timeout_no_response',
-            'Connection timeout after no response',
-            lambda: {
-                'elapsed': round(silence, 3),
-                'timeout': self._no_response_timeout,
-                'side': 'alice',
-            },
-        )
+        if self._logger.isEnabledFor(logging.ERROR):
+            log_event(
+                self._logger,
+                logging.ERROR,
+                'tunnel.timeout_no_response',
+                'Connection timeout after no response',
+                lambda: {
+                    'elapsed': round(silence, 3),
+                    'timeout': self._no_response_timeout,
+                    'side': 'alice',
+                },
+            )
         return False
 
     def _pending_mode_set(self, mode, pending_event, control_send_event,
@@ -823,13 +834,14 @@ class AliceTunnel(BaseTunnel):
                     'ack_miss_last_age': details.get('ack_miss_last_age'),
                 })
             return fields
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.pacer_feedback_freeze',
-            'Pacer feedback freeze update',
-            build_fields,
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.pacer_feedback_freeze',
+                'Pacer feedback freeze update',
+                build_fields,
+            )
 
     def _log_send_blocked(self, decision, now):
         reason = decision.get('reason')
@@ -838,22 +850,36 @@ class AliceTunnel(BaseTunnel):
             unacked = decision.get('unacked', 0)
             max_in_flight = decision.get('max_in_flight')
             if unacked == 0:
-                log_event(
-                    self._logger,
-                    logging.ERROR,
-                    'tunnel.send_window_inconsistent',
-                    'Send window full but no unacked packets',
-                    lambda: {
-                        'unacked': unacked,
-                        'max_in_flight': max_in_flight,
-                        'side': 'alice',
-                    },
-                )
+                if self._logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        self._logger,
+                        logging.ERROR,
+                        'tunnel.send_window_inconsistent',
+                        'Send window full but no unacked packets',
+                        lambda: {
+                            'unacked': unacked,
+                            'max_in_flight': max_in_flight,
+                            'side': 'alice',
+                        },
+                    )
             else:
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'tunnel.send_window_full',
+                        'Send window full',
+                        lambda: {
+                            'unacked': unacked,
+                            'max_in_flight': max_in_flight,
+                            'side': 'alice',
+                        },
+                    )
+            if self._logger.isEnabledFor(logging.DEBUG):
                 log_event(
                     self._logger,
                     logging.DEBUG,
-                    'tunnel.send_window_full',
+                    'tunnel.send_blocked',
                     'Send window full',
                     lambda: {
                         'unacked': unacked,
@@ -861,17 +887,6 @@ class AliceTunnel(BaseTunnel):
                         'side': 'alice',
                     },
                 )
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Send window full',
-                lambda: {
-                    'unacked': unacked,
-                    'max_in_flight': max_in_flight,
-                    'side': 'alice',
-                },
-            )
             self._log_reliability_state(
                 logging.DEBUG,
                 'tunnel.reliability_state',
@@ -915,13 +930,14 @@ class AliceTunnel(BaseTunnel):
                     fields['pacer_cap'] = pacer_cap
                 fields.update(distance_details)
                 return fields
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_window_distance',
-                'Send window distance exceeded',
-                build_distance_fields,
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.send_window_distance',
+                    'Send window distance exceeded',
+                    build_distance_fields,
+                )
             def build_blocked_fields():
                 fields = {
                     'distance': distance,
@@ -938,13 +954,14 @@ class AliceTunnel(BaseTunnel):
                 if pacer_cap is not None:
                     fields['pacer_cap'] = pacer_cap
                 return fields
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Send window distance exceeded',
-                build_blocked_fields,
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.send_blocked',
+                    'Send window distance exceeded',
+                    build_blocked_fields,
+                )
             self._log_reliability_state(
                 logging.DEBUG,
                 'tunnel.reliability_state',
@@ -966,17 +983,18 @@ class AliceTunnel(BaseTunnel):
             return
 
         if reason == 'rate_limit':
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Send rate limited',
-                lambda: {
-                    'side': 'alice',
-                    'rate': decision.get('rate'),
-                    'burst': decision.get('burst'),
-                },
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.send_blocked',
+                    'Send rate limited',
+                    lambda: {
+                        'side': 'alice',
+                        'rate': decision.get('rate'),
+                        'burst': decision.get('burst'),
+                    },
+                )
             self._log_reliability_state(
                 logging.DEBUG,
                 'tunnel.reliability_state',
@@ -1000,19 +1018,20 @@ class AliceTunnel(BaseTunnel):
                 action='blocked',
                 inflight_count=inflight,
             )
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Send pacing blocked',
-                lambda: {
-                    'side': 'alice',
-                    'reason': 'pacer',
-                    'unacked': unacked,
-                    'inflight': inflight,
-                    'cap': cap,
-                },
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.send_blocked',
+                    'Send pacing blocked',
+                    lambda: {
+                        'side': 'alice',
+                        'reason': 'pacer',
+                        'unacked': unacked,
+                        'inflight': inflight,
+                        'cap': cap,
+                    },
+                )
             self._log_reliability_state(
                 logging.DEBUG,
                 'tunnel.reliability_state',
@@ -1114,17 +1133,18 @@ class AliceTunnel(BaseTunnel):
         if now is None:
             now = time_provider.now()
         if self._retransmit_budget is not None and self._retransmit_budget <= 0:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Retransmit budget exhausted',
-                lambda: {
-                    'side': 'alice',
-                    'reason': 'retransmit_budget',
-                    'cap': self._retransmit_cap,
-                },
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.send_blocked',
+                    'Retransmit budget exhausted',
+                    lambda: {
+                        'side': 'alice',
+                        'reason': 'retransmit_budget',
+                        'cap': self._retransmit_cap,
+                    },
+                )
             self._log_reliability_state(
                 logging.DEBUG,
                 'tunnel.reliability_state',
@@ -1138,17 +1158,18 @@ class AliceTunnel(BaseTunnel):
             return False
         if self._send_limiter is not None and not self._send_limiter.can_send(now=now):
             self._reliability_stats.on_retransmit_skip_rate_limit()
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Retransmit rate limited',
-                lambda: {
-                    'side': 'alice',
-                    'rate': self._config.tunnel_send_rate,
-                    'burst': self._config.tunnel_send_burst,
-                },
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.send_blocked',
+                    'Retransmit rate limited',
+                    lambda: {
+                        'side': 'alice',
+                        'rate': self._config.tunnel_send_rate,
+                        'burst': self._config.tunnel_send_burst,
+                    },
+                )
             self._log_reliability_state(
                 logging.DEBUG,
                 'tunnel.reliability_state',
@@ -1233,13 +1254,14 @@ class AliceTunnel(BaseTunnel):
             if hasattr(self._transport, 'max_in_flight'):
                 fields['max_in_flight'] = self._transport.max_in_flight
             return fields
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.send_blocked',
-            'Transport cannot send',
-            build_fields,
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.send_blocked',
+                'Transport cannot send',
+                build_fields,
+            )
         self._log_reliability_state(
             logging.DEBUG,
             'tunnel.reliability_state',
@@ -1317,13 +1339,14 @@ class AliceTunnel(BaseTunnel):
             if pending is not None:
                 fields['pending'] = pending
             return fields
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.poll_pace',
-            'Poll pacing interval updated',
-            build_fields,
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.poll_pace',
+                'Poll pacing interval updated',
+                build_fields,
+            )
 
     def _poll_pacing_allows_send(self, now):
         if not self._poll_pacing_enabled:
@@ -1380,22 +1403,24 @@ class AliceTunnel(BaseTunnel):
                 reason='feedback',
             )
             if adjust_fields is not None:
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.pacer_adjust',
-                    'Pacer target decreased',
-                    lambda: adjust_fields,
-                )
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        self._logger,
+                        logging.DEBUG,
+                        'tunnel.pacer_adjust',
+                        'Pacer target decreased',
+                        lambda: adjust_fields,
+                    )
         fields = decision.get('fields')
         target = decision.get('target')
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.pacer_target',
-            'Pacer target adjusted to %s' % target,
-            lambda: fields,
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.pacer_target',
+                'Pacer target adjusted to %s' % target,
+                lambda: fields,
+            )
 
     def _log_pacer_adjust(self, prev_target, reason, block_reason=None):
         if not self._logger.isEnabledFor(logging.DEBUG):
@@ -1413,13 +1438,14 @@ class AliceTunnel(BaseTunnel):
         )
         if fields is None:
             return
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.pacer_adjust',
-            'Pacer target decreased',
-            lambda: fields,
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.pacer_adjust',
+                'Pacer target decreased',
+                lambda: fields,
+            )
 
     def _note_pacer_blocked(self, reason, now, unacked=None):
         self._pacer_logger.note_blocked(reason)
@@ -1459,13 +1485,14 @@ class AliceTunnel(BaseTunnel):
         )
         if fields is None:
             return
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.pacer_state',
-            'Pacer state',
-            lambda: fields,
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.pacer_state',
+                'Pacer state',
+                lambda: fields,
+            )
 
     def _maybe_log_pacer_summary(self, now):
         action = self._pacer_logger.summary_action(now)
@@ -1494,13 +1521,14 @@ class AliceTunnel(BaseTunnel):
         )
         if fields is None:
             return
-        log_event(
-            self._logger,
-            logging.INFO,
-            'tunnel.pacer_summary',
-            'Pacer summary',
-            lambda: fields,
-        )
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'tunnel.pacer_summary',
+                'Pacer summary',
+                lambda: fields,
+            )
 
     def _poll_decision(self, now):
         if self._last_was_pong_only:
@@ -1530,17 +1558,18 @@ class AliceTunnel(BaseTunnel):
         encrypted_body, packet_data = self._encode_packet_for_send(packet)
 
         if self._send_limiter is not None and not self._send_limiter.consume(now=now):
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Send rate limited before transmit',
-                lambda: {
-                    'side': 'alice',
-                    'rate': self._config.tunnel_send_rate,
-                    'burst': self._config.tunnel_send_burst,
-                },
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.send_blocked',
+                    'Send rate limited before transmit',
+                    lambda: {
+                        'side': 'alice',
+                        'rate': self._config.tunnel_send_rate,
+                        'burst': self._config.tunnel_send_burst,
+                    },
+                )
             self._log_reliability_state(
                 logging.DEBUG,
                 'tunnel.reliability_state',
@@ -1564,24 +1593,25 @@ class AliceTunnel(BaseTunnel):
             self._transport.send(packet_data, permit)
         except Exception as exc:
             self._transport.release_send(permit)
-            log_event(
-                self._logger,
-                logging.WARNING,
-                'tunnel.packet_send_failed',
-                'Packet send failed',
-                lambda: {
-                    'seq': packet.seq,
-                    'ack': packet.ack,
-                    'sack': packet.sack,
-                    'flags': packet.flags,
-                    'seg_count': len(packet.segments),
-                    'bytes': len(packet_data),
-                    'context': 'new',
-                    'side': 'alice',
-                    'error': str(exc),
-                },
-                exc_info=True,
-            )
+            if self._logger.isEnabledFor(logging.WARNING):
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.packet_send_failed',
+                    'Packet send failed',
+                    lambda: {
+                        'seq': packet.seq,
+                        'ack': packet.ack,
+                        'sack': packet.sack,
+                        'flags': packet.flags,
+                        'seg_count': len(packet.segments),
+                        'bytes': len(packet_data),
+                        'context': 'new',
+                        'side': 'alice',
+                        'error': str(exc),
+                    },
+                    exc_info=True,
+                )
             return
         self._send_window.send(
             segments,
@@ -1603,16 +1633,17 @@ class AliceTunnel(BaseTunnel):
         self._last_send_time = now
         self._packets_sent += 1
         self._bytes_sent += len(packet_data)
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.packet_send',
-            'Packet sent',
-            lambda: self._packet_send_fields(
-                packet,
-                len(packet_data),
-                'new',
-            ),
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.packet_send',
+                'Packet sent',
+                lambda: self._packet_send_fields(
+                    packet,
+                    len(packet_data),
+                    'new',
+                ),
         )
 
     def _send_retransmit(self, seq, segments, flags, encrypted_body, now, reason=None):
@@ -1625,17 +1656,18 @@ class AliceTunnel(BaseTunnel):
 
         if self._send_limiter is not None and not self._send_limiter.consume(now=now):
             self._reliability_stats.on_retransmit_skip_rate_limit()
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.send_blocked',
-                'Retransmit rate limited before transmit',
-                lambda: {
-                    'side': 'alice',
-                    'rate': self._config.tunnel_send_rate,
-                    'burst': self._config.tunnel_send_burst,
-                },
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.send_blocked',
+                    'Retransmit rate limited before transmit',
+                    lambda: {
+                        'side': 'alice',
+                        'rate': self._config.tunnel_send_rate,
+                        'burst': self._config.tunnel_send_burst,
+                    },
+                )
             self._log_reliability_state(
                 logging.DEBUG,
                 'tunnel.reliability_state',
@@ -1677,25 +1709,26 @@ class AliceTunnel(BaseTunnel):
             self._transport.send(packet_data, permit)
         except Exception as exc:
             self._transport.release_send(permit)
-            log_event(
-                self._logger,
-                logging.WARNING,
-                'tunnel.packet_send_failed',
-                'Packet send failed',
-                lambda: {
-                    'seq': packet.seq,
-                    'ack': packet.ack,
-                    'sack': packet.sack,
-                    'flags': packet.flags,
-                    'seg_count': len(packet.segments),
-                    'bytes': len(packet_data),
-                    'context': 'retransmit',
-                    'reason': reason,
-                    'side': 'alice',
-                    'error': str(exc),
-                },
-                exc_info=True,
-            )
+            if self._logger.isEnabledFor(logging.WARNING):
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.packet_send_failed',
+                    'Packet send failed',
+                    lambda: {
+                        'seq': packet.seq,
+                        'ack': packet.ack,
+                        'sack': packet.sack,
+                        'flags': packet.flags,
+                        'seg_count': len(packet.segments),
+                        'bytes': len(packet_data),
+                        'context': 'retransmit',
+                        'reason': reason,
+                        'side': 'alice',
+                        'error': str(exc),
+                    },
+                    exc_info=True,
+                )
             return False
         self._send_window.mark_retransmit(seq, now=now)
         if self._pacer.enabled:
@@ -1726,23 +1759,25 @@ class AliceTunnel(BaseTunnel):
             if prev_age is not None:
                 fields['prev_send_age'] = prev_age
             return fields
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.retransmit',
-            'Retransmitting packet',
-            build_fields,
-        )
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.packet_send',
-            'Packet sent',
-            lambda: self._packet_send_fields(
-                packet,
-                len(packet_data),
-                'retransmit',
-            ),
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.retransmit',
+                'Retransmitting packet',
+                build_fields,
+            )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.packet_send',
+                'Packet sent',
+                lambda: self._packet_send_fields(
+                    packet,
+                    len(packet_data),
+                    'retransmit',
+                ),
         )
         self._log_reliability_state(
             logging.DEBUG,
@@ -1761,51 +1796,54 @@ class AliceTunnel(BaseTunnel):
         """Handle a transport response."""
         packet, packet_size = self._decode_packet(data, return_size=True)
         if packet is None:
-            log_event(
-                self._logger,
-                logging.DEBUG,
-                'tunnel.response_decode_failed',
-                'Transport response decode failed',
-                lambda: {
-                    'corr_id': corr_id,
-                    'bytes': len(data),
-                    'side': 'alice',
-                },
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.response_decode_failed',
+                    'Transport response decode failed',
+                    lambda: {
+                        'corr_id': corr_id,
+                        'bytes': len(data),
+                        'side': 'alice',
+                    },
+                )
             return (False, None)
 
         self._bytes_received += len(data)
         self._last_recv_time = now
         content_flag = self._content_flag_label(packet.flags)
-        log_event(
-            self._logger,
-            logging.DEBUG,
-            'tunnel.response_decode',
-            'Transport response decoded',
-            lambda: {
-                'corr_id': corr_id,
-                'seq': packet.seq,
-                'ack': packet.ack,
-                'sack': packet.sack,
-                'flags': packet.flags,
-                'content_flag': content_flag,
-                'seg_count': len(packet.segments),
-                'bytes': packet_size,
-                'side': 'alice',
-            },
-        )
-
-        if packet.flags & (FLAG_SYN | FLAG_ACK):
+        if self._logger.isEnabledFor(logging.DEBUG):
             log_event(
                 self._logger,
                 logging.DEBUG,
-                'tunnel.handshake_late_packet',
-                'Ignored stale handshake packet',
+                'tunnel.response_decode',
+                'Transport response decoded',
                 lambda: {
+                    'corr_id': corr_id,
+                    'seq': packet.seq,
+                    'ack': packet.ack,
+                    'sack': packet.sack,
                     'flags': packet.flags,
+                    'content_flag': content_flag,
+                    'seg_count': len(packet.segments),
+                    'bytes': packet_size,
                     'side': 'alice',
                 },
             )
+
+        if packet.flags & (FLAG_SYN | FLAG_ACK):
+            if self._logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    self._logger,
+                    logging.DEBUG,
+                    'tunnel.handshake_late_packet',
+                    'Ignored stale handshake packet',
+                    lambda: {
+                        'flags': packet.flags,
+                        'side': 'alice',
+                    },
+                )
             return (True, None)
 
         response_kind = content_flag
@@ -1854,17 +1892,18 @@ class AliceTunnel(BaseTunnel):
             if now - self._last_window_request_time >= self._window_growth_interval:
                 self.control.send_message(tun_window(self._proposed_window))
                 self._last_window_request_time = now
-                log_event(
-                    self._logger,
-                    logging.INFO,
-                    'tunnel.window_propose',
-                    'Window request retry',
-                    lambda: {
-                        'size': self._proposed_window,
-                        'reason': 'retry',
-                        'side': 'alice',
-                    },
-                )
+                if self._logger.isEnabledFor(logging.INFO):
+                    log_event(
+                        self._logger,
+                        logging.INFO,
+                        'tunnel.window_propose',
+                        'Window request retry',
+                        lambda: {
+                            'size': self._proposed_window,
+                            'reason': 'retry',
+                            'side': 'alice',
+                        },
+                    )
             return
 
         if not self._ack_progressed:
@@ -1887,18 +1926,19 @@ class AliceTunnel(BaseTunnel):
         self.control.send_message(tun_window(requested))
         self._last_window_request_time = now
         self._ack_progressed = False
-        log_event(
-            self._logger,
-            logging.INFO,
-            'tunnel.window_propose',
-            'Window growth request',
-            lambda: {
-                'size': requested,
-                'current': current,
-                'mode': self._window_growth_mode,
-                'side': 'alice',
-            },
-        )
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'tunnel.window_propose',
+                'Window growth request',
+                lambda: {
+                    'size': requested,
+                    'current': current,
+                    'mode': self._window_growth_mode,
+                    'side': 'alice',
+                },
+            )
 
     def run(self, duration=None):
         """
@@ -1924,14 +1964,15 @@ class AliceTunnel(BaseTunnel):
             try:
                 self.tick()
             except Exception as e:
-                log_event(
-                    self._logger,
-                    logging.WARNING,
-                    'tunnel.tick_error',
-                    'Tick error',
-                    lambda: {'error': str(e), 'side': 'alice'},
-                    exc_info=True,
-                )
+                if self._logger.isEnabledFor(logging.WARNING):
+                    log_event(
+                        self._logger,
+                        logging.WARNING,
+                        'tunnel.tick_error',
+                        'Tick error',
+                        lambda: {'error': str(e), 'side': 'alice'},
+                        exc_info=True,
+                    )
             sleep_hint = self._tick_sleep_hint
             if sleep_hint > 0:
                 time_provider.sleep(sleep_hint)

@@ -268,13 +268,14 @@ def _log_control_segments(segments):
         for line in lines[:-1]:
             if not line:
                 continue
-            log_event(
-                _LOG,
-                logging.INFO,
-                'protocol.control',
-                'Control message line',
-                lambda: {'line': line.decode('ascii', 'replace')},
-            )
+            if _LOG.isEnabledFor(logging.INFO):
+                log_event(
+                    _LOG,
+                    logging.INFO,
+                    'protocol.control',
+                    'Control message line',
+                    lambda: {'line': line.decode('ascii', 'replace')},
+                )
 
 
 def log_control_segments(segments):

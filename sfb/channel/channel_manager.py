@@ -286,13 +286,14 @@ class ChannelManager(object):
 
         # Send OPEN control message
         self._control.send_message(ch_open(channel_id))
-        log_event(
-            logger,
-            logging.DEBUG,
-            'channel.open',
-            'Channel open requested',
-            lambda: self._log_ctx(channel_id),
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                logger,
+                logging.DEBUG,
+                'channel.open',
+                'Channel open requested',
+                lambda: self._log_ctx(channel_id),
+            )
 
         return channel
 
@@ -332,37 +333,40 @@ class ChannelManager(object):
             if reason is None:
                 reason = 'Channel aborted'
             self._control.send_message(ch_close_err(channel_id, code, reason))
-            log_event(
-                logger,
-                logging.INFO,
-                'channel.abort',
-                'Channel abort requested',
-                lambda: self._log_ctx(channel_id, code=code, reason=reason),
-            )
+            if logger.isEnabledFor(logging.INFO):
+                log_event(
+                    logger,
+                    logging.INFO,
+                    'channel.abort',
+                    'Channel abort requested',
+                    lambda: self._log_ctx(channel_id, code=code, reason=reason),
+                )
             with self._lock:
                 self._unregister_channel_locked(channel_id)
             return
         self._control.send_message(ch_close(channel_id))
-        log_event(
-            logger,
-            logging.DEBUG,
-            'channel.close',
-            'Channel close requested',
-            lambda: self._log_ctx(channel_id),
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                logger,
+                logging.DEBUG,
+                'channel.close',
+                'Channel close requested',
+                lambda: self._log_ctx(channel_id),
+            )
 
     def _on_channel_half_close(self, channel_id):
         """Callback invoked when channel.close_write() is called."""
         if channel_id == CHANNEL_CONTROL:
             return
         self._control.send_message(ch_half_close(channel_id))
-        log_event(
-            logger,
-            logging.DEBUG,
-            'channel.half_close_out',
-            'Channel half-close requested',
-            lambda: self._log_ctx(channel_id),
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                logger,
+                logging.DEBUG,
+                'channel.half_close_out',
+                'Channel half-close requested',
+                lambda: self._log_ctx(channel_id),
+            )
 
     def deliver_segment(self, segment):
         """
@@ -386,16 +390,17 @@ class ChannelManager(object):
             if e.code == 'recv_overflow':
                 channel.abort(code=e.code, message=e.message)
             else:
-                log_event(
-                    logger,
-                    logging.WARNING,
-                    'channel.deliver_error',
-                    'Channel delivery error',
-                    lambda: self._log_ctx(
-                        channel_id,
-                        code=e.code,
-                        reason=e.message,
-                    ),
+                if logger.isEnabledFor(logging.WARNING):
+                    log_event(
+                        logger,
+                        logging.WARNING,
+                        'channel.deliver_error',
+                        'Channel delivery error',
+                        lambda: self._log_ctx(
+                            channel_id,
+                            code=e.code,
+                            reason=e.message,
+                        ),
                 )
 
     def _handle_unknown_segment(self, channel_id):
@@ -407,13 +412,14 @@ class ChannelManager(object):
                 self._unknown_channel_last[channel_id] = now
                 notify = True
         if notify:
-            log_event(
-                logger,
-                logging.WARNING,
-                'channel.unknown_segment',
-                'Segment for unknown channel',
-                lambda: self._log_ctx(channel_id),
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    'channel.unknown_segment',
+                    'Segment for unknown channel',
+                    lambda: self._log_ctx(channel_id),
+                )
         if notify and channel_id != CHANNEL_CONTROL:
             try:
                 self._control.send_message(
@@ -421,16 +427,17 @@ class ChannelManager(object):
                 )
             except ChannelError:
                 return
-            log_event(
-                logger,
-                logging.DEBUG,
-                'channel.close_err_out',
-                'Channel close error requested',
-                lambda: self._log_ctx(
-                    channel_id,
-                    code='unknown_channel',
-                    reason='Unknown channel',
-                ),
+            if logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    'channel.close_err_out',
+                    'Channel close error requested',
+                    lambda: self._log_ctx(
+                        channel_id,
+                        code='unknown_channel',
+                        reason='Unknown channel',
+                    ),
             )
 
     def _reject_control_channel(self, cmd, channel_id, message=None):
@@ -438,13 +445,14 @@ class ChannelManager(object):
             return False
         if message is None:
             message = 'Ignoring %s for control channel' % cmd
-        log_event(
-            logger,
-            logging.WARNING,
-            'channel.control_close_blocked',
-            message,
-            lambda: self._log_ctx(channel_id),
-        )
+        if logger.isEnabledFor(logging.WARNING):
+            log_event(
+                logger,
+                logging.WARNING,
+                'channel.control_close_blocked',
+                message,
+                lambda: self._log_ctx(channel_id),
+            )
         return True
 
     def handle_control_message(self, msg):
@@ -571,17 +579,18 @@ class ChannelManager(object):
             payload_bytes = 0
             for seg in segments:
                 payload_bytes += len(seg.data)
-            log_event(
-                logger,
-                logging.DEBUG,
-                'channel.pack',
-                'Packed segments',
-                lambda: self._log_ctx(
-                    None,
-                    seg_count=len(segments),
-                    payload_bytes=payload_bytes,
-                    max_payload=max_payload,
-                ),
+            if logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    'channel.pack',
+                    'Packed segments',
+                    lambda: self._log_ctx(
+                        None,
+                        seg_count=len(segments),
+                        payload_bytes=payload_bytes,
+                        max_payload=max_payload,
+                    ),
             )
 
         self._record_drain_stats(segments)
@@ -612,17 +621,18 @@ class ChannelManager(object):
                 for cid, count in self._stats_bytes_sent.items():
                     stats[str(cid)] = count
                     total += count
-                log_event(
-                    logger,
-                    logging.DEBUG,
-                    'channel.drain',
-                    'Channel drain stats',
-                    lambda: self._log_ctx(
-                        None,
-                        interval=self._stats_interval,
-                        bytes_total=total,
-                        bytes_by_channel=stats,
-                    ),
+                if logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        'channel.drain',
+                        'Channel drain stats',
+                        lambda: self._log_ctx(
+                            None,
+                            interval=self._stats_interval,
+                            bytes_total=total,
+                            bytes_by_channel=stats,
+                        ),
                 )
             self._stats_bytes_sent = {}
             self._stats_last_log = now
@@ -693,13 +703,14 @@ class ChannelManager(object):
 
         if (not isinstance(channel_id, integer_types) or
                 channel_id < 1 or channel_id > 255):
-            log_event(
-                logger,
-                logging.WARNING,
-                'channel.invalid_open',
-                'Invalid channel id in open request',
-                lambda: self._log_ctx(channel_id),
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    'channel.invalid_open',
+                    'Invalid channel id in open request',
+                    lambda: self._log_ctx(channel_id),
+                )
             return
 
         # Validate channel ID ownership
@@ -724,29 +735,31 @@ class ChannelManager(object):
                 self._control.send_message(
                     ch_open_fail(channel_id, 'handler_error')
                 )
-                log_event(
-                    logger,
-                    logging.WARNING,
-                    'channel.open_reject',
-                    'Channel open rejected by handler error',
-                    lambda: self._log_ctx(
-                        channel_id,
-                        reason='handler_error',
-                        error=repr(exc),
-                    ),
+                if logger.isEnabledFor(logging.WARNING):
+                    log_event(
+                        logger,
+                        logging.WARNING,
+                        'channel.open_reject',
+                        'Channel open rejected by handler error',
+                        lambda: self._log_ctx(
+                            channel_id,
+                            reason='handler_error',
+                            error=repr(exc),
+                        ),
                 )
                 return
             if not accepted:
                 self._control.send_message(
                     ch_open_fail(channel_id, 'rejected')
                 )
-                log_event(
-                    logger,
-                    logging.DEBUG,
-                    'channel.open_reject',
-                    'Channel open rejected by handler',
-                    lambda: self._log_ctx(channel_id, reason='rejected'),
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        'channel.open_reject',
+                        'Channel open rejected by handler',
+                        lambda: self._log_ctx(channel_id, reason='rejected'),
+                    )
                 return
 
         with self._lock:
@@ -756,13 +769,14 @@ class ChannelManager(object):
             self._register_channel_locked(channel)
 
         self._control.send_message(ch_open_ok(channel_id))
-        log_event(
-            logger,
-            logging.DEBUG,
-            'channel.open_in',
-            'Channel open received',
-            lambda: self._log_ctx(channel_id),
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                logger,
+                logging.DEBUG,
+                'channel.open_in',
+                'Channel open received',
+                lambda: self._log_ctx(channel_id),
+            )
 
     def _handle_open_ok(self, msg):
         """Handle OPEN_OK response."""
@@ -778,13 +792,14 @@ class ChannelManager(object):
 
         if channel.state == STATE_OPENING:
             channel._set_state(STATE_OPEN)
-            log_event(
-                logger,
-                logging.DEBUG,
-                'channel.open_ok',
-                'Channel open ok',
-                lambda: self._log_ctx(channel_id),
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    'channel.open_ok',
+                    'Channel open ok',
+                    lambda: self._log_ctx(channel_id),
+                )
 
     def _handle_open_fail(self, msg):
         """Handle OPEN_FAIL response."""
@@ -801,13 +816,14 @@ class ChannelManager(object):
             if channel.state == STATE_OPENING:
                 channel._set_state(STATE_CLOSED, error=reason)
                 self._unregister_channel_locked(channel_id)
-                log_event(
-                    logger,
-                    logging.DEBUG,
-                    'channel.open_fail',
-                    'Channel open failed',
-                    lambda: self._log_ctx(channel_id, reason=reason),
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        'channel.open_fail',
+                        'Channel open failed',
+                        lambda: self._log_ctx(channel_id, reason=reason),
+                    )
 
     def _handle_close(self, msg):
         """Handle CLOSE request from peer."""
@@ -830,13 +846,14 @@ class ChannelManager(object):
 
         # Send CLOSE_OK (outside lock to avoid blocking)
         self._control.send_message(ch_close_ok(channel_id))
-        log_event(
-            logger,
-            logging.DEBUG,
-            'channel.close_in',
-            'Channel close received',
-            lambda: self._log_ctx(channel_id),
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                logger,
+                logging.DEBUG,
+                'channel.close_in',
+                'Channel close received',
+                lambda: self._log_ctx(channel_id),
+            )
 
     def _handle_close_err(self, msg):
         """Handle CLOSE_ERR request from peer."""
@@ -868,13 +885,14 @@ class ChannelManager(object):
 
         # Send CLOSE_OK (outside lock to avoid blocking)
         self._control.send_message(ch_close_ok(channel_id))
-        log_event(
-            logger,
-            logging.INFO,
-            'channel.close_err_in',
-            'Channel close error received',
-            lambda: self._log_ctx(channel_id, code=code, reason=reason),
-        )
+        if logger.isEnabledFor(logging.INFO):
+            log_event(
+                logger,
+                logging.INFO,
+                'channel.close_err_in',
+                'Channel close error received',
+                lambda: self._log_ctx(channel_id, code=code, reason=reason),
+            )
 
     def _handle_half_close(self, msg):
         """Handle HALF_CLOSE request from peer."""
@@ -889,13 +907,14 @@ class ChannelManager(object):
         if channel is None:
             return
         if channel._set_recv_closed():
-            log_event(
-                logger,
-                logging.DEBUG,
-                'channel.half_close_in',
-                'Channel half-close received',
-                lambda: self._log_ctx(channel_id),
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    'channel.half_close_in',
+                    'Channel half-close received',
+                    lambda: self._log_ctx(channel_id),
+                )
 
     def _handle_close_ok(self, msg):
         """Handle CLOSE_OK response."""
@@ -916,10 +935,11 @@ class ChannelManager(object):
             if channel.state == STATE_CLOSING:
                 channel._set_state(STATE_CLOSED)
                 self._unregister_channel_locked(channel_id)
-                log_event(
-                    logger,
-                    logging.DEBUG,
-                    'channel.close_ok',
-                    'Channel close ok',
-                    lambda: self._log_ctx(channel_id),
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        'channel.close_ok',
+                        'Channel close ok',
+                        lambda: self._log_ctx(channel_id),
+                    )

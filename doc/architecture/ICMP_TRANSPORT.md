@@ -153,7 +153,8 @@ Config fields:
 - `max_in_flight`: max concurrent ICMP requests in flight
 - `icmp_pending_timeout`: timeout before pruning stale ICMP requests
 - `non_blocking_poll_timeout`: poll timeout used by the tunnel loop
-- `tunnel_send_rate` / `tunnel_send_burst`: transport-agnostic pacing for Alice polls
+- `tunnel_send_rate`: transport-agnostic pacing for Alice polls (burst derives
+  from rate when enabled)
 - `tunnel_pace_target_inflight_ratio` / `tunnel_pace_min_inflight` /
   `tunnel_pace_max_inflight`: adaptive pacing bounds
 - `tunnel_pace_feedback_gain` / `tunnel_pace_ack_ewma_alpha` /
@@ -164,7 +165,7 @@ CLI:
 - `--transport icmp`
 - Alice: `--target <host>`
 - `--icmp-packet-mtu <bytes>` (both roles)
-- Alice pacing (all transports): `--send-rate`, `--send-burst`,
+- Alice pacing (all transports): `--send-rate`,
   `--pace-target-inflight-ratio`, `--pace-min-inflight`,
   `--pace-max-inflight`, `--pace-feedback-gain`,
   `--pace-ack-ewma-alpha`, `--pace-rtt-floor-ms`,

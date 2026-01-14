@@ -54,6 +54,12 @@ class BobTunnel(BaseTunnel):
         )
         self._transport = transport
         self._idle_timeout = config.tunnel_idle_timeout
+        self._poll_interval = config.tunnel_bob_poll_interval
+        self._poll_interval_bg = self._poll_interval * 0.1
+        if self._poll_interval_bg < config.non_blocking_poll_timeout:
+            self._poll_interval_bg = config.non_blocking_poll_timeout
+        if self._poll_interval_bg > self._poll_interval:
+            self._poll_interval_bg = self._poll_interval
 
         # Security: only accept these message types from Alice by default
         self._allowed_message_types = {'tun', 'ch'}
@@ -71,6 +77,9 @@ class BobTunnel(BaseTunnel):
                     'send_payload': send_payload,
                     'recv_payload': recv_payload,
                     'max_packet_size': self._max_packet_size,
+                    'poll_interval': self._poll_interval,
+                    'poll_interval_bg': self._poll_interval_bg,
+                    'non_blocking_poll_timeout': self._config.non_blocking_poll_timeout,
                     'side': 'bob',
                 },
             )
@@ -135,7 +144,7 @@ class BobTunnel(BaseTunnel):
             while self._state != TunnelState.CLOSED:
                 try:
                     if not self._recv_and_dispatch(
-                        self._config.tunnel_bob_poll_interval,
+                        self._poll_interval,
                         check_idle=True,
                     ):
                         break
@@ -177,7 +186,7 @@ class BobTunnel(BaseTunnel):
         while not self._bg_stop and self._state != TunnelState.CLOSED:
             try:
                 self._recv_and_dispatch(
-                    self._config.tunnel_bob_poll_interval_bg,
+                    self._poll_interval_bg,
                     check_idle=False,
                 )
             except Exception as e:
@@ -858,19 +867,27 @@ class BobTunnel(BaseTunnel):
             )
 
     def _retransmit_cooldown(self):
-        cooldown = self._config.tunnel_bob_retransmit_min_interval
         factor = self._config.tunnel_bob_retransmit_poll_factor
         poll_ewma = self._poll_interval_ewma
-        if poll_ewma is not None and poll_ewma > 0:
-            if factor > 0:
-                cooldown = max(cooldown, poll_ewma * factor)
-            window = getattr(self._send_window, '_max_in_flight', None)
-            if window is not None and window > 0:
-                cooldown = max(cooldown, poll_ewma * window)
+        if poll_ewma is None or poll_ewma <= 0:
+            poll_ewma = self._poll_interval
+        if poll_ewma is None or poll_ewma <= 0:
+            return 0.0
+        scale = 0.0
+        if factor > 0:
+            scale = float(factor)
+        window = getattr(self._send_window, '_max_in_flight', None)
+        if window is not None and window > 0:
+            if window > scale:
+                scale = float(window)
+        if scale <= 0:
+            return 0.0
         max_interval = self._config.tunnel_bob_retransmit_max_interval
         if max_interval is not None and max_interval > 0:
-            cooldown = min(cooldown, max_interval)
-        return cooldown
+            poll_cap = float(max_interval) / scale
+            if poll_ewma > poll_cap:
+                poll_ewma = poll_cap
+        return poll_ewma * scale
 
     def allow_message_type(self, msg_type):
         """

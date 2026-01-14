@@ -32,7 +32,6 @@ def _make_config():
     config.tunnel_no_response_timeout = 120.0
     config.tunnel_idle_timeout = 120.0
     config.tunnel_bob_poll_interval = 0.02
-    config.tunnel_bob_poll_interval_bg = 0.005
     config.tunnel_tick_sleep = 0.0005
     config.max_in_flight = 64
     config.tunnel_initial_window = 32

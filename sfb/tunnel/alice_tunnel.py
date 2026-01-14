@@ -94,10 +94,7 @@ class AliceTunnel(BaseTunnel):
         self._got_data = False
         # Track keepalive-only responses (legacy "pong" terminology)
         self._last_was_pong_only = False
-        self._pong_grace_polls = config.tunnel_pong_grace_polls
-        min_grace = self._proposed_window * 2
-        if self._pong_grace_polls < min_grace:
-            self._pong_grace_polls = min_grace
+        self._pong_grace_polls = self._proposed_window * 2
         self._pong_grace_remaining = self._pong_grace_polls
         # Track if we have real data packets awaiting ACKs (not just keepalives)
         self._has_pending_data_acks = False
@@ -109,9 +106,13 @@ class AliceTunnel(BaseTunnel):
         self._last_window_request_time = 0
         self._ack_progressed = False
         # Transport-agnostic send rate limiter
+        self._send_rate = config.tunnel_send_rate
+        self._send_burst = None
+        if self._send_rate is not None and self._send_rate > 0:
+            self._send_burst = float(self._send_rate)
         self._send_limiter = RateLimiter(
-            config.tunnel_send_rate,
-            burst=config.tunnel_send_burst,
+            self._send_rate,
+            burst=self._send_burst,
         )
         # Adaptive pacing (Alice only)
         self._pacer = AdaptivePacer(
@@ -132,12 +133,31 @@ class AliceTunnel(BaseTunnel):
         # Poll pacing (Alice only)
         self._poll_pacing_enabled = config.tunnel_poll_pacing_enabled
         self._poll_min_interval = config.tunnel_poll_min_interval
-        self._poll_max_interval = config.tunnel_poll_max_interval
+        self._poll_max_interval = float(self._keepalive_interval)
         self._poll_rtt_ratio = config.tunnel_poll_rtt_ratio
         self._next_poll_time = 0.0
         self._poll_pace_interval = None
         self._poll_pace_sleep_max = 0.01
         self._tick_sleep_hint = 0.0
+
+        if self._logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                self._logger,
+                logging.DEBUG,
+                'tunnel.init',
+                'Tunnel init',
+                lambda: {
+                    'side': 'alice',
+                    'keepalive_interval': self._keepalive_interval,
+                    'poll_min_interval': self._poll_min_interval,
+                    'poll_max_interval': self._poll_max_interval,
+                    'poll_rtt_ratio': self._poll_rtt_ratio,
+                    'pong_grace_polls': self._pong_grace_polls,
+                    'proposed_window': self._proposed_window,
+                    'send_rate': self._send_rate,
+                    'send_burst': self._send_burst,
+                },
+            )
 
         # Enable module loader for handling Bob's module requests.
         self.enable_module_loader()
@@ -790,8 +810,8 @@ class AliceTunnel(BaseTunnel):
         return {
             'reason': 'rate_limit',
             'keepalive_only': keepalive_only,
-            'rate': self._config.tunnel_send_rate,
-            'burst': self._config.tunnel_send_burst,
+            'rate': self._send_rate,
+            'burst': self._send_burst,
         }
 
     def _pacer_inflight_counts(self):
@@ -1166,8 +1186,8 @@ class AliceTunnel(BaseTunnel):
                     'Retransmit rate limited',
                     lambda: {
                         'side': 'alice',
-                        'rate': self._config.tunnel_send_rate,
-                        'burst': self._config.tunnel_send_burst,
+                        'rate': self._send_rate,
+                        'burst': self._send_burst,
                     },
                 )
             self._log_reliability_state(
@@ -1566,8 +1586,8 @@ class AliceTunnel(BaseTunnel):
                     'Send rate limited before transmit',
                     lambda: {
                         'side': 'alice',
-                        'rate': self._config.tunnel_send_rate,
-                        'burst': self._config.tunnel_send_burst,
+                        'rate': self._send_rate,
+                        'burst': self._send_burst,
                     },
                 )
             self._log_reliability_state(
@@ -1664,8 +1684,8 @@ class AliceTunnel(BaseTunnel):
                     'Retransmit rate limited before transmit',
                     lambda: {
                         'side': 'alice',
-                        'rate': self._config.tunnel_send_rate,
-                        'burst': self._config.tunnel_send_burst,
+                        'rate': self._send_rate,
+                        'burst': self._send_burst,
                     },
                 )
             self._log_reliability_state(

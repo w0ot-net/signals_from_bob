@@ -239,13 +239,14 @@ Key structured events emitted during retransmit/ACK handling:
 
 ## Rate Limiting, Pacing, And Transport Gating
 
-### Rate Limiter (Config.tunnel_send_rate / tunnel_send_burst)
+### Rate Limiter (Config.tunnel_send_rate)
 
 - New sends: `_can_send_new()` uses `RateLimiter.can_send()`, and
   `_send_new_packet()` uses `RateLimiter.consume()`.
 - Retransmits: `_can_send_retransmit()` uses `can_send()`, and
   `_send_retransmit()` uses `consume()`.
 - If `consume()` fails, the send/retransmit is skipped and logged.
+- Burst capacity derives from `tunnel_send_rate` when enabled.
 - When `tunnel_send_rate <= 0`, the limiter is disabled (always allows).
 
 ### Adaptive Pacing
@@ -302,12 +303,12 @@ Retransmit-related settings in `Config`:
 - `tunnel_fast_retransmit_min_age_ratio` (default 0.25)
 - `tunnel_fast_retransmit_max_per_seq` (default 2)
 - `tunnel_keepalive_interval` (default 1.0)
-- `tunnel_pong_grace_polls` (default 5, Alice floors to 2 * max_in_flight)
-- `tunnel_send_rate` (default 0.0, unlimited)
-- `tunnel_send_burst` (default None, equals rate)
+- Pong grace polls (derived as `2 * proposed_window` at init)
+- `tunnel_send_rate` (default 0.0, unlimited; burst derives from rate)
 - `tunnel_adaptive_pacing_enabled` (default True)
 - `tunnel_pace_rtt_floor_ms` (default 5.0)
-- `tunnel_poll_min_interval` (default 0.0005)
+- `tunnel_poll_min_interval` (default 0.0)
+- Poll pacing max interval derives from `tunnel_keepalive_interval`.
 - `tunnel_poll_rtt_ratio` (default 0.75)
 - `non_blocking_poll_timeout` (default 0.0001)
 - `tunnel_initial_window` (default 1)

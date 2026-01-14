@@ -187,10 +187,6 @@ def parse_args():
         help='Override tunnel send rate for Alice (packets/sec, 0=unlimited)'
     )
     parser.add_argument(
-        '--send-burst', type=float, default=None,
-        help='Override tunnel send burst for Alice (packets)'
-    )
-    parser.add_argument(
         '--log-profile', default='socks_throughput_debug',
         help='Log profile to use for Bob/Alice (default: socks_throughput_debug)'
     )
@@ -334,7 +330,7 @@ def start_bob(socks_port, icmp_mtu=None, log_profile=None, verbose=False,
     return ManagedProcess('bob', cmd, cwd=ROOT_DIR)
 
 
-def start_alice(target, icmp_mtu=None, send_rate=None, send_burst=None,
+def start_alice(target, icmp_mtu=None, send_rate=None,
                 log_profile=None, verbose=False, relay_buffer_size=None,
                 channel_max_buf=None, relay_pump_backoff_max=None,
                 non_blocking_poll_timeout=None, db_log_path=CLIENT_DB_LOG,
@@ -365,8 +361,6 @@ def start_alice(target, icmp_mtu=None, send_rate=None, send_burst=None,
         cmd.extend(['--icmp-mtu', str(icmp_mtu)])
     if send_rate is not None:
         cmd.extend(['--send-rate', str(send_rate)])
-    if send_burst is not None:
-        cmd.extend(['--send-burst', str(send_burst)])
     cmd = wrap_profile(cmd, profile_dir, 'alice')
     return ManagedProcess('alice', cmd, cwd=ROOT_DIR)
 
@@ -894,7 +888,6 @@ def main():
             args.target,
             icmp_mtu=args.icmp_mtu,
             send_rate=args.send_rate,
-            send_burst=args.send_burst,
             log_profile=log_profile,
             verbose=args.verbose_cli,
             relay_buffer_size=args.relay_buffer_size,

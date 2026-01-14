@@ -20,7 +20,6 @@ class NcLinuxIntegrationTests(unittest.TestCase):
     def test_pipe_to_file(self):
         config = Config()
         config.tunnel_bob_poll_interval = 0.05
-        config.tunnel_bob_poll_interval_bg = 0.01
         config.tunnel_connect_timeout = 2.0
         config.nc_linux_bind_timeout = 2.0
 

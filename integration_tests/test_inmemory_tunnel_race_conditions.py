@@ -48,7 +48,6 @@ class TunnelRaceIntegrationTests(unittest.TestCase):
         config = Config()
         config.tunnel_connect_timeout = 2.0
         config.tunnel_bob_poll_interval = 0.05
-        config.tunnel_bob_poll_interval_bg = 0.01
         config.tunnel_bg_stop_timeout = 1.0
         config.tunnel_keepalive_interval = 0.1
         config.non_blocking_poll_timeout = 0.001

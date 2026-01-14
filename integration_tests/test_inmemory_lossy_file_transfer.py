@@ -44,11 +44,9 @@ def _make_config():
     config.tunnel_idle_timeout = 600.0
     config.tunnel_keepalive_interval = 0.2
     config.tunnel_bob_poll_interval = 0.05
-    config.tunnel_bob_poll_interval_bg = 0.005
     config.tunnel_tick_sleep = 0.0001
     config.tunnel_poll_pacing_enabled = False
     config.tunnel_poll_min_interval = 0.0001
-    config.tunnel_poll_max_interval = 0.05
     config.tunnel_retransmit_cap = 4
     config.max_in_flight = 256
     config.tunnel_initial_window = 32

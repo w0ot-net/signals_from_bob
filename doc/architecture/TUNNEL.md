@@ -227,7 +227,7 @@ the next poll slot is scheduled using:
 interval = clamp(
     srtt_sec * tunnel_poll_rtt_ratio / max(target_inflight, 1),
     tunnel_poll_min_interval,
-    min(tunnel_poll_max_interval, tunnel_keepalive_interval)
+    tunnel_keepalive_interval
 )
 ```
 
@@ -235,6 +235,8 @@ interval = clamp(
 and clamped by the negotiated send window and transport max inflight. When no
 SRTT sample exists, `srtt_sec` falls back to `tunnel_keepalive_interval`, and
 SRTT is floored by `tunnel_pace_rtt_floor_ms`.
+
+The poll pacing maximum interval is derived from `tunnel_keepalive_interval`.
 
 When poll pacing is disabled, Alice keeps the previous bursty poll behavior.
 Keepalive remains the upper bound on poll spacing.

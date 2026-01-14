@@ -92,10 +92,11 @@ EWMA and cooldown timing.
 ### Cooldown Computation
 
 Cooldown is computed in `_retransmit_cooldown()`:
-- Start with `config.tunnel_bob_retransmit_min_interval`.
-- If `poll_ewma` exists and `config.tunnel_bob_retransmit_poll_factor > 0`,
-  then `cooldown = max(cooldown, poll_ewma * factor)`.
-- If `poll_ewma` exists and `max_in_flight > 0`, then
+- If `poll_ewma` is missing or non-positive, fall back to
+  `tunnel_bob_poll_interval`.
+- If `config.tunnel_bob_retransmit_poll_factor > 0`, then
+  `cooldown = poll_ewma * factor`.
+- If `max_in_flight > 0`, then
   `cooldown = max(cooldown, poll_ewma * max_in_flight)` to allow one window's
   worth of polls before retransmitting the oldest packet.
 - If `config.tunnel_bob_retransmit_max_interval` is set and > 0, clamp:
@@ -253,12 +254,12 @@ Stats:
 ## Config Knobs (Bob Retransmit)
 
 Key configuration fields that affect Bob retransmit behavior:
-- `tunnel_bob_retransmit_min_interval`: baseline cooldown in seconds.
 - `tunnel_bob_retransmit_max_interval`: upper bound on cooldown (seconds).
 - `tunnel_bob_retransmit_poll_factor`: multiplier for poll EWMA cooldown.
 - `tunnel_bob_poll_ewma_alpha`: EWMA alpha for poll interval smoothing.
-- `tunnel_bob_poll_interval` / `tunnel_bob_poll_interval_bg`: poll timeouts
-  that shape the observed request cadence.
+- `tunnel_bob_poll_interval`: poll timeout for serve_forever (seconds).
+- Background poll interval derives from `tunnel_bob_poll_interval * 0.1`,
+  clamped to `[non_blocking_poll_timeout, tunnel_bob_poll_interval]`.
 - `max_in_flight` and negotiated window size (cap retransmit backlog and set
   the poll-window cooldown floor).
 

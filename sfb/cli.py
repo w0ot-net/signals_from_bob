@@ -945,14 +945,8 @@ def add_client_pacing_args(parser, config):
     """Add transport-agnostic client pacing arguments."""
     parser.add_argument(
         '--send-rate', type=float, default=config.tunnel_send_rate,
-        help='Max packets per second from Alice (0=unlimited, default: %s)' %
-             config.tunnel_send_rate
-    )
-    parser.add_argument(
-        '--send-burst', type=float, default=config.tunnel_send_burst,
-        help='Burst capacity for send rate (packets, default: %s)' %
-             (config.tunnel_send_burst if config.tunnel_send_burst is not None else
-              'same as send_rate')
+        help='Max packets per second from Alice (0=unlimited, burst=send_rate '
+             'when enabled, default: %s)' % config.tunnel_send_rate
     )
     parser.add_argument(
         '--fast-retransmit', dest='fast_retransmit', action='store_true',
@@ -1043,12 +1037,6 @@ def add_client_pacing_args(parser, config):
         default=config.tunnel_poll_min_interval,
         help='Poll pacing minimum interval in seconds (default: %s)' %
              config.tunnel_poll_min_interval
-    )
-    parser.add_argument(
-        '--poll-max-interval', type=float,
-        default=config.tunnel_poll_max_interval,
-        help='Poll pacing maximum interval in seconds (default: %s)' %
-             config.tunnel_poll_max_interval
     )
     parser.add_argument(
         '--poll-rtt-ratio', type=float,
@@ -1349,7 +1337,6 @@ def _build_tls_bump_config(args):
 def _build_client_config(args):
     return {
         'tunnel_send_rate': getattr(args, 'send_rate', None),
-        'tunnel_send_burst': getattr(args, 'send_burst', None),
         'tunnel_fast_retransmit_enabled': getattr(
             args, 'fast_retransmit', None),
         'tunnel_fast_retransmit_min_age_ratio': getattr(
@@ -1376,8 +1363,6 @@ def _build_client_config(args):
             args, 'poll_pacing', None),
         'tunnel_poll_min_interval': getattr(
             args, 'poll_min_interval', None),
-        'tunnel_poll_max_interval': getattr(
-            args, 'poll_max_interval', None),
         'tunnel_poll_rtt_ratio': getattr(
             args, 'poll_rtt_ratio', None),
     }

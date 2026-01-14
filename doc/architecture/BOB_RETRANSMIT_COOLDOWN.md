@@ -41,11 +41,12 @@ for Bob's throughput and retransmit opportunity.
 
 `_retransmit_cooldown()` calculates the cooldown per request:
 
-1. Start with the baseline:
-   - `cooldown = tunnel_bob_retransmit_min_interval`
-2. If a poll EWMA exists and is positive:
+1. Select the poll interval signal:
+   - Use `poll_ewma` when available and positive.
+   - Otherwise fall back to `tunnel_bob_poll_interval`.
+2. Compute the cooldown:
    - If `tunnel_bob_retransmit_poll_factor > 0`,
-     `cooldown = max(cooldown, poll_ewma * factor)`.
+     `cooldown = poll_ewma * factor`.
    - If the send window has a positive cap, also floor by one window of polls:
      `cooldown = max(cooldown, poll_ewma * max_in_flight)`.
 3. If `tunnel_bob_retransmit_max_interval` is set and > 0,
@@ -90,9 +91,9 @@ When a retransmit is skipped due to cooldown, Bob logs
 ## Configuration Defaults
 
 From `sfb/config.py`:
-- `tunnel_bob_retransmit_min_interval = 0.02`
 - `tunnel_bob_retransmit_max_interval = 3.0`
 - `tunnel_bob_retransmit_poll_factor = 2.0`
 - `tunnel_bob_poll_ewma_alpha = 0.2`
+- `tunnel_bob_poll_interval = 1.0`
 
 These defaults are overridden by CLI flags or config injection as usual.

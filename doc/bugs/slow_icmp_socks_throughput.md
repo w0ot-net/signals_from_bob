@@ -4,6 +4,7 @@
 - **Symptom:** ICMP transport with SOCKS proxy on localhost (Bob+Alice both local) downloads `2MB.bin` in ~10s (~0.16 MB/s aggregate, ~0.19 MB/s client rate).
 - **Expected:** Near-localhost speeds; direct HTTP baseline delivers 2MB in ~15ms (~138 MB/s).
 - **Status:** Body truncation fixed (relay stop-event change). Throughput remains very low.
+- **Update:** `--send-burst` removed; burst now derives from `--send-rate` when enabled. Use `--send-rate 0` for unlimited.
 
 ## Observations
 - Direct HTTP baseline: 2MB in ~15ms (diag script output). Tunnel path: ~10s for 2MB.
@@ -23,7 +24,7 @@
 - Run `scripts/icmp_socks_diag.py` with tunables to see rate impact:
   - Increase ICMP MTU: `--icmp-packet-mtu 1400` (or larger if path allows).
   - Increase relay buffer: config override (see below) to 8192 or 16384.
-  - Allow unlimited send: `--send-rate 0 --send-burst 0`.
+  - Allow unlimited send: `--send-rate 0` (burst derives from rate).
   - Try multiple clients to see if aggregate scales or stalls.
 - Compare timelines at each setting; note peak rate and steady-state rate.
 - Enable detailed SOCKS/tunnel logging to spot pauses/backoffs.
@@ -66,7 +67,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Pump backoff max: `--relay-pump-backoff-max 0.05` (or smaller)
 - Channel max buf: `--channel-max-buf 65536` (if safe)
 - ICMP MTU: `--icmp-packet-mtu 1400`
-- Send rate/burst: `--send-rate 0 --send-burst 0`
+- Send rate: `--send-rate 0` (burst derives from rate)
 
 ## Action Items
 - Define and apply the `socks_throughput_debug` profile for targeted logs.
@@ -95,7 +96,7 @@ LOG_PROFILES['socks_throughput_debug'] = {
   - ICMP pending/window saturation (unacked=64) is the dominant limiter; channel send buffer remains full much of the time.
 - Next experiments:
   - Increase buffers further (e.g., `--relay-buffer-size 16384`, `--channel-max-buf 131072`).
-  - Increase ICMP concurrency/window (consider bumping `max_in_flight` beyond 64) and ensure send window can grow; keep `--send-rate 0` and omit `--send-burst` to allow defaults.
+  - Increase ICMP concurrency/window (consider bumping `max_in_flight` beyond 64) and ensure send window can grow; keep `--send-rate 0` to disable rate limiting.
   - Optionally reduce pump backoff (`non_blocking_poll_timeout`, `relay_pump_backoff_max`) if we add config overrides for them.
 
 ## Experiment Log: Smaller Backoff + Larger Buffers (Dec 31, 2025)

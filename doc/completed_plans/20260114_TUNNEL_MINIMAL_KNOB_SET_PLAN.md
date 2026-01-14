@@ -1,6 +1,6 @@
 # Tunnel Minimal Knob Set Plan
 
-Status: draft
+Status: complete
 
 ## Summary
 Define a minimal tunnel knob set by removing redundant configuration pairs and
@@ -83,3 +83,11 @@ docs so the external configuration surface matches the derived behavior.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes (2026-01-14)
+- Derived poll pacing max, pong grace polls, send burst, Bob background poll
+  interval, and Bob retransmit cooldown from the remaining knobs.
+- Removed deleted knobs from config defaults/validation, CLI flags, and helper
+  scripts; updated integration-test configs to drop removed knobs.
+- Updated tunnel and retransmit docs (including cooldown notes) plus ICMP and
+  bug guidance; added init logging for derived values.

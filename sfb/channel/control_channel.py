@@ -97,7 +97,6 @@ class ControlChannel(Channel):
         deadline = None
         if timeout is not None:
             deadline = time_provider.now() + timeout
-        recv_seq = self._get_recv_seq()
 
         while True:
             line = self._pop_line()
@@ -121,14 +120,9 @@ class ControlChannel(Channel):
             else:
                 remaining = None
 
-            next_seq = self.wait_recv_seq(recv_seq, timeout=remaining)
-            if next_seq is None:
-                return None
-            recv_seq = next_seq
-
-            chunk = self.read(self._read_chunk_size, timeout=0)
+            chunk = self.read(self._read_chunk_size, timeout=remaining)
             if chunk is None:
-                continue
+                return None
             if chunk == b'':
                 if self._line_buf:
                     raise ChannelError('closed', 'Control channel closed with partial message')

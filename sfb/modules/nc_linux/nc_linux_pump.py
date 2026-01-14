@@ -290,7 +290,6 @@ def pump_channel_to_fd(channel, fd, config, logger, stop_event,
     backoff = base_backoff
     pending = None
     pending_offset = 0
-    recv_seq = channel._get_recv_seq()
 
     _log_pump_start(logger, rid, ch, side, 'channel_to_fd', label)
 
@@ -325,12 +324,7 @@ def pump_channel_to_fd(channel, fd, config, logger, stop_event,
                     break
 
             try:
-                next_seq = channel.wait_recv_seq(recv_seq, timeout=backoff)
-                if next_seq is None:
-                    data = None
-                else:
-                    recv_seq = next_seq
-                    data = channel.read(config.nc_linux_buffer_size, timeout=0)
+                data = channel.read(config.nc_linux_buffer_size, timeout=backoff)
             except ChannelError as exc:
                 exit_reason = 'channel_read_error'
                 exit_error = exc

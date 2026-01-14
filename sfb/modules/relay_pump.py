@@ -685,7 +685,6 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
         backoff = base_backoff
         write_timeout = config.relay_write_timeout
         last_send = None
-        recv_seq = channel._get_recv_seq()
         _log_pump_start(
             logger, rid, ch, side, direction, send_label, event_prefix
         )
@@ -815,15 +814,7 @@ def pump_channel_to_socket(channel, sock, config, logger, stop_event,
                     try:
                         if stats_enabled:
                             read_start = time_provider.now()
-                        next_seq = channel.wait_recv_seq(
-                            recv_seq,
-                            timeout=read_timeout,
-                        )
-                        if next_seq is None:
-                            data = None
-                        else:
-                            recv_seq = next_seq
-                            data = channel.read(read_size, timeout=0)
+                        data = channel.read(read_size, timeout=read_timeout)
                         if stats_enabled:
                             read_wait_time += time_provider.now() - read_start
                     except Exception as exc:

@@ -97,8 +97,7 @@ class Channel(object):
         '_error', '_error_code',
         '_max_send_buf', '_max_recv_buf', '_send_buf_size', '_recv_buf_size',
         '_write_backoff_initial', '_write_backoff_max', '_close_callback',
-        '_send_state_callback', '_send_state_seq', '_recv_state_seq',
-        '_close_pending',
+        '_send_state_callback', '_send_state_seq', '_close_pending',
         '_half_close_callback', '_half_close_pending',
         '_send_closed', '_recv_closed',
     )
@@ -136,7 +135,6 @@ class Channel(object):
         self._half_close_callback = None
         self._send_state_callback = None
         self._send_state_seq = 0
-        self._recv_state_seq = 0
         self._close_pending = False
         self._half_close_pending = False
         self._send_closed = False
@@ -428,44 +426,6 @@ class Channel(object):
 
             self._recv_event.clear()
 
-    def wait_recv_seq(self, last_seq, timeout=None):
-        """
-        Wait for recv readiness to advance.
-
-        Args:
-            last_seq: last observed recv sequence
-            timeout: seconds to wait (None=block forever)
-
-        Returns:
-            int: current recv sequence when recv is ready
-            None: on timeout
-        """
-        deadline = None
-        if timeout is not None:
-            deadline = time_provider.now() + timeout
-
-        while True:
-            with self._lock:
-                current_seq = self._recv_state_seq
-                if current_seq != last_seq:
-                    return current_seq
-                if self._recv_buf_size:
-                    return current_seq
-                if self._recv_closed or self.state == STATE_CLOSED:
-                    return current_seq
-                if deadline is not None:
-                    remaining = deadline - time_provider.now()
-                    if remaining <= 0:
-                        return None
-                else:
-                    remaining = None
-                self._recv_event.clear()
-            if remaining is None:
-                self._recv_event.wait()
-            else:
-                if not self._recv_event.wait(timeout=remaining):
-                    return None
-
     def read_exact(self, size, timeout=None):
         """
         Read exactly size bytes, blocking until all data arrives.
@@ -646,9 +606,6 @@ class Channel(object):
                 self._close_pending = False
                 self._closed_event.set()
                 self._open_event.set()
-                if not self._recv_closed:
-                    self._recv_closed = True
-                    self._recv_state_seq += 1
                 self._recv_event.set()
                 self._send_space_event.set()
 
@@ -712,7 +669,6 @@ class Channel(object):
             if self._recv_closed or self.state == STATE_CLOSED:
                 return False
             self._recv_closed = True
-            self._recv_state_seq += 1
             self._recv_event.set()
         return True
 
@@ -738,9 +694,7 @@ class Channel(object):
                 self._close_pending = False
                 self._half_close_pending = False
                 self._send_closed = True
-                if not self._recv_closed:
-                    self._recv_closed = True
-                    self._recv_state_seq += 1
+                self._recv_closed = True
                 self._closed_event.set()
                 self._open_event.set()  # Also signal open waiters (failed)
                 self._recv_event.set()
@@ -775,7 +729,6 @@ class Channel(object):
                     chunk = bytes(data)
                 self._recv_buf.append(chunk)
                 self._recv_buf_size += len(data)
-                self._recv_state_seq += 1
 
         if overflow:
             raise ChannelError('recv_overflow', 'Receive buffer overflow')
@@ -883,11 +836,6 @@ class Channel(object):
         """Check if channel has data to send."""
         with self._lock:
             return bool(self._send_buf)
-
-    def _get_recv_seq(self):
-        """Return current recv sequence for readiness gating."""
-        with self._lock:
-            return self._recv_state_seq
 
     def _get_send_state(self):
         """Return (has_data, seq) for send buffer state."""

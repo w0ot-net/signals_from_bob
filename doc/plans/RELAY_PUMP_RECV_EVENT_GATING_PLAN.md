@@ -3,10 +3,10 @@
 Status: draft
 
 ## Summary
-Reduce lock and Event churn in relay pumps by avoiding zero-timeout channel
-reads when the channel has no data ready. The change gates non-blocking reads
-on a cheap recv-ready signal so we skip unnecessary `channel.read()` calls
-while outbound data is pending.
+Reduce lock and Event churn by switching channel receive readiness to a
+level-triggered signal. The change introduces a monotonic recv-sequence signal
+so callers only read when the signal advances, eliminating zero-timeout
+polling loops and unnecessary Event clear/set traffic.
 
 ## Goals
 - Reduce per-iteration lock/Event overhead in relay pumps without changing MTU.
@@ -19,27 +19,30 @@ while outbound data is pending.
 - Add or run automated tests.
 
 ## Affected Components
-- `sfb/modules/relay_pump.py`
 - `sfb/channel/channel.py`
+- `sfb/channel/control_channel.py`
+- `sfb/modules/relay_pump.py`
+- `sfb/modules/nc_linux/nc_linux_pump.py`
 
 ## Plan
-1. Add a lightweight recv-ready check in `Channel`.
-   - Provide a small helper (for example, `recv_ready()` or `has_recv_data()`)
-     that returns True when there is buffered data or when the recv event is
-     set due to new data or close.
-   - Keep the helper cheap and thread-safe; prefer using existing state to
-     avoid extra lock churn.
+1. Add a recv-ready signal in `Channel`.
+   - Provide a recv sequence counter that advances whenever recv data arrives
+     or recv-close state changes.
+   - Expose a helper that returns the current recv sequence without side
+     effects.
+   - Use level-triggered readiness so waiters can block until the sequence
+     changes.
 
-2. Gate zero-timeout reads in `pump_channel_to_socket`.
-   - In the path where `read_timeout` is set to `0.0` because outbound data is
-     pending, call `channel.read()` only if the recv-ready helper indicates
-     data or close is ready.
-   - Skip the read attempt when not ready, allowing the loop to focus on
-     flushing outbound data without extra lock/Event traffic.
+2. Update channel readers to use recv sequence gating (breaking change).
+   - Replace zero-timeout read probes in `pump_channel_to_socket` with:
+     cache recv sequence, wait on recv event, then read only when the sequence
+     advances.
+   - Apply the same pattern to other channel readers so they do not clear
+     recv events without consuming data.
 
 3. Preserve close detection.
-   - Ensure the gating logic still allows channel close/half-close to be
-     detected promptly by treating recv-close signals as ready in the helper.
+   - Ensure recv sequence advances on close/half-close so waiters wake and
+     can observe EOF promptly.
 
 ## Testing
 - Do not run tests.

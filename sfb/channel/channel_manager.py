@@ -194,7 +194,7 @@ class ChannelManager(object):
             total += channel.send_buf_size
         return total
 
-    def _new_channel(self, channel_id, state):
+    def _new_channel(self, channel_id):
         channel = Channel(
             channel_id,
             max_send_buf=self._config.channel_max_buf,
@@ -202,12 +202,13 @@ class ChannelManager(object):
             write_backoff_initial=self._write_backoff_initial,
             write_backoff_max=self._config.channel_write_backoff_max,
         )
-        channel._set_state(state)
         return channel
 
     def _register_channel(self, channel):
         with self._lock:
             self._register_channel_locked(channel)
+        if channel.id != CHANNEL_CONTROL:
+            self._init_channel_send_state(channel)
 
     def _register_channel_locked(self, channel):
         channel._close_callback = self._on_channel_close
@@ -226,11 +227,22 @@ class ChannelManager(object):
         self._id_reuse_until.pop(channel.id, None)
         if channel.id == CHANNEL_CONTROL:
             return
+
+    def _init_channel_send_state(self, channel):
         has_data, seq = channel._get_send_state()
-        self._send_state_seq[channel.id] = seq
-        if has_data and channel.id not in self._active_channels:
-            self._active_channels[channel.id] = None
-            self._update_data_send_event_locked()
+        with self._lock:
+            if self._channels.get(channel.id) is not channel:
+                return
+            current_seq = self._send_state_seq.get(channel.id)
+            if current_seq is None or seq > current_seq:
+                self._send_state_seq[channel.id] = seq
+                if has_data:
+                    if channel.id not in self._active_channels:
+                        self._active_channels[channel.id] = None
+                else:
+                    if channel.id in self._active_channels:
+                        del self._active_channels[channel.id]
+                self._update_data_send_event_locked()
 
     def _unregister_channel_locked(self, channel_id):
         channel = self._channels.pop(channel_id, None)
@@ -281,8 +293,11 @@ class ChannelManager(object):
         """
         with self._lock:
             channel_id = self._allocate_id()
-            channel = self._new_channel(channel_id, STATE_OPENING)
+            channel = self._new_channel(channel_id)
             self._register_channel_locked(channel)
+
+        channel._set_state(STATE_OPENING)
+        self._init_channel_send_state(channel)
 
         # Send OPEN control message
         self._control.send_message(ch_open(channel_id))
@@ -750,9 +765,11 @@ class ChannelManager(object):
         with self._lock:
             if channel_id in self._channels:
                 return
-            channel = self._new_channel(channel_id, STATE_OPEN)
+            channel = self._new_channel(channel_id)
             self._register_channel_locked(channel)
 
+        channel._set_state(STATE_OPEN)
+        self._init_channel_send_state(channel)
         self._control.send_message(ch_open_ok(channel_id))
         if logger.isEnabledFor(logging.DEBUG):
             log_event(
@@ -775,7 +792,7 @@ class ChannelManager(object):
         if channel is None:
             return
 
-        if channel.state == STATE_OPENING:
+        if channel._get_state() == STATE_OPENING:
             channel._set_state(STATE_OPEN)
             if logger.isEnabledFor(logging.DEBUG):
                 log_event(
@@ -796,19 +813,25 @@ class ChannelManager(object):
 
         with self._lock:
             channel = self._channels.get(channel_id)
-            if channel is None:
+        if channel is None:
+            return
+
+        if channel._get_state() != STATE_OPENING:
+            return
+
+        channel._set_state(STATE_CLOSED, error=reason)
+        with self._lock:
+            if self._channels.get(channel_id) is not channel:
                 return
-            if channel.state == STATE_OPENING:
-                channel._set_state(STATE_CLOSED, error=reason)
-                self._unregister_channel_locked(channel_id)
-                if logger.isEnabledFor(logging.DEBUG):
-                    log_event(
-                        logger,
-                        logging.DEBUG,
-                        'channel.open_fail',
-                        'Channel open failed',
-                        lambda: self._log_ctx(channel_id, reason=reason),
-                    )
+            self._unregister_channel_locked(channel_id)
+        if logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                logger,
+                logging.DEBUG,
+                'channel.open_fail',
+                'Channel open failed',
+                lambda: self._log_ctx(channel_id, reason=reason),
+            )
 
     def _handle_close(self, msg):
         """Handle CLOSE request from peer."""
@@ -818,10 +841,12 @@ class ChannelManager(object):
 
         with self._lock:
             channel = self._channels.get(channel_id)
-            if channel is None:
-                return
-            channel._set_state(STATE_CLOSED)
-            self._unregister_channel_locked(channel_id)
+        if channel is None:
+            return
+        channel._set_state(STATE_CLOSED)
+        with self._lock:
+            if self._channels.get(channel_id) is channel:
+                self._unregister_channel_locked(channel_id)
 
         # Send CLOSE_OK (outside lock to avoid blocking)
         self._control.send_message(ch_close_ok(channel_id))
@@ -895,16 +920,20 @@ class ChannelManager(object):
 
         with self._lock:
             channel = self._channels.get(channel_id)
-            if channel is None:
-                return
-            if channel.state == STATE_CLOSING:
-                channel._set_state(STATE_CLOSED)
+        if channel is None:
+            return
+        if channel._get_state() != STATE_CLOSING:
+            return
+
+        channel._set_state(STATE_CLOSED)
+        with self._lock:
+            if self._channels.get(channel_id) is channel:
                 self._unregister_channel_locked(channel_id)
-                if logger.isEnabledFor(logging.DEBUG):
-                    log_event(
-                        logger,
-                        logging.DEBUG,
-                        'channel.close_ok',
-                        'Channel close ok',
-                        lambda: self._log_ctx(channel_id),
-                    )
+        if logger.isEnabledFor(logging.DEBUG):
+            log_event(
+                logger,
+                logging.DEBUG,
+                'channel.close_ok',
+                'Channel close ok',
+                lambda: self._log_ctx(channel_id),
+            )

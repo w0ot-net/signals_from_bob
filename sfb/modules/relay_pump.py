@@ -119,8 +119,8 @@ def _channel_state_snapshot(channel):
         'state': channel.state,
         'send_buf_size': channel.send_buf_size,
         'recv_buf_size': channel.recv_buf_size,
-        'send_closed': getattr(channel, '_send_closed', None),
-        'recv_closed': getattr(channel, '_recv_closed', None),
+        'send_closed': channel.send_closed,
+        'recv_closed': channel.recv_closed,
     }
 
 

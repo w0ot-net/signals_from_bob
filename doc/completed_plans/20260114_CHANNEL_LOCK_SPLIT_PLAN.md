@@ -1,6 +1,6 @@
 # Channel Lock Split Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Split the Channel lock into send/recv locks plus a small state lock so
@@ -79,3 +79,11 @@ reads/deliveries no longer block writes/drains while keeping strict invariants.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- Added state/send/recv locks with ordering in Channel and moved buffer ops to
+  dedicated locks with callbacks kept outside.
+- Updated control channel send-event handling and manager registration/state
+  transitions to avoid holding manager lock while acquiring channel locks.
+- Added send/recv closed accessors, refreshed relay snapshot usage, and
+  documented the lock model updates.

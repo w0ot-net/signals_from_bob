@@ -172,8 +172,8 @@ class Config(object):
     tunnel_window_growth_mode = "linear"
     # Window growth step (linear mode)
     tunnel_window_growth_step = 1
-    # Minimum seconds between window growth requests
-    tunnel_window_growth_interval = 2.0
+    # Minimum seconds between window requests (growth or retry)
+    tunnel_window_growth_interval = 10.0
     # Background loop stop timeout (seconds)
     tunnel_bg_stop_timeout = 2.0
     # Bob: poll timeout for serve_forever (seconds)

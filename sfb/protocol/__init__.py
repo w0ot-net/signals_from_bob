@@ -29,7 +29,6 @@ from ..logging_util import get_logger, log_event
 
 from .constants import (
     DEFAULT_MAX_PACKET_SIZE,
-    DEFAULT_MTU,
     PACKET_HEADER_SIZE,
     SEGMENT_HEADER_SIZE,
     FLAG_SYN,
@@ -221,7 +220,6 @@ class Packet(object):
 __all__ = [
     # Constants
     'DEFAULT_MAX_PACKET_SIZE',
-    'DEFAULT_MTU',
     'PACKET_HEADER_SIZE',
     'SEGMENT_HEADER_SIZE',
     'FLAG_SYN',

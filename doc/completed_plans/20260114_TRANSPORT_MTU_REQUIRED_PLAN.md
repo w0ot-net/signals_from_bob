@@ -1,6 +1,6 @@
 # Transport MTU Required Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Remove the protocol-level 100-byte initial MTU concept and require transports
@@ -28,6 +28,7 @@ only on transport-derived limits and explicit control-message fields.
 - `doc/architecture/PROTOCOL.md`
 - `doc/architecture/CONTROL_MESSAGES.md`
 - `doc/architecture/TRANSPORTS.md` (only if MTU summary text changes)
+- `doc/flatten_manifest.txt`
 - `scripts/flatten.py`
 - `sfb_flat.py`
 - `sfb_flat.py.gz`
@@ -50,3 +51,17 @@ only on transport-derived limits and explicit control-message fields.
 - Breaking change: configs that set `protocol_initial_packet_mtu` will fail.
 - Breaking change: peers that omit `tx`/`rx` in MTU control messages will be
   closed under the new rules.
+
+## Testing
+- Do not run tests.
+
+## Execution Notes
+- 2026-01-14: Removed protocol-level initial MTU defaults and required transport
+  MTU limits before negotiation.
+- 2026-01-14: Enforced required `tx`/`rx` payload fields in MTU control messages
+  and closed on invalid values.
+- 2026-01-14: Updated architecture/protocol docs for transport-derived MTUs.
+- 2026-01-14: Allowed `dns_txt` transport tags and reordered the flatten manifest
+  to satisfy module ordering.
+- 2026-01-14: Regenerated `sfb_flat.py` and `sfb_flat.py.gz`.
+- Tests not run (per instructions).

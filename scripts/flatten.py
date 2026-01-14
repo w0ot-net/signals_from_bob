@@ -45,6 +45,7 @@ _ALLOWED_ROLE_TAGS = ('common', 'alice', 'bob')
 _ALLOWED_TRANSPORT_TAGS = (
     'common',
     'dns',
+    'dns_txt',
     'icmp',
     'udp_ephemeral',
     'tls_handshake',

@@ -333,8 +333,6 @@ class Config(object):
     # --- Protocol (rarely need changing) ---
     # Buffer-sizing maximum packet size (bytes), not a transport MTU cap
     protocol_max_packet_mtu = 1450
-    # Initial packet MTU before negotiation (bytes)
-    protocol_initial_packet_mtu = PACKET_HEADER_SIZE + 100
     # Initial retransmission timeout (milliseconds)
     protocol_initial_rto_ms = 1000
     # Minimum RTO (milliseconds)
@@ -470,7 +468,6 @@ class Config(object):
         'relay_buffer_size',
         'relay_pump_backoff_max',
         'protocol_max_packet_mtu',
-        'protocol_initial_packet_mtu',
         'protocol_initial_rto_ms',
         'protocol_min_rto_ms',
         'protocol_max_rto_ms',

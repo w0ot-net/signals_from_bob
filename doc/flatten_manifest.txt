@@ -16,6 +16,7 @@ exclude sfb/transport/lossy.py
 # explicit execution order (fully-qualified module names)
 module sfb role=common
 module sfb.compat role=common
+module sfb.utils role=common
 module sfb.control_message role=common
 module sfb.channel.channel_control_messages role=common
 module sfb.crypto role=common
@@ -57,6 +58,7 @@ module sfb.reliability.send_window role=common
 module sfb.reliability role=common
 module sfb.transport.base32 role=common transport=common
 module sfb.transport.transport_base role=common transport=common
+module sfb.transport role=common transport=common
 module sfb.transport.dns.dns_codec role=common transport=dns
 module sfb.transport.dns.dns_utils role=common transport=dns
 module sfb.transport.dns.dns_constants role=common transport=dns
@@ -79,7 +81,6 @@ module sfb.tunnel.alice_tunnel role=alice
 module sfb.tunnel.bob_tunnel role=bob
 module sfb.tunnel.module_loader role=common
 module sfb.tunnel role=common
-module sfb.utils role=common
 module sfb.modules.nc_linux.nc_linux role=common
 module sfb.modules.nc_linux role=common
 module sfb.modules.port_fwd.port_fwd_server role=common
@@ -105,7 +106,6 @@ module sfb.transport.udp_ephemeral.udp_ephemeral_config role=common transport=ud
 module sfb.transport.udp_ephemeral.udp_ephemeral_client role=common transport=udp_ephemeral
 module sfb.transport.udp_ephemeral.udp_ephemeral_server role=bob transport=udp_ephemeral
 module sfb.transport.udp_ephemeral role=common transport=udp_ephemeral
-module sfb.transport role=common transport=common
 module sfb.stagers role=bob
 module sfb.stagers.dns_stager_template role=bob
 module sfb.stagers.dns_stager role=bob

@@ -7,7 +7,6 @@ All sizes in bytes unless otherwise noted.
 
 # Packet limits
 DEFAULT_MAX_PACKET_SIZE = 1450
-DEFAULT_MTU = 100  # Until MTU negotiation completes
 
 # Header sizes
 PACKET_HEADER_SIZE = 38

@@ -74,7 +74,7 @@ Implemented transports:
 - Lossy wrapper (impairs any transport for testing)
 
 MTU negotiation is asymmetric. Initial send/recv MTUs come from transport
-limits, with protocol_initial_packet_mtu as a fallback before MTU_OK.
+limits and remain in use until MTU_OK.
 
 ### Crypto
 

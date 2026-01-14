@@ -163,8 +163,10 @@ Alice proposes payload bytes for each direction (derived from transport packet
 MTUs). Bob responds with independent `tx`/`rx` payload values based on his
 limits.
 
-Until `mtu_ok` is received, both sides limit payloads to
-(`protocol_initial_packet_mtu` - PACKET_HEADER_SIZE) (header added on the wire).
+`tx` and `rx` are required integers >= (SEGMENT_HEADER_SIZE + 1); missing or
+invalid values are protocol violations (log, close).
+Until `mtu_ok` is received, both sides limit payloads to their transport-derived
+payload caps (packet MTU minus PACKET_HEADER_SIZE) (header added on the wire).
 
 ### window / window_ok
 

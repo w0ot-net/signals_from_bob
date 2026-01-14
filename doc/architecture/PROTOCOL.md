@@ -17,9 +17,8 @@ Protocol max packet MTU: `protocol_max_packet_mtu` is a buffer-sizing guard
 packet MTUs based on encoding overhead and configured caps.
 Minimum packet MTU is `PACKET_HEADER_SIZE + SEGMENT_HEADER_SIZE + 1` (segment-
 capable). Keepalive-only packets are smaller.
-Pre-negotiation packet MTU defaults to `protocol_initial_packet_mtu`; payload
-bytes are limited to (packet_mtu - PACKET_HEADER_SIZE), which defaults to 100
-bytes, until MTU_OK.
+Pre-negotiation packet MTUs come from transport send/recv limits; payload bytes
+are limited to (packet_mtu - PACKET_HEADER_SIZE) per direction until MTU_OK.
 The header is always added on the wire.
 
 Packet encryption is optional. When enabled, the header is sent in cleartext
@@ -223,14 +222,15 @@ Immediately after handshake, Alice and Bob negotiate payload size for the
    - Xb = min(X, bob_recv_max)
    - Yb = min(Y, bob_send_max)
 
-The tun_mtu fields carry payload bytes. The on-wire packet MTU for each
-direction is payload bytes + PACKET_HEADER_SIZE. The bob_recv_max and
-bob_send_max values are derived from transport recv_packet_mtu/send_packet_mtu
-by subtracting PACKET_HEADER_SIZE.
+The tun_mtu fields carry payload bytes and require both `tx` and `rx`. The
+on-wire packet MTU for each direction is payload bytes + PACKET_HEADER_SIZE.
+The bob_recv_max and bob_send_max values are derived from transport
+recv_packet_mtu/send_packet_mtu by subtracting PACKET_HEADER_SIZE.
+`tx`/`rx` must be integers >= (SEGMENT_HEADER_SIZE + 1); missing/invalid values
+are protocol violations (log, close).
 
-Until `mtu_ok` is received, both sides limit packets to
-`protocol_initial_packet_mtu` and payload bytes to
-(`protocol_initial_packet_mtu` - PACKET_HEADER_SIZE).
+Until `mtu_ok` is received, both sides limit packets to their transport-derived
+send/recv packet MTUs and payload bytes to those minus PACKET_HEADER_SIZE.
 
 ### Window Negotiation
 
@@ -263,8 +263,8 @@ For polling transports, the handshake completes in 2 round-trips:
 
 ## MTU Negotiation
 
-Both sides start with a default packet MTU of `protocol_initial_packet_mtu`.
-Immediately after handshake, Alice and Bob negotiate a larger MTU:
+Both sides start with transport-derived send/recv packet MTUs. Immediately
+after handshake, Alice and Bob negotiate a larger MTU:
 
 1. Alice sends: `{"t":"tun","c":"mtu","tx":X,"rx":Y}` where X is her send max and Y is her recv max
 2. Bob responds: `{"t":"tun","c":"mtu_ok","tx":Yb,"rx":Xb}` where:
@@ -283,9 +283,9 @@ Alice                              Bob
   │     MTUs are now tx=150, rx=500  │  (payload)
 ```
 
-Until MTU_OK is received, both sides must limit payloads to
-(`protocol_initial_packet_mtu` - PACKET_HEADER_SIZE). The MTU control messages
-themselves are well under this limit (header added on the wire).
+Until MTU_OK is received, both sides must limit payloads to their
+transport-derived payload caps (packet MTU minus PACKET_HEADER_SIZE). The MTU
+control messages themselves are well under this limit (header added on the wire).
 
 The negotiated MTU applies to payload bytes (segments only). The on-wire packet
 MTU is payload bytes + PACKET_HEADER_SIZE.

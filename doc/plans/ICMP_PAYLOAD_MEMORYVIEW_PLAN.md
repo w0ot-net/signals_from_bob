@@ -3,60 +3,43 @@
 Status: draft
 
 ## Summary
-Reduce per-packet CPU overhead by keeping ICMP payloads as bytes-like views and
-pushing zero-copy parsing through tunnel/protocol decode using offset-based
-unpackers. This is a breaking change to parsing/decode contracts so callers
-must consume views/offsets instead of raw byte slices.
+Reduce per-packet CPU overhead by avoiding ICMP payload copies in the receive
+path. Return payload views (memoryview on Python 3; bytes on Python 2), update
+ICMP client/server call sites plus the transport data contract to accept
+bytes-like objects, and leave packet/segment decode unchanged unless profiling
+proves slicing is a measurable bottleneck.
 
 ## Goals
 - Avoid per-packet payload copies in ICMP receive parsing.
-- Avoid packet header and segment slice copies during decode by using
-  offset-based unpackers.
+- Allow transport payloads to be bytes-like objects end-to-end.
 - Preserve Python 2.7/3 compatibility and existing ICMP/tunnel wire behavior.
-- Keep copies confined to crypto/segment materialization boundaries only.
 
 ## Non-Goals
 - Change ICMP checksum validation or packet format.
 - Modify transport retry or pacing behavior.
+- Rework packet/segment decoding (offset-based) without profiling evidence.
 - Add or run automated tests.
 
 ## Affected Components
 - `sfb/transport/icmp/icmp_packet.py`
 - `sfb/transport/icmp/icmp_client.py`
 - `sfb/transport/icmp/icmp_server.py`
-- `sfb/tunnel/base_tunnel.py`
-- `sfb/protocol/packet.py`
-- `sfb/protocol/segment.py`
+- `sfb/transport/transport_base.py`
 
 ## Plan
-1. Make `parse_icmp_echo` return view+offset metadata instead of bytes slices.
-   - In `sfb/transport/icmp/icmp_packet.py`, return a bytes-like view of the
-     ICMP packet plus `payload_offset` and `payload_len` rather than slicing or
-     forcing `to_bytes`.
-   - Use `struct.unpack_from` with offsets so header parsing does not slice.
-   - Ensure the returned view is safe on Python 2/3 (buffer/memoryview) and
-     document that it aliases the receive buffer.
+1. Return payload views from `parse_icmp_echo`.
+   - In `sfb/transport/icmp/icmp_packet.py`, return a payload view
+     (memoryview on Python 3; bytes on Python 2) instead of `to_bytes`.
+   - Document that the view aliases the receive buffer on Python 3.
 
-2. Update ICMP client/server receive paths to use view+offset payloads.
+2. Update ICMP client/server receive paths to accept bytes-like payloads.
    - In `sfb/transport/icmp/icmp_client.py` and
-     `sfb/transport/icmp/icmp_server.py`, adjust parse results to
-     `(icmp_type, ident, seq, packet_view, payload_offset, payload_len)`.
-   - Use `payload_len` for MTU checks and pass the view+offset through to the
-     tunnel decode boundary without copying.
+     `sfb/transport/icmp/icmp_server.py`, keep MTU checks intact using
+     `len(payload)` and pass payloads through without copying.
 
-3. Push offset-based decode through tunnel/protocol parsing.
-   - In `sfb/protocol/packet.py`, add `PacketHeader.decode_from(data, offset)`
-     using `struct.unpack_from` and avoid `data[:PACKET_HEADER_SIZE]`.
-   - In `sfb/protocol/segment.py`, add offset-based decode helpers
-     (`Segment.decode_from`, `decode_all_from`) that advance offsets instead of
-     slicing.
-   - In `sfb/tunnel/base_tunnel.py`, decode headers/segments using offsets and
-     views; only materialize bytes at crypto and segment data boundaries where
-     required by cipher/segment APIs.
-
-4. Verify no regressions in payload size checks.
-   - Keep the existing payload length checks intact, using `payload_len` from
-     the parse result.
+3. Update the transport data contract to accept bytes-like objects.
+   - In `sfb/transport/transport_base.py`, clarify that transport `recv()`
+     returns bytes-like data and that higher layers must accept it.
 
 ## Testing
 - Do not run tests.

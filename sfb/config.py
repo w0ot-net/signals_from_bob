@@ -144,8 +144,6 @@ class Config(object):
     # --- Tunnel ---
     # Alice: seconds between keepalive packets
     tunnel_keepalive_interval = 1.0
-    # Alice: immediate poll attempts after keepalive-only responses (legacy "pong")
-    tunnel_pong_grace_polls = 5
     # Bob: seconds of inactivity before considering connection dead
     tunnel_idle_timeout = 60.0
     # Initial window size before negotiation (packets)
@@ -161,9 +159,9 @@ class Config(object):
     # Alice: enable fast retransmit for SACK holes
     tunnel_fast_retransmit_enabled = True
     # Alice: minimum age ratio of RTO before fast retransmit
-    tunnel_fast_retransmit_min_age_ratio = 0.25
+    tunnel_fast_retransmit_min_age_ratio = 0.1
     # Alice: max fast retransmits per sequence number
-    tunnel_fast_retransmit_max_per_seq = 2
+    tunnel_fast_retransmit_max_per_seq = 3
     # Enable runtime stats tracking (set by -v)
     stats_enabled = False
     # Enable dynamic window growth on Alice
@@ -178,10 +176,7 @@ class Config(object):
     tunnel_bg_stop_timeout = 2.0
     # Bob: poll timeout for serve_forever (seconds)
     tunnel_bob_poll_interval = 1.0
-    # Bob: poll timeout for background loop (seconds)
-    tunnel_bob_poll_interval_bg = 0.1
-    # Bob: min seconds between retransmits of the oldest unacked packet
-    tunnel_bob_retransmit_min_interval = 0.02
+    # Bob: poll timeout for background loop derived from tunnel_bob_poll_interval
     # Bob: max seconds between retransmits of the oldest unacked packet
     tunnel_bob_retransmit_max_interval = 3.0
     # Bob: multiplier for poll EWMA to derive retransmit cooldown
@@ -191,13 +186,12 @@ class Config(object):
     # Alice: sleep between ticks when running (seconds)
     tunnel_tick_sleep = 0.0
     # Alice: max send rate (packets per second, 0 = unlimited)
+    # Burst capacity derives from the send rate when enabled.
     tunnel_send_rate = 0.0
-    # Alice: burst capacity for send rate (packets, None=rate)
-    tunnel_send_burst = None
     # Alice: adaptive pacing enabled
     tunnel_adaptive_pacing_enabled = True
     # Alice: adaptive pacing target inflight ratio
-    tunnel_pace_target_inflight_ratio = 0.8
+    tunnel_pace_target_inflight_ratio = 1.0
     # Alice: adaptive pacing minimum inflight target
     tunnel_pace_min_inflight = 1
     # Alice: adaptive pacing maximum inflight target (None = cap)
@@ -216,8 +210,7 @@ class Config(object):
     tunnel_poll_pacing_enabled = True
     # Alice: minimum seconds between polls (0 = no minimum)
     tunnel_poll_min_interval = 0.0
-    # Alice: maximum seconds between polls (defaults to keepalive interval)
-    tunnel_poll_max_interval = tunnel_keepalive_interval
+    # Alice: poll pacing max interval derives from tunnel_keepalive_interval
     # Alice: fraction of RTT to distribute target inflight
     tunnel_poll_rtt_ratio = 0.75
     # Bob: poll interval while waiting for connection (seconds)
@@ -404,7 +397,6 @@ class Config(object):
         'crypto_mode',
         'crypto_psk',
         'tunnel_keepalive_interval',
-        'tunnel_pong_grace_polls',
         'tunnel_idle_timeout',
         'tunnel_initial_window',
         'max_in_flight',
@@ -421,14 +413,11 @@ class Config(object):
         'tunnel_window_growth_interval',
         'tunnel_bg_stop_timeout',
         'tunnel_bob_poll_interval',
-        'tunnel_bob_poll_interval_bg',
-        'tunnel_bob_retransmit_min_interval',
         'tunnel_bob_retransmit_max_interval',
         'tunnel_bob_retransmit_poll_factor',
         'tunnel_bob_poll_ewma_alpha',
         'tunnel_tick_sleep',
         'tunnel_send_rate',
-        'tunnel_send_burst',
         'tunnel_adaptive_pacing_enabled',
         'tunnel_pace_target_inflight_ratio',
         'tunnel_pace_min_inflight',
@@ -440,7 +429,6 @@ class Config(object):
         'tunnel_pacer_summary_interval',
         'tunnel_poll_pacing_enabled',
         'tunnel_poll_min_interval',
-        'tunnel_poll_max_interval',
         'tunnel_poll_rtt_ratio',
         'tunnel_connect_poll_interval',
         'non_blocking_poll_timeout',
@@ -558,8 +546,6 @@ class Config(object):
             raise ValueError("max_in_flight must be 1-256")
         if self.tunnel_keepalive_interval <= 0:
             raise ValueError("tunnel_keepalive_interval must be > 0")
-        if self.tunnel_pong_grace_polls < 0:
-            raise ValueError("tunnel_pong_grace_polls must be >= 0")
         if self.tunnel_idle_timeout <= 0:
             raise ValueError("tunnel_idle_timeout must be > 0")
         if self.tunnel_no_response_timeout <= 0:
@@ -582,15 +568,10 @@ class Config(object):
             raise ValueError("tunnel_bg_stop_timeout must be > 0")
         if self.tunnel_bob_poll_interval <= 0:
             raise ValueError("tunnel_bob_poll_interval must be > 0")
-        if self.tunnel_bob_poll_interval_bg <= 0:
-            raise ValueError("tunnel_bob_poll_interval_bg must be > 0")
         if self.tunnel_tick_sleep < 0:
             raise ValueError("tunnel_tick_sleep must be >= 0")
         if self.tunnel_send_rate < 0:
             raise ValueError("tunnel_send_rate must be >= 0")
-        if (self.tunnel_send_burst is not None and
-                self.tunnel_send_burst <= 0):
-            raise ValueError("tunnel_send_burst must be > 0 or None")
         if self.tunnel_pace_target_inflight_ratio <= 0:
             raise ValueError("tunnel_pace_target_inflight_ratio must be > 0")
         if self.tunnel_pace_min_inflight < 1 or self.tunnel_pace_min_inflight > 256:
@@ -615,11 +596,9 @@ class Config(object):
             raise ValueError("tunnel_pacer_summary_interval must be >= 0")
         if self.tunnel_poll_min_interval < 0:
             raise ValueError("tunnel_poll_min_interval must be >= 0")
-        if self.tunnel_poll_max_interval <= 0:
-            raise ValueError("tunnel_poll_max_interval must be > 0")
-        if self.tunnel_poll_min_interval > self.tunnel_poll_max_interval:
+        if self.tunnel_poll_min_interval > self.tunnel_keepalive_interval:
             raise ValueError(
-                "tunnel_poll_min_interval must be <= tunnel_poll_max_interval"
+                "tunnel_poll_min_interval must be <= tunnel_keepalive_interval"
             )
         if self.tunnel_poll_rtt_ratio <= 0:
             raise ValueError("tunnel_poll_rtt_ratio must be > 0")

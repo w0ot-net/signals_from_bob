@@ -18,11 +18,9 @@ def make_test_config(**overrides):
     """Create a Config for integration tests with sensible defaults."""
     defaults = {
         'dns_base_domain': 'test.local',
-        'tunnel_idle_timeout': 10.0,
         'tunnel_keepalive_interval': 5.0,
         'max_in_flight': 16,
         'tunnel_connect_timeout': 2.0,
-        'tunnel_no_response_timeout': 50.0,
     }
     defaults.update(overrides)
     return Config(**defaults)

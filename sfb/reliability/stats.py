@@ -12,7 +12,6 @@ class ReliabilityStats(object):
     __slots__ = (
         'sent_packets',
         'retransmit_packets',
-        'retransmit_skipped_rate_limit',
         'retransmit_skipped_transport',
         'acked_packets',
         'acked_cumulative_packets',
@@ -29,7 +28,6 @@ class ReliabilityStats(object):
     def __init__(self):
         self.sent_packets = 0
         self.retransmit_packets = 0
-        self.retransmit_skipped_rate_limit = 0
         self.retransmit_skipped_transport = 0
         self.acked_packets = 0
         self.acked_cumulative_packets = 0
@@ -47,9 +45,6 @@ class ReliabilityStats(object):
 
     def on_retransmit(self):
         self.retransmit_packets += 1
-
-    def on_retransmit_skip_rate_limit(self):
-        self.retransmit_skipped_rate_limit += 1
 
     def on_retransmit_skip_transport(self):
         self.retransmit_skipped_transport += 1
@@ -86,7 +81,6 @@ class ReliabilityStats(object):
         return {
             'sent_packets': self.sent_packets,
             'retransmit_packets': self.retransmit_packets,
-            'retransmit_skipped_rate_limit': self.retransmit_skipped_rate_limit,
             'retransmit_skipped_transport': self.retransmit_skipped_transport,
             'acked_packets': self.acked_packets,
             'acked_cumulative_packets': self.acked_cumulative_packets,
@@ -110,9 +104,6 @@ class NoopReliabilityStats(object):
         pass
 
     def on_retransmit(self):
-        pass
-
-    def on_retransmit_skip_rate_limit(self):
         pass
 
     def on_retransmit_skip_transport(self):

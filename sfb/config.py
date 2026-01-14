@@ -142,18 +142,14 @@ class Config(object):
     crypto_psk = None
 
     # --- Tunnel ---
-    # Alice: seconds between keepalive packets
+    # Alice: seconds between keepalive packets (base time scale)
     tunnel_keepalive_interval = 1.0
-    # Bob: seconds of inactivity before considering connection dead
-    tunnel_idle_timeout = 60.0
     # Initial window size before negotiation (packets)
     tunnel_initial_window = 1
     # Maximum unacknowledged packets in flight (max 256, SACK bitmap limit)
     max_in_flight = 256
     # Handshake/connection timeout (seconds)
     tunnel_connect_timeout = 10.0
-    # Alice: seconds without response before giving up
-    tunnel_no_response_timeout = 60.0
     # Alice: max retransmits per tick (RTO + fast retransmit)
     tunnel_retransmit_cap = 2
     # Alice: enable fast retransmit for SACK holes
@@ -166,28 +162,19 @@ class Config(object):
     stats_enabled = False
     # Enable dynamic window growth on Alice
     tunnel_window_growth_enabled = True
-    # Window growth mode: 'linear' or 'doubling'
-    tunnel_window_growth_mode = "linear"
-    # Window growth step (linear mode)
+    # Window growth step (linear)
     tunnel_window_growth_step = 1
-    # Minimum seconds between window requests (growth or retry)
-    tunnel_window_growth_interval = 10.0
     # Background loop stop timeout (seconds)
     tunnel_bg_stop_timeout = 2.0
     # Bob: poll timeout for serve_forever (seconds)
     tunnel_bob_poll_interval = 1.0
     # Bob: poll timeout for background loop derived from tunnel_bob_poll_interval
-    # Bob: max seconds between retransmits of the oldest unacked packet
-    tunnel_bob_retransmit_max_interval = 3.0
     # Bob: multiplier for poll EWMA to derive retransmit cooldown
     tunnel_bob_retransmit_poll_factor = 2.0
     # Bob: EWMA alpha for poll interval smoothing (0-1)
     tunnel_bob_poll_ewma_alpha = 0.2
     # Alice: sleep between ticks when running (seconds)
     tunnel_tick_sleep = 0.0
-    # Alice: max send rate (packets per second, 0 = unlimited)
-    # Burst capacity derives from the send rate when enabled.
-    tunnel_send_rate = 0.0
     # Alice: adaptive pacing enabled
     tunnel_adaptive_pacing_enabled = True
     # Alice: adaptive pacing target inflight ratio
@@ -395,27 +382,21 @@ class Config(object):
         'crypto_mode',
         'crypto_psk',
         'tunnel_keepalive_interval',
-        'tunnel_idle_timeout',
         'tunnel_initial_window',
         'max_in_flight',
         'tunnel_connect_timeout',
-        'tunnel_no_response_timeout',
         'tunnel_retransmit_cap',
         'tunnel_fast_retransmit_enabled',
         'tunnel_fast_retransmit_min_age_ratio',
         'tunnel_fast_retransmit_max_per_seq',
         'stats_enabled',
         'tunnel_window_growth_enabled',
-        'tunnel_window_growth_mode',
         'tunnel_window_growth_step',
-        'tunnel_window_growth_interval',
         'tunnel_bg_stop_timeout',
         'tunnel_bob_poll_interval',
-        'tunnel_bob_retransmit_max_interval',
         'tunnel_bob_retransmit_poll_factor',
         'tunnel_bob_poll_ewma_alpha',
         'tunnel_tick_sleep',
-        'tunnel_send_rate',
         'tunnel_adaptive_pacing_enabled',
         'tunnel_pace_target_inflight_ratio',
         'tunnel_pace_min_inflight',
@@ -543,10 +524,6 @@ class Config(object):
             raise ValueError("max_in_flight must be 1-256")
         if self.tunnel_keepalive_interval <= 0:
             raise ValueError("tunnel_keepalive_interval must be > 0")
-        if self.tunnel_idle_timeout <= 0:
-            raise ValueError("tunnel_idle_timeout must be > 0")
-        if self.tunnel_no_response_timeout <= 0:
-            raise ValueError("tunnel_no_response_timeout must be > 0")
         if self.tunnel_initial_window < 1 or self.tunnel_initial_window > 256:
             raise ValueError("tunnel_initial_window must be 1-256")
         if self.tunnel_retransmit_cap < 1:
@@ -555,20 +532,14 @@ class Config(object):
             raise ValueError("tunnel_fast_retransmit_min_age_ratio must be > 0")
         if self.tunnel_fast_retransmit_max_per_seq < 1:
             raise ValueError("tunnel_fast_retransmit_max_per_seq must be >= 1")
-        if self.tunnel_window_growth_mode not in ("linear", "doubling"):
-            raise ValueError("tunnel_window_growth_mode must be 'linear' or 'doubling'")
         if self.tunnel_window_growth_step < 1:
             raise ValueError("tunnel_window_growth_step must be >= 1")
-        if self.tunnel_window_growth_interval <= 0:
-            raise ValueError("tunnel_window_growth_interval must be > 0")
         if self.tunnel_bg_stop_timeout <= 0:
             raise ValueError("tunnel_bg_stop_timeout must be > 0")
         if self.tunnel_bob_poll_interval <= 0:
             raise ValueError("tunnel_bob_poll_interval must be > 0")
         if self.tunnel_tick_sleep < 0:
             raise ValueError("tunnel_tick_sleep must be >= 0")
-        if self.tunnel_send_rate < 0:
-            raise ValueError("tunnel_send_rate must be >= 0")
         if self.tunnel_pace_target_inflight_ratio <= 0:
             raise ValueError("tunnel_pace_target_inflight_ratio must be > 0")
         if self.tunnel_pace_min_inflight < 1 or self.tunnel_pace_min_inflight > 256:

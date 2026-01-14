@@ -31,8 +31,8 @@ Compatibility note:
   Peers using the old private extension are incompatible.
 
 Connection churn can hit TIME_WAIT and ephemeral port limits at high rates.
-Use `max_in_flight` and `tunnel_send_rate` to cap new connections. A rough
-upper bound is:
+Use `max_in_flight` and adaptive pacing to cap new connections. A rough upper
+bound is:
 
 ```
 max_new_conns_per_sec ~= ephemeral_port_range / time_wait_sec

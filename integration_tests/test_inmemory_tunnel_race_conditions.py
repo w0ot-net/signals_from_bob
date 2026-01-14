@@ -52,7 +52,6 @@ class TunnelRaceIntegrationTests(unittest.TestCase):
         config.tunnel_keepalive_interval = 0.1
         config.non_blocking_poll_timeout = 0.001
         config.tunnel_tick_sleep = 0.0005
-        config.tunnel_idle_timeout = 5.0
         return config
 
     def _build_tunnels(self):

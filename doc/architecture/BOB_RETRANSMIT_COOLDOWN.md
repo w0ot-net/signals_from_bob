@@ -10,7 +10,7 @@ Primary implementation locations:
 - `sfb/tunnel/bob_tunnel.py`: poll EWMA updates, cooldown computation, and
   cooldown gating during response selection.
 - `sfb/reliability/send_window.py`: unacked send timing used for cooldown age.
-- `sfb/config.py`: cooldown-related configuration defaults.
+- `sfb/config.py`: poll EWMA defaults and cooldown factor.
 - `doc/architecture/ASYMMETRY.md`: Bob is poll-driven, not timer-driven.
 
 ## Time Source And Units
@@ -49,8 +49,9 @@ for Bob's throughput and retransmit opportunity.
      `cooldown = poll_ewma * factor`.
    - If the send window has a positive cap, also floor by one window of polls:
      `cooldown = max(cooldown, poll_ewma * max_in_flight)`.
-3. If `tunnel_bob_retransmit_max_interval` is set and > 0,
-   `cooldown = min(cooldown, max_interval)`.
+3. Floor the cooldown at one poll interval (`poll_ewma`).
+4. Clamp to a keepalive-based cap:
+   `cooldown = min(cooldown, tunnel_keepalive_interval * 3)`.
 
 The send-window cap used here is the current `_send_window._max_in_flight`.
 
@@ -91,9 +92,12 @@ When a retransmit is skipped due to cooldown, Bob logs
 ## Configuration Defaults
 
 From `sfb/config.py`:
-- `tunnel_bob_retransmit_max_interval = 3.0`
 - `tunnel_bob_retransmit_poll_factor = 2.0`
 - `tunnel_bob_poll_ewma_alpha = 0.2`
 - `tunnel_bob_poll_interval = 1.0`
+- `tunnel_keepalive_interval = 1.0`
+
+Derived cap:
+- `cooldown <= tunnel_keepalive_interval * 3` (default 3.0)
 
 These defaults are overridden by CLI flags or config injection as usual.

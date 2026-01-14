@@ -31,7 +31,6 @@ from ..protocol import (
     FLAG_KEEPALIVE,
     FLAG_HAS_SEGMENTS,
 )
-from ..transport.transport_base import RateLimiter
 from ..logging_util import log_event
 from .. import time_provider
 
@@ -43,6 +42,9 @@ class AliceTunnel(BaseTunnel):
     Alice initiates the handshake and drives the tunnel using tick().
     She uses RTT-based retransmission timing and supports pipelining.
     """
+
+    _NO_RESPONSE_TIMEOUT_MULTIPLIER = 60.0
+    _WINDOW_GROWTH_INTERVAL_FACTOR = 10.0
 
     def __init__(self, transport, config, crypto=None, logger=None):
         """
@@ -88,7 +90,7 @@ class AliceTunnel(BaseTunnel):
         self._last_recv_time = 0
 
         # Timeout detection: seconds without any response
-        self._no_response_timeout = config.tunnel_no_response_timeout
+        self._no_response_timeout = self._derive_no_response_timeout()
 
         # Track if Bob sent real data since the last poll we sent.
         self._got_data = False
@@ -100,20 +102,9 @@ class AliceTunnel(BaseTunnel):
         self._has_pending_data_acks = False
         # Window growth state (Alice only)
         self._window_growth_enabled = config.tunnel_window_growth_enabled
-        self._window_growth_mode = config.tunnel_window_growth_mode
         self._window_growth_step = config.tunnel_window_growth_step
-        self._window_growth_interval = config.tunnel_window_growth_interval
         self._last_window_request_time = 0
         self._ack_progressed = False
-        # Transport-agnostic send rate limiter
-        self._send_rate = config.tunnel_send_rate
-        self._send_burst = None
-        if self._send_rate is not None and self._send_rate > 0:
-            self._send_burst = float(self._send_rate)
-        self._send_limiter = RateLimiter(
-            self._send_rate,
-            burst=self._send_burst,
-        )
         # Adaptive pacing (Alice only)
         self._pacer = AdaptivePacer(
             config.tunnel_adaptive_pacing_enabled,
@@ -133,7 +124,6 @@ class AliceTunnel(BaseTunnel):
         # Poll pacing (Alice only)
         self._poll_pacing_enabled = config.tunnel_poll_pacing_enabled
         self._poll_min_interval = config.tunnel_poll_min_interval
-        self._poll_max_interval = float(self._keepalive_interval)
         self._poll_rtt_ratio = config.tunnel_poll_rtt_ratio
         self._next_poll_time = 0.0
         self._poll_pace_interval = None
@@ -150,17 +140,22 @@ class AliceTunnel(BaseTunnel):
                     'side': 'alice',
                     'keepalive_interval': self._keepalive_interval,
                     'poll_min_interval': self._poll_min_interval,
-                    'poll_max_interval': self._poll_max_interval,
+                    'poll_max_interval': self._keepalive_interval,
                     'poll_rtt_ratio': self._poll_rtt_ratio,
                     'pong_grace_polls': self._pong_grace_polls,
                     'proposed_window': self._proposed_window,
-                    'send_rate': self._send_rate,
-                    'send_burst': self._send_burst,
+                    'no_response_timeout': self._no_response_timeout,
                 },
             )
 
         # Enable module loader for handling Bob's module requests.
         self.enable_module_loader()
+
+    def _derive_no_response_timeout(self):
+        timeout = float(self._keepalive_interval) * self._NO_RESPONSE_TIMEOUT_MULTIPLIER
+        if timeout <= 0:
+            raise TunnelError('Derived no-response timeout invalid')
+        return timeout
 
     @property
     def rtt_estimator(self):
@@ -802,18 +797,6 @@ class AliceTunnel(BaseTunnel):
             'max_in_flight': self._send_window._max_in_flight,
         }
 
-    def _check_send_rate_limit(self, now, keepalive_only):
-        if self._send_limiter is None:
-            return None
-        if self._send_limiter.can_send(now=now):
-            return None
-        return {
-            'reason': 'rate_limit',
-            'keepalive_only': keepalive_only,
-            'rate': self._send_rate,
-            'burst': self._send_burst,
-        }
-
     def _pacer_inflight_counts(self):
         unacked = self._send_window.unacked_count
         distance_info = self._send_window.distance_info()
@@ -1002,32 +985,6 @@ class AliceTunnel(BaseTunnel):
             )
             return
 
-        if reason == 'rate_limit':
-            if self._logger.isEnabledFor(logging.DEBUG):
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.send_blocked',
-                    'Send rate limited',
-                    lambda: {
-                        'side': 'alice',
-                        'rate': decision.get('rate'),
-                        'burst': decision.get('burst'),
-                    },
-                )
-            self._log_reliability_state(
-                logging.DEBUG,
-                'tunnel.reliability_state',
-                'Reliability state after send blocked',
-                now=now,
-                extra_fields={
-                    'context': 'send_blocked',
-                    'reason': 'rate_limit',
-                    'keepalive_only': keepalive_only,
-                },
-            )
-            return
-
         if reason == 'pacer':
             unacked = decision.get('unacked')
             inflight = decision.get('inflight')
@@ -1118,10 +1075,6 @@ class AliceTunnel(BaseTunnel):
             blocked['reason'] = decision.get('block_reason')
             self._log_send_blocked(blocked, now)
             return False
-        decision = self._check_send_rate_limit(now, keepalive_only)
-        if decision is not None:
-            self._log_send_blocked(decision, now)
-            return False
         if self._pacer.enabled:
             self._maybe_log_pacer_target_change(
                 pacer_gate_cap,
@@ -1173,31 +1126,6 @@ class AliceTunnel(BaseTunnel):
                 extra_fields={
                     'context': 'retransmit_blocked',
                     'reason': 'retransmit_budget',
-                },
-            )
-            return False
-        if self._send_limiter is not None and not self._send_limiter.can_send(now=now):
-            self._reliability_stats.on_retransmit_skip_rate_limit()
-            if self._logger.isEnabledFor(logging.DEBUG):
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.send_blocked',
-                    'Retransmit rate limited',
-                    lambda: {
-                        'side': 'alice',
-                        'rate': self._send_rate,
-                        'burst': self._send_burst,
-                    },
-                )
-            self._log_reliability_state(
-                logging.DEBUG,
-                'tunnel.reliability_state',
-                'Reliability state after retransmit blocked',
-                now=now,
-                extra_fields={
-                    'context': 'retransmit_blocked',
-                    'reason': 'rate_limit',
                 },
             )
             return False
@@ -1332,7 +1260,6 @@ class AliceTunnel(BaseTunnel):
             rtt_floor_ms=self._config.tunnel_pace_rtt_floor_ms,
             poll_rtt_ratio=self._poll_rtt_ratio,
             min_interval=self._poll_min_interval,
-            max_interval=self._poll_max_interval,
             target_inflight=target_inflight,
         )
         self._maybe_log_poll_pace(interval, target_inflight, srtt_ms)
@@ -1404,7 +1331,6 @@ class AliceTunnel(BaseTunnel):
             self._pacer,
             self._send_window.unacked_count,
             cap,
-            rate_limit=self._config.tunnel_send_rate,
             srtt_ms=self._rtt.srtt_ms,
             side='alice',
             reason=reason,
@@ -1416,7 +1342,6 @@ class AliceTunnel(BaseTunnel):
                 self._pacer,
                 self._send_window.unacked_count,
                 self._pacer_cap(),
-                rate_limit=self._config.tunnel_send_rate,
                 srtt_ms=self._rtt.srtt_ms,
                 side='alice',
                 prev_target=decision.get('prev_target'),
@@ -1449,7 +1374,6 @@ class AliceTunnel(BaseTunnel):
             self._pacer,
             self._send_window.unacked_count,
             self._pacer_cap(),
-            rate_limit=self._config.tunnel_send_rate,
             srtt_ms=self._rtt.srtt_ms,
             side='alice',
             prev_target=prev_target,
@@ -1497,7 +1421,6 @@ class AliceTunnel(BaseTunnel):
             self._pacer,
             unacked_count,
             cap,
-            rate_limit=self._config.tunnel_send_rate,
             srtt_ms=self._rtt.srtt_ms,
             side='alice',
             action=action,
@@ -1534,7 +1457,6 @@ class AliceTunnel(BaseTunnel):
             self._packets_received,
             self._transport,
             self._pacer_cap(),
-            self._config.tunnel_send_rate,
             self._rtt.srtt_ms,
             self._stats_enabled,
             stats_snapshot,
@@ -1576,33 +1498,6 @@ class AliceTunnel(BaseTunnel):
             flags |= FLAG_KEEPALIVE
         packet, seq = self._build_packet(flags=flags, segments=segments)
         encrypted_body, packet_data = self._encode_packet_for_send(packet)
-
-        if self._send_limiter is not None and not self._send_limiter.consume(now=now):
-            if self._logger.isEnabledFor(logging.DEBUG):
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.send_blocked',
-                    'Send rate limited before transmit',
-                    lambda: {
-                        'side': 'alice',
-                        'rate': self._send_rate,
-                        'burst': self._send_burst,
-                    },
-                )
-            self._log_reliability_state(
-                logging.DEBUG,
-                'tunnel.reliability_state',
-                'Reliability state after send blocked',
-                now=now,
-                extra_fields={
-                    'context': 'send_blocked',
-                    'reason': 'rate_limit',
-                },
-            )
-            if permit is not None:
-                self._transport.release_send(permit)
-            return
 
         if permit is None:
             permit = self._reserve_transport_permit(now)
@@ -1673,32 +1568,6 @@ class AliceTunnel(BaseTunnel):
             packet,
             encrypted_body=encrypted_body,
         )
-
-        if self._send_limiter is not None and not self._send_limiter.consume(now=now):
-            self._reliability_stats.on_retransmit_skip_rate_limit()
-            if self._logger.isEnabledFor(logging.DEBUG):
-                log_event(
-                    self._logger,
-                    logging.DEBUG,
-                    'tunnel.send_blocked',
-                    'Retransmit rate limited before transmit',
-                    lambda: {
-                        'side': 'alice',
-                        'rate': self._send_rate,
-                        'burst': self._send_burst,
-                    },
-                )
-            self._log_reliability_state(
-                logging.DEBUG,
-                'tunnel.reliability_state',
-                'Reliability state after retransmit blocked',
-                now=now,
-                extra_fields={
-                    'context': 'retransmit_blocked',
-                    'reason': 'rate_limit',
-                },
-            )
-            return False
 
         permit = self._reserve_transport_permit(
             now,
@@ -1903,13 +1772,32 @@ class AliceTunnel(BaseTunnel):
                     )
         return (True, response_kind)
 
+    def _window_growth_interval(self):
+        base_interval = None
+        srtt_ms = self._rtt.srtt_ms
+        if srtt_ms is not None and srtt_ms > 0:
+            base_interval = srtt_ms / 1000.0
+        poll_interval = None
+        if self._poll_pacing_enabled:
+            poll_interval, _ = self._poll_pacing_interval()
+        if poll_interval is not None and poll_interval > 0:
+            if base_interval is None or poll_interval > base_interval:
+                base_interval = poll_interval
+        if base_interval is None or base_interval <= 0:
+            base_interval = self._keepalive_interval
+        interval = base_interval * self._WINDOW_GROWTH_INTERVAL_FACTOR
+        if interval < self._keepalive_interval:
+            interval = self._keepalive_interval
+        return interval
+
     def _maybe_request_window(self, now):
         """Request a larger window if conditions allow."""
         if self._window_final:
             return
+        interval = self._window_growth_interval()
         # Retry initial negotiation even without ACK progress.
         if not self._window_negotiated:
-            if now - self._last_window_request_time >= self._window_growth_interval:
+            if now - self._last_window_request_time >= interval:
                 self.control.send_message(tun_window(self._proposed_window))
                 self._last_window_request_time = now
                 if self._logger.isEnabledFor(logging.INFO):
@@ -1928,16 +1816,13 @@ class AliceTunnel(BaseTunnel):
 
         if not self._ack_progressed:
             return
-        if now - self._last_window_request_time < self._window_growth_interval:
+        if now - self._last_window_request_time < interval:
             return
         if self.negotiated_window >= self._proposed_window:
             return
 
         current = self.negotiated_window
-        if self._window_growth_mode == 'doubling':
-            requested = current * 2
-        else:
-            requested = current + self._window_growth_step
+        requested = current + self._window_growth_step
 
         requested = min(requested, self._proposed_window, self.MAX_WINDOW)
         if requested <= current:
@@ -1955,7 +1840,6 @@ class AliceTunnel(BaseTunnel):
                 lambda: {
                     'size': requested,
                     'current': current,
-                    'mode': self._window_growth_mode,
                     'side': 'alice',
                 },
             )

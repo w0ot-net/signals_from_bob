@@ -15,7 +15,7 @@ Primary implementation locations:
 - `sfb/tunnel/base_tunnel.py`: packet rebuild with fresh ACK/SACK,
   ACK/SACK processing, recv window.
 - `sfb/reliability/pacing.py`: pacing feedback and probe reset on retransmit.
-- `sfb/transport/transport_base.py`: send permits and rate limiter.
+- `sfb/transport/transport_base.py`: send permits.
 - `sfb/config.py` and `sfb/protocol/constants.py`: default values and limits.
 
 Context: per `doc/architecture/ASYMMETRY.md`, Alice is timer-driven and initiates transport
@@ -105,9 +105,8 @@ whose `now - send_time >= rto_sec`. Details:
 ### Sending
 
 For each candidate:
-- `AliceTunnel._can_send_retransmit()` checks the per-tick retransmit budget
-  and the rate limiter.
-  - If rate-limited, the loop breaks (no further retransmits this tick).
+- `AliceTunnel._can_send_retransmit()` checks the per-tick retransmit budget.
+  - If the budget is exhausted, the loop breaks (no further retransmits this tick).
 - `_send_retransmit()` performs the send:
   - Rebuilds the packet with the original `seq` and `flags`, but fresh
     `ack/sack` from the current receive window.
@@ -125,8 +124,8 @@ For each candidate:
     `rto_keepalive` for keepalive retransmits. Fast retransmit uses reason
     `fast_retransmit`.
 
-If the rate limiter denies `consume()` or no send permit is available, the
-retransmit is skipped (no backoff, no send_time update).
+If no send permit is available, the retransmit is skipped (no backoff, no
+send_time update).
 Keepalive-only RTO candidates are retransmitted (reason `rto_keepalive`).
 Keepalive drops only happen when the send window is full and a new keepalive
 poll needs to make room.
@@ -152,7 +151,7 @@ Trigger conditions:
 
 Send behavior:
 - Uses `_send_retransmit(..., reason='fast_retransmit')`.
-- Respects retransmit budget and rate limiter.
+- Respects retransmit budget.
 - Fast retransmit counts are pruned when a seq leaves the unacked set.
 - Keepalive holes may be fast retransmitted; keepalives are also eligible for
   RTO retransmit (reason `rto_keepalive`).
@@ -237,17 +236,7 @@ Key structured events emitted during retransmit/ACK handling:
 - `tunnel.reliability_state`: structured snapshot of send/recv window, RTT,
   and counters after key gating decisions.
 
-## Rate Limiting, Pacing, And Transport Gating
-
-### Rate Limiter (Config.tunnel_send_rate)
-
-- New sends: `_can_send_new()` uses `RateLimiter.can_send()`, and
-  `_send_new_packet()` uses `RateLimiter.consume()`.
-- Retransmits: `_can_send_retransmit()` uses `can_send()`, and
-  `_send_retransmit()` uses `consume()`.
-- If `consume()` fails, the send/retransmit is skipped and logged.
-- Burst capacity derives from `tunnel_send_rate` when enabled.
-- When `tunnel_send_rate <= 0`, the limiter is disabled (always allows).
+## Pacing And Transport Gating
 
 ### Adaptive Pacing
 
@@ -272,7 +261,7 @@ Alice tracks time since the last valid response:
 - Invalid or undecodable responses do not reset the timer.
   - Keepalive-only responses still count as valid responses.
 
-If `now - _last_recv_time >= tunnel_no_response_timeout`, Alice closes the
+If `now - _last_recv_time >= tunnel_keepalive_interval * 60`, Alice closes the
 connection and logs `tunnel.timeout_no_response`. Retransmissions stop once closed.
 
 ## Logging And Stats
@@ -280,7 +269,7 @@ connection and logs `tunnel.timeout_no_response`. Retransmissions stop once clos
 Key retransmit-related events:
 - `tunnel.retransmit`: emitted on each retransmit (reasons `rto`,
   `rto_keepalive`, `fast_retransmit`).
-- `tunnel.send_blocked`: emitted when rate-limited or transport-blocked.
+- `tunnel.send_blocked`: emitted when send gating blocks a packet.
 - `tunnel.packet_send` and `tunnel.packet_recv`: all sends/receives.
 - `tunnel.ack`: ACK/SACK processing details.
 - `tunnel.timeout_no_response`: no-response timeout triggered.
@@ -288,8 +277,7 @@ Key retransmit-related events:
 If stats are enabled (verbose logging, `-v`):
 - `ReliabilityStats.retransmit_packets` increments per retransmit.
 - `ReliabilityStats.rtt_samples` increments on valid RTT samples.
-- `ReliabilityStats.retransmit_skipped_rate_limit` and
-  `ReliabilityStats.retransmit_skipped_transport` track retransmit skips.
+- `ReliabilityStats.retransmit_skipped_transport` tracks retransmit skips.
 
 ## Configuration Knobs And Defaults
 
@@ -297,14 +285,13 @@ Retransmit-related settings in `Config`:
 - `protocol_initial_rto_ms` (default 1000)
 - `protocol_min_rto_ms` (default 500)
 - `protocol_max_rto_ms` (default 10000)
-- `tunnel_no_response_timeout` (default 60.0)
+- Derived no-response timeout: `tunnel_keepalive_interval * 60`
 - `tunnel_retransmit_cap` (default 2)
 - `tunnel_fast_retransmit_enabled` (default True)
 - `tunnel_fast_retransmit_min_age_ratio` (default 0.25)
 - `tunnel_fast_retransmit_max_per_seq` (default 2)
 - `tunnel_keepalive_interval` (default 1.0)
 - Pong grace polls (derived as `2 * proposed_window` at init)
-- `tunnel_send_rate` (default 0.0, unlimited; burst derives from rate)
 - `tunnel_adaptive_pacing_enabled` (default True)
 - `tunnel_pace_rtt_floor_ms` (default 5.0)
 - `tunnel_poll_min_interval` (default 0.0)
@@ -313,7 +300,8 @@ Retransmit-related settings in `Config`:
 - `non_blocking_poll_timeout` (default 0.0001)
 - `tunnel_initial_window` (default 1)
 - `max_in_flight` (default 256)
-- `tunnel_window_growth_*` (affects in-flight capacity and pacing target)
+- `tunnel_window_growth_step` (affects in-flight capacity and pacing target)
+- Window growth interval derives from RTT or poll cadence (keepalive fallback)
 
 Protocol limits:
 - `SACK_BITS` and `MAX_IN_FLIGHT` are 256 (SACK coverage and window cap).

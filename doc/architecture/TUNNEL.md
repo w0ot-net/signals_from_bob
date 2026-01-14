@@ -394,11 +394,11 @@ PSK.
 ### Connection Loss
 
 Alice detects connection loss when:
-- No successful response within `tunnel_no_response_timeout` seconds
+- No successful response within `tunnel_keepalive_interval * 60` seconds
 - State transitions to CLOSED
 
 Bob detects connection loss when:
-- No request received within `tunnel_idle_timeout` seconds
+- No request received within `tunnel_keepalive_interval * 60` seconds
 - State transitions to CLOSED
 
 ---
@@ -453,7 +453,6 @@ from sfb.tunnel import BobTunnel
 
 config = Config()
 config.dns_base_domain = 'tunnel.example.com'
-config.tunnel_idle_timeout = 60.0
 
 transport = DnsServer(config)
 tunnel = BobTunnel(
@@ -487,11 +486,13 @@ tunnel.serve_forever()
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `tunnel_keepalive_interval` | 1.0s | Time between keepalive packets (Alice) |
+| `tunnel_keepalive_interval` | 1.0s | Base interval for keepalive and derived timeouts |
 | `tunnel_connect_timeout` | 10.0s | Handshake timeout (Alice) |
-| `tunnel_idle_timeout` | 60.0s | Connection timeout with no activity (Bob) |
-| `tunnel_no_response_timeout` | 60.0s | Alice timeout on response silence |
 | `protocol_initial_rto_ms` | 1000ms | Initial retransmit timeout (Alice) |
+
+Derived timeouts:
+- No-response timeout: `tunnel_keepalive_interval * 60`
+- Idle timeout: `tunnel_keepalive_interval * 60`
 
 ---
 

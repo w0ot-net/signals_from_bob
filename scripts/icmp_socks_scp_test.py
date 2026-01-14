@@ -147,10 +147,6 @@ def parse_args():
         help='Override max-in-flight (passed to sfb CLI)'
     )
     parser.add_argument(
-        '--send-rate', type=float, default=None,
-        help='Override tunnel send rate for Alice (packets/sec, 0=unlimited)'
-    )
-    parser.add_argument(
         '--log-profile', default='scp_stalled_icmp_socks',
         help='Log profile for Bob/Alice (default: scp_stalled_icmp_socks)'
     )
@@ -362,8 +358,7 @@ def start_bob(socks_host, socks_port, icmp_mtu=None, max_in_flight=None,
 
 
 def start_alice(target, icmp_mtu=None, max_in_flight=None,
-                send_rate=None, log_profile=None,
-                verbose=False, db_log_flush=None):
+                log_profile=None, verbose=False, db_log_flush=None):
     cmd = [
         'python3', '-m', 'sfb.cli',
         '--role', 'alice',
@@ -380,8 +375,6 @@ def start_alice(target, icmp_mtu=None, max_in_flight=None,
         cmd.extend(['--icmp-mtu', str(icmp_mtu)])
     if max_in_flight is not None:
         cmd.extend(['--max-in-flight', str(max_in_flight)])
-    if send_rate is not None:
-        cmd.extend(['--send-rate', str(send_rate)])
     return ManagedProcess('alice', cmd, cwd=ROOT_DIR)
 
 
@@ -499,7 +492,6 @@ def main():
             args.target,
             icmp_mtu=args.icmp_mtu,
             max_in_flight=args.max_in_flight,
-            send_rate=args.send_rate,
             log_profile=args.log_profile,
             verbose=args.verbose_cli,
             db_log_flush=args.db_log_flush,

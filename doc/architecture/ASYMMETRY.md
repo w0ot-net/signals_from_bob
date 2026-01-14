@@ -36,8 +36,7 @@ Both sides buffer unacked packets, but retransmission triggers differ:
 - Computes retransmission timeout: `RTO = SRTT * 2`
 - When cumulative ACKs are silent for >= RTO, scans unacked packets whose
   age >= RTO and retransmits oldest-first
-- May send multiple retransmits in one tick, subject to per-tick budget and
-  rate limiting
+- May send multiple retransmits in one tick, subject to per-tick budget
 - Retransmits reuse existing sequence numbers; outstanding count stays capped
 - Can act proactively based on time
 
@@ -83,14 +82,14 @@ If the connection dies, each side detects it differently:
 | Aspect | Alice | Bob |
 |--------|-------|-----|
 | Metric | Monotonic silence since last response | Monotonic silence since last poll |
-| Threshold | `tunnel_no_response_timeout` (default 60s) | `tunnel_idle_timeout` (default 60s) |
+| Threshold | `tunnel_keepalive_interval * 60` (derived) | `tunnel_keepalive_interval * 60` (derived) |
 | Rationale | Avoids poll-rate dependence | Cannot send, so counts time |
 
 **Alice:**
 - Uses monotonic time since last response from Bob
 - "Response" means any packet from Bob (which carries an ack field), not
   specifically cumulative ack advancement
-- If no response for `tunnel_no_response_timeout` seconds, connection is dead
+- If no response for `tunnel_keepalive_interval * 60` seconds, connection is dead
 - A stuck cumulative ack with active responses indicates packet loss (handled
   by retransmission), not a dead connection
 - Time-based to avoid dependence on polling rate
@@ -98,8 +97,8 @@ If the connection dies, each side detects it differently:
 **Bob:**
 - Cannot send packets unless Alice polls
 - If Alice disappears, Bob has nothing to count
-- Uses monotonic time since last poll: `tunnel_idle_timeout` seconds of silence
-  = dead connection
+- Uses monotonic time since last poll: `tunnel_keepalive_interval * 60` seconds
+  of silence = dead connection
 
 ---
 
@@ -174,6 +173,6 @@ interval.
 | Tunnel initiation | Yes | Yes (with latency) |
 | Retransmit trigger | Timer (RTO) | Opportunity (poll) |
 | RTT tracking | Yes | No |
-| Timeout metric | 60s without response | 60s silence |
+| Timeout metric | `tunnel_keepalive_interval * 60` without response | `tunnel_keepalive_interval * 60` silence |
 | Throughput limit | max_in_flight | Alice's query rate |
 | Pipelining | Sends parallel queries | Responds serially |

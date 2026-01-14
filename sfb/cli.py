@@ -721,10 +721,6 @@ def add_dns_server_args(parser, config):
         help='Max DNS TXT response packet bytes (dns_txt only, default: %s)' %
              default_cap_text
     )
-    parser.add_argument(
-        '--idle-timeout', type=int, default=config.tunnel_idle_timeout,
-        help='Idle timeout in seconds (default: %s)' % config.tunnel_idle_timeout
-    )
 
 
 def add_dns_client_args(parser, config):
@@ -943,11 +939,6 @@ def add_tls_bump_server_args(parser, config):
 
 def add_client_pacing_args(parser, config):
     """Add transport-agnostic client pacing arguments."""
-    parser.add_argument(
-        '--send-rate', type=float, default=config.tunnel_send_rate,
-        help='Max packets per second from Alice (0=unlimited, burst=send_rate '
-             'when enabled, default: %s)' % config.tunnel_send_rate
-    )
     parser.add_argument(
         '--fast-retransmit', dest='fast_retransmit', action='store_true',
         default=config.tunnel_fast_retransmit_enabled,
@@ -1242,7 +1233,6 @@ def _build_dns_config(args):
             listen_addr = Config().dns_listen_addr
         host, port = parse_host_port(listen_addr, default_port=53)
         config_kwargs['dns_listen_addr'] = '%s:%d' % (host, port)
-        config_kwargs['tunnel_idle_timeout'] = float(args.idle_timeout)
     else:
         config_kwargs['dns_resolver'] = getattr(args, 'target', None)
     config_kwargs['dns_txt_response_cap'] = getattr(
@@ -1336,7 +1326,6 @@ def _build_tls_bump_config(args):
 
 def _build_client_config(args):
     return {
-        'tunnel_send_rate': getattr(args, 'send_rate', None),
         'tunnel_fast_retransmit_enabled': getattr(
             args, 'fast_retransmit', None),
         'tunnel_fast_retransmit_min_age_ratio': getattr(

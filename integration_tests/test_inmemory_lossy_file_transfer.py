@@ -40,8 +40,6 @@ def _test_file_available():
 def _make_config():
     config = Config()
     config.tunnel_connect_timeout = 30.0
-    config.tunnel_no_response_timeout = 600.0
-    config.tunnel_idle_timeout = 600.0
     config.tunnel_keepalive_interval = 0.2
     config.tunnel_bob_poll_interval = 0.05
     config.tunnel_tick_sleep = 0.0001

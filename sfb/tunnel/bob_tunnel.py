@@ -36,6 +36,9 @@ class BobTunnel(BaseTunnel):
     Other message types must be explicitly allowed via allow_message_type().
     """
 
+    _IDLE_TIMEOUT_MULTIPLIER = 60.0
+    _RETRANSMIT_COOLDOWN_MAX_MULTIPLIER = 3.0
+
     def __init__(self, transport, config, crypto=None, logger=None):
         """
         Initialize Bob's tunnel.
@@ -53,7 +56,8 @@ class BobTunnel(BaseTunnel):
             logger=logger,
         )
         self._transport = transport
-        self._idle_timeout = config.tunnel_idle_timeout
+        self._keepalive_interval = config.tunnel_keepalive_interval
+        self._idle_timeout = self._derive_idle_timeout()
         self._poll_interval = config.tunnel_bob_poll_interval
         self._poll_interval_bg = self._poll_interval * 0.1
         if self._poll_interval_bg < config.non_blocking_poll_timeout:
@@ -80,6 +84,8 @@ class BobTunnel(BaseTunnel):
                     'poll_interval': self._poll_interval,
                     'poll_interval_bg': self._poll_interval_bg,
                     'non_blocking_poll_timeout': self._config.non_blocking_poll_timeout,
+                    'keepalive_interval': self._keepalive_interval,
+                    'idle_timeout': self._idle_timeout,
                     'side': 'bob',
                 },
             )
@@ -91,6 +97,12 @@ class BobTunnel(BaseTunnel):
         # Handshake state
         self._handshake_complete = False
         self._serve_forever_active = False
+
+    def _derive_idle_timeout(self):
+        timeout = float(self._keepalive_interval) * self._IDLE_TIMEOUT_MULTIPLIER
+        if timeout <= 0:
+            raise TunnelError('Derived idle timeout invalid')
+        return timeout
 
     def _recv_and_dispatch(self, timeout, check_idle):
         try:
@@ -873,6 +885,7 @@ class BobTunnel(BaseTunnel):
             poll_ewma = self._poll_interval
         if poll_ewma is None or poll_ewma <= 0:
             return 0.0
+        min_interval = poll_ewma
         scale = 0.0
         if factor > 0:
             scale = float(factor)
@@ -882,12 +895,15 @@ class BobTunnel(BaseTunnel):
                 scale = float(window)
         if scale <= 0:
             return 0.0
-        max_interval = self._config.tunnel_bob_retransmit_max_interval
-        if max_interval is not None and max_interval > 0:
-            poll_cap = float(max_interval) / scale
-            if poll_ewma > poll_cap:
-                poll_ewma = poll_cap
-        return poll_ewma * scale
+        cooldown = poll_ewma * scale
+        if cooldown < min_interval:
+            cooldown = min_interval
+        max_interval = (
+            self._keepalive_interval * self._RETRANSMIT_COOLDOWN_MAX_MULTIPLIER
+        )
+        if max_interval > 0 and cooldown > max_interval:
+            cooldown = max_interval
+        return cooldown
 
     def allow_message_type(self, msg_type):
         """

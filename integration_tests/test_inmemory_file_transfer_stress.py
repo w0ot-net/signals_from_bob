@@ -29,8 +29,6 @@ _DUMMY_SIZE = 4096
 def _make_config():
     config = Config()
     config.tunnel_connect_timeout = 5.0
-    config.tunnel_no_response_timeout = 120.0
-    config.tunnel_idle_timeout = 120.0
     config.tunnel_bob_poll_interval = 0.02
     config.tunnel_tick_sleep = 0.0005
     config.max_in_flight = 64

@@ -1,6 +1,6 @@
 # Tunnel Knob Consolidation Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Consolidate tunnel timing, pacing, and growth configuration to reduce the
@@ -79,3 +79,11 @@ growth settings while preserving the asymmetry model.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- Removed config/CLI knobs: `tunnel_idle_timeout`, `tunnel_no_response_timeout`,
+  `tunnel_send_rate`, `tunnel_window_growth_mode`,
+  `tunnel_window_growth_interval`, `tunnel_bob_retransmit_max_interval`.
+- Alice/Bob timeouts now derive from `tunnel_keepalive_interval * 60`.
+- Bob retransmit cooldown is capped at `tunnel_keepalive_interval * 3`.
+- Window growth interval derives from RTT or poll cadence (keepalive fallback).

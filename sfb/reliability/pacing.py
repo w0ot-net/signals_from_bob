@@ -7,8 +7,7 @@ from __future__ import absolute_import
 
 
 def compute_poll_pacing_interval(srtt_ms, keepalive_interval, rtt_floor_ms,
-                                 poll_rtt_ratio, min_interval, max_interval,
-                                 target_inflight):
+                                 poll_rtt_ratio, min_interval, target_inflight):
     """
     Compute poll pacing interval for Alice.
     """
@@ -22,8 +21,7 @@ def compute_poll_pacing_interval(srtt_ms, keepalive_interval, rtt_floor_ms,
         if srtt_sec <= 0:
             srtt_sec = keepalive_interval
     interval = (srtt_sec * poll_rtt_ratio) / float(target_inflight)
-    if max_interval > keepalive_interval:
-        max_interval = keepalive_interval
+    max_interval = keepalive_interval
     if max_interval < min_interval:
         min_interval = max_interval
     if interval < min_interval:
@@ -441,7 +439,7 @@ class AdaptivePacer(object):
         target = self.target_inflight(cap, srtt_ms=srtt_ms)
         return unacked_count < target
 
-    def state_fields(self, unacked_count, cap, rate_limit=None, srtt_ms=None):
+    def state_fields(self, unacked_count, cap, srtt_ms=None):
         cap = self._normalize_cap(cap)
         (base_target, feedback_target, baseline_target, target_mode,
          feedback_floor, feedback_floor_active) = self._baseline_target(
@@ -479,6 +477,4 @@ class AdaptivePacer(object):
             'feedback_frozen_reason': self._feedback_frozen_reason,
             'feedback_frozen_since': self._feedback_frozen_since,
         }
-        if rate_limit is not None:
-            fields['rate_limit'] = rate_limit
         return fields

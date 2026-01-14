@@ -14,7 +14,7 @@ Primary implementation locations:
   segments/body, retransmit counters.
 - `sfb/tunnel/base_tunnel.py`: ACK/SACK processing, recv window state, packet
   rebuild with fresh ack/sack, send window distance guard.
-- `sfb/config.py`: Bob retransmit cooldown configuration and poll EWMA params.
+- `sfb/config.py`: Bob poll EWMA params and cooldown factor.
 - `sfb/crypto.py`: per-packet encryption key derivation (retransmit stability).
 - `doc/architecture/ASYMMETRY.md` and `doc/architecture/PROTOCOL.md`: asymmetry and retransmit rules.
 
@@ -99,8 +99,9 @@ Cooldown is computed in `_retransmit_cooldown()`:
 - If `max_in_flight > 0`, then
   `cooldown = max(cooldown, poll_ewma * max_in_flight)` to allow one window's
   worth of polls before retransmitting the oldest packet.
-- If `config.tunnel_bob_retransmit_max_interval` is set and > 0, clamp:
-  `cooldown = min(cooldown, max_interval)`.
+- Floor the cooldown at one poll interval (`poll_ewma`).
+- Clamp to a keepalive-based cap:
+  `cooldown = min(cooldown, tunnel_keepalive_interval * 3)`.
 
 ### Skip Conditions
 
@@ -254,7 +255,7 @@ Stats:
 ## Config Knobs (Bob Retransmit)
 
 Key configuration fields that affect Bob retransmit behavior:
-- `tunnel_bob_retransmit_max_interval`: upper bound on cooldown (seconds).
+- `tunnel_keepalive_interval`: base interval for the cooldown cap.
 - `tunnel_bob_retransmit_poll_factor`: multiplier for poll EWMA cooldown.
 - `tunnel_bob_poll_ewma_alpha`: EWMA alpha for poll interval smoothing.
 - `tunnel_bob_poll_interval`: poll timeout for serve_forever (seconds).

@@ -218,8 +218,6 @@ class DnsDirectFileTransferStressTests(unittest.TestCase):
             dns_base_domain=TEST_DOMAIN,
             dns_resolver='127.0.0.1:%d' % TEST_PORT,
             dns_listen_addr='127.0.0.1:%d' % TEST_PORT,
-            tunnel_idle_timeout=600.0,
-            tunnel_no_response_timeout=600.0,
             tunnel_connect_timeout=10.0,
             tunnel_keepalive_interval=1.0,
         )

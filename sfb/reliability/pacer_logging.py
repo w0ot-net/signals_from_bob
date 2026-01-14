@@ -47,14 +47,13 @@ class PacerLoggingHelper(object):
         if reason in self._blocked_counts:
             self._blocked_counts[reason] += 1
 
-    def maybe_target_event(self, pacer, unacked_count, cap, rate_limit,
-                           srtt_ms, side, reason=None):
+    def maybe_target_event(self, pacer, unacked_count, cap, srtt_ms, side,
+                           reason=None):
         if not pacer.enabled:
             return None
         fields = pacer.state_fields(
             unacked_count,
             cap,
-            rate_limit=rate_limit,
             srtt_ms=srtt_ms,
         )
         target = fields.get('target_inflight')
@@ -77,14 +76,13 @@ class PacerLoggingHelper(object):
             'feedback_adjust': feedback_adjust,
         }
 
-    def adjust_fields(self, pacer, unacked_count, cap, rate_limit, srtt_ms,
-                      side, prev_target, reason, block_reason=None):
+    def adjust_fields(self, pacer, unacked_count, cap, srtt_ms, side,
+                      prev_target, reason, block_reason=None):
         if prev_target is None:
             return None
         fields = pacer.state_fields(
             unacked_count,
             cap,
-            rate_limit=rate_limit,
             srtt_ms=srtt_ms,
         )
         event_fields = dict(fields)
@@ -95,14 +93,13 @@ class PacerLoggingHelper(object):
             event_fields['block_reason'] = block_reason
         return event_fields
 
-    def state_fields(self, pacer, unacked_count, cap, rate_limit, srtt_ms,
-                     side, action=None, inflight_count=None):
+    def state_fields(self, pacer, unacked_count, cap, srtt_ms, side,
+                     action=None, inflight_count=None):
         if not pacer.enabled:
             return None
         fields = pacer.state_fields(
             unacked_count,
             cap,
-            rate_limit=rate_limit,
             srtt_ms=srtt_ms,
         )
         if inflight_count is not None and inflight_count != unacked_count:
@@ -119,8 +116,7 @@ class PacerLoggingHelper(object):
 
     def maybe_summary_fields(self, now, pacer, send_window, max_window,
                              state, packets_sent, packets_received, transport,
-                             cap, rate_limit, srtt_ms, stats_enabled,
-                             stats_snapshot):
+                             cap, srtt_ms, stats_enabled, stats_snapshot):
         interval = self._summary_interval
         if interval <= 0:
             return None
@@ -162,7 +158,6 @@ class PacerLoggingHelper(object):
         pacer_fields = pacer.state_fields(
             send_window.unacked_count,
             cap,
-            rate_limit=rate_limit,
             srtt_ms=srtt_ms,
         )
         fields = {

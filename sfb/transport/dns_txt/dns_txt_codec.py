@@ -589,6 +589,32 @@ def calc_query_mtu(base_domain, label_max_len=None):
     return (usable * 5) // 8
 
 
+def _qname_wire_len_for_payload(payload_len, base_domain, label_max_len):
+    if payload_len <= 0:
+        payload = b''
+    else:
+        payload = b'\x00' * payload_len
+    qname = encode_query_name(payload, base_domain, 0, label_max_len)
+    return len(encode_name(qname))
+
+
+def calc_qname_wire_len(payload_len, base_domain, label_max_len=None):
+    """
+    Calculate QNAME wire length for an encoded query payload.
+
+    Args:
+        payload_len: query payload length in bytes
+        base_domain: tunnel domain suffix
+        label_max_len: max label length for tunnel data labels
+
+    Returns:
+        int: QNAME wire length in bytes
+    """
+    label_max_len = _normalize_label_max_len(label_max_len)
+    base_domain = _normalize_domain(base_domain)
+    return _qname_wire_len_for_payload(payload_len, base_domain, label_max_len)
+
+
 def calc_response_mtu(rtype, edns_size=DNS_STANDARD_SIZE):
     """
     Calculate max tunnel bytes for a TXT response.
@@ -614,3 +640,55 @@ def calc_response_mtu(rtype, edns_size=DNS_STANDARD_SIZE):
     length_bytes = (available + 255) // 256
     max_b64 = available - length_bytes
     return (max_b64 * 3) // 4
+
+
+def _calc_base64_len(payload_len):
+    return (payload_len * 4 + 2) // 3
+
+
+def _calc_txt_rdata_len(payload_len):
+    if payload_len <= 0:
+        return 1
+    b64_len = _calc_base64_len(payload_len)
+    chunks = b64_len // 255
+    if b64_len % 255:
+        chunks += 1
+    return b64_len + chunks
+
+
+def calc_txt_response_payload_cap(qname_wire_len, edns_size,
+                                  opt_record_len=0):
+    """
+    Calculate response payload cap for a TXT response.
+
+    Args:
+        qname_wire_len: wire length of QNAME
+        edns_size: advertised EDNS UDP size
+        opt_record_len: encoded OPT record length when EDNS is enabled
+
+    Returns:
+        tuple: (response_payload_cap, max_packet_size)
+    """
+    if qname_wire_len is None:
+        return None, None
+    max_packet_size = edns_size
+    if max_packet_size < DNS_STANDARD_SIZE:
+        max_packet_size = DNS_STANDARD_SIZE
+    additional_len = 0
+    if edns_size > DNS_STANDARD_SIZE and opt_record_len:
+        additional_len = opt_record_len
+    question_len = qname_wire_len + 4
+    answer_name_len = 2  # Compression pointer
+    answer_fixed_len = 10
+    fixed_len = (12 + question_len + answer_name_len +
+                 answer_fixed_len + additional_len)
+    if fixed_len >= max_packet_size:
+        return 0, max_packet_size
+    available = max_packet_size - fixed_len
+    upper = available
+    max_payload = 0
+    for payload_len in range(1, upper + 1):
+        if _calc_txt_rdata_len(payload_len) > available:
+            break
+        max_payload = payload_len
+    return max_payload, max_packet_size

@@ -35,7 +35,7 @@ class Config(object):
     dns_listen_addr = "0.0.0.0:53"
     # EDNS0 buffer size (default 1024, 4096 max)
     dns_edns_size = 1024
-    # Optional cap on DNS TXT response packet bytes (None = derived from EDNS)
+    # Optional cap on DNS TXT response packet bytes (None = auto derived)
     dns_txt_response_cap = None
     # Minimum UDP recv buffer size for DNS responses/queries
     dns_recv_bufsize_min = 4096

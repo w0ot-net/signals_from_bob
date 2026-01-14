@@ -120,14 +120,32 @@ def _resolve_dns_txt_limits(config, role):
         dns_txt_codec.QTYPE_TXT,
         config.dns_edns_size,
     )
-    cap = getattr(config, 'dns_txt_response_cap', None)
-    if cap is not None:
+    user_cap = getattr(config, 'dns_txt_response_cap', None)
+    if user_cap is not None:
         try:
-            cap = int(cap)
+            user_cap = int(user_cap)
         except (TypeError, ValueError):
             raise TransportError('dns_txt_response_cap must be an integer')
-        if cap < response_mtu:
-            response_mtu = cap
+    opt_record_len = 0
+    if config.dns_edns_size > dns_txt_codec.DNS_STANDARD_SIZE:
+        opt_record_len = len(
+            dns_txt_codec.build_opt_record(config.dns_edns_size)
+        )
+    auto_cap = None
+    qname_wire_len = dns_txt_codec.calc_qname_wire_len(
+        query_mtu,
+        base_domain,
+        label_max_len,
+    )
+    auto_cap, _ = dns_txt_codec.calc_txt_response_payload_cap(
+        qname_wire_len,
+        config.dns_edns_size,
+        opt_record_len,
+    )
+    if auto_cap is not None and auto_cap < response_mtu:
+        response_mtu = auto_cap
+    if user_cap is not None and user_cap < response_mtu:
+        response_mtu = user_cap
     if query_mtu < MIN_PACKET_MTU:
         raise TransportError(
             'DNS TXT query MTU %d below minimum %d (base_domain=%s, '
@@ -164,8 +182,13 @@ def _resolve_dns_txt_limits(config, role):
         'qtype': 'TXT',
         'rtype': 'TXT',
     }
+    cap = auto_cap
+    if user_cap is not None:
+        cap = user_cap
     if cap is not None:
         constraints['dns_txt_response_cap'] = cap
+    if user_cap is not None and auto_cap is not None and auto_cap != cap:
+        constraints['dns_txt_response_cap_auto'] = auto_cap
     return send_packet_mtu, recv_packet_mtu, MIN_PACKET_MTU, constraints
 
 

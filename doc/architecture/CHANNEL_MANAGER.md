@@ -134,11 +134,11 @@ stats are enabled (`-v`) and debug logging is active.
 
 ## Concurrency
 
-Channel registration and lookup are protected by a lock. The manager avoids
-holding this lock while acquiring channel locks; it snapshots active channels
-under the lock and drains send buffers outside it. Channel send/recv locks are
-independent, and the manager relies on send-state callbacks to track pending
-data without scanning every channel each tick.
+Channel registration and lookup are protected by a lock. Segment collection
+reads the active-channel list under the lock and then accesses channel queues
+outside the lock, matching the current implementation. Channels notify the
+manager when their send buffers transition between empty and non-empty to
+avoid scanning all channels on every tick.
 
 The data-pending event is updated under the same lock whenever the active set
 changes so pending-data checks can avoid lock acquisition in hot loops.

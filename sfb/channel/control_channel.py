@@ -88,15 +88,9 @@ class ControlChannel(Channel):
         partial data until a newline terminator arrives.
         """
         data = Channel._take_send_data(self, max_size)
-        clear_event = False
-        self._send_lock.acquire()
-        try:
+        with self._lock:
             if self._send_buf_size == 0:
-                clear_event = True
-        finally:
-            self._send_lock.release()
-        if clear_event:
-            self._set_send_event(False)
+                self._set_send_event(False)
         return data
 
     def recv_message(self, timeout=None):

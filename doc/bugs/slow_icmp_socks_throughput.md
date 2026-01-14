@@ -364,3 +364,13 @@ LOG_PROFILES['socks_throughput_debug'] = {
 - Takeaways:
   - The pacer change did not remove the stalls; Alice still sees ~1s gaps while Bob stays under ~0.35s.
   - Pacer gating dominates Alice send blocks and drives `target_inflight` down to the low teens; the idle-reset path is not firing in this window, so feedback remains active.
+
+## Log Review: Pacer Window-Distance Sawtooth (Jan 14, 2026, latest)
+- Logs: `logs/client_log.db`, `logs/server_log.db`.
+- Window-distance stalls (Alice): repeated `tunnel.send_window_distance` at `distance=256` (`distance_limit=256`) with `last_cum_ack=2503`, `next_seq=2759`, `buffered` ~195-202, `unacked` ~54-61. `missing_seq=2503` is in unacked with `missing_retransmit_count=2` and `missing_age` ~0.04s while `ack_miss_count` is ~21.6k, indicating a persistent SACK hole that blocks cumulative ACK.
+- Pacer response (Alice): `tunnel.pacer_summary` shows `target_inflight=247` in `probe` mode before the stall; `tunnel.pacer_adjust` then cuts `target_inflight` 256 -> 205 -> 180 (`block_penalty=57`, `block_reason=window_distance`). Next summary shows `target_inflight=179` and `send_rate` ~571 pps, followed by `ack_rate_ewma` collapsing to ~59 and `send_rate` ~10 pps.
+- ACK gaps near idle reset: `ack_silence` spikes to ~0.57s with `srtt_ms` ~93, which is right at the idle-reset threshold (~0.56s), so feedback and probe reset and the pacer ramps back toward the cap.
+- Bob pump stats: `sock.pump_stats` (channel_to_client) shows per-interval bytes swinging between ~0.14 MB and ~1.33 MB, matching the visible peaks and valleys.
+- Takeaways:
+  - The oscillation is driven by window-distance stalls from a missing seq and the pacer block penalty resets, not a steady-state feedback equilibrium.
+  - With `tunnel_pace_target_inflight_ratio=1.0`, the pacer keeps probing back to the cap after each reset, so sawtooth behavior is expected until the SACK hole is cleared or the cap is reduced.

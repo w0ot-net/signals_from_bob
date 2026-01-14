@@ -180,6 +180,9 @@ Send window negotiation. Sent after MTU negotiation.
 Alice proposes max in-flight packets. Bob responds with
 `min(alice_size, bob_max, 256)`. Maximum is 256 (SACK bitmap size).
 
+`size` is required and must be an integer >= 1 and <=
+`min(local_max_in_flight, 256)`. Missing, invalid, or out-of-range values are
+fatal protocol violations (log, close).
 Until `window_ok` is received, both sides use max_in_flight = 1.
 
 ---

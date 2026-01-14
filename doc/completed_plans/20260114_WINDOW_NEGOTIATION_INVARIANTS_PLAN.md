@@ -1,6 +1,6 @@
 # Window Negotiation Invariants Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Enforce strict window-size invariants during negotiation: missing, invalid, or
@@ -48,3 +48,9 @@ or clamping.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- 2026-01-14: Enforced required window size fields and rejected invalid or
+  out-of-range values as protocol violations.
+- 2026-01-14: Updated control message docs to require valid window sizes.
+- Tests not run (per instructions).

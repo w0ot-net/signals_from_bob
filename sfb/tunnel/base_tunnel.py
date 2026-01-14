@@ -1353,20 +1353,14 @@ class BaseTunnel(object):
 
         Responds with window_ok containing min(requested, our_max, 64).
         """
-        requested = msg.get('size', self._default_window)
+        if 'size' not in msg:
+            return self._close_protocol_violation('window_missing_size')
+        requested = msg.get('size')
         if not isinstance(requested, integer_types) or requested < 1:
-            if self._logger.isEnabledFor(logging.WARNING):
-                log_event(
-                    self._logger,
-                    logging.WARNING,
-                    'tunnel.window_invalid',
-                    'Invalid window request',
-                    lambda: {
-                        'size': requested,
-                        'side': 'alice' if self._is_initiator else 'bob',
-                    },
-                )
-            return
+            return self._close_protocol_violation('window_invalid_size')
+        max_allowed = min(self._proposed_window, self.MAX_WINDOW)
+        if requested > max_allowed:
+            return self._close_protocol_violation('window_size_too_large')
         if self._logger.isEnabledFor(logging.INFO):
             log_event(
                 self._logger,
@@ -1413,7 +1407,14 @@ class BaseTunnel(object):
 
         Updates negotiated_window and send_window limit.
         """
-        reported = msg.get('size', self._default_window)
+        if 'size' not in msg:
+            return self._close_protocol_violation('window_ok_missing_size')
+        reported = msg.get('size')
+        if not isinstance(reported, integer_types) or reported < 1:
+            return self._close_protocol_violation('window_ok_invalid_size')
+        max_allowed = min(self._proposed_window, self.MAX_WINDOW)
+        if reported > max_allowed:
+            return self._close_protocol_violation('window_ok_size_too_large')
         final = bool(msg.get('final'))
         if self._logger.isEnabledFor(logging.DEBUG):
             log_event(
@@ -1431,34 +1432,7 @@ class BaseTunnel(object):
                     'side': 'alice' if self._is_initiator else 'bob',
                 },
             )
-        if not isinstance(reported, integer_types) or reported < 1:
-            if self._logger.isEnabledFor(logging.WARNING):
-                log_event(
-                    self._logger,
-                    logging.WARNING,
-                    'tunnel.window_invalid',
-                    'Invalid window response',
-                    lambda: {
-                        'size': reported,
-                        'side': 'alice' if self._is_initiator else 'bob',
-                    },
-                )
-            return
-        max_allowed = min(self._proposed_window, self.MAX_WINDOW)
-        if reported > max_allowed:
-            if self._logger.isEnabledFor(logging.WARNING):
-                log_event(
-                    self._logger,
-                    logging.WARNING,
-                    'tunnel.window_clamp',
-                    'Window response exceeds local max',
-                    lambda: {
-                        'size': reported,
-                        'max_allowed': max_allowed,
-                        'side': 'alice' if self._is_initiator else 'bob',
-                    },
-                )
-        agreed = min(reported, max_allowed)
+        agreed = reported
 
         prev_negotiated = self.negotiated_window
         prev_window_negotiated = self._window_negotiated

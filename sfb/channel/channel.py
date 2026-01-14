@@ -384,38 +384,49 @@ class Channel(object):
 
     def read(self, size, timeout=None):
         """
-        Read available data received from the tunnel without blocking.
+        Read data received from the tunnel.
 
         Args:
             size: max bytes to read
-            timeout: must be 0 (blocking requires wait_recv_seq)
+            timeout: seconds to wait for data (None=block forever)
 
         Returns:
             bytes: data read (may be less than size)
             Empty bytes if receive side closed cleanly.
-            None when no data is available.
+            None on timeout.
 
         Raises:
-            ChannelError: if channel closed with error or timeout is not 0
+            ChannelError: if channel closed with error
         """
-        if timeout not in (0, 0.0):
-            raise ChannelError('invalid', 'Use wait_recv_seq with timeout and read(timeout=0)')
+        deadline = None
+        if timeout is not None:
+            deadline = time_provider.now() + timeout
 
-        with self._lock:
-            # Check for data
-            if self._recv_buf:
-                return self._consume_recv(size)
+        while True:
+            with self._lock:
+                # Check for data
+                if self._recv_buf:
+                    return self._consume_recv(size)
 
-            # Check for close/error
-            if self.state == STATE_CLOSED:
-                if self._error:
-                    code = self._error_code or 'closed'
-                    raise ChannelError(code, self._error)
-                return b''
-            if self._recv_closed:
-                return b''
+                # Check for close/error
+                if self.state == STATE_CLOSED:
+                    if self._error:
+                        code = self._error_code or 'closed'
+                        raise ChannelError(code, self._error)
+                    return b''
+                if self._recv_closed:
+                    return b''
 
-        return None
+            # Wait for data or close
+            if deadline is not None:
+                remaining = deadline - time_provider.now()
+                if remaining <= 0:
+                    return None
+                got_event = self._recv_event.wait(timeout=remaining)
+            else:
+                self._recv_event.wait()
+
+            self._recv_event.clear()
 
     def wait_recv_seq(self, last_seq, timeout=None):
         """
@@ -478,21 +489,16 @@ class Channel(object):
 
         chunks = []
         remaining = size
-        recv_seq = self._get_recv_seq()
         while remaining > 0:
             if deadline is None:
-                wait_timeout = None
+                chunk = self.read(remaining)
             else:
-                wait_timeout = deadline - time_provider.now()
-                if wait_timeout <= 0:
+                remaining_time = deadline - time_provider.now()
+                if remaining_time <= 0:
                     raise ChannelError('timeout', 'Read timeout')
-            next_seq = self.wait_recv_seq(recv_seq, timeout=wait_timeout)
-            if next_seq is None:
-                raise ChannelError('timeout', 'Read timeout')
-            recv_seq = next_seq
-            chunk = self.read(remaining, timeout=0)
+                chunk = self.read(remaining, timeout=remaining_time)
             if chunk is None:
-                continue
+                raise ChannelError('timeout', 'Read timeout')
             if chunk == b'':
                 raise ChannelError('closed', 'Channel closed')
             chunks.append(chunk)

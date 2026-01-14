@@ -4,7 +4,7 @@ Generic CLI for sfb tunnel.
 
 Provides a unified entry point supporting:
 - Roles: server (bob) or client (alice)
-- Transports: dns (extensible)
+    - Transports: dns, dns_txt (extensible)
 - Modules: file_transfer, socks, port_fwd_server, port_fwd_relay, etc.
 """
 
@@ -1137,6 +1137,7 @@ def _add_transport_args(parser, config_defaults, transport, role_for_args, gener
 
     dispatch = {
         'dns': add_dns_args,
+        'dns_txt': add_dns_args,
         'icmp': add_icmp_args,
         'udp_ephemeral': add_udp_ephemeral_args,
         'tls_handshake': add_tls_args,
@@ -1189,7 +1190,7 @@ def parse_args(args=None):
     # Second pass: full parser with role/transport/module-specific args
     parser = _build_base_parser(
         config_defaults,
-        require_domain=(transport == 'dns' and not generate_cert),
+        require_domain=(transport in ('dns', 'dns_txt') and not generate_cert),
         require_role=not generate_cert,
     )
     _add_transport_args(
@@ -1399,6 +1400,7 @@ def create_config(args):
     }
     transport_builders = {
         'dns': _build_dns_config,
+        'dns_txt': _build_dns_config,
         'icmp': _build_icmp_config,
         'udp_ephemeral': _build_udp_ephemeral_config,
         'tls_handshake': _build_tls_handshake_config,
@@ -1683,7 +1685,7 @@ def run_server(args, config, crypto, logger):
 
 def run_server_passive(args, tunnel, logger):
     """Run server in passive mode (no command, just wait for connections)."""
-    if args.transport == 'dns':
+    if args.transport in ('dns', 'dns_txt'):
         host, port = parse_host_port(tunnel._config.dns_listen_addr, default_port=53)
         if logger.isEnabledFor(logging.INFO):
             log_event(
@@ -1691,7 +1693,12 @@ def run_server_passive(args, tunnel, logger):
                 logging.INFO,
                 'cli.listen',
                 'Listening (passive mode)',
-                lambda: {'transport': 'dns', 'host': host, 'port': port, 'domain': args.domain},
+                lambda: {
+                    'transport': args.transport,
+                    'host': host,
+                    'port': port,
+                    'domain': args.domain,
+                },
             )
     elif args.transport == 'icmp':
         if logger.isEnabledFor(logging.INFO):
@@ -1737,7 +1744,7 @@ def run_server_passive(args, tunnel, logger):
 
 
 def _wait_for_client(tunnel, args, logger, shutdown_requested):
-    if args.transport == 'dns':
+    if args.transport in ('dns', 'dns_txt'):
         host, port = parse_host_port(tunnel._config.dns_listen_addr, default_port=53)
         if logger.isEnabledFor(logging.INFO):
             log_event(
@@ -1745,7 +1752,7 @@ def _wait_for_client(tunnel, args, logger, shutdown_requested):
                 logging.INFO,
                 'cli.wait_client',
                 'Waiting for client',
-                lambda: {'transport': 'dns', 'host': host, 'port': port},
+                lambda: {'transport': args.transport, 'host': host, 'port': port},
             )
     elif args.transport == 'icmp':
         if logger.isEnabledFor(logging.INFO):
@@ -1947,7 +1954,7 @@ def run_client(args, config, crypto, logger):
 
     try:
         # Connect
-        if args.transport == 'dns':
+        if args.transport in ('dns', 'dns_txt'):
             resolver_desc = getattr(args, 'target', None) or 'system resolver'
             if logger.isEnabledFor(logging.INFO):
                 log_event(
@@ -1955,7 +1962,11 @@ def run_client(args, config, crypto, logger):
                     logging.INFO,
                     'cli.connect',
                     'Connecting',
-                    lambda: {'transport': 'dns', 'domain': args.domain, 'resolver': resolver_desc},
+                    lambda: {
+                        'transport': args.transport,
+                        'domain': args.domain,
+                        'resolver': resolver_desc,
+                    },
                 )
         elif args.transport == 'icmp':
             target = getattr(args, 'target', None)

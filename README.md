@@ -1,5 +1,5 @@
 # signals_from_bob
-multi network tunnel tool, supporting tcp, udp, icmp, dns, tls_handshake
+multi network tunnel tool, supporting tcp, udp, icmp, dns, dns_txt, tls_handshake
 
 ## Compatibility
 This project must remain compatible with Python 2.7 and Python 3.
@@ -31,7 +31,7 @@ Add `--strip-logs` to remove `log_event(...)` and logger method calls before
 minifying or bundling.
 Add `--alice` to include only common + Alice modules.
 Add `--transport <name>` to include only common + transport-specific modules.
-Available transports: dns, icmp, udp_ephemeral, tls_handshake, tls_handshake_bump,
+Available transports: dns, dns_txt, icmp, udp_ephemeral, tls_handshake, tls_handshake_bump
 These flags can be combined. The flattened bundle excludes the in-memory and
 lossy transports plus log profiles.
 Run it the same way as the normal entrypoint:

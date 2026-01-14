@@ -65,6 +65,7 @@ Alice sends requests (optionally pipelined) and Bob responds.
 
 Implemented transports:
 - DNS
+- DNS TXT
 - ICMP (Linux-only)
 - UDP ephemeral
 - TLS handshake
@@ -193,11 +194,16 @@ sfb/
 ├── transport/
 │   ├── __init__.py
 │   ├── transport_base.py      # Transport interface
-│   └── dns/
+│   ├── dns/
 │       ├── __init__.py
 │       ├── codec.py           # Base32/64 encoding
 │       ├── dns_client.py      # Alice's DNS client
 │       └── dns_server.py      # Bob's DNS server
+│   └── dns_txt/
+│       ├── __init__.py
+│       ├── dns_txt_codec.py   # TXT encoding helpers
+│       ├── dns_txt_client.py  # Alice's DNS TXT client
+│       └── dns_txt_server.py  # Bob's DNS TXT server
 ├── modules/
 │   ├── __init__.py
 │   ├── base_module.py

@@ -87,6 +87,10 @@ TRANSPORTS = {
         'client': ('sfb.transport.dns', 'DnsClient'),
         'server': ('sfb.transport.dns', 'DnsServer'),
     },
+    'dns_txt': {
+        'client': ('sfb.transport.dns_txt', 'DnsTxtClient'),
+        'server': ('sfb.transport.dns_txt', 'DnsTxtServer'),
+    },
     'icmp': {
         'client': ('sfb.transport.icmp', 'IcmpClient'),
         'server': ('sfb.transport.icmp', 'IcmpServer'),

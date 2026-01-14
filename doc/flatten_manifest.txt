@@ -60,6 +60,8 @@ module sfb.transport.transport_base role=common transport=common
 module sfb.transport.dns.dns_codec role=common transport=dns
 module sfb.transport.dns.dns_utils role=common transport=dns
 module sfb.transport.dns.dns_constants role=common transport=dns
+module sfb.transport.dns_txt.dns_txt_codec role=common transport=dns_txt
+module sfb.transport.dns_txt.dns_utils role=common transport=dns_txt
 module sfb.transport.icmp.icmp_packet role=common transport=icmp
 module sfb.transport.socket_errors role=common transport=common
 module sfb.transport.tls_handshake.tls_handshake_codec role=common transport=tls_handshake
@@ -87,6 +89,9 @@ module sfb.transport.dns.dns_client role=common transport=dns
 module sfb.transport.dns.dns_flat_stager role=bob transport=dns
 module sfb.transport.dns.dns_server role=bob transport=dns
 module sfb.transport.dns role=common transport=dns
+module sfb.transport.dns_txt.dns_txt_client role=common transport=dns_txt
+module sfb.transport.dns_txt.dns_txt_server role=bob transport=dns_txt
+module sfb.transport.dns_txt role=common transport=dns_txt
 module sfb.transport.proxy_helpers role=common transport=common
 module sfb.transport.tls_handshake.tls_handshake_config role=common transport=tls_handshake
 module sfb.transport.tls_handshake.tls_handshake_client role=common transport=tls_handshake

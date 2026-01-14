@@ -41,6 +41,8 @@ DNS note: for CNAME responses, both sides compute a fixed response payload cap
 recv/send MTUs to it. Initialization fails if compression cannot be applied,
 no valid payload size yields a cap, the fixed cap is below `MIN_PACKET_MTU`, or
 the raw query packet MTU is below `MIN_PACKET_MTU`.
+DNS TXT note: response MTU is derived from `dns_edns_size` and does not use a
+fixed response cap.
 
 ---
 
@@ -257,6 +259,7 @@ in place unless you have a specific path requirement.
 | Transport | MTU Basis | Caps / Notes |
 |-----------|-----------|--------------|
 | DNS | Query MTU from `base_domain` and `label_max_len`; response MTU from `cname_suffix`, `label_max_len`, and `dns_edns_size`, then clamped to the fixed response cap; per-query caps are clamped to the fixed cap | `dns_edns_size` is validated to <= 512; larger sizes require config changes |
+| DNS TXT | Query MTU from `base_domain` and `label_max_len`; response MTU from `dns_edns_size` (TXT RDATA size) | No fixed response cap; response size must fit within EDNS payload |
 | ICMP | IPv4 ICMP payload max, clamped by `icmp_packet_mtu` | Default cap 1350; higher values increase fragmentation risk |
 | UDP Ephemeral | IPv4 UDP payload max, clamped by `udp_ephemeral_packet_mtu` | Default cap 1350; higher values increase fragmentation risk |
 | TLS ClientHello | Payload caps derived from `tls_max_clienthello_bytes` / `tls_max_serverhello_bytes` plus SNI/ALPN/padding overhead | On-wire record includes 5-byte header |
@@ -273,6 +276,7 @@ transport uses it internally to match responses:
 | Transport | Correlation Strategy |
 |-----------|---------------------|
 | DNS | Maps to DNS query ID (16-bit) |
+| DNS TXT | Maps to DNS query ID (16-bit) |
 | ICMP | Maps to ICMP sequence number |
 | UDP Ephemeral | Incrementing integer per request |
 | TLS ClientHello | Maps to per-connection correlation ID |
@@ -371,6 +375,20 @@ For serial DNS (one query at a time):
 config = Config(max_in_flight=1)
 transport = DnsTransport(resolver, domain, config=config)
 ```
+
+---
+
+## DNS TXT Transport
+
+See `DNS_TXT_TRANSPORT.md` for complete specification.
+
+### Overview
+
+- Alice sends TXT queries with data encoded into the QNAME (nonce + base32 labels).
+- Bob responds with TXT RDATA containing base64-encoded payload chunks.
+- MTU is asymmetric: query MTU derives from `base_domain`/`label_max_len`, response MTU
+  derives from `dns_edns_size`.
+- Bob throughput is bounded by Alice's polling rate, consistent with transport asymmetry.
 
 ---
 

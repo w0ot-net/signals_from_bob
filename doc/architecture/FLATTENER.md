@@ -13,7 +13,7 @@ Directives:
 - `exclude <path>`: paths (relative to repo) excluded from completeness checks.
 - `module <module.name> [role=ROLE transport=TRANSPORT]`: explicit execution
   order with optional tags. `role` is one of `common`, `alice`, or `bob`.
-  `transport` is one of `common`, `dns`, `icmp`, `udp_ephemeral`,
+  `transport` is one of `common`, `dns`, `dns_txt`, `icmp`, `udp_ephemeral`,
   `tls_handshake`, or `tls_handshake_bump`. Omitted tags default to `common`.
 - `allow_late <module.name> <dependency.name>`: allow a module to appear before
   a dependency when the import is intentionally deferred.

@@ -1,6 +1,6 @@
 # DNS TXT Transport Plan
 
-Status: draft
+Status: completed
 
 ## Goal
 
@@ -97,3 +97,16 @@ Alice-initiated, request/response asymmetry.
 - Manual localhost check with python3 using port 5353 for direct mode and port
   53 for authoritative mode; confirm send/recv, MTU logs, and retry behavior.
 - Do not run tests in `tests/e2e/`.
+
+## Execution Notes
+- Registered `dns_txt` in the transport registry and CLI wiring, reusing DNS
+  args and config builders.
+- Extended DNS log component filtering to include `dns_txt` logger/event
+  prefixes.
+- Added `sfb/transport/dns_txt/__init__.py` and updated the flatten manifest
+  with dns_txt modules.
+- Added `doc/architecture/DNS_TXT_TRANSPORT.md` and updated transport/docs and
+  README to list `dns_txt`.
+- Codec/client/server and MTU helper changes were completed in prior DNS TXT
+  plan executions.
+- Tests not run (not requested).

@@ -132,12 +132,16 @@ class ComponentFilter(logging.Filter):
             getattr(config, 'log_event_blacklist', ())
         )
         self._dns_enabled = bool(getattr(config, 'log_component_transport_dns', True))
-        self._dns_event_prefix = 'dns.'
+        self._dns_event_prefixes = ('dns.', 'dns_txt.')
         self._dns_logger_prefixes = (
             'sfb.transport.dns.',
             'tunnel.sfb.transport.dns.',
             'sfb.transport.dns',
             'tunnel.sfb.transport.dns',
+            'sfb.transport.dns_txt.',
+            'tunnel.sfb.transport.dns_txt.',
+            'sfb.transport.dns_txt',
+            'tunnel.sfb.transport.dns_txt',
         )
         self._icmp_enabled = bool(getattr(config, 'log_component_transport_icmp', True))
         self._icmp_logger_prefixes = (
@@ -205,7 +209,7 @@ class ComponentFilter(logging.Filter):
         event = getattr(record, 'event', None)
         if event is not None:
             event_text = _coerce_text(event)
-            if not self._dns_enabled and event_text.startswith(self._dns_event_prefix):
+            if not self._dns_enabled and event_text.startswith(self._dns_event_prefixes):
                 return False
             if not self._tls_enabled and event_text.startswith(self._tls_event_prefix):
                 return False

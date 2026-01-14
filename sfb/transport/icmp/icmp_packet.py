@@ -14,6 +14,7 @@ from ...compat import (
     array_frombytes,
     buffer_view,
     byte_at,
+    PY2,
     require_bytes_like,
     require_bytes_like_or_bytearray,
     to_bytes,
@@ -135,7 +136,9 @@ def parse_icmp_echo(data, expect_type=None, expect_ident=None,
 
     Returns:
         tuple: ((icmp_type, ident, seq, payload), None) on success or
-               (None, reason) on parse failure.
+               (None, reason) on parse failure. Payload is bytes on Python 2
+               and a bytes-like view on Python 3 that may alias the input
+               buffer.
     """
     icmp, reason = _extract_icmp(data)
     if icmp is None:
@@ -153,5 +156,8 @@ def parse_icmp_echo(data, expect_type=None, expect_ident=None,
         return None, 'ident_mismatch'
     if validate_checksum and checksum(icmp) != 0:
         return None, 'bad_checksum'
-    payload = to_bytes(icmp[ICMP_HEADER_LEN:])
+    if PY2:
+        payload = to_bytes(icmp[ICMP_HEADER_LEN:])
+    else:
+        payload = buffer_view(icmp)[ICMP_HEADER_LEN:]
     return (icmp_type, ident, seq, payload), None

@@ -152,7 +152,8 @@ class Transport(with_metaclass(TransportMeta, object)):
                      0 = non-blocking poll
 
         Returns:
-            tuple: (correlation_id, data) on success
+            tuple: (correlation_id, data) on success where data is a
+                   bytes-like object
                    (None, None) on timeout
 
         Raises:
@@ -298,7 +299,7 @@ class Server(object):
 
         Returns:
             tuple: (data, responder) where:
-                - data: bytes received from Alice
+                - data: bytes-like object received from Alice
                 - responder: callable that takes bytes and sends response
 
             Returns (None, None) on timeout.

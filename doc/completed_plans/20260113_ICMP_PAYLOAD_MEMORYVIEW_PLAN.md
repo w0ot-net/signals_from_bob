@@ -1,6 +1,6 @@
 # ICMP Payload Memoryview Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Reduce per-packet CPU overhead by avoiding ICMP payload copies in the receive
@@ -43,3 +43,9 @@ proves slicing is a measurable bottleneck.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- Returned payload views from `parse_icmp_echo` and documented buffer aliasing.
+- Clarified transport `recv()` data as bytes-like; ICMP receive paths already
+  pass payloads through without copying.
+- Tests not run (per plan).

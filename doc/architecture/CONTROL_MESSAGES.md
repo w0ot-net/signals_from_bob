@@ -193,6 +193,7 @@ Channel messages manage the lifecycle of data channels.
 Channel 0 is reserved for control messages and is always open. Any channel
 message (`t="ch"`) that targets `ch=0` is a fatal protocol error: log, drop the
 message, and close the tunnel.
+Enforce this during tunnel control dispatch before channel manager handling.
 
 ### open
 

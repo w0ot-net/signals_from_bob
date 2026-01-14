@@ -440,21 +440,6 @@ class ChannelManager(object):
                     ),
             )
 
-    def _reject_control_channel(self, cmd, channel_id, message=None):
-        if channel_id != CHANNEL_CONTROL:
-            return False
-        if message is None:
-            message = 'Ignoring %s for control channel' % cmd
-        if logger.isEnabledFor(logging.WARNING):
-            log_event(
-                logger,
-                logging.WARNING,
-                'channel.control_close_blocked',
-                message,
-                lambda: self._log_ctx(channel_id),
-            )
-        return True
-
     def handle_control_message(self, msg):
         """
         Handle a control message from the peer.
@@ -830,12 +815,6 @@ class ChannelManager(object):
         channel_id = msg.get('ch')
         if channel_id is None:
             return
-        if self._reject_control_channel(
-                'close',
-                channel_id,
-                'Ignoring close for control channel',
-        ):
-            return
 
         with self._lock:
             channel = self._channels.get(channel_id)
@@ -859,12 +838,6 @@ class ChannelManager(object):
         """Handle CLOSE_ERR request from peer."""
         channel_id = msg.get('ch')
         if channel_id is None:
-            return
-        if self._reject_control_channel(
-                'close_err',
-                channel_id,
-                'Ignoring close for control channel',
-        ):
             return
 
         code = msg.get('code', 'remote_error')
@@ -899,8 +872,6 @@ class ChannelManager(object):
         channel_id = msg.get('ch')
         if channel_id is None:
             return
-        if channel_id == CHANNEL_CONTROL:
-            return
 
         with self._lock:
             channel = self._channels.get(channel_id)
@@ -920,12 +891,6 @@ class ChannelManager(object):
         """Handle CLOSE_OK response."""
         channel_id = msg.get('ch')
         if channel_id is None:
-            return
-        if self._reject_control_channel(
-                'close_ok',
-                channel_id,
-                'Ignoring close_ok for control channel',
-        ):
             return
 
         with self._lock:

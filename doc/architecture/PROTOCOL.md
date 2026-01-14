@@ -157,6 +157,7 @@ On violation:
 - Log a protocol error with the offending message.
 - Drop the offending message.
 - Close the tunnel immediately.
+Enforce this during tunnel control dispatch before channel manager handling.
 
 ---
 

@@ -1,6 +1,6 @@
 # Channel Control ch=0 Fatal Plan
 
-Status: draft
+Status: complete
 
 ## Goal
 
@@ -39,3 +39,9 @@ message, and closes immediately instead of warning and ignoring it.
 
 - Add or update unit coverage for channel control dispatch if needed.
 - Do not run tests in tests/e2e/.
+
+## Execution Notes (2026-01-14)
+
+- Guarded all t="ch" messages with ch=0 in tunnel dispatch and close on violation.
+- Removed channel_manager ignore paths for ch=0 commands.
+- Updated protocol docs to call out dispatch-time enforcement.

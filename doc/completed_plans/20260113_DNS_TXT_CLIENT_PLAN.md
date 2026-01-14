@@ -1,6 +1,6 @@
 # DNS TXT Client Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 
@@ -74,3 +74,12 @@ and pending tracking.
 ## Testing
 
 - Do not run tests.
+
+## Execution Notes
+- Added `sfb/transport/dns_txt/dns_txt_client.py` with TXT query/response send,
+  pending tracking, resolver selection, and logging.
+- Copied `sfb/transport/dns/dns_utils.py` to
+  `sfb/transport/dns_txt/dns_utils.py`.
+- Added `dns_txt` MTU resolution in `sfb/transport/mtu_limits.py` to support
+  the client path.
+- Tests not run (not requested).

@@ -36,6 +36,8 @@ def resolve_mtu_limits(transport, config, role, send_packet_mtu=None,
         raise TransportError('Invalid transport role: %s' % role)
     if transport == 'dns':
         return _resolve_dns_limits(config, role)
+    if transport == 'dns_txt':
+        return _resolve_dns_txt_limits(config, role)
     if transport == 'icmp':
         return _resolve_icmp_limits(config)
     if transport == 'udp_ephemeral':
@@ -103,6 +105,56 @@ def _resolve_dns_limits(config, role):
         'edns_size': config.dns_edns_size,
         'qtype': config.dns_query_type,
         'rtype': config.dns_response_type,
+    }
+    return send_packet_mtu, recv_packet_mtu, MIN_PACKET_MTU, constraints
+
+
+def _resolve_dns_txt_limits(config, role):
+    from .dns_txt import dns_txt_codec
+
+    base_domain = config.dns_base_domain.lower().rstrip('.')
+    label_max_len = config.dns_label_max_len
+
+    query_mtu = dns_txt_codec.calc_query_mtu(base_domain, label_max_len)
+    response_mtu = dns_txt_codec.calc_response_mtu(
+        dns_txt_codec.QTYPE_TXT,
+        config.dns_edns_size,
+    )
+    if query_mtu < MIN_PACKET_MTU:
+        raise TransportError(
+            'DNS TXT query MTU %d below minimum %d (base_domain=%s, '
+            'label_max_len=%d)' % (
+                query_mtu,
+                MIN_PACKET_MTU,
+                base_domain,
+                label_max_len,
+            )
+        )
+    if response_mtu < MIN_PACKET_MTU:
+        raise TransportError(
+            'DNS TXT response MTU %d below minimum %d (base_domain=%s, '
+            'label_max_len=%d, edns_size=%d)' % (
+                response_mtu,
+                MIN_PACKET_MTU,
+                base_domain,
+                label_max_len,
+                config.dns_edns_size,
+            )
+        )
+
+    if role == 'client':
+        send_packet_mtu = query_mtu
+        recv_packet_mtu = response_mtu
+    else:
+        send_packet_mtu = response_mtu
+        recv_packet_mtu = query_mtu
+
+    constraints = {
+        'base_domain_len': len(base_domain),
+        'label_max_len': label_max_len,
+        'edns_size': config.dns_edns_size,
+        'qtype': 'TXT',
+        'rtype': 'TXT',
     }
     return send_packet_mtu, recv_packet_mtu, MIN_PACKET_MTU, constraints
 

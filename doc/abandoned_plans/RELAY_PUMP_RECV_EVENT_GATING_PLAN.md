@@ -1,6 +1,6 @@
 # Relay Pump Recv Event Gating Plan
 
-Status: draft
+Status: abandoned
 
 ## Summary
 Reduce lock and Event churn by switching channel receive readiness to a
@@ -17,6 +17,9 @@ polling loops and unnecessary Event clear/set traffic.
 - Change MTU negotiation or packet sizing.
 - Modify protocol behavior or reliability semantics.
 - Add or run automated tests.
+
+## Decision
+- Abandoned per request; no implementation planned.
 
 ## Affected Components
 - `sfb/channel/channel.py`

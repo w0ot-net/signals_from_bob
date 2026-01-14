@@ -1,6 +1,6 @@
 # DNS TXT Server Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 
@@ -80,3 +80,10 @@ EDNS0 support.
 ## Testing
 
 - Do not run tests.
+
+## Execution Notes
+- Added `sfb/transport/dns_txt/dns_txt_server.py` with TXT query parsing,
+  payload decoding, response helpers, and logging.
+- Reused the existing `sfb/transport/dns_txt/dns_utils.py` copy from the client
+  plan (no changes needed).
+- Tests not run (not requested).

@@ -1,6 +1,6 @@
 # Relay Pump Recv Event Gating Plan
 
-Status: draft
+Status: completed
 
 ## Summary
 Reduce lock and Event churn by switching channel receive readiness to a
@@ -46,3 +46,8 @@ polling loops and unnecessary Event clear/set traffic.
 
 ## Testing
 - Do not run tests.
+
+## Execution Notes
+- Added recv sequence tracking and recv-ready waits in Channel.
+- Updated relay pump, nc_linux pump, and control channel readers to gate reads on recv sequence changes.
+- Ensured close/half-close transitions advance recv sequence for prompt EOF handling.

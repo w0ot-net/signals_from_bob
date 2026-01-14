@@ -191,6 +191,21 @@
 - No `dns.prune_stale`, `dns.mismatched_response`, or `dns.error_response`
   entries appear in this window.
 
+### New occurrence (2026-01-14 04:34:03 to 04:34:38)
+- Bob logs `sock.server_connect` for rid 1/2 (hosts 104.18.27.120:80 and
+  104.18.26.120:80) and `channel.open` for ch2/ch4; both end in
+  `sock.server_channel_failed` after `channel_wait_time=20.0`.
+- Alice logs `channel.open_in` for ch2 at 04:34:21 (late in the timeout) and no
+  `channel.open_in` for ch4.
+- Bob `tunnel.send_window_distance` shows `missing_seq=412` with
+  `missing_flags=4` and `missing_in_unacked=true`; `last_cum_ack=412`,
+  `send_keepalive_unacked=127`, `send_unacked=129`, and `send_oldest_age`
+  ~27.9s while `recv_ack` advances to 858.
+- Alice logs repeated `tunnel.retransmit_skip` due to `ack_silence` with
+  `unacked=14` around 04:34:41.
+- Alice DNS client logs `dns_txt.error_response` (rcode=2) and
+  `dns_txt.prune_stale` count 6 around 04:34:38-04:34:41.
+
 ## Code path notes
 - `sfb/modules/socks/socks_server.py` starts `channel_open_timeout` as soon as
   `open_channel()` returns, then waits on `channel.wait_open()` without any

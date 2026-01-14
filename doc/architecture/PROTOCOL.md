@@ -229,6 +229,7 @@ The bob_recv_max and bob_send_max values are derived from transport
 recv_packet_mtu/send_packet_mtu by subtracting PACKET_HEADER_SIZE.
 `tx`/`rx` must be integers >= (SEGMENT_HEADER_SIZE + 1); missing/invalid values
 are protocol violations (log, close).
+An `mtu_ack` is only valid when the receiver has a pending send MTU increase.
 
 Until `mtu_ok` is received, both sides limit packets to their transport-derived
 send/recv packet MTUs and payload bytes to those minus PACKET_HEADER_SIZE.

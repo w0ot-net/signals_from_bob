@@ -1311,6 +1311,9 @@ class BaseTunnel(object):
         Now Bob can safely use the larger MTU for sending.
         """
         self._require_transport_mtu('mtu_ack')
+        if self._pending_send_packet_mtu is None:
+            self._close_protocol_violation('mtu_ack_without_pending_send_mtu')
+            return
         prev_send = self._send_packet_mtu
         prev_recv = self._recv_packet_mtu
         if self._pending_send_packet_mtu is not None:

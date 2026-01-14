@@ -165,6 +165,7 @@ limits.
 
 `tx` and `rx` are required integers >= (SEGMENT_HEADER_SIZE + 1); missing or
 invalid values are protocol violations (log, close).
+An `mtu_ack` is only valid when the receiver has a pending send MTU increase.
 Until `mtu_ok` is received, both sides limit payloads to their transport-derived
 payload caps (packet MTU minus PACKET_HEADER_SIZE) (header added on the wire).
 

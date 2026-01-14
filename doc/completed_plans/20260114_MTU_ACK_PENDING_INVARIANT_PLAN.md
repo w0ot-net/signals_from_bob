@@ -1,6 +1,6 @@
 # MTU Ack Pending Invariant Plan
 
-Status: draft
+Status: complete
 
 ## Goal
 
@@ -34,3 +34,8 @@ negotiated.
 
 - Add or update unit coverage for MTU negotiation if needed.
 - Do not run tests in tests/e2e/.
+
+## Execution Notes (2026-01-14)
+
+- Closed on mtu_ack without a pending send MTU increase.
+- Updated protocol and control-message docs to require a pending increase.

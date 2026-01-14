@@ -79,6 +79,7 @@ MTU is asymmetric and expressed in tunnel packet bytes:
 
 - Query MTU: `calc_query_mtu(base_domain, label_max_len)`
 - Response MTU: `calc_response_mtu(QTYPE_TXT, dns_edns_size)`
+  (clamped by `dns_txt_response_cap` when set)
 
 EDNS0 OPT records are included when `dns_edns_size > 512`. The response packet
 must fit within the configured EDNS size; oversized responses are rejected.
@@ -98,6 +99,7 @@ The TXT transport reuses DNS config fields:
 | `dns_listen_addr` | UDP listen host:port (server only) |
 | `dns_label_max_len` | Max label length for base32 data |
 | `dns_edns_size` | EDNS0 UDP payload size (OPT record) |
+| `dns_txt_response_cap` | Optional cap on TXT response packet bytes |
 | `dns_recv_bufsize_min` | Minimum UDP recv buffer size |
 | `dns_pending_timeout` | Pending query timeout (client) |
 | `dns_response_ttl` | TXT answer TTL (server) |

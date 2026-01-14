@@ -709,6 +709,18 @@ def add_dns_server_args(parser, config):
         help='DNS server listen host:port (IPv4 only, default: %s)' %
              config.dns_listen_addr
     )
+    default_cap = config.dns_txt_response_cap
+    if default_cap is None:
+        default_cap_text = 'auto'
+    else:
+        default_cap_text = str(default_cap)
+    parser.add_argument(
+        '--dns-txt-response-cap',
+        type=int,
+        default=default_cap,
+        help='Max DNS TXT response packet bytes (dns_txt only, default: %s)' %
+             default_cap_text
+    )
     parser.add_argument(
         '--idle-timeout', type=int, default=config.tunnel_idle_timeout,
         help='Idle timeout in seconds (default: %s)' % config.tunnel_idle_timeout
@@ -722,6 +734,18 @@ def add_dns_client_args(parser, config):
         default=config.dns_resolver,
         help='DNS resolver host:port (IPv4 only, direct mode). Omit for system resolver '
              '(authoritative mode)'
+    )
+    default_cap = config.dns_txt_response_cap
+    if default_cap is None:
+        default_cap_text = 'auto'
+    else:
+        default_cap_text = str(default_cap)
+    parser.add_argument(
+        '--dns-txt-response-cap',
+        type=int,
+        default=default_cap,
+        help='Max DNS TXT response packet bytes (dns_txt only, default: %s)' %
+             default_cap_text
     )
 
 
@@ -1233,6 +1257,9 @@ def _build_dns_config(args):
         config_kwargs['tunnel_idle_timeout'] = float(args.idle_timeout)
     else:
         config_kwargs['dns_resolver'] = getattr(args, 'target', None)
+    config_kwargs['dns_txt_response_cap'] = getattr(
+        args, 'dns_txt_response_cap', None
+    )
     return config_kwargs
 
 

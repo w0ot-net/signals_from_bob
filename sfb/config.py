@@ -5,7 +5,7 @@ Centralized configuration for Signals from Bob.
 All configurable values in one place with sensible defaults.
 """
 
-from .protocol.constants import PACKET_HEADER_SIZE
+from .protocol.constants import PACKET_HEADER_SIZE, MIN_PACKET_MTU
 from .compat import text_type
 from .utils import HostPortError, parse_host_port
 
@@ -35,6 +35,8 @@ class Config(object):
     dns_listen_addr = "0.0.0.0:53"
     # EDNS0 buffer size (default 512, 4096 max)
     dns_edns_size = 512
+    # Optional cap on DNS TXT response packet bytes (None = derived from EDNS)
+    dns_txt_response_cap = None
     # Minimum UDP recv buffer size for DNS responses/queries
     dns_recv_bufsize_min = 4096
     # Timeout before considering a DNS query stale (seconds)
@@ -354,6 +356,7 @@ class Config(object):
         'dns_resolver',
         'dns_listen_addr',
         'dns_edns_size',
+        'dns_txt_response_cap',
         'dns_recv_bufsize_min',
         'dns_pending_timeout',
         'dns_query_type',
@@ -511,6 +514,16 @@ class Config(object):
             raise ValueError("dns_edns_size must be <= %d" % DNS_EDNS_MAX_SIZE)
         if self.dns_recv_bufsize_min < DNS_STANDARD_SIZE:
             raise ValueError("dns_recv_bufsize_min must be >= %d" % DNS_STANDARD_SIZE)
+        if self.dns_txt_response_cap is not None:
+            try:
+                cap = int(self.dns_txt_response_cap)
+            except (TypeError, ValueError):
+                raise ValueError("dns_txt_response_cap must be an integer")
+            if cap < MIN_PACKET_MTU:
+                raise ValueError(
+                    "dns_txt_response_cap must be >= %d" % MIN_PACKET_MTU
+                )
+            self.dns_txt_response_cap = cap
         if self.dns_label_max_len < 4 or self.dns_label_max_len > 63:
             raise ValueError("dns_label_max_len must be 4-63")
         if not self.dns_cname_label or '.' in self.dns_cname_label:

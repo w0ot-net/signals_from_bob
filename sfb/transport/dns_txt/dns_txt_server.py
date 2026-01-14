@@ -114,10 +114,7 @@ class DnsTxtServer(Server):
                 lambda: mtu_details,
             )
 
-        self._response_payload_cap = codec.calc_response_mtu(
-            codec.QTYPE_TXT,
-            self._edns_size,
-        )
+        self._response_payload_cap = self._send_packet_mtu
 
         if _LOG.isEnabledFor(logging.INFO):
             log_event(

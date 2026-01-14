@@ -42,7 +42,8 @@ recv/send MTUs to it. Initialization fails if compression cannot be applied,
 no valid payload size yields a cap, the fixed cap is below `MIN_PACKET_MTU`, or
 the raw query packet MTU is below `MIN_PACKET_MTU`.
 DNS TXT note: response MTU is derived from `dns_edns_size` and does not use a
-fixed response cap.
+fixed response cap. `dns_txt_response_cap` can optionally clamp the response
+packet MTU.
 
 ---
 
@@ -259,7 +260,7 @@ in place unless you have a specific path requirement.
 | Transport | MTU Basis | Caps / Notes |
 |-----------|-----------|--------------|
 | DNS | Query MTU from `base_domain` and `label_max_len`; response MTU from `cname_suffix`, `label_max_len`, and `dns_edns_size`, then clamped to the fixed response cap; per-query caps are clamped to the fixed cap | `dns_edns_size` is validated to <= 512; larger sizes require config changes |
-| DNS TXT | Query MTU from `base_domain` and `label_max_len`; response MTU from `dns_edns_size` (TXT RDATA size) | No fixed response cap; response size must fit within EDNS payload |
+| DNS TXT | Query MTU from `base_domain` and `label_max_len`; response MTU from `dns_edns_size` (TXT RDATA size), optionally clamped by `dns_txt_response_cap` | No fixed response cap; response size must fit within EDNS payload |
 | ICMP | IPv4 ICMP payload max, clamped by `icmp_packet_mtu` | Default cap 1350; higher values increase fragmentation risk |
 | UDP Ephemeral | IPv4 UDP payload max, clamped by `udp_ephemeral_packet_mtu` | Default cap 1350; higher values increase fragmentation risk |
 | TLS ClientHello | Payload caps derived from `tls_max_clienthello_bytes` / `tls_max_serverhello_bytes` plus SNI/ALPN/padding overhead | On-wire record includes 5-byte header |

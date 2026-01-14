@@ -206,6 +206,22 @@
 - Alice DNS client logs `dns_txt.error_response` (rcode=2) and
   `dns_txt.prune_stale` count 6 around 04:34:38-04:34:41.
 
+### New occurrence (2026-01-14 05:45:07 to 05:46:04)
+- Transport MTU limits show `dns_txt_response_cap=45` (`send_packet_mtu=45`,
+  `recv_packet_mtu=145`) on Bob.
+- Alice last `dns_txt.recv` with `bytes > 38` is at 05:45:20
+  (`bytes=43-45`); after that, all responses are keepalive-sized (`bytes=38`).
+- Alice last `tunnel.packet_recv` with `content_flag=has_segments` is at
+  05:45:20 (`seq=435-442`, `seg_count=1`); no later `seg_count>0` packets arrive.
+- Bob continues sending payload-bearing responses at 05:45:49 and 05:46:04
+  (`dns_txt.send` `payload_bytes=45`, response bytes 170) and retransmits
+  `tunnel.packet_send` with `content_flag=has_segments` (`seq=598-601`).
+- Bob logs `channel.open` for ch2/ch4 and `sock.server_channel_failed` for both
+  (05:45:20 and 05:45:35); Alice logs `channel.open_in` for ch2 at 05:45:08 but
+  Bob never logs `channel.open_ok`.
+- Alice logs a burst of `dns_txt.error_response` (rcode=2) around 05:45:08 from
+  resolver `192.168.1.1:53`.
+
 ## Code path notes
 - `sfb/modules/socks/socks_server.py` starts `channel_open_timeout` as soon as
   `open_channel()` returns, then waits on `channel.wait_open()` without any

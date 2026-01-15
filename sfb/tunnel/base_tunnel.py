@@ -1265,6 +1265,7 @@ class BaseTunnel(object):
             peer_send_packet_mtu,
             self._proposed_recv_packet_mtu,
         )
+        ack_needed = agreed_recv_packet_mtu > prev_recv
 
         self._send_packet_mtu = agreed_send_packet_mtu
         self._recv_packet_mtu = agreed_recv_packet_mtu
@@ -1274,8 +1275,9 @@ class BaseTunnel(object):
 
         self._validate_send_packet_mtu('mtu_ok')
 
-        # Send ack so Bob knows he can also start sending larger packets
-        self.control.send_message(tun_mtu_ack())
+        # Only ack if Bob's send MTU can increase (our recv MTU grew).
+        if ack_needed:
+            self.control.send_message(tun_mtu_ack())
         if self._logger.isEnabledFor(logging.INFO):
             log_event(
                 self._logger,

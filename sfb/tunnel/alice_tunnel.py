@@ -1634,7 +1634,11 @@ class AliceTunnel(BaseTunnel):
         try:
             self._transport.send(packet_data, permit)
         except Exception as exc:
-            self._transport.release_send(permit)
+            if permit is not None and not getattr(permit, 'used', False):
+                try:
+                    self._transport.release_send(permit)
+                except Exception:
+                    pass
             if self._logger.isEnabledFor(logging.WARNING):
                 log_event(
                     self._logger,
@@ -1654,7 +1658,8 @@ class AliceTunnel(BaseTunnel):
                     },
                     exc_info=True,
                 )
-            return
+            self.close()
+            raise
         self._send_window.send(
             segments,
             flags=packet.flags,
@@ -1724,7 +1729,11 @@ class AliceTunnel(BaseTunnel):
         try:
             self._transport.send(packet_data, permit)
         except Exception as exc:
-            self._transport.release_send(permit)
+            if permit is not None and not getattr(permit, 'used', False):
+                try:
+                    self._transport.release_send(permit)
+                except Exception:
+                    pass
             if self._logger.isEnabledFor(logging.WARNING):
                 log_event(
                     self._logger,
@@ -1745,7 +1754,8 @@ class AliceTunnel(BaseTunnel):
                     },
                     exc_info=True,
                 )
-            return False
+            self.close()
+            raise
         self._send_window.mark_retransmit(seq, now=now)
         if self._pacer.enabled:
             self._pacer.on_retransmit(now)

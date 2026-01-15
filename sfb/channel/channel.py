@@ -100,7 +100,7 @@ class Channel(object):
         '_write_backoff_initial', '_write_backoff_max', '_close_callback',
         '_send_state_callback', '_send_state_seq', '_close_pending',
         '_half_close_callback', '_half_close_pending',
-        '_send_closed', '_recv_closed',
+        '_send_closed', '_recv_closed', '_send_open', '_recv_open',
     )
 
     def __init__(self, channel_id, max_send_buf=1048576, max_recv_buf=1048576,
@@ -143,6 +143,8 @@ class Channel(object):
         self._half_close_pending = False
         self._send_closed = False
         self._recv_closed = False
+        self._send_open = False
+        self._recv_open = False
         self._send_space_event.set()
 
     @property
@@ -212,67 +214,68 @@ class Channel(object):
 
         notify = None
         max_send_buf = self._max_send_buf
-        with self._state_lock:
-            if self.state != STATE_OPEN:
+        with self._send_lock:
+            if self._send_closed:
+                if self._closed_event.is_set():
+                    raise ChannelError('not_open', 'Channel not open')
+                raise ChannelError('send_closed', 'Send side closed')
+            if not self._send_open:
                 raise ChannelError('not_open', 'Channel not open')
-            with self._send_lock:
-                if self._send_closed:
-                    raise ChannelError('send_closed', 'Send side closed')
 
-                current_size = self._send_buf_size
-                if max_send_buf is not None and current_size >= max_send_buf:
+            current_size = self._send_buf_size
+            if max_send_buf is not None and current_size >= max_send_buf:
+                self._send_space_event.clear()
+                if logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        'channel.send_buf_full',
+                        'Send buffer full',
+                        lambda: {'ch': self.id, 'size': current_size, 'max': max_send_buf},
+                    )
+                raise ChannelError('buffer_full', 'Send buffer full')
+
+            # Limit to available space
+            was_empty = (current_size == 0)
+            if max_send_buf is None:
+                available = len(data)
+            else:
+                available = max_send_buf - current_size
+                if available <= 0:
                     self._send_space_event.clear()
-                    if logger.isEnabledFor(logging.DEBUG):
-                        log_event(
-                            logger,
-                            logging.DEBUG,
-                            'channel.send_buf_full',
-                            'Send buffer full',
-                            lambda: {'ch': self.id, 'size': current_size, 'max': max_send_buf},
-                        )
                     raise ChannelError('buffer_full', 'Send buffer full')
-
-                # Limit to available space
-                was_empty = (current_size == 0)
-                if max_send_buf is None:
-                    available = len(data)
-                else:
-                    available = max_send_buf - current_size
-                    if available <= 0:
-                        self._send_space_event.clear()
-                        raise ChannelError('buffer_full', 'Send buffer full')
-                data_len = len(data)
-                if available >= data_len:
-                    to_queue = data
-                    queued_len = data_len
-                else:
-                    to_queue = _slice_view(data, 0, available)
-                    queued_len = available
-                self._send_buf.append(to_bytes(to_queue))
-                self._send_buf_size += queued_len
-                if was_empty and self._send_buf_size > 0:
-                    self._send_state_seq += 1
-                    notify = (True, self._send_state_seq)
-                if queued_len < data_len:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        log_event(
-                            logger,
-                            logging.DEBUG,
-                            'channel.send_buf_high',
-                            'Send buffer near capacity',
-                            lambda: {
-                                'ch': self.id,
-                                'queued': queued_len,
-                                'attempted': data_len,
-                                'size': self._send_buf_size,
-                                'max': max_send_buf,
-                            },
-                        )
-                if max_send_buf is None or self._send_buf_size < max_send_buf:
-                    self._send_space_event.set()
-                else:
-                    self._send_space_event.clear()
-                written = queued_len
+            data_len = len(data)
+            if available >= data_len:
+                to_queue = data
+                queued_len = data_len
+            else:
+                to_queue = _slice_view(data, 0, available)
+                queued_len = available
+            self._send_buf.append(to_bytes(to_queue))
+            self._send_buf_size += queued_len
+            if was_empty and self._send_buf_size > 0:
+                self._send_state_seq += 1
+                notify = (True, self._send_state_seq)
+            if queued_len < data_len:
+                if logger.isEnabledFor(logging.DEBUG):
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        'channel.send_buf_high',
+                        'Send buffer near capacity',
+                        lambda: {
+                            'ch': self.id,
+                            'queued': queued_len,
+                            'attempted': data_len,
+                            'size': self._send_buf_size,
+                            'max': max_send_buf,
+                        },
+                    )
+            if max_send_buf is None or self._send_buf_size < max_send_buf:
+                self._send_space_event.set()
+            else:
+                self._send_space_event.clear()
+            written = queued_len
 
         if notify is not None:
             callback = self._send_state_callback
@@ -298,15 +301,16 @@ class Channel(object):
             deadline = time_provider.now() + timeout
 
         while True:
-            with self._state_lock:
-                if self.state != STATE_OPEN:
+            with self._send_lock:
+                if self._send_closed:
+                    if self._closed_event.is_set():
+                        raise ChannelError('not_open', 'Channel not open')
+                    raise ChannelError('send_closed', 'Send side closed')
+                if not self._send_open:
                     raise ChannelError('not_open', 'Channel not open')
-                with self._send_lock:
-                    if self._send_closed:
-                        raise ChannelError('send_closed', 'Send side closed')
-                    if (self._max_send_buf is None or
-                            self._send_buf_size < self._max_send_buf):
-                        return True
+                if (self._max_send_buf is None or
+                        self._send_buf_size < self._max_send_buf):
+                    return True
             if deadline is not None:
                 remaining = deadline - time_provider.now()
                 if remaining <= 0:
@@ -426,12 +430,10 @@ class Channel(object):
                     return self._consume_recv(size)
                 recv_closed = self._recv_closed
 
-            # Check for close/error
-            with self._state_lock:
-                state = self.state
-                error = self._error
-                error_code = self._error_code
-            if state == STATE_CLOSED:
+            if self._closed_event.is_set():
+                with self._state_lock:
+                    error = self._error
+                    error_code = self._error_code
                 if error:
                     code = error_code or 'closed'
                     raise ChannelError(code, error)
@@ -532,6 +534,7 @@ class Channel(object):
                     raise ChannelError('not_open', 'Channel not open')
                 send_closed_before = self._send_closed
                 self._send_closed = True
+                self._send_open = False
                 self._send_space_event.set()
                 pending_size = self._send_buf_size
                 if pending_size == 0:
@@ -622,24 +625,32 @@ class Channel(object):
             if self.state in (STATE_OPEN, STATE_OPENING):
                 self.state = STATE_CLOSING
                 with self._send_lock:
+                    self._send_open = False
                     self._send_space_event.set()
                     if self._send_buf_size == 0:
                         self._close_pending = False
                         callback = self._close_callback
                     else:
                         self._close_pending = True
+                with self._recv_lock:
+                    if self._recv_closed:
+                        self._recv_open = False
+                    else:
+                        self._recv_open = True
             else:
                 self.state = STATE_CLOSED
                 with self._send_lock:
                     self._close_pending = False
                     self._half_close_pending = False
                     self._send_closed = True
+                    self._send_open = False
                     self._send_space_event.set()
-                with self._recv_lock:
-                    self._recv_closed = True
-                    self._recv_event.set()
-                self._closed_event.set()
-                self._open_event.set()
+                    with self._recv_lock:
+                        self._recv_closed = True
+                        self._recv_open = False
+                        self._recv_event.set()
+                    self._closed_event.set()
+                    self._open_event.set()
 
         # Notify manager outside lock
         if callback:
@@ -705,6 +716,7 @@ class Channel(object):
                 if self._recv_closed:
                     return False
                 self._recv_closed = True
+                self._recv_open = False
                 self._recv_event.set()
         return True
 
@@ -733,16 +745,41 @@ class Channel(object):
                     self._close_pending = False
                     self._half_close_pending = False
                     self._send_closed = True
+                    self._send_open = False
+                    self._send_space_event.set()
+                    with self._recv_lock:
+                        self._recv_closed = True
+                        self._recv_open = False
+                        self._recv_event.set()
+                    self._closed_event.set()
+                    self._open_event.set()  # Also signal open waiters (failed)
+            elif state == STATE_CLOSING:
+                with self._send_lock:
+                    self._send_open = False
                     self._send_space_event.set()
                 with self._recv_lock:
-                    self._recv_closed = True
-                    self._recv_event.set()
-                self._closed_event.set()
-                self._open_event.set()  # Also signal open waiters (failed)
+                    if self._recv_closed:
+                        self._recv_open = False
+                    else:
+                        self._recv_open = True
             elif state == STATE_OPEN:
                 self._open_event.set()  # Signal open waiters (success)
                 with self._send_lock:
+                    if self._send_closed:
+                        self._send_open = False
+                    else:
+                        self._send_open = True
                     self._send_space_event.set()
+                with self._recv_lock:
+                    if self._recv_closed:
+                        self._recv_open = False
+                    else:
+                        self._recv_open = True
+            else:
+                with self._send_lock:
+                    self._send_open = False
+                with self._recv_lock:
+                    self._recv_open = False
         if notify is not None:
             callback = self._send_state_callback
             if callback is not None:
@@ -755,12 +792,8 @@ class Channel(object):
             return
 
         overflow = False
-        with self._state_lock:
-            state = self.state
-        if state not in (STATE_OPEN, STATE_CLOSING):
-            return  # Discard data for non-open channels
         with self._recv_lock:
-            if self._recv_closed:
+            if not self._recv_open:
                 return
             if (self._max_recv_buf is not None and
                     self._recv_buf_size + len(data) > self._max_recv_buf):

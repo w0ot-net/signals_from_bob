@@ -107,7 +107,12 @@ access:
 - State lock: state/error and lifecycle transitions.
 - Send lock: send buffer, send-side flags, and send-space event.
 - Recv lock: receive buffer, recv-side flags, and recv event.
+- Open flags: `_send_open` is true only when state is OPEN and send is not
+  closed; `_recv_open` is true only when state is OPEN/CLOSING and recv is not
+  closed.
 
 Lock ordering is state -> send -> recv; code never acquires the state lock
 while holding send/recv locks. Callbacks are invoked outside locks. The muxer
-and application may operate concurrently.
+and application may operate concurrently. Hot-path operations (`write`,
+`wait_send_space`, `_deliver`, `read`) consult the open flags under send/recv
+locks and only take the state lock on close/error paths.

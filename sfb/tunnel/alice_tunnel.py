@@ -32,6 +32,7 @@ from ..protocol import (
     FLAG_HAS_SEGMENTS,
 )
 from ..logging_util import log_event
+from ..transport import TransportError, TransportFatalError
 from .. import time_provider
 
 
@@ -258,7 +259,25 @@ class AliceTunnel(BaseTunnel):
 
                 self._rtt.backoff()
 
-            except Exception as e:
+            except TransportFatalError as e:
+                # Check if tunnel was closed during handshake
+                if self._state == TunnelState.CLOSED:
+                    raise TunnelError('Tunnel closed during handshake')
+                if self._logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        self._logger,
+                        logging.ERROR,
+                        'tunnel.handshake_fatal',
+                        'Handshake fatal error',
+                        lambda: {
+                            'error': str(e),
+                            'error_type': type(e).__name__,
+                            'side': 'alice',
+                        },
+                    )
+                self._set_state(TunnelState.DISCONNECTED)
+                raise
+            except TransportError as e:
                 # Check if tunnel was closed during handshake
                 if self._state == TunnelState.CLOSED:
                     raise TunnelError('Tunnel closed during handshake')
@@ -267,10 +286,32 @@ class AliceTunnel(BaseTunnel):
                         self._logger,
                         logging.WARNING,
                         'tunnel.handshake_error',
-                        'Handshake error',
-                        lambda: {'error': str(e), 'side': 'alice'},
+                        'Handshake transport error',
+                        lambda: {
+                            'error': str(e),
+                            'error_type': type(e).__name__,
+                            'side': 'alice',
+                        },
                     )
                 self._rtt.backoff()
+            except Exception as e:
+                # Check if tunnel was closed during handshake
+                if self._state == TunnelState.CLOSED:
+                    raise TunnelError('Tunnel closed during handshake')
+                if self._logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        self._logger,
+                        logging.ERROR,
+                        'tunnel.handshake_exception',
+                        'Unexpected handshake error',
+                        lambda: {
+                            'error': str(e),
+                            'error_type': type(e).__name__,
+                            'side': 'alice',
+                        },
+                    )
+                self._set_state(TunnelState.DISCONNECTED)
+                raise
 
             # Check state before sleeping
             if self._state == TunnelState.CLOSED:

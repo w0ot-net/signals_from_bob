@@ -1,6 +1,6 @@
 # Channel Scatter/Gather Send Plan
 
-Status: draft
+Status: abandoned
 
 ## Summary
 Switch the channel send path to return chunk lists plus total length, then pack
@@ -58,3 +58,6 @@ segments using scatter/gather assembly to avoid per-segment `b''.join` copies.
 
 ## Testing
 - Do not run tests.
+
+## Abandonment notes
+- 2026-01-15: Abandoned per request; no implementation work recorded.

@@ -351,11 +351,6 @@ class Channel(object):
             if deadline is not None and time_provider.now() >= deadline:
                 raise ChannelError('timeout', 'Write timeout')
 
-            # Check channel state
-            with self._state_lock:
-                if self.state != STATE_OPEN:
-                    raise ChannelError('not_open', 'Channel not open')
-
             view = _slice_view(data, offset, total_len - offset)
             try:
                 sent = self.write(view)

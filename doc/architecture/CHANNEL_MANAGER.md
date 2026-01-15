@@ -136,9 +136,10 @@ stats are enabled (`-v`) and debug logging is active.
 
 Channel registration and lookup are protected by a lock. Segment collection
 reads the active-channel list under the lock and then accesses channel queues
-outside the lock, matching the current implementation. Channels notify the
-manager when their send buffers transition between empty and non-empty to
-avoid scanning all channels on every tick.
+outside the lock, matching the current implementation. Channels use
+independent send/recv locks; the manager does not hold its lock while calling
+channel methods, and it relies on send-state callbacks (invoked outside
+channel locks) to track active channels and avoid scanning on every tick.
 
 The data-pending event is updated under the same lock whenever the active set
 changes so pending-data checks can avoid lock acquisition in hot loops.

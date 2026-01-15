@@ -102,5 +102,12 @@ messages are dropped and processing resumes on the next poll.
 
 ## Thread Safety
 
-Channel operations use a lock and events to support multi-threaded access.
-The muxer and application may operate concurrently.
+Channel operations use separate locks and events to support multi-threaded
+access:
+- State lock: state/error and lifecycle transitions.
+- Send lock: send buffer, send-side flags, and send-space event.
+- Recv lock: receive buffer, recv-side flags, and recv event.
+
+Lock ordering is state -> send -> recv; code never acquires the state lock
+while holding send/recv locks. Callbacks are invoked outside locks. The muxer
+and application may operate concurrently.

@@ -88,7 +88,7 @@ class ControlChannel(Channel):
         partial data until a newline terminator arrives.
         """
         data = Channel._take_send_data(self, max_size)
-        with self._lock:
+        with self._send_lock:
             if self._send_buf_size == 0:
                 self._set_send_event(False)
         return data

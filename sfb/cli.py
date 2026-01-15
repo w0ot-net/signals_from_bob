@@ -81,6 +81,22 @@ def _print_warning(message):
     sys.stderr.flush()
 
 
+def _maybe_report_tunnel_error(tunnel):
+    error = None
+    if tunnel is not None:
+        error = tunnel.fatal_error
+    if error is None:
+        return False
+    _print_error(str(error))
+    return True
+
+
+def _finalize_tunnel_exit(tunnel, exit_code):
+    if _maybe_report_tunnel_error(tunnel):
+        return 1
+    return exit_code
+
+
 def _default_cprofile_dir():
     base_dir = '/tmp'
     if os.path.isdir(base_dir) and os.access(base_dir, os.W_OK):
@@ -1713,6 +1729,8 @@ def run_server_passive(args, tunnel, logger):
     try:
         tunnel.serve_forever()
     except Exception as e:
+        if isinstance(e, TunnelError):
+            _print_error(str(e))
         if logger.isEnabledFor(logging.ERROR):
             log_event(
                 logger,
@@ -1730,7 +1748,9 @@ def run_server_passive(args, tunnel, logger):
                 lambda: {'context': 'serve_loop'},
                 exc_info=True,
             )
-        return 1
+        if isinstance(e, TunnelError):
+            return 1
+        return _finalize_tunnel_exit(tunnel, 1)
     finally:
         tunnel.close()
         if logger.isEnabledFor(logging.INFO):
@@ -1741,7 +1761,7 @@ def run_server_passive(args, tunnel, logger):
                 'Shutdown complete',
                 lambda: None,
             )
-    return 0
+    return _finalize_tunnel_exit(tunnel, 0)
 
 
 def _wait_for_client(tunnel, args, logger, shutdown_requested):
@@ -1850,7 +1870,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
 
         # Wait for client to connect
         if not _wait_for_client(tunnel, args, logger, shutdown_requested):
-            return 1
+            return _finalize_tunnel_exit(tunnel, 1)
 
         module_cls, module_logger = _load_remote_module(
             tunnel, args, logger, module_loader
@@ -1860,13 +1880,13 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
         tunnel.allow_message_type(module_cls.TYPE)
 
         if not _resolve_module_command(args, module_cls, logger):
-            return 1
+            return _finalize_tunnel_exit(tunnel, 1)
 
         # Run module command
         exit_code = module_cls.run_command(args, tunnel, module_logger)
         if tunnel._state == TunnelState.CONNECTED:
             _unload_remote_module(tunnel, args, module_loader)
-        return exit_code
+        return _finalize_tunnel_exit(tunnel, exit_code)
 
     except ModuleError as e:
         module_label = getattr(args, 'module', None) or 'module'
@@ -1885,7 +1905,7 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
                     'reason': reason,
                 },
             )
-        return 1
+        return _finalize_tunnel_exit(tunnel, 1)
     except Exception as e:
         if logger.isEnabledFor(logging.ERROR):
             log_event(
@@ -1905,7 +1925,10 @@ def run_server_command(args, tunnel, logger, shutdown_requested):
                     lambda: {'context': 'server_command'},
                     exc_info=True,
                 )
-        return 1
+        if isinstance(e, TunnelError):
+            _print_error(str(e))
+            return 1
+        return _finalize_tunnel_exit(tunnel, 1)
 
     finally:
         tunnel.close()
@@ -2005,7 +2028,7 @@ def run_client(args, config, crypto, logger):
         while tunnel._state == TunnelState.CONNECTED and not shutdown_requested[0]:
             time_provider.sleep(tunnel._config.tunnel_connect_poll_interval)
 
-        return 0
+        return _finalize_tunnel_exit(tunnel, 0)
 
     except Exception as e:
         if logger.isEnabledFor(logging.ERROR):
@@ -2026,7 +2049,10 @@ def run_client(args, config, crypto, logger):
                     lambda: {'context': 'client'},
                     exc_info=True,
                 )
-        return 1
+        if isinstance(e, TunnelError):
+            _print_error(str(e))
+            return 1
+        return _finalize_tunnel_exit(tunnel, 1)
 
     finally:
         tunnel.close()

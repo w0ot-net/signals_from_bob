@@ -56,6 +56,20 @@
   `missing_retransmit_count` ~133-142, `buffered` 247-255, and `unacked` 1-9,
   indicating the hole persists while later packets are already SACKed.
 
+## Latest Findings (2026-01-15, post fast-retransmit change)
+- Logs: `logs/client_log.db` (Alice), `logs/server_log.db` (Bob).
+- Window: Alice 19:13:05-19:13:16 UTC, Bob 19:12:55-19:14:30 UTC.
+- Alice: `tunnel.send_window_distance` count is 0 and `tunnel.pacer_state`
+  has 0 `block_reason=window_distance` entries; `tunnel.send_blocked` is
+  `reason=pacer` (6,446 events), suggesting the distance cap is not firing.
+- Alice: `tunnel.pacer_summary` shows `target_inflight` ~235-237 in feedback
+  mode with `send_rate` ~568-1,048 pps; `stat_delta_retransmit_packets`
+  remains high (62-155 per second), so fast retransmit is active.
+- Bob: `tunnel.send_window_distance` still fires (1,616 events) with
+  `missing_flags=4` (keepalive), `missing_retransmit_count` ~97-101,
+  `buffered` 254-255, and `unacked` 1-2, indicating the hole persists on
+  Bob's send window even though Alice no longer hits distance stalls.
+
 ## Interpretation
 - A single missing packet (SACK hole) blocks cumulative ACK, holds the send
   window at distance=128, and triggers pacer feedback freezes. The block

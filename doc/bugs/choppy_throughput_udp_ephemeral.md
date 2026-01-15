@@ -69,6 +69,10 @@
   `missing_flags=4` (keepalive), `missing_retransmit_count` ~97-101,
   `buffered` 254-255, and `unacked` 1-2, indicating the hole persists on
   Bob's send window even though Alice no longer hits distance stalls.
+- Bob: `tunnel.retransmit` repeats the same keepalive seq (45333) with
+  `reason=window_distance`, `prev_send_age` ~0.0015s, and `first_send_age`
+  ~0.45s, showing rapid retransmit churn while the original keepalive stays
+  unacked.
 
 ## Interpretation
 - A single missing packet (SACK hole) blocks cumulative ACK, holds the send

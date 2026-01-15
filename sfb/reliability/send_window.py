@@ -530,6 +530,40 @@ class SendWindow(object):
             next_seq,
         )
 
+    def sack_hole_state(self, now=None):
+        """
+        Return minimal SACK hole state or None if unavailable.
+
+        Returns:
+            dict: last_cum_ack, missing_in_unacked, missing_age, distance,
+                unacked, buffered
+        """
+        self._require_now(now, 'sack_hole_state')
+        info = self.distance_info()
+        if info is None:
+            return None
+        distance = info[0]
+        unacked = info[3]
+        last_cum_ack = info[5]
+        if distance < unacked:
+            distance = unacked
+        buffered = distance - unacked
+        missing_in_unacked = False
+        missing_age = None
+        missing_info = self.get_unacked_info(last_cum_ack)
+        if missing_info is not None:
+            missing_in_unacked = True
+            send_time = missing_info[4]
+            missing_age = now - send_time
+        return {
+            'last_cum_ack': last_cum_ack,
+            'missing_in_unacked': missing_in_unacked,
+            'missing_age': missing_age,
+            'distance': distance,
+            'unacked': unacked,
+            'buffered': buffered,
+        }
+
     def distance_exceeded(self, cap_override=None, max_window=None):
         """
         Check if next_seq is too far ahead of peer's cumulative ACK.

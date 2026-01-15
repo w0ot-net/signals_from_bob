@@ -150,6 +150,7 @@ class BaseTunnel(object):
         self._bg_thread = None
         self._bg_stop = False
         self._bg_lock = threading.Lock()
+        self._bg_error = None
 
     def _adjust_pending_control(self, delta):
         if not delta:
@@ -1515,6 +1516,7 @@ class BaseTunnel(object):
                 self._bg_thread = None
 
             self._bg_stop = False
+            self._bg_error = None
             self._bg_thread = threading.Thread(target=self._bg_run)
             self._bg_thread.daemon = True
             self._bg_thread.start()
@@ -1528,22 +1530,39 @@ class BaseTunnel(object):
         """
         if timeout is None:
             timeout = self._config.tunnel_bg_stop_timeout
+        thread = None
         with self._bg_lock:
             self._bg_stop = True
-            if self._bg_thread is None:
-                return
-            self._bg_thread.join(timeout=timeout)
-            if self._bg_thread.is_alive():
-                if self._logger.isEnabledFor(logging.WARNING):
-                    log_event(
-                        self._logger,
-                        logging.WARNING,
-                        'tunnel.bg_stop_timeout',
-                        'Background thread still running after stop timeout',
-                        lambda: {'side': 'alice' if self._is_initiator else 'bob'},
-                    )
-                return
-            self._bg_thread = None
+            thread = self._bg_thread
+        if thread is None:
+            return
+        if thread is threading.current_thread():
+            return
+        thread.join(timeout=timeout)
+        if thread.is_alive():
+            if self._logger.isEnabledFor(logging.WARNING):
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    'tunnel.bg_stop_timeout',
+                    'Background thread still running after stop timeout',
+                    lambda: {'side': 'alice' if self._is_initiator else 'bob'},
+                )
+            return
+        with self._bg_lock:
+            if self._bg_thread is thread:
+                self._bg_thread = None
+
+    def get_bg_error(self):
+        """Return background loop exception, if any."""
+        return self._bg_error
+
+    def check_bg_error(self):
+        """Raise TunnelError if background loop failed."""
+        err = self._bg_error
+        if err is None:
+            return
+        raise TunnelError('Background loop failed: %s' % err)
 
     def _bg_run(self):
         """Background thread entry point."""
@@ -1551,6 +1570,7 @@ class BaseTunnel(object):
             self._run_loop()
         except Exception as e:
             if not self._bg_stop:
+                self._bg_error = e
                 if self._logger.isEnabledFor(logging.ERROR):
                     log_event(
                         self._logger,
@@ -1563,6 +1583,14 @@ class BaseTunnel(object):
                         },
                         exc_info=True,
                     )
+                try:
+                    self.close()
+                except Exception:
+                    pass
+        finally:
+            with self._bg_lock:
+                if self._bg_thread is threading.current_thread():
+                    self._bg_thread = None
 
     def _run_loop(self):
         """

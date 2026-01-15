@@ -154,6 +154,7 @@ class BobTunnel(BaseTunnel):
         self._serve_forever_active = True
         try:
             while self._state != TunnelState.CLOSED:
+                self.check_bg_error()
                 try:
                     if not self._recv_and_dispatch(
                         self._poll_interval,
@@ -231,6 +232,7 @@ class BobTunnel(BaseTunnel):
             data: Encrypted packet bytes from Alice
             responder: Callable to send response
         """
+        self.check_bg_error()
         now = time_provider.now()
         self._update_poll_ewma(now)
 

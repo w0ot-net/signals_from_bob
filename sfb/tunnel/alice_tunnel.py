@@ -425,6 +425,7 @@ class AliceTunnel(BaseTunnel):
         Returns:
             bool: True if still running, False if closed
         """
+        self.check_bg_error()
         if self._state != TunnelState.CONNECTED:
             return False
 

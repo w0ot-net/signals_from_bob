@@ -179,6 +179,11 @@ class BobTunnel(BaseTunnel):
                             },
                             exc_info=True,
                         )
+                    try:
+                        self.close()
+                    except Exception:
+                        pass
+                    raise
         finally:
             self._serve_forever_active = False
 

@@ -202,20 +202,26 @@ class BobTunnel(BaseTunnel):
                     check_idle=False,
                 )
             except Exception as e:
-                if not self._bg_stop:
-                    if self._logger.isEnabledFor(logging.WARNING):
-                        log_event(
-                            self._logger,
-                            logging.WARNING,
-                            'tunnel.serve_error',
-                            'Serve loop error',
-                            lambda: {
-                                'error': str(e),
-                                'loop': 'background',
-                                'side': 'bob',
-                            },
-                            exc_info=True,
-                        )
+                if self._bg_stop:
+                    return
+                if self._logger.isEnabledFor(logging.WARNING):
+                    log_event(
+                        self._logger,
+                        logging.WARNING,
+                        'tunnel.serve_error',
+                        'Serve loop error',
+                        lambda: {
+                            'error': str(e),
+                            'loop': 'background',
+                            'side': 'bob',
+                        },
+                        exc_info=True,
+                    )
+                try:
+                    e._bg_logged = True
+                except Exception:
+                    pass
+                raise
 
     def handle_request(self, data, responder):
         """

@@ -1868,6 +1868,8 @@ class AliceTunnel(BaseTunnel):
             try:
                 self.tick()
             except Exception as e:
+                if self._bg_stop:
+                    return
                 if self._logger.isEnabledFor(logging.WARNING):
                     log_event(
                         self._logger,
@@ -1877,6 +1879,11 @@ class AliceTunnel(BaseTunnel):
                         lambda: {'error': str(e), 'side': 'alice'},
                         exc_info=True,
                     )
+                try:
+                    e._bg_logged = True
+                except Exception:
+                    pass
+                raise
             sleep_hint = self._tick_sleep_hint
             if sleep_hint > 0:
                 time_provider.sleep(sleep_hint)

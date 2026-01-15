@@ -1571,7 +1571,8 @@ class BaseTunnel(object):
         except Exception as e:
             if not self._bg_stop:
                 self._bg_error = e
-                if self._logger.isEnabledFor(logging.ERROR):
+                logged = getattr(e, '_bg_logged', False)
+                if not logged and self._logger.isEnabledFor(logging.ERROR):
                     log_event(
                         self._logger,
                         logging.ERROR,

@@ -43,10 +43,3 @@ holes.
 - Earlier retransmit could increase duplicate traffic under reordering.
 - A too-low buffered threshold may trigger on benign gaps; keep the threshold
   small and bounded by min_age_ratio and max_per_seq.
-
-## Execution Notes
-- Added SendWindow.sack_hole_state to expose missing/age/buffered stats without
-  relying on distance_exceeded.
-- Updated fast retransmit selection to require a buffered SACK hole and
-  missing_age threshold, dropping the distance cap gate and using a small
-  buffered minimum.

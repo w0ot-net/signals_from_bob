@@ -11,8 +11,6 @@ class FastRetransmitController(object):
     Track and select fast retransmit candidates.
     """
 
-    _MIN_BUFFERED = 1
-
     def __init__(self, send_window, rtt, enabled, min_age_ratio,
                  max_per_seq, min_rto_ms):
         self._send_window = send_window
@@ -60,25 +58,19 @@ class FastRetransmitController(object):
             return None
         if not self._send_window.sack_progress_ready():
             return None
-        hole_state = self._send_window.sack_hole_state(now=now)
-        if hole_state is None:
+        exceeded, distance_info = self._send_window.distance_exceeded(
+            cap_override=cap_override,
+            max_window=max_window,
+        )
+        if not exceeded:
             return None
-        if not hole_state.get('missing_in_unacked'):
-            return None
-        buffered = hole_state.get('buffered')
-        if buffered is None or buffered < self._MIN_BUFFERED:
-            return None
-        last_cum_ack = hole_state.get('last_cum_ack')
-        if last_cum_ack is None:
-            return None
+        last_cum_ack = distance_info[5]
         missing_info = self._send_window.get_unacked_info(last_cum_ack)
         if missing_info is None:
             return None
         (seq, segments, flags, encrypted_body,
          send_time, _retransmit_count) = missing_info
-        missing_age = hole_state.get('missing_age')
-        if missing_age is None:
-            return None
+        missing_age = now - send_time
         count = self._counts.get(seq, 0)
         min_age = self._rtt.rto_sec * self._min_age_ratio
         min_rto_sec = self._min_rto_sec

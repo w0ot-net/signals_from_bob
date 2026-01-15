@@ -1,6 +1,6 @@
 # Channel Lock Split Fine-Grain Plan
 
-Status: draft
+Status: abandoned
 
 ## Summary
 Split channel locking into separate locks for state, send buffer, send state,
@@ -89,3 +89,6 @@ reads, writes, and close transitions while preserving strict invariants.
 
 ## Testing
 - Do not run tests.
+
+## Abandonment notes
+- 2026-01-15: Abandoned per request; no implementation work recorded.

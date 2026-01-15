@@ -37,6 +37,25 @@
 - `tunnel.send_window_distance` shows a missing seq (e.g., 10012) in unacked
   with `ack_miss_count` ~19k-21k and `missing_age` ~0.14-0.20s.
 
+## Latest Findings (2026-01-15, ICMP)
+- Logs: `logs/client_log.db` (Alice), `logs/server_log.db` (Bob).
+- Alice: `tunnel.pacer_summary` shows probe bursts up to ~1,060 pps with
+  `target_inflight` ~249-256 followed by window-distance stalls where
+  `block_reason=window_distance` cuts `target_inflight` to ~138 and
+  `send_rate` drops to ~70 pps.
+- Alice: `tunnel.send_window_distance` repeats at `distance=256` with
+  `buffered` ~221-223, `unacked` ~33-35, and a persistent `missing_seq=3112`
+  in unacked (`missing_retransmit_count` ~4, `missing_age` ~0.10s).
+  `ack_miss_count` is ~26k in the same window.
+- Alice: `tunnel.pacer_feedback_freeze` fires once with `missing_age` ~0.050s,
+  `buffered` ~201, `unacked` 55, then unfreezes ~60 ms later on
+  `ack_progress`, so the freeze is short-lived.
+- Alice: `tunnel.retransmit` is all `fast_retransmit` with repeated seqs
+  (3153-3327) and `prev_send_age` ~0.05-1.40s, indicating recurring SACK holes.
+- Bob: `tunnel.send_window_distance` shows `missing_seq=24967` with
+  `missing_retransmit_count` ~133-142, `buffered` 247-255, and `unacked` 1-9,
+  indicating the hole persists while later packets are already SACKed.
+
 ## Interpretation
 - A single missing packet (SACK hole) blocks cumulative ACK, holds the send
   window at distance=128, and triggers pacer feedback freezes. The block

@@ -90,7 +90,6 @@ class BaseTunnel(object):
         self._crypto = crypto if crypto is not None else Plain()
         self._is_initiator = is_initiator
         self._state = TunnelState.DISCONNECTED
-        self._fatal_error = None
         self._logger = logger or get_logger(__name__)
 
         # Channel management
@@ -279,11 +278,6 @@ class BaseTunnel(object):
     def connected(self):
         """True if tunnel is connected."""
         return self._state == TunnelState.CONNECTED
-
-    @property
-    def fatal_error(self):
-        """Fatal TunnelError instance if set."""
-        return self._fatal_error
 
     @property
     def channel_manager(self):
@@ -581,14 +575,8 @@ class BaseTunnel(object):
                 'Protocol violation',
                 build_fields,
             )
-        side = 'alice' if self._is_initiator else 'bob'
-        error = TunnelError('Protocol violation (%s): %s' % (side, reason))
-        if self._fatal_error is None:
-            self._fatal_error = error
-        try:
-            self.close()
-        finally:
-            raise error
+        self.close()
+        return False
 
     def _validate_content_flags(self, packet):
         flags = packet.flags
@@ -1543,9 +1531,6 @@ class BaseTunnel(object):
         with self._bg_lock:
             self._bg_stop = True
             if self._bg_thread is None:
-                return
-            if self._bg_thread is threading.current_thread():
-                self._bg_thread = None
                 return
             self._bg_thread.join(timeout=timeout)
             if self._bg_thread.is_alive():

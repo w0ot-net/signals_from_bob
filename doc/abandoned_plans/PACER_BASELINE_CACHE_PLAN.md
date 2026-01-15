@@ -1,6 +1,6 @@
 # Pacer Gate Merge Plan
 
-Status: draft
+Status: abandoned
 
 ## Summary
 Reduce per-tick pacing overhead by moving pacer gate decisions into
@@ -50,3 +50,8 @@ computations and cross-module indirection.
 
 ## Testing
 - Do not run tests.
+
+## Abandon Notes
+- Abandoned after review; moving gating into `AdaptivePacer` increases coupling
+  with `SendWindow` and does not deliver the baseline caching/perf gains
+  claimed, while risking ordering/logging changes.

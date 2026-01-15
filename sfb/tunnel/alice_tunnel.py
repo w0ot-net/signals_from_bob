@@ -337,82 +337,167 @@ class AliceTunnel(BaseTunnel):
         )
         ack_data = self._encode_packet(ack_packet)
 
-        try:
-            self._set_state(TunnelState.HANDSHAKE_ACKED)
-            self._last_recv_time = time_provider.now()
+        self._set_state(TunnelState.HANDSHAKE_ACKED)
+        self._last_recv_time = time_provider.now()
 
-            # Retransmit final ACK until we see the first post-ACK response.
-            start = time_provider.now()
-            while True:
-                remaining = remaining_timeout - (time_provider.now() - start)
-                if remaining <= 0:
-                    self._set_state(TunnelState.DISCONNECTED)
-                    raise TunnelError('Handshake timeout')
+        # Retransmit final ACK until we see the first post-ACK response.
+        start = time_provider.now()
+        while True:
+            remaining = remaining_timeout - (time_provider.now() - start)
+            if remaining <= 0:
+                self._set_state(TunnelState.DISCONNECTED)
+                raise TunnelError('Handshake timeout')
 
-                permit = self._reserve_transport_permit(
-                    time_provider.now(),
-                    has_data_pending=False,
-                )
-                if permit is None:
-                    time_provider.sleep(min(self._rtt.rto_sec, remaining))
-                    continue
+            permit = self._reserve_transport_permit(
+                time_provider.now(),
+                has_data_pending=False,
+            )
+            if permit is None:
+                time_provider.sleep(min(self._rtt.rto_sec, remaining))
+                continue
+            try:
                 self._transport.send(ack_data, permit)
+            except TransportFatalError as e:
+                if self._logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        self._logger,
+                        logging.ERROR,
+                        'tunnel.ack_send_fatal',
+                        'Handshake ACK send fatal error',
+                        lambda: {
+                            'error': str(e),
+                            'error_type': type(e).__name__,
+                            'side': 'alice',
+                        },
+                    )
+                self._set_state(TunnelState.DISCONNECTED)
+                raise
+            except TransportError as e:
+                if self._state == TunnelState.CLOSED:
+                    raise TunnelError('Tunnel closed during handshake')
+                if self._logger.isEnabledFor(logging.WARNING):
+                    log_event(
+                        self._logger,
+                        logging.WARNING,
+                        'tunnel.ack_send_failed',
+                        'Handshake ACK send failed',
+                        lambda: {
+                            'error': str(e),
+                            'error_type': type(e).__name__,
+                            'side': 'alice',
+                        },
+                    )
+                self._rtt.backoff()
+                time_provider.sleep(min(self._rtt.rto_sec, remaining))
+                continue
+            except Exception as e:
+                if self._logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        self._logger,
+                        logging.ERROR,
+                        'tunnel.ack_send_exception',
+                        'Handshake ACK send unexpected error',
+                        lambda: {
+                            'error': str(e),
+                            'error_type': type(e).__name__,
+                            'side': 'alice',
+                        },
+                    )
+                self._set_state(TunnelState.DISCONNECTED)
+                raise
 
+            try:
                 corr_id, response_data = self._transport.recv(
                     timeout=min(self._rtt.rto_sec, remaining)
                 )
-
-                if response_data:
-                    response = self._decode_packet(response_data)
-                    if response:
-                        if response.flags & (FLAG_SYN | FLAG_ACK):
-                            if self._logger.isEnabledFor(logging.DEBUG):
-                                log_event(
-                                    self._logger,
-                                    logging.DEBUG,
-                                    'tunnel.handshake_late_packet',
-                                    'Ignored stale handshake packet',
-                                    lambda: {
-                                        'flags': response.flags,
-                                        'side': 'alice',
-                                    },
-                                )
-                            continue
-                        self._process_incoming_packet(response)
-                        self._set_state(TunnelState.CONNECTED)
-                        break
-
+            except TransportFatalError as e:
+                if self._logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        self._logger,
+                        logging.ERROR,
+                        'tunnel.ack_recv_fatal',
+                        'Handshake ACK recv fatal error',
+                        lambda: {
+                            'error': str(e),
+                            'error_type': type(e).__name__,
+                            'side': 'alice',
+                        },
+                    )
+                self._set_state(TunnelState.DISCONNECTED)
+                raise
+            except TransportError as e:
+                if self._state == TunnelState.CLOSED:
+                    raise TunnelError('Tunnel closed during handshake')
+                if self._logger.isEnabledFor(logging.WARNING):
+                    log_event(
+                        self._logger,
+                        logging.WARNING,
+                        'tunnel.ack_recv_failed',
+                        'Handshake ACK recv failed',
+                        lambda: {
+                            'error': str(e),
+                            'error_type': type(e).__name__,
+                            'side': 'alice',
+                        },
+                    )
                 self._rtt.backoff()
+                time_provider.sleep(min(self._rtt.rto_sec, remaining))
+                continue
+            except Exception as e:
+                if self._logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        self._logger,
+                        logging.ERROR,
+                        'tunnel.ack_recv_exception',
+                        'Handshake ACK recv unexpected error',
+                        lambda: {
+                            'error': str(e),
+                            'error_type': type(e).__name__,
+                            'side': 'alice',
+                        },
+                    )
+                self._set_state(TunnelState.DISCONNECTED)
+                raise
 
-            if self._logger.isEnabledFor(logging.INFO):
-                log_event(
-                    self._logger,
-                    logging.INFO,
-                    'tunnel.connected',
-                    'Connected',
-                    lambda: {
-                        'local_isn': self._local_isn,
-                        'remote_isn': self._remote_isn,
-                        'mode': 'syn_ack',
-                        'side': 'alice',
-                    },
-                )
+            if response_data:
+                response = self._decode_packet(response_data)
+                if response:
+                    if response.flags & (FLAG_SYN | FLAG_ACK):
+                        if self._logger.isEnabledFor(logging.DEBUG):
+                            log_event(
+                                self._logger,
+                                logging.DEBUG,
+                                'tunnel.handshake_late_packet',
+                                'Ignored stale handshake packet',
+                                lambda: {
+                                    'flags': response.flags,
+                                    'side': 'alice',
+                                },
+                            )
+                        continue
+                    self._process_incoming_packet(response)
+                    self._set_state(TunnelState.CONNECTED)
+                    break
 
-            self._rtt.reset()
-            # Initiate MTU and window negotiation
-            self._send_negotiation()
+            self._rtt.backoff()
 
-        except Exception as e:
-            if self._logger.isEnabledFor(logging.WARNING):
-                log_event(
-                    self._logger,
-                    logging.WARNING,
-                    'tunnel.ack_send_failed',
-                    'Failed to send ACK',
-                    lambda: {'error': str(e), 'side': 'alice'},
-                )
-            self._set_state(TunnelState.DISCONNECTED)
-            raise
+        if self._logger.isEnabledFor(logging.INFO):
+            log_event(
+                self._logger,
+                logging.INFO,
+                'tunnel.connected',
+                'Connected',
+                lambda: {
+                    'local_isn': self._local_isn,
+                    'remote_isn': self._remote_isn,
+                    'mode': 'syn_ack',
+                    'side': 'alice',
+                },
+            )
+
+        self._rtt.reset()
+        # Initiate MTU and window negotiation
+        self._send_negotiation()
 
     def _send_negotiation(self):
         """Queue MTU and window negotiation messages."""

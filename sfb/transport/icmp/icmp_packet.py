@@ -17,6 +17,7 @@ from ...compat import (
     byte_at,
     require_bytes_like,
     require_bytes_like_or_bytearray,
+    to_bytes,
 )
 
 ICMP_ECHO_REQUEST = 8
@@ -157,3 +158,68 @@ def parse_icmp_echo(data, expect_type=None, expect_ident=None,
         return None, 'bad_checksum'
     payload = bytearray_to_bytes(buffer_view(icmp)[ICMP_HEADER_LEN:])
     return (icmp_type, ident, seq, payload), None
+
+
+def summarize_icmp_packet(data):
+    """
+    Best-effort summary for logging parse rejects.
+    """
+    summary = {
+        'packet_len': None,
+        'ip_version': None,
+        'ip_header_len': None,
+        'ip_proto': None,
+        'icmp_type': None,
+        'icmp_code': None,
+        'icmp_ident': None,
+        'icmp_seq': None,
+        'payload_len': None,
+    }
+    try:
+        raw = to_bytes(data)
+    except TypeError:
+        summary['packet_len'] = None
+        return summary
+    length = len(raw)
+    summary['packet_len'] = length
+    if length == 0:
+        return summary
+    first = byte_at(raw, 0)
+    version = first >> 4
+    if version == 4:
+        summary['ip_version'] = 4
+        if length < 20:
+            return summary
+        ihl = first & 0x0F
+        ip_header_len = ihl * 4
+        summary['ip_header_len'] = ip_header_len
+        if length >= 10:
+            summary['ip_proto'] = byte_at(raw, 9)
+        if ip_header_len < 20 or length < ip_header_len + ICMP_HEADER_LEN:
+            return summary
+        icmp = raw[ip_header_len:]
+        if len(icmp) < ICMP_HEADER_LEN:
+            return summary
+        icmp_type, code, _, ident, seq = struct.unpack(
+            '>BBHHH', icmp[:ICMP_HEADER_LEN]
+        )
+        summary['icmp_type'] = icmp_type
+        summary['icmp_code'] = code
+        summary['icmp_ident'] = ident
+        summary['icmp_seq'] = seq
+        summary['payload_len'] = len(icmp) - ICMP_HEADER_LEN
+        return summary
+    if version == 6:
+        summary['ip_version'] = 6
+        return summary
+    if length < ICMP_HEADER_LEN:
+        return summary
+    icmp_type, code, _, ident, seq = struct.unpack(
+        '>BBHHH', raw[:ICMP_HEADER_LEN]
+    )
+    summary['icmp_type'] = icmp_type
+    summary['icmp_code'] = code
+    summary['icmp_ident'] = ident
+    summary['icmp_seq'] = seq
+    summary['payload_len'] = length - ICMP_HEADER_LEN
+    return summary

@@ -13,7 +13,12 @@ import socket
 
 from ..transport_base import Server, TransportError
 from ..mtu_limits import resolve_mtu_limits
-from .icmp_packet import ICMP_ECHO_REQUEST, build_echo_reply, parse_icmp_echo
+from .icmp_packet import (
+    ICMP_ECHO_REQUEST,
+    build_echo_reply,
+    parse_icmp_echo,
+    summarize_icmp_packet,
+)
 from ...compat import PY2, buffer_view, require_bytes_like
 from ...config import Config
 from ...logging_util import get_logger, log_event
@@ -167,7 +172,12 @@ class IcmpServer(Server):
                         logging.WARNING,
                         'icmp.recv_failed',
                         'ICMP receive failed',
-                        lambda: {'error': str(e)},
+                        lambda: {
+                            'error': str(e),
+                            'errno': err,
+                            'recv_bufsize': self._recv_bufsize,
+                            'recvfrom_into': True,
+                        },
                     )
                 raise TransportError('Receive failed: %s' % e)
             packet = buffer_view(self._recv_buffer, length=recv_len)
@@ -184,7 +194,12 @@ class IcmpServer(Server):
                     logging.WARNING,
                     'icmp.recv_failed',
                     'ICMP receive failed',
-                    lambda: {'error': str(e)},
+                    lambda: {
+                        'error': str(e),
+                        'errno': err,
+                        'recv_bufsize': self._recv_bufsize,
+                        'recvfrom_into': False,
+                    },
                 )
             raise TransportError('Receive failed: %s' % e)
         return (packet, addr)
@@ -197,6 +212,7 @@ class IcmpServer(Server):
         )
         if result is None:
             if _LOG.isEnabledFor(logging.DEBUG):
+                summary = summarize_icmp_packet(packet)
                 log_event(
                     _LOG,
                     logging.DEBUG,
@@ -206,6 +222,7 @@ class IcmpServer(Server):
                         'addr': '%s:%d' % (addr[0], addr[1]),
                         'bytes': len(packet),
                         'reason': reason,
+                        'summary': summary,
                     },
                 )
             return (None, None)

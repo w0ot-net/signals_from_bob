@@ -231,10 +231,11 @@ interval = clamp(
 )
 ```
 
-`target_inflight` is derived from the base inflight ratio (no ACK-rate feedback)
-and clamped by the negotiated send window and transport max inflight. When no
-SRTT sample exists, `srtt_sec` falls back to `tunnel_keepalive_interval`, and
-SRTT is floored by `tunnel_pace_rtt_floor_ms`.
+`target_inflight` uses the adaptive pacer target (including ACK-rate feedback
+and block penalties) and is clamped by the negotiated send window and transport
+max inflight. When no SRTT sample exists, `srtt_sec` falls back to
+`tunnel_keepalive_interval`, and SRTT is floored by
+`tunnel_pace_rtt_floor_ms`.
 
 The poll pacing maximum interval is derived from `tunnel_keepalive_interval`.
 

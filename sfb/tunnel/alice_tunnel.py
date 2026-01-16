@@ -1368,19 +1368,21 @@ class AliceTunnel(BaseTunnel):
                     cap = transport_cap
         return cap
 
-    def _poll_pacing_target_inflight(self, cap):
+    def _poll_pacing_target_inflight(self, cap, srtt_ms):
         if self._pacer is None:
             return cap
-        return self._pacer.base_target_inflight(cap)
+        if not self._pacer.enabled:
+            return cap
+        return self._pacer.target_inflight(cap, srtt_ms=srtt_ms)
 
     def _poll_pacing_interval(self):
         if not self._poll_pacing_enabled:
             return None, None
         cap = self._poll_pacing_cap()
-        target_inflight = self._poll_pacing_target_inflight(cap)
+        srtt_ms = self._rtt.srtt_ms
+        target_inflight = self._poll_pacing_target_inflight(cap, srtt_ms)
         if target_inflight < 1:
             target_inflight = 1
-        srtt_ms = self._rtt.srtt_ms
         interval, target_inflight = compute_poll_pacing_interval(
             srtt_ms=srtt_ms,
             keepalive_interval=self._keepalive_interval,

@@ -294,7 +294,7 @@ Retransmit-related settings in `Config`:
 - Pong grace polls (derived as `2 * proposed_window` at init)
 - `tunnel_adaptive_pacing_enabled` (default True)
 - `tunnel_pace_rtt_floor_ms` (default 5.0)
-- `tunnel_poll_min_interval` (default 0.0005)
+- `tunnel_poll_min_interval` (default 0.0)
 - Poll pacing max interval derives from `tunnel_keepalive_interval`.
 - `tunnel_poll_rtt_ratio` (default 0.75)
 - `non_blocking_poll_timeout` (default 0.0001)

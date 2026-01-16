@@ -547,32 +547,24 @@ class BobTunnel(BaseTunnel):
     def _select_response_action(self, now, response_payload_cap):
         decision = {'action': None}
         oldest_info = self._send_window.get_oldest_unacked_first_info()
+        cooldown = None
+        oldest_age = None
+        retransmit_due = False
         if oldest_info is not None:
             (seq, segments, flags, encrypted_body,
              send_time, _retransmit_count, first_send_time) = oldest_info
             cooldown = self._retransmit_cooldown()
             oldest_age = now - send_time
             retransmit_due = oldest_age >= cooldown
-            if retransmit_due:
-                decision.update({
-                    'action': 'retransmit',
-                    'context': 'retransmit',
-                    'seq': seq,
-                    'segments': segments,
-                    'flags': flags,
-                    'encrypted_body': encrypted_body,
-                    'first_send_time': first_send_time,
-                })
-                return decision
 
         if not self._send_window.can_send:
             decision.update({
-                'action': 'window_blocked',
-                'context': 'window_full',
-                'reason': 'window_full',
+                'action': 'blocked',
+                'block_reason': 'window_full',
                 'oldest_info': oldest_info,
-                'unacked': self._send_window.unacked_count,
-                'max_in_flight': self._send_window._max_in_flight,
+                'retransmit_due': retransmit_due,
+                'cooldown': cooldown,
+                'oldest_age': oldest_age,
             })
             return decision
 
@@ -581,11 +573,25 @@ class BobTunnel(BaseTunnel):
         )
         if exceeded:
             decision.update({
-                'action': 'distance_blocked',
-                'context': 'window_distance',
-                'reason': 'window_distance',
+                'action': 'blocked',
+                'block_reason': 'window_distance',
+                'block_details': distance_info,
                 'oldest_info': oldest_info,
-                'distance_info': distance_info,
+                'retransmit_due': retransmit_due,
+                'cooldown': cooldown,
+                'oldest_age': oldest_age,
+            })
+            return decision
+
+        if retransmit_due and oldest_info is not None:
+            decision.update({
+                'action': 'retransmit',
+                'context': 'retransmit',
+                'seq': seq,
+                'segments': segments,
+                'flags': flags,
+                'encrypted_body': encrypted_body,
+                'first_send_time': first_send_time,
             })
             return decision
 
@@ -634,10 +640,20 @@ class BobTunnel(BaseTunnel):
         return decision
 
     def _log_send_blocked(self, decision, now):
-        action = decision.get('action')
-        if action == 'window_blocked':
-            unacked = decision.get('unacked', 0)
-            max_in_flight = decision.get('max_in_flight')
+        block_reason = decision.get('block_reason')
+        common_fields = {'side': 'bob'}
+        oldest_age = decision.get('oldest_age')
+        if oldest_age is not None:
+            common_fields['age'] = round(oldest_age, 6)
+            common_fields['cooldown'] = decision.get('cooldown')
+            common_fields['retransmit_due'] = decision.get('retransmit_due')
+
+        if block_reason == 'window_full':
+            unacked = self._send_window.unacked_count
+            max_in_flight = self._send_window._max_in_flight
+            base_fields = common_fields.copy()
+            base_fields['unacked'] = unacked
+            base_fields['max_in_flight'] = max_in_flight
             if unacked == 0:
                 if self._logger.isEnabledFor(logging.ERROR):
                     log_event(
@@ -645,11 +661,7 @@ class BobTunnel(BaseTunnel):
                         logging.ERROR,
                         'tunnel.send_window_inconsistent',
                         'Send window full but no unacked packets',
-                        lambda: {
-                            'unacked': unacked,
-                            'max_in_flight': max_in_flight,
-                            'side': 'bob',
-                        },
+                        lambda: base_fields,
                     )
             else:
                 if self._logger.isEnabledFor(logging.DEBUG):
@@ -658,11 +670,7 @@ class BobTunnel(BaseTunnel):
                         logging.DEBUG,
                         'tunnel.send_window_full',
                         'Send window full',
-                        lambda: {
-                            'unacked': unacked,
-                            'max_in_flight': max_in_flight,
-                            'side': 'bob',
-                        },
+                        lambda: base_fields,
                     )
             if self._logger.isEnabledFor(logging.DEBUG):
                 log_event(
@@ -670,11 +678,7 @@ class BobTunnel(BaseTunnel):
                     logging.DEBUG,
                     'tunnel.send_blocked',
                     'Send window full',
-                    lambda: {
-                        'unacked': unacked,
-                        'max_in_flight': max_in_flight,
-                        'side': 'bob',
-                    },
+                    lambda: base_fields,
                 )
             self._log_reliability_state(
                 logging.DEBUG,
@@ -688,26 +692,24 @@ class BobTunnel(BaseTunnel):
             )
             return
 
-        if action == 'distance_blocked':
-            distance_info = decision.get('distance_info')
+        if block_reason == 'window_distance':
+            distance_info = decision.get('block_details')
             (distance, max_in_flight, effective_cap, unacked,
              distance_limit, last_cum_ack, next_seq) = distance_info
             buffered = distance - unacked
-
-            def build_distance_fields():
-                fields = {
-                    'distance': distance,
-                    'distance_limit': distance_limit,
-                    'buffered': buffered,
-                    'unacked': unacked,
-                    'max_in_flight': max_in_flight,
-                    'effective_cap': effective_cap,
-                    'last_cum_ack': last_cum_ack,
-                    'next_seq': next_seq,
-                    'side': 'bob',
-                }
-                fields.update(self._send_window.distance_details(now=now))
-                return fields
+            base_fields = common_fields.copy()
+            base_fields.update({
+                'distance': distance,
+                'distance_limit': distance_limit,
+                'buffered': buffered,
+                'unacked': unacked,
+                'max_in_flight': max_in_flight,
+                'effective_cap': effective_cap,
+                'last_cum_ack': last_cum_ack,
+                'next_seq': next_seq,
+            })
+            distance_fields = base_fields.copy()
+            distance_fields.update(self._send_window.distance_details(now=now))
 
             if self._logger.isEnabledFor(logging.DEBUG):
                 log_event(
@@ -715,26 +717,17 @@ class BobTunnel(BaseTunnel):
                     logging.DEBUG,
                     'tunnel.send_window_distance',
                     'Send window distance exceeded',
-                    build_distance_fields,
+                    lambda: distance_fields,
                 )
             if self._logger.isEnabledFor(logging.DEBUG):
+                send_blocked_fields = base_fields.copy()
+                send_blocked_fields['reason'] = 'window_distance'
                 log_event(
                     self._logger,
                     logging.DEBUG,
                     'tunnel.send_blocked',
                     'Send window distance exceeded',
-                    lambda: {
-                        'distance': distance,
-                        'distance_limit': distance_limit,
-                        'buffered': buffered,
-                        'unacked': unacked,
-                        'max_in_flight': max_in_flight,
-                        'effective_cap': effective_cap,
-                        'last_cum_ack': last_cum_ack,
-                        'next_seq': next_seq,
-                        'side': 'bob',
-                        'reason': 'window_distance',
-                    },
+                    lambda: send_blocked_fields,
                 )
             self._log_reliability_state(
                 logging.DEBUG,
@@ -749,6 +742,8 @@ class BobTunnel(BaseTunnel):
                 },
             )
             return
+
+        raise TunnelError('Unexpected send blocked reason')
 
     def _send_response(self, responder, now):
         """Build and send response packet."""
@@ -770,10 +765,11 @@ class BobTunnel(BaseTunnel):
                 first_send_time=decision.get('first_send_time'),
             )
             return
-        if action in ('window_blocked', 'distance_blocked'):
+        if action == 'blocked':
             self._log_send_blocked(decision, now)
+            block_reason = decision.get('block_reason')
             oldest_info = decision.get('oldest_info')
-            if oldest_info is not None:
+            if oldest_info is not None and decision.get('retransmit_due'):
                 self._send_retransmit_response(
                     responder,
                     now,
@@ -781,8 +777,8 @@ class BobTunnel(BaseTunnel):
                     oldest_info[1],
                     oldest_info[2],
                     oldest_info[3],
-                    context=decision.get('context'),
-                    reason=decision.get('reason'),
+                    context=block_reason,
+                    reason=block_reason,
                     first_send_time=oldest_info[6],
                 )
             return

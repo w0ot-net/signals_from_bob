@@ -50,3 +50,8 @@ removing duplicated decision/logging code in the Bob response path.
   which can reduce throughput and increase apparent loss at Alice.
 - Consolidated logging could drop fields used by analysis if not careful; keep
   field keys stable where they are consumed.
+
+## Execution Notes
+- Collapsed window-blocked decisions into a single blocked action and moved
+  cooldown gating into the blocked dispatch.
+- Simplified blocked logging with shared fields while preserving event names.

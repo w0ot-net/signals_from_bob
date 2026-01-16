@@ -829,9 +829,14 @@ class AliceTunnel(BaseTunnel):
                     pending_event,
                     control_send_event,
                     data_send_event):
-                if not self._can_send_new(
-                        now=now,
-                        keepalive_only=False):
+                can_send, blocked = self._can_send_new(
+                    now=now,
+                    keepalive_only=False,
+                )
+                if not can_send:
+                    if blocked is not None and blocked.get('reason') == 'pacer':
+                        if self._schedule_poll_pacing(now):
+                            pacing_blocked = True
                     break
                 if not self._poll_pacing_allows_send(now):
                     pacing_blocked = True
@@ -864,15 +869,25 @@ class AliceTunnel(BaseTunnel):
                 continue
             window_full = not self._send_window.can_send
             if window_full:
-                if not self._can_send_new(
-                        now=now,
-                        keepalive_only=keepalive_due,
-                        allow_window_full=True):
+                can_send, blocked = self._can_send_new(
+                    now=now,
+                    keepalive_only=keepalive_due,
+                    allow_window_full=True,
+                )
+                if not can_send:
+                    if blocked is not None and blocked.get('reason') == 'pacer':
+                        if self._schedule_poll_pacing(now):
+                            pacing_blocked = True
                     break
             else:
-                if not self._can_send_new(
-                        now=now,
-                        keepalive_only=keepalive_due):
+                can_send, blocked = self._can_send_new(
+                    now=now,
+                    keepalive_only=keepalive_due,
+                )
+                if not can_send:
+                    if blocked is not None and blocked.get('reason') == 'pacer':
+                        if self._schedule_poll_pacing(now):
+                            pacing_blocked = True
                     break
             if not self._poll_pacing_allows_send(now):
                 pacing_blocked = True
@@ -1158,11 +1173,11 @@ class AliceTunnel(BaseTunnel):
             now = time_provider.now()
         decision = self._check_serial_window_block()
         if decision is not None:
-            return False
+            return (False, decision)
         decision = self._check_send_window_full(allow_window_full, keepalive_only)
         if decision is not None:
             self._log_send_blocked(decision, now)
-            return False
+            return (False, decision)
         pacer_cap = None
         pacer_gate_cap = None
         pacer_target = None
@@ -1201,7 +1216,7 @@ class AliceTunnel(BaseTunnel):
             blocked = dict(decision.get('block_details') or {})
             blocked['reason'] = decision.get('block_reason')
             self._log_send_blocked(blocked, now)
-            return False
+            return (False, blocked)
         if self._pacer.enabled:
             self._maybe_log_pacer_target_change(
                 pacer_gate_cap,
@@ -1225,8 +1240,8 @@ class AliceTunnel(BaseTunnel):
             blocked = dict(decision.get('block_details') or {})
             blocked['reason'] = decision.get('block_reason')
             self._log_send_blocked(blocked, now)
-            return False
-        return True
+            return (False, blocked)
+        return (True, None)
 
     def _can_send_retransmit(self, now=None):
         """Check if we can send a retransmit packet."""
@@ -1393,6 +1408,15 @@ class AliceTunnel(BaseTunnel):
         )
         self._maybe_log_poll_pace(interval, target_inflight, srtt_ms)
         return interval, target_inflight
+
+    def _schedule_poll_pacing(self, now):
+        if not self._poll_pacing_enabled:
+            return False
+        interval, _ = self._poll_pacing_interval()
+        if interval is None:
+            return False
+        self._next_poll_time = now + interval
+        return True
 
     def _maybe_log_poll_pace(self, interval, target_inflight, srtt_ms):
         rounded = round(interval, 6)

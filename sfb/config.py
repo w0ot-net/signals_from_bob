@@ -196,7 +196,7 @@ class Config(object):
     # Alice: poll pacing enabled
     tunnel_poll_pacing_enabled = True
     # Alice: minimum seconds between polls (0 = no minimum)
-    tunnel_poll_min_interval = 0.0
+    tunnel_poll_min_interval = 0.0005
     # Alice: poll pacing max interval derives from tunnel_keepalive_interval
     # Alice: fraction of RTT to distribute target inflight
     tunnel_poll_rtt_ratio = 0.75

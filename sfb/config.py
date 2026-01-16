@@ -153,7 +153,7 @@ class Config(object):
     # Alice: max retransmits per tick (RTO + fast retransmit)
     tunnel_retransmit_cap = 2
     # Alice: enable fast retransmit for SACK holes
-    tunnel_fast_retransmit_enabled = False
+    tunnel_fast_retransmit_enabled = True
     # Alice: minimum age ratio of RTO before fast retransmit
     tunnel_fast_retransmit_min_age_ratio = 0.1
     # Alice: max fast retransmits per sequence number

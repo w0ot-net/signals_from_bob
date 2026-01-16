@@ -105,29 +105,44 @@ class BobTunnel(BaseTunnel):
         return timeout
 
     def _recv_and_dispatch(self, timeout, check_idle):
-        try:
-            result = self._transport.recv(timeout=timeout)
-        except TransportFatalError as exc:
-            if self._logger.isEnabledFor(logging.ERROR):
-                log_event(
-                    self._logger,
-                    logging.ERROR,
-                    'tunnel.transport_fatal',
-                    'Transport fatal error',
-                    lambda: {
-                        'error': str(exc),
-                        'side': 'bob',
-                    },
-                )
-            self.close()
-            return False
-        if result is None or result[0] is None:
-            if check_idle and self._check_idle_timeout():
+        drained = 0
+        drain_limit = self._send_window._max_in_flight
+        if drain_limit is None or drain_limit <= 0:
+            drain_limit = 1
+        wait = timeout
+        while True:
+            try:
+                result = self._transport.recv(timeout=wait)
+            except TransportFatalError as exc:
+                if self._logger.isEnabledFor(logging.ERROR):
+                    log_event(
+                        self._logger,
+                        logging.ERROR,
+                        'tunnel.transport_fatal',
+                        'Transport fatal error',
+                        lambda: {
+                            'error': str(exc),
+                            'side': 'bob',
+                        },
+                    )
+                self.close()
                 return False
-            return True
-        data, responder = result
-        self.handle_request(data, responder)
-        return True
+            if result is None or result[0] is None:
+                if drained:
+                    return True
+                if check_idle and self._check_idle_timeout():
+                    return False
+                return True
+            data, responder = result
+            self.handle_request(data, responder)
+            drained += 1
+            if self._state == TunnelState.CLOSED:
+                return False
+            if drained >= drain_limit:
+                return True
+            wait = self._config.non_blocking_poll_timeout
+            if wait is None or wait <= 0:
+                wait = 0
 
     def serve_forever(self):
         """

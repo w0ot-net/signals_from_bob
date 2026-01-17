@@ -650,7 +650,7 @@ class AliceTunnel(BaseTunnel):
             self._maybe_log_pacer_summary(now)
 
             paced_sleep = 0.0
-            if pacing_blocked and not sent_any:
+            if pacing_blocked:
                 paced_sleep = self._sleep_for_pacing(
                     time_provider.now(),
                     pacing_reason,

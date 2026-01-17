@@ -73,4 +73,6 @@ instrumentation to confirm the pacing loop behavior in logs.
 - Propagated pacer block reasons through the send gate to drive tick pacing.
 - Added tick pacing scheduling separate from poll pacing state with debug
   `tunnel.tick_pace` sleep logging.
+- Tick pacing sleeps now apply even when a send occurred so cadence is enforced
+  on every paced tick.
 - No tests run (per instructions; e2e tests deferred to user).

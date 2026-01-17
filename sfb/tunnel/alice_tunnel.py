@@ -128,7 +128,11 @@ class AliceTunnel(BaseTunnel):
         self._poll_rtt_ratio = config.tunnel_poll_rtt_ratio
         self._next_poll_time = 0.0
         self._poll_pace_interval = None
+        self._poll_pace_target = None
         self._poll_pace_sleep_max = 0.01
+        self._next_tick_pace_time = None
+        self._tick_pace_interval = None
+        self._tick_pace_target = None
         self._tick_sleep_hint = 0.0
 
         if self._logger.isEnabledFor(logging.DEBUG):
@@ -631,7 +635,9 @@ class AliceTunnel(BaseTunnel):
 
             # 3. Send new packets if we can
             tick_slept = False
-            pacing_blocked, sent_any = self._send_pending_or_poll(
+            sleep_reason = None
+            sleep_time = 0.0
+            pacing_blocked, pacing_reason, sent_any = self._send_pending_or_poll(
                 now,
                 serial_window,
                 packets_sent_before,
@@ -643,18 +649,28 @@ class AliceTunnel(BaseTunnel):
 
             self._maybe_log_pacer_summary(now)
 
-            paced_sleep = False
+            paced_sleep = 0.0
             if pacing_blocked and not sent_any:
-                paced_sleep = self._sleep_for_poll_pacing(time_provider.now())
+                paced_sleep = self._sleep_for_pacing(
+                    time_provider.now(),
+                    pacing_reason,
+                )
                 if paced_sleep:
                     tick_slept = True
+                    sleep_reason = pacing_reason
+                    sleep_time = paced_sleep
 
-            if (not paced_sleep and not received_any and not sent_any and
+            if (not tick_slept and not received_any and not sent_any and
                     not self._channel_manager.pending_send_event.is_set() and
                     not self._got_data and not self._has_pending_data_acks):
                 idle_sleep = max(self._config.tunnel_tick_sleep, 0.01)
                 time_provider.sleep(idle_sleep)
                 tick_slept = True
+                sleep_reason = 'idle'
+                sleep_time = idle_sleep
+
+            if tick_slept:
+                self._log_tick_pace_sleep(sleep_reason, sleep_time)
 
             if received_any or sent_any or tick_slept:
                 self._tick_sleep_hint = 0.0
@@ -704,7 +720,16 @@ class AliceTunnel(BaseTunnel):
                 cap = self._send_window._max_in_flight
             threshold = int(cap * 0.75)
             if pending >= threshold:
-                corr_id, data = self._transport.recv(timeout=0.05)
+                timeout = 0.05
+                if self._poll_pacing_enabled:
+                    pace_interval, _ = self._poll_pacing_interval()
+                    if pace_interval is not None and pace_interval > 0:
+                        timeout = pace_interval
+                        if timeout < self._config.non_blocking_poll_timeout:
+                            timeout = self._config.non_blocking_poll_timeout
+                        if timeout > 0.05:
+                            timeout = 0.05
+                corr_id, data = self._transport.recv(timeout=timeout)
                 if corr_id is not None:
                     valid, resp_kind = self._handle_response(corr_id, data, now)
                     if valid:
@@ -815,6 +840,7 @@ class AliceTunnel(BaseTunnel):
             self._send_packet_mtu
         )
         pacing_blocked = False
+        pacing_reason = None
         sent_any = (self._packets_sent != packets_sent_before)
         pending_event = self._channel_manager.pending_send_event
         control_send_event = self._channel_manager.control.send_event
@@ -829,12 +855,21 @@ class AliceTunnel(BaseTunnel):
                     pending_event,
                     control_send_event,
                     data_send_event):
-                if not self._can_send_new(
-                        now=now,
-                        keepalive_only=False):
+                can_send, blocked = self._can_send_new(
+                    now=now,
+                    keepalive_only=False,
+                )
+                if not can_send:
+                    pacing_reason = self._note_tick_pacing_blocked(
+                        blocked,
+                        now,
+                    )
+                    if pacing_reason is not None:
+                        pacing_blocked = True
                     break
                 if not self._poll_pacing_allows_send(now):
                     pacing_blocked = True
+                    pacing_reason = 'poll'
                     break
                 sent, permit = self._try_send_segments(
                     now,
@@ -864,18 +899,35 @@ class AliceTunnel(BaseTunnel):
                 continue
             window_full = not self._send_window.can_send
             if window_full:
-                if not self._can_send_new(
-                        now=now,
-                        keepalive_only=keepalive_due,
-                        allow_window_full=True):
+                can_send, blocked = self._can_send_new(
+                    now=now,
+                    keepalive_only=keepalive_due,
+                    allow_window_full=True,
+                )
+                if not can_send:
+                    pacing_reason = self._note_tick_pacing_blocked(
+                        blocked,
+                        now,
+                    )
+                    if pacing_reason is not None:
+                        pacing_blocked = True
                     break
             else:
-                if not self._can_send_new(
-                        now=now,
-                        keepalive_only=keepalive_due):
+                can_send, blocked = self._can_send_new(
+                    now=now,
+                    keepalive_only=keepalive_due,
+                )
+                if not can_send:
+                    pacing_reason = self._note_tick_pacing_blocked(
+                        blocked,
+                        now,
+                    )
+                    if pacing_reason is not None:
+                        pacing_blocked = True
                     break
             if not self._poll_pacing_allows_send(now):
                 pacing_blocked = True
+                pacing_reason = 'poll'
                 break
             sent, permit = self._try_send_segments(
                 now,
@@ -904,7 +956,7 @@ class AliceTunnel(BaseTunnel):
                 break
             sent_any = True
 
-        return pacing_blocked, sent_any
+        return pacing_blocked, pacing_reason, sent_any
 
     def _check_serial_window_block(self):
         if self._serial_window_negotiation():
@@ -1152,28 +1204,32 @@ class AliceTunnel(BaseTunnel):
             )
             return
 
-    def _can_send_new(self, now=None, keepalive_only=False, allow_window_full=False):
-        """Check if we can send a new packet."""
+    def _can_send_new(self, now=None, keepalive_only=False,
+                      allow_window_full=False):
+        """Check if we can send a new packet.
+
+        Returns:
+            tuple: (can_send, block_details)
+        """
         if now is None:
             now = time_provider.now()
         decision = self._check_serial_window_block()
         if decision is not None:
-            return False
+            return False, decision
         decision = self._check_send_window_full(allow_window_full, keepalive_only)
         if decision is not None:
             self._log_send_blocked(decision, now)
-            return False
+            return False, decision
         pacer_cap = None
         pacer_gate_cap = None
         pacer_target = None
         if self._pacer.enabled:
             pacer_gate_cap = self._pacer_cap()
-            if self._logger.isEnabledFor(logging.DEBUG):
-                pacer_target = self._pacer.target_inflight(
-                    pacer_gate_cap,
-                    srtt_ms=self._rtt.srtt_ms,
-                )
-                pacer_cap = min(self._send_window._max_in_flight, pacer_target)
+            pacer_target = self._pacer.target_inflight(
+                pacer_gate_cap,
+                srtt_ms=self._rtt.srtt_ms,
+            )
+            pacer_cap = min(self._send_window._max_in_flight, pacer_target)
         decision = self._pacer_gate.check_send(
             send_window=self._send_window,
             pacer=self._pacer,
@@ -1200,8 +1256,10 @@ class AliceTunnel(BaseTunnel):
         if not decision.get('can_send'):
             blocked = dict(decision.get('block_details') or {})
             blocked['reason'] = decision.get('block_reason')
+            if pacer_target is not None:
+                blocked['pacer_target'] = pacer_target
             self._log_send_blocked(blocked, now)
-            return False
+            return False, blocked
         if self._pacer.enabled:
             self._maybe_log_pacer_target_change(
                 pacer_gate_cap,
@@ -1224,9 +1282,11 @@ class AliceTunnel(BaseTunnel):
         if not decision.get('can_send'):
             blocked = dict(decision.get('block_details') or {})
             blocked['reason'] = decision.get('block_reason')
+            if pacer_target is not None:
+                blocked['pacer_target'] = pacer_target
             self._log_send_blocked(blocked, now)
-            return False
-        return True
+            return False, blocked
+        return True, None
 
     def _can_send_retransmit(self, now=None):
         """Check if we can send a retransmit packet."""
@@ -1377,6 +1437,7 @@ class AliceTunnel(BaseTunnel):
 
     def _poll_pacing_interval(self):
         if not self._poll_pacing_enabled:
+            self._poll_pace_target = None
             return None, None
         cap = self._poll_pacing_cap()
         srtt_ms = self._rtt.srtt_ms
@@ -1391,6 +1452,7 @@ class AliceTunnel(BaseTunnel):
             min_interval=self._poll_min_interval,
             target_inflight=target_inflight,
         )
+        self._poll_pace_target = target_inflight
         self._maybe_log_poll_pace(interval, target_inflight, srtt_ms)
         return interval, target_inflight
 
@@ -1424,6 +1486,55 @@ class AliceTunnel(BaseTunnel):
                 build_fields,
             )
 
+    def _tick_pacing_interval(self, target_inflight=None):
+        if not self._poll_pacing_enabled:
+            return None, None
+        srtt_ms = self._rtt.srtt_ms
+        if target_inflight is None:
+            cap = self._pacer_cap()
+            if self._pacer is None or not self._pacer.enabled:
+                target_inflight = cap
+            else:
+                target_inflight = self._pacer.target_inflight(
+                    cap,
+                    srtt_ms=srtt_ms,
+                )
+        if target_inflight < 1:
+            target_inflight = 1
+        interval, target_inflight = compute_poll_pacing_interval(
+            srtt_ms=srtt_ms,
+            keepalive_interval=self._keepalive_interval,
+            rtt_floor_ms=self._config.tunnel_pace_rtt_floor_ms,
+            poll_rtt_ratio=self._poll_rtt_ratio,
+            min_interval=self._poll_min_interval,
+            target_inflight=target_inflight,
+        )
+        return interval, target_inflight
+
+    def _schedule_tick_pacing(self, now, target_inflight=None):
+        interval, target_inflight = self._tick_pacing_interval(
+            target_inflight,
+        )
+        if interval is None:
+            self._next_tick_pace_time = None
+            self._tick_pace_interval = None
+            self._tick_pace_target = None
+            return False
+        self._next_tick_pace_time = now + interval
+        self._tick_pace_interval = interval
+        self._tick_pace_target = target_inflight
+        return True
+
+    def _note_tick_pacing_blocked(self, blocked, now):
+        if blocked is None:
+            return None
+        if blocked.get('reason') != 'pacer':
+            return None
+        target_inflight = blocked.get('pacer_target')
+        if not self._schedule_tick_pacing(now, target_inflight):
+            return None
+        return 'pacer'
+
     def _poll_pacing_allows_send(self, now):
         if not self._poll_pacing_enabled:
             return True
@@ -1440,17 +1551,70 @@ class AliceTunnel(BaseTunnel):
 
     def _sleep_for_poll_pacing(self, now):
         if not self._poll_pacing_enabled:
-            return False
+            return 0.0
         if self._next_poll_time is None:
-            return False
+            return 0.0
         delay = self._next_poll_time - now
         if delay <= 0:
-            return False
+            return 0.0
         sleep_time = min(delay, self._poll_pace_sleep_max)
         if sleep_time <= 0:
-            return False
+            return 0.0
         time_provider.sleep(sleep_time)
-        return True
+        return sleep_time
+
+    def _sleep_for_tick_pacing(self, now):
+        if self._next_tick_pace_time is None:
+            return 0.0
+        delay = self._next_tick_pace_time - now
+        if delay <= 0:
+            return 0.0
+        sleep_time = min(delay, self._poll_pace_sleep_max)
+        if sleep_time <= 0:
+            return 0.0
+        time_provider.sleep(sleep_time)
+        return sleep_time
+
+    def _sleep_for_pacing(self, now, reason):
+        if reason == 'poll':
+            return self._sleep_for_poll_pacing(now)
+        if reason == 'pacer':
+            return self._sleep_for_tick_pacing(now)
+        return 0.0
+
+    def _log_tick_pace_sleep(self, reason, sleep_time):
+        if not self._logger.isEnabledFor(logging.DEBUG):
+            return
+        interval = None
+        target_inflight = None
+        if reason == 'poll':
+            interval = self._poll_pace_interval
+            target_inflight = self._poll_pace_target
+        elif reason == 'pacer':
+            interval = self._tick_pace_interval
+            target_inflight = self._tick_pace_target
+        else:
+            interval = sleep_time
+        if reason is None:
+            reason = 'idle'
+        def build_fields():
+            fields = {
+                'side': 'alice',
+                'reason': reason,
+                'sleep_time': round(sleep_time, 6),
+            }
+            if interval is not None:
+                fields['interval'] = round(interval, 6)
+            if target_inflight is not None:
+                fields['target_inflight'] = target_inflight
+            return fields
+        log_event(
+            self._logger,
+            logging.DEBUG,
+            'tunnel.tick_pace',
+            'Tick pacing sleep',
+            build_fields,
+        )
 
     def _maybe_log_pacer_target_change(self, cap, reason=None):
         if (not self._logger.isEnabledFor(logging.DEBUG)

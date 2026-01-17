@@ -77,4 +77,6 @@ instrumentation to confirm the pacing loop behavior in logs.
   on every paced tick.
 - Clamped pacing targets with transport pending headroom to avoid saturating
   the transport queue.
+- Applied the transport pending headroom clamp to pacer gate targets so send
+  gating aligns with the paced target before the queue fills.
 - No tests run (per instructions; e2e tests deferred to user).

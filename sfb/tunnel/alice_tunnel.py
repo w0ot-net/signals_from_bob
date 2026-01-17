@@ -1224,10 +1224,14 @@ class AliceTunnel(BaseTunnel):
         pacer_gate_cap = None
         pacer_target = None
         if self._pacer.enabled:
-            pacer_gate_cap = self._pacer_cap()
+            pacer_gate_cap = self._poll_pacing_cap()
             pacer_target = self._pacer.target_inflight(
                 pacer_gate_cap,
                 srtt_ms=self._rtt.srtt_ms,
+            )
+            pacer_target = self._apply_transport_pending_target(
+                pacer_gate_cap,
+                pacer_target,
             )
             pacer_cap = min(self._send_window._max_in_flight, pacer_target)
         decision = self._pacer_gate.check_send(

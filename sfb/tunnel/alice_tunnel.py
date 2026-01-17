@@ -1428,12 +1428,39 @@ class AliceTunnel(BaseTunnel):
                     cap = transport_cap
         return cap
 
+    def _transport_pending_headroom(self, cap):
+        if cap is None:
+            return None
+        if not hasattr(self._transport, 'pending_count'):
+            return None
+        try:
+            pending = self._transport.pending_count()
+        except Exception:
+            return None
+        if pending is None:
+            return None
+        headroom = cap - pending
+        if headroom < 1:
+            headroom = 1
+        return headroom
+
+    def _apply_transport_pending_target(self, cap, target_inflight):
+        headroom = self._transport_pending_headroom(cap)
+        if headroom is None:
+            return target_inflight
+        if headroom < target_inflight:
+            return headroom
+        return target_inflight
+
     def _poll_pacing_target_inflight(self, cap, srtt_ms):
         if self._pacer is None:
-            return cap
-        if not self._pacer.enabled:
-            return cap
-        return self._pacer.target_inflight(cap, srtt_ms=srtt_ms)
+            target = cap
+        elif not self._pacer.enabled:
+            target = cap
+        else:
+            target = self._pacer.target_inflight(cap, srtt_ms=srtt_ms)
+        target = self._apply_transport_pending_target(cap, target)
+        return target
 
     def _poll_pacing_interval(self):
         if not self._poll_pacing_enabled:
@@ -1490,8 +1517,8 @@ class AliceTunnel(BaseTunnel):
         if not self._poll_pacing_enabled:
             return None, None
         srtt_ms = self._rtt.srtt_ms
+        cap = self._poll_pacing_cap()
         if target_inflight is None:
-            cap = self._pacer_cap()
             if self._pacer is None or not self._pacer.enabled:
                 target_inflight = cap
             else:
@@ -1499,6 +1526,12 @@ class AliceTunnel(BaseTunnel):
                     cap,
                     srtt_ms=srtt_ms,
                 )
+        if target_inflight > cap:
+            target_inflight = cap
+        target_inflight = self._apply_transport_pending_target(
+            cap,
+            target_inflight,
+        )
         if target_inflight < 1:
             target_inflight = 1
         interval, target_inflight = compute_poll_pacing_interval(

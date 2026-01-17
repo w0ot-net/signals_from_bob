@@ -75,4 +75,6 @@ instrumentation to confirm the pacing loop behavior in logs.
   `tunnel.tick_pace` sleep logging.
 - Tick pacing sleeps now apply even when a send occurred so cadence is enforced
   on every paced tick.
+- Clamped pacing targets with transport pending headroom to avoid saturating
+  the transport queue.
 - No tests run (per instructions; e2e tests deferred to user).
